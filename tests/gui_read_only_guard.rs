@@ -72,7 +72,7 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         ".arg(\"--extension-root\")",
         "apply_confirmed_pack(&mut command, state, identity)",
         "PackSelection::Pinned",
-        "locator.observed_hash(*source, id, version)",
+        "locator.locate_pinned_from(*source, id, version, Some(hash))",
         ".args([\"--pack-hash\", hash])",
         ".env(PACK_DIRECTORY_ENV, directory)",
     ] {
@@ -185,6 +185,10 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
         "trial_workspace_running",
         "trial_workspace_recovery_required",
         "trial_request_invalid",
+        "extensions_disabled",
+        "extension_invalid_request",
+        "extension_conflict",
+        "extension_verification_failed",
         "resource_too_large",
         "上流プロキシまたはアクセス認証",
         "isTrialTokenRejected",
@@ -1119,6 +1123,64 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
     }
 
     assert!(entry.contains(".route(\"/api/trial-workspace\", get(sessions::workspace_status))"));
+
+    let extensions = std::fs::read_to_string("src/bin/gui_server/extensions.rs").unwrap();
+    assert_eq!(
+        extensions
+            .matches("require_trial(&state, &headers, false)")
+            .count(),
+        2,
+        "both extension GET handlers must require Trial access"
+    );
+    assert_eq!(
+        extensions
+            .matches("require_trial(&state, &headers, true)")
+            .count(),
+        4,
+        "every extension POST handler must require Trial access and Origin"
+    );
+}
+
+#[test]
+fn extension_supply_routes_are_post_only_for_mutation_and_delegate_writes_to_supply_root() {
+    let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    for route in [
+        "\"/api/extensions/packs\"",
+        "\"/api/extensions/packs/{id}/{version}\"",
+        "\"/api/extensions/packs/{id}/{version}/verify\"",
+        "\"/api/extensions/packs/{id}/{version}/pin\"",
+        "\"/api/extensions/packs/{id}/{version}/retire\"",
+    ] {
+        assert!(entry.contains(route), "missing extension route {route}");
+    }
+    for forbidden in [
+        "put(extensions::",
+        "patch(extensions::",
+        "delete(extensions::",
+        "/delete",
+        "/remove",
+    ] {
+        assert!(
+            !entry.contains(forbidden),
+            "extension router exposes forbidden mutation {forbidden}"
+        );
+    }
+
+    let extensions = std::fs::read_to_string("src/bin/gui_server/extensions.rs").unwrap();
+    for required in [
+        "SupplyRoot::open(root)",
+        "root.stage(",
+        "root.verify_recorded(",
+        "root.pin(",
+        "root.retire(",
+        "tokio::task::spawn_blocking",
+        "MAX_BODY_BYTES: usize = 1024 * 1024",
+    ] {
+        assert!(
+            extensions.contains(required),
+            "extension handler bypasses required supply behavior {required:?}"
+        );
+    }
 }
 
 #[test]

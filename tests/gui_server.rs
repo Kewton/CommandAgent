@@ -366,6 +366,8 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
 #[cfg(unix)]
 #[test]
 fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
+    use std::os::unix::fs::PermissionsExt;
+
     let mut repository_server = Server::start_dashboard_only();
     let response = repository_server.request_without_access("GET", "/api/packs", None);
     assert_eq!(response.status, 200, "{}", response.body);
@@ -393,6 +395,7 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     repository_server.stop();
 
     let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let stale = extension.path().join("packs/local-assist/1.0.0");
     std::fs::create_dir_all(&stale).unwrap();
     let admitted_assist = std::fs::read_to_string("packs/cli-assist/1.0.0/assist.yaml").unwrap();
@@ -443,6 +446,253 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     assert_eq!(shadow["shadowing_repository"], true);
     assert!(shadow["warning"].as_str().unwrap().contains("ローカル優先"));
     local_server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let cli = workspace.path().join("capture-pack-cli.sh");
+    write_pack_capture_cli(&cli);
+    let mut server =
+        Server::start_with_extension_and_cli(workspace.path(), extension.path(), true, &cli);
+    let assist = std::fs::read_to_string("packs/cli-assist/1.0.0/assist.yaml")
+        .unwrap()
+        .replace("id: cli-assist", "id: local-supply");
+    let stage = serde_json::json!({
+        "id": "local-supply",
+        "version": "1.0.0",
+        "files": {
+            "assist.yaml": assist,
+            "materials/CONVENTIONS.md": "# Local conventions\n"
+        }
+    });
+    let origin = format!("http://127.0.0.1:{}", server.port);
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/packs",
+        Some(&stage),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(response.status, 401, "{}", response.body);
+    assert_eq!(response.json()["code"], "trial_token_invalid");
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/packs",
+        Some(&stage),
+        Some(TEST_TRIAL_TOKEN),
+        None,
+    );
+    assert_eq!(response.status, 403, "{}", response.body);
+    assert_eq!(response.json()["code"], "trial_origin_not_allowed");
+
+    let response = server.request("POST", "/api/extensions/packs", Some(&stage));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let staged = response.json();
+    let hash = staged["hash"].as_str().unwrap().to_string();
+    assert!(hash.starts_with("sha256:"));
+    assert_eq!(staged["status"], "staged");
+    assert_eq!(staged["conformance"]["status"], "conformant");
+    assert_eq!(staged["scrub"]["status"], "clean");
+
+    let response = server.request_without_access("GET", "/api/extensions/packs", None);
+    assert_eq!(response.status, 401, "{}", response.body);
+
+    let response = server.request("GET", "/api/extensions/packs", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let rows = response.json();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["status"], "staged");
+    assert_eq!(rows[0]["conformance_ok"], true);
+
+    let response = server.request(
+        "POST",
+        "/api/extensions/packs/local-supply/1.0.0/verify",
+        None,
+    );
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()["hash"], hash);
+
+    let response = server.request(
+        "POST",
+        "/api/extensions/packs/local-supply/1.0.0/pin",
+        Some(&serde_json::json!({"hash": "sha256:not-the-observed-hash"})),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "extension_verification_failed");
+    assert_eq!(response.json()["report"]["hash"], hash);
+
+    let response = server.request(
+        "POST",
+        "/api/extensions/packs/local-supply/1.0.0/pin",
+        Some(&serde_json::json!({"hash": hash})),
+    );
+    assert_eq!(response.status, 204, "{}", response.body);
+
+    let response = server.request(
+        "POST",
+        "/api/extensions/packs/local-supply/1.0.0/pin",
+        Some(&serde_json::json!({"hash": staged["hash"]})),
+    );
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "extension_conflict");
+
+    let response = server.request_without_access("GET", "/api/pack-options", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let local = response.json()["packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pack| pack["id"] == "local-supply")
+        .cloned()
+        .expect("pinned local pack must be a Trial option");
+    assert_eq!(local["source"], "local");
+    assert_eq!(local["hash"], staged["hash"]);
+
+    let mut proposal = session_spec();
+    proposal["pack"] = serde_json::json!("local-supply@1.0.0");
+    let response = server.request("POST", "/api/session-proposals", Some(&proposal));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let proposal_response = response.json();
+    assert_eq!(proposal_response["identity"]["pack"]["source"], "local");
+    assert_eq!(
+        proposal_response["identity"]["pack"]["hash"],
+        staged["hash"]
+    );
+
+    proposal["confirmation_hash"] = proposal_response["card_hash"].clone();
+    let response = server.request("POST", "/api/sessions", Some(&proposal));
+    assert_eq!(response.status, 202, "{}", response.body);
+    let session_id = response.json()["id"].as_str().unwrap().to_string();
+    let delegated_env = workspace
+        .path()
+        .join(".anvil/runs")
+        .join(&session_id)
+        .join("delegated-env.txt");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !delegated_env.is_file() {
+        assert!(Instant::now() < deadline, "local pack delegation timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let delegated_env = std::fs::read_to_string(delegated_env).unwrap();
+    for expected in [
+        "COMMANDAGENT_PACK_ID=local-supply".to_string(),
+        "COMMANDAGENT_PACK_VERSION=1.0.0".to_string(),
+        format!(
+            "COMMANDAGENT_PACK_HASH={}",
+            staged["hash"].as_str().unwrap()
+        ),
+        format!(
+            "COMMANDAGENT_PACK_DIRECTORY={}",
+            extension
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("packs/local-supply/1.0.0")
+                .display()
+        ),
+    ] {
+        assert!(delegated_env.contains(&expected), "{delegated_env}");
+    }
+
+    let response = server.request(
+        "POST",
+        "/api/extensions/packs/local-supply/1.0.0/retire",
+        None,
+    );
+    assert_eq!(response.status, 204, "{}", response.body);
+
+    let response = server.request("GET", "/api/extensions/packs", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()[0]["status"], "retired");
+    assert_eq!(response.json()[0]["hash"], staged["hash"]);
+
+    let response = server.request("GET", "/api/extensions/packs/local-supply/1.0.0", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(
+        response.json()["files"]["materials/CONVENTIONS.md"],
+        "# Local conventions\n"
+    );
+    assert_eq!(response.json()["report"]["status"], "retired");
+
+    let response = server.request("POST", "/api/extensions/packs", Some(&stage));
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "extension_conflict");
+
+    let response = server.request_without_access("GET", "/api/pack-options", None);
+    assert!(
+        response.json()["packs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|pack| pack["id"] != "local-supply")
+    );
+
+    let journal = std::fs::read_to_string(extension.path().join("journal.jsonl")).unwrap();
+    for action in ["stage", "verify", "pin", "retire"] {
+        assert!(
+            journal
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .any(|entry| entry["action"] == action && entry["result"] == "ok"),
+            "missing successful {action} journal entry: {journal}"
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn extension_supply_api_rejects_disabled_invalid_and_oversize_requests() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let mut disabled = Server::start(
+        workspace.path(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = disabled.request("GET", "/api/extensions/packs", None);
+    assert_eq!(response.status, 503, "{}", response.body);
+    assert_eq!(response.json()["code"], "extensions_disabled");
+    disabled.stop();
+
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut server = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let assist = std::fs::read_to_string("packs/cli-assist/1.0.0/assist.yaml").unwrap();
+    for request in [
+        serde_json::json!({
+            "id": "../escape",
+            "version": "1.0.0",
+            "files": {"assist.yaml": assist.clone()}
+        }),
+        serde_json::json!({
+            "id": "local-supply",
+            "version": "1.0.0",
+            "files": {"../assist.yaml": assist}
+        }),
+    ] {
+        let response = server.request("POST", "/api/extensions/packs", Some(&request));
+        assert_eq!(response.status, 400, "{}", response.body);
+        assert_eq!(response.json()["code"], "extension_invalid_request");
+    }
+
+    let oversize = serde_json::json!({
+        "id": "local-supply",
+        "version": "1.0.0",
+        "files": {"assist.yaml": "x".repeat(1024 * 1024)}
+    });
+    let response = server.request("POST", "/api/extensions/packs", Some(&oversize));
+    assert_eq!(response.status, 413, "{}", response.body);
+    assert_eq!(response.json()["code"], "extension_invalid_request");
+    server.stop();
 }
 
 #[cfg(unix)]
@@ -1036,7 +1286,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !delegated_events.is_file() && Instant::now() < deadline {
+    while std::fs::read(&delegated_events).ok().as_deref() != Some(direct_bytes.as_slice())
+        && Instant::now() < deadline
+    {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read(&delegated_events).unwrap(), direct_bytes);
@@ -1400,6 +1652,37 @@ impl Server {
         )
     }
 
+    fn start_with_extension(
+        workspace: &std::path::Path,
+        extension_root: &std::path::Path,
+        authenticated: bool,
+    ) -> Self {
+        Self::start_with_extension_and_cli(
+            workspace,
+            extension_root,
+            authenticated,
+            std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        )
+    }
+
+    fn start_with_extension_and_cli(
+        workspace: &std::path::Path,
+        extension_root: &std::path::Path,
+        authenticated: bool,
+        cli: &std::path::Path,
+    ) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_repository_root_and_env(
+            Some(workspace),
+            cli,
+            authenticated,
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &static_root,
+            Some(extension_root),
+            &[],
+        )
+    }
+
     fn start_dashboard_only() -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
         Self::start_dashboard_only_with_static_root(&static_root)
@@ -1678,6 +1961,20 @@ fn write_terminal_cli(path: &std::path::Path) {
     std::fs::write(
         path,
         "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_pack_capture_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(
+        path,
+        "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nenv | sort > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-env.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
     )
     .unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

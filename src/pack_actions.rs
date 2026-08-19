@@ -75,8 +75,15 @@ pub(crate) fn render_list(
                     )
                 })?;
             if report.profile == profile.as_str() && report.intent == intent.as_str() {
+                // A retired pack stays listed for audit but is never selectable,
+                // so the source cell says so instead of reading as available.
+                let source = if crate::planner::pack::catalog::is_retired(&directory) {
+                    "local (retired)"
+                } else {
+                    "local"
+                };
                 lines.push(format!(
-                    "{}@{}\t{}\tlocal",
+                    "{}@{}\t{}\t{source}",
                     report.pack_id, report.pack_version, report.exact_byte_hash
                 ));
             }

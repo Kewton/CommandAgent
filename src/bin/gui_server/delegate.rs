@@ -264,17 +264,23 @@ fn apply_confirmed_pack(
     else {
         return Ok(false);
     };
-    let locator = PackLocator::new(&state.repository_root);
-    let directory = locator.locate(*source, id, version)?;
-    let observed = locator.observed_hash(*source, id, version)?;
-    if observed != *hash {
-        anyhow::bail!(
-            "confirmed pack changed before CLI delegation: expected {hash}, observed {observed}"
-        );
-    }
+    let locator =
+        PackLocator::with_extension_root(&state.repository_root, state.extension_root.clone());
+    let located = locator.locate_pinned_from(*source, id, version, Some(hash))?;
+    let directory = located.directory;
+    let cli_supply_root = match source {
+        commandagent::planner::pack::catalog::PackSource::Local => state
+            .extension_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("confirmed local pack requires an extension root"))?,
+        commandagent::planner::pack::catalog::PackSource::Admitted
+        | commandagent::planner::pack::catalog::PackSource::Repository => {
+            state.repository_root.join("packs")
+        }
+    };
     command
         .args(["--extension-root"])
-        .arg(state.repository_root.join("packs"))
+        .arg(cli_supply_root)
         .args(["--pack", &format!("{id}@{version}")])
         .args(["--pack-hash", hash])
         .env(PACK_DIRECTORY_ENV, directory)

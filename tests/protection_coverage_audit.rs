@@ -75,6 +75,13 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         allowlist: &["src/lib.rs", "tests/conformance/mod.rs"],
         audit: audit_terminal_records,
     },
+    ProtectionRule {
+        category: "extension_supply_writes",
+        site_predicate: "writes below an extension_root",
+        required_wrapper: "planner::pack::supply::SupplyRoot",
+        allowlist: &["src/planner/pack/supply.rs"],
+        audit: audit_extension_supply_writes,
+    },
 ];
 
 #[test]
@@ -143,6 +150,10 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             "src/lib.rs",
             r#"fn run() {} fn direct_command_for_action(action: &Action) -> Option<&'static str> { match action { Action::Repl => None, Action::Prompt(_) => Some("--prompt") } }"#,
         ),
+        (
+            "src/new_extension_writer.rs",
+            r#"fn f(extension_root: &Path) { std::fs::write(extension_root.join("packs/x"), b"x").unwrap(); }"#,
+        ),
     ]);
     let violations = audit_protection_coverage(&corpus).join("\n");
     for category in [
@@ -153,6 +164,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         "provider_timeout_enforcement",
         "workspace_policy_tool_paths",
         "terminal_records",
+        "extension_supply_writes",
     ] {
         assert!(
             violations.contains(category),
@@ -450,6 +462,48 @@ fn audit_terminal_records(corpus: &AuditCorpus, _: &ProtectionRule) -> Vec<Strin
         .contains("conformance_honest_terminal_covers_simulated_panic_exit")
     {
         violations.push("terminal panic exit conformance pathway is missing".to_string());
+    }
+    violations
+}
+
+fn audit_extension_supply_writes(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    let boundary = corpus.file("src/planner/pack/supply.rs");
+    for required in ["pub struct SupplyRoot", "pub mod journal", "pub fn append("] {
+        if !boundary.contains(required) {
+            violations.push(format!("extension supply boundary is missing `{required}`"));
+        }
+    }
+    for (path, text) in corpus.src_rust_files() {
+        if rule.allowlist.contains(&path.as_str()) {
+            continue;
+        }
+        let lines = text.lines().collect::<Vec<_>>();
+        for index in 0..lines.len() {
+            let start = index.saturating_sub(2);
+            let end = (index + 3).min(lines.len());
+            let window = lines[start..end].join(" ");
+            if window.contains("extension_root")
+                && [
+                    "std::fs::write(",
+                    "fs::write(",
+                    "create_dir",
+                    "OpenOptions",
+                    "File::create",
+                    "rename(",
+                    "remove_file(",
+                    "remove_dir",
+                ]
+                .iter()
+                .any(|token| lines[index].contains(token))
+            {
+                violations.push(format!(
+                    "{path}:{} writes through extension_root outside SupplyRoot: {}",
+                    index + 1,
+                    lines[index].trim()
+                ));
+            }
+        }
     }
     violations
 }

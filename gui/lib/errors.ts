@@ -120,6 +120,31 @@ export function describeError(reason: unknown): string {
         "セッションを見つけられません。セッション ID と実行ルートを確認してから再接続してください。",
         detail,
       );
+    case "extensions_disabled":
+      return withDetail(
+        "拡張供給が無効です。GUI サーバーを所有者専用の --extension-root 付きで再起動してください。",
+        detail,
+      );
+    case "extension_invalid_request":
+      return withDetail(
+        "拡張 pack の入力を受け付けられませんでした。ID、version、ファイル名、サイズ、JSON を確認してください。",
+        detail,
+      );
+    case "extension_conflict":
+      return withDetail(
+        "この pack は固定済みまたは退役済みのため変更できません。新しい version を staged にしてください。",
+        detail,
+      );
+    case "extension_verification_failed":
+      return withDetail(
+        "拡張 pack の検証に失敗しました。検証レポートに従って staged ファイルを修正し、再検証してください。",
+        detail,
+      );
+    case "extension_supply_failed":
+      return withDetail(
+        "拡張ルートの処理に失敗しました。所有権、0700 権限、空き容量、journal の状態を確認してください。",
+        detail,
+      );
     case "resource_not_found":
       return withDetail(
         "記録を見つけられません。選択した実行やファイルを確認し、一覧を再読み込みしてください。",

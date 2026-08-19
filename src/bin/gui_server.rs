@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use clap::{Parser, ValueEnum};
 
@@ -14,6 +15,8 @@ mod delegate;
 mod directives;
 #[path = "gui_server/error_response.rs"]
 mod error_response;
+#[path = "gui_server/extensions.rs"]
+mod extensions;
 #[path = "gui_server/gate_one.rs"]
 mod gate_one;
 #[path = "gui_server/pack_catalog.rs"]
@@ -118,17 +121,12 @@ async fn main() -> anyhow::Result<()> {
         .extension_root
         .as_deref()
         .map(|path| {
-            path.canonicalize()
-                .with_context(|| format!("canonicalize extension root {}", path.display()))
+            commandagent::planner::pack::SupplyRoot::open(path)
+                .map(|root| root.root().to_path_buf())
+                .with_context(|| format!("open extension root {}", path.display()))
         })
         .transpose()?;
     if let Some(extension_root) = extension_root.as_deref() {
-        if !extension_root.is_dir() {
-            bail!(
-                "extension root must be an existing directory: {}",
-                extension_root.display()
-            );
-        }
         workspace_policy::ensure_disjoint(&repository_root, extension_root)?;
         if let Some(execution_root) = trial_workspace.configured_path() {
             workspace_policy::ensure_disjoint(execution_root, extension_root)?;
@@ -214,6 +212,28 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/reports/view", get(api::report_content))
         .route("/api/trial-options", get(trial_options::get))
         .route("/api/pack-options", get(trial_options::get_packs))
+        .route(
+            "/api/extensions/packs",
+            get(extensions::list)
+                .post(extensions::stage)
+                .layer(DefaultBodyLimit::max(extensions::MAX_BODY_BYTES)),
+        )
+        .route(
+            "/api/extensions/packs/{id}/{version}",
+            get(extensions::detail),
+        )
+        .route(
+            "/api/extensions/packs/{id}/{version}/verify",
+            post(extensions::verify),
+        )
+        .route(
+            "/api/extensions/packs/{id}/{version}/pin",
+            post(extensions::pin).layer(DefaultBodyLimit::max(extensions::MAX_BODY_BYTES)),
+        )
+        .route(
+            "/api/extensions/packs/{id}/{version}/retire",
+            post(extensions::retire),
+        )
         .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(gate_one::proposal))
         .route("/api/trial-workspace", get(sessions::workspace_status))

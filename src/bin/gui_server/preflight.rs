@@ -175,6 +175,16 @@ fn canonical_directory(
     private: bool,
     checks: &mut Vec<Check>,
 ) -> Option<PathBuf> {
+    if private
+        && std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        checks.push(fail(
+            id,
+            format!("{} is a symlink", path.display()),
+            "provide a private non-symlink extension directory",
+        ));
+        return None;
+    }
     match path.canonicalize() {
         Ok(canonical) if canonical.is_dir() => {
             if let Some(detail) = permission_error(&canonical, private) {
@@ -210,9 +220,20 @@ fn canonical_directory(
 
 #[cfg(unix)]
 fn permission_error(path: &Path, private: bool) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = std::fs::metadata(path).ok()?.permissions().mode() & 0o777;
+    let metadata = std::fs::metadata(path).ok()?;
+    // SAFETY: `geteuid` has no preconditions and does not dereference memory.
+    let effective_uid = unsafe { libc::geteuid() };
+    if private && metadata.uid() != effective_uid {
+        return Some(format!(
+            "{} owner uid is {}, expected effective uid {effective_uid}",
+            path.display(),
+            metadata.uid()
+        ));
+    }
+    let mode = metadata.permissions().mode() & 0o777;
     if mode & 0o700 != 0o700 {
         return Some(format!(
             "{} owner permissions are {:03o}, expected rwx",

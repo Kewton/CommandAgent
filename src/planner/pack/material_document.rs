@@ -40,22 +40,41 @@ pub(super) fn validate_all(pack: &LoadedPack) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn reject_credentials(text: &str) -> anyhow::Result<()> {
-    for pattern in [
-        r"sk-[A-Za-z0-9_-]{16,}",
-        r"AIza[0-9A-Za-z_-]{35}",
-        r"gh[pousr]_[A-Za-z0-9]{30,}",
-        r"xox[a-z]-[A-Za-z0-9-]{16,}",
-        r"AKIA[0-9A-Z]{16}",
-        r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
-        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
-        r"(?i)(?:api[_-]?key|secret|token|authorization)\s*[:=]\s*[^\s]{16,}",
-    ] {
+/// Credential shapes rejected before any pack byte is rendered or written.
+/// `planner::pack::supply` reuses this list so staged supply and rendered
+/// material share one scrub definition.
+const CREDENTIAL_PATTERNS: [&str; 8] = [
+    r"sk-[A-Za-z0-9_-]{16,}",
+    r"AIza[0-9A-Za-z_-]{35}",
+    r"gh[pousr]_[A-Za-z0-9]{30,}",
+    r"xox[a-z]-[A-Za-z0-9-]{16,}",
+    r"AKIA[0-9A-Z]{16}",
+    r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    r"(?i)(?:api[_-]?key|secret|token|authorization)\s*[:=]\s*[^\s]{16,}",
+];
+
+pub(super) fn reject_credentials(text: &str) -> anyhow::Result<()> {
+    for pattern in CREDENTIAL_PATTERNS {
         if Regex::new(pattern)?.is_match(text) {
             bail!("pack material rejected by credential scrub");
         }
     }
     Ok(())
+}
+
+/// Replace credential shapes with a fixed marker. Used for bounded journal
+/// detail, where rejecting the whole record would erase the audit line instead
+/// of protecting it.
+pub(super) fn redact_credentials(text: &str) -> String {
+    let mut redacted = text.to_string();
+    for pattern in CREDENTIAL_PATTERNS {
+        let Ok(regex) = Regex::new(pattern) else {
+            continue;
+        };
+        redacted = regex.replace_all(&redacted, "[redacted]").into_owned();
+    }
+    redacted
 }
 
 fn string_param<'a>(injection: &'a Injection, name: &str) -> Option<&'a str> {

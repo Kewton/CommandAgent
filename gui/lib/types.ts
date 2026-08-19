@@ -70,7 +70,7 @@ export type PackOption = {
   intent: string;
   hash: string;
   point: string;
-  source: "admitted";
+  source: "admitted" | "repository" | "local";
   source_label: string;
 };
 

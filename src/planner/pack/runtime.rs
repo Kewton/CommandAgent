@@ -295,6 +295,13 @@ fn load_selected(
     profile: &str,
     intent: &str,
 ) -> anyhow::Result<LoadedPack> {
+    if super::catalog::is_retired(&selection.directory) {
+        bail!(
+            "selected pack {}@{} is retired and cannot run",
+            selection.id,
+            selection.version
+        );
+    }
     let pack = load_directory(&selection.directory).context("load selected pack")?;
     if pack.id() != selection.id
         || pack.identity.version != selection.version

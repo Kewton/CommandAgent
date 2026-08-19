@@ -11,7 +11,7 @@ mod evidence;
 mod freshness;
 mod redaction;
 mod robots;
-mod time;
+pub(crate) mod time;
 mod transport;
 
 use std::collections::BTreeMap;

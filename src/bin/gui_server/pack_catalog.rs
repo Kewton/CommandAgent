@@ -110,6 +110,11 @@ fn inspect(
             .as_ref()
             .zip(observed_hash.as_ref())
             .is_some_and(|(expected, observed)| expected == observed);
+    let local_trial_eligible = source == PackSource::Local
+        && hash_matches_pin
+        && loaded
+            .as_ref()
+            .is_some_and(|pack| commandagent::planner::pack::conform(pack).is_ok());
     let mut row = PackSummary {
         path: format!("{display_root}/{id}/{version}"),
         profile: loaded
@@ -134,7 +139,7 @@ fn inspect(
             .is_file(),
         retired: directory.join(RETIRED_FILE).is_file(),
         shadowing_repository: false,
-        trial_eligible: false,
+        trial_eligible: local_trial_eligible,
         warning: None,
     };
     if loaded.is_none() {
