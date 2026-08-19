@@ -1612,3 +1612,22 @@ D-3c §4はpinned local/repositoryの明示選択と日本語の未承認表示�
 単に存在するYAMLを列挙しない原則を維持した。Phase Gへ残すのは署名、publisher
 identity、trust root、revocation、remote transportであり、今回のoperator-local
 供給を署名代替またはadmissionと扱わない。
+
+## E-02 — 承認 profile への追加専用 overlay（Issue #105、2026-08-19）
+
+E-17（Issue #116、`ef0703f6`）では、packだけでNext.jsの社内規約材料と登録済み
+追加check 3種を、既存floorを弱めずに結合できることを確認した。通常の規約上乗せは
+引き続きpackを使う。その範囲を越えてartifact cardinality、guidance、profile-bound
+check、evidence targetをprofile契約として加える場合に限り、承認済みembedded profile
+へ別`manifest.toml`を1個だけ上乗せするスロットをGOとする。
+
+overlayは`metadata.status = "draft"`、`overlay.mode = "additive"`を必須とし、実効
+profileはbaseの承認を継承しない。識別は
+`(metadata.id, base_profile, ManifestSource, exact_byte_hash)`、sourceは
+`repository | local`、merge順は`base -> overlay -> pack`と固定する。plan、
+step_templates、vocabulary、base既存名との衝突、置換・除去・移設・弱化、alias base、
+非承認base、overlay連鎖、複数overlayを拒否する。全check成功時も
+`profile_not_admitted`によりassurance上限は`static`。GUI/CLIは
+`<display_name>（下書き上乗せ）`とbase、source、hash、draft/上限を表示し、packは別表示
+する。完全なTOML断片と拒否条件は`docs/dev/profile-manifest.md`を正本とし、実装は
+E-18（Issue #117）へ委譲する。

@@ -122,6 +122,109 @@ manifest. Golden and direct compatibility tests compare the migrated plan,
 template, guidance, and contract message bytes with the pre-v1 sources; the
 schema move does not rewrite those values.
 
+## Additive overlay contract
+
+Issue #105 permits one optional overlay manifest on an admitted embedded base
+profile. This is a separate `manifest.toml` that creates a distinct draft
+effective profile; it never edits or inherits the admission of the base. Pack
+configuration remains the normal mechanism for organizational convention
+material and registered checks. An overlay is reserved for additions needing
+profile-manifest semantics: artifact cardinality, guidance variants,
+profile-bound checks, and their evidence-target mappings.
+
+The closed overlay v1 shape is:
+
+```toml
+[metadata]
+id = "acme-nextjs"
+display_name = "ACME Next.js"
+schema_version = "v1"
+status = "draft"
+
+[overlay]
+base_profile = "nextjs"
+mode = "additive"
+
+[artifacts]
+required = ["docs/architecture-decision.md"]
+
+[[artifacts.groups]]
+id = "security-report"
+cardinality = "exactly_one_of"
+paths = ["reports/security.md", "reports/security.json"]
+preferred = "reports/security.md"
+
+[guidance.variants.security-review]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.security-review.messages]
+policy = "Record the security review in the required report."
+
+[[checks.security-review]]
+id = "registered_security_review"
+params = { report = "reports/security.md" }
+
+[evidence_targets.mappings]
+registered_security_review = ["reports/security.md"]
+```
+
+`metadata` and `overlay` are required. `artifacts`, `guidance`, `checks`, and
+`evidence_targets` are optional, but at least one must add an entry. Those four
+sections reuse the corresponding base-manifest v1 types and validation.
+`plan`, `step_templates`, and `vocabulary` are forbidden, as are unknown root
+or nested fields.
+
+### Identity and source
+
+`metadata.id` is the new effective profile id and cannot collide with a
+registered canonical id or alias. `overlay.base_profile` must be the canonical
+id of an admitted, manifest-backed, embedded profile; aliases, generic
+fallback, and overlay chaining are rejected. `metadata.status` is exactly
+`draft`, and `overlay.mode` is exactly `additive`, with no defaults.
+
+Origin is runtime-owned, not declared by the file. The closed
+`ManifestSource` values for overlays are `repository` and `local`; embedded
+manifests are bases only. Overlay identity is the tuple `(metadata.id,
+base_profile, source, exact_byte_hash)`, where the hash is lowercase
+`sha256:` over exact manifest bytes. One run selects zero or one overlay.
+
+### Merge and rejection
+
+The fixed merge order is `base -> overlay -> pack`. Base obligations remain,
+overlay obligations are added, and a selected pack is checked against the
+effective floor. Selection fails before provider construction for malformed or
+unconfined input, a non-admitted/non-embedded base, identity collision, a
+forbidden section, an empty overlay, a second overlay, or an invalid source,
+status, mode, or hash.
+
+Artifact paths/group ids, guidance variant names, check binding names, and
+check capability ids must be disjoint from the base and selected extensions;
+v1 rejects collisions instead of trying to prove that a replacement is
+stricter. Existing artifact, guidance, phase, path, and capability resolution
+rules apply. An overlay check may name only a phase declared by the base;
+omission keeps the final-acceptance default. Evidence-target mappings must
+belong exactly to checks added by that overlay and cannot replace base
+mappings. A pack that would remove, relocate, replace, or weaken a base or
+overlay obligation is rejected.
+
+An overlay cannot change base metadata, plan order/prompts/placeholders,
+step-template behavior, vocabulary references, admission rules, assurance
+thresholds, capability implementations, or event schemas.
+
+### Judgment and display
+
+Base and overlay checks are all necessary conditions. A failed or unavailable
+check remains an honest acceptance failure. Even when all checks pass, the
+effective profile is draft and the existing admission gate caps assurance at
+`static` with reason `profile_not_admitted`.
+
+GUI, CLI summary, doctor, and confirmation surfaces display the effective
+profile as `<display_name>（下書き上乗せ）`, the canonical admitted base, and
+the overlay id, source (`repository` or `local`), exact-byte hash, draft state,
+and `static` ceiling. A selected pack is shown separately. Base-only display
+and saved records remain byte-compatible; new persisted/output overlay fields
+are optional and existing event names and fields do not change.
+
 ## Kept in code
 
 The following are deliberate Layer-1 design decisions, not missing manifest
@@ -147,6 +250,9 @@ Manifest v1 has no representation for:
 - executable template selection, expansion, write, or repair logic;
 - capability implementations, probe dispatch, or validation weakening; or
 - profile-authored admission conditions or fallback policy.
+
+The additive overlay contract above is a distinct constrained document shape,
+not permission to add these capabilities to a complete base manifest.
 
 The artifact strings under `step_templates` remain inert data retained from
 the existing Next.js knowledge. A new verification need must be registered in
