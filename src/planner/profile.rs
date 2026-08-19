@@ -1036,7 +1036,11 @@ impl ProfileRuntimeRegistry {
     /// The single typed runtime resolution point. Parsing/legacy aliases are
     /// handled by `ProfileId::parse`; behavioral selection occurs only here.
     pub fn resolve(profile: &ProfileId) -> &'static dyn ProfileRuntime {
-        crate::planner::profile_descriptor::descriptor_for_domain(profile.as_str()).runtime
+        crate::planner::profile_descriptor::descriptor(profile)
+            .unwrap_or_else(|| {
+                crate::planner::profile_descriptor::descriptor_for_domain(profile.as_str())
+            })
+            .runtime
     }
 
     /// Read-only enumeration for D-3c. Runtime identity stays owned by this
@@ -1045,6 +1049,11 @@ impl ProfileRuntimeRegistry {
         crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
             .iter()
             .map(|profile| profile.id.clone())
+            .chain(
+                crate::planner::extension_profiles::registered()
+                    .iter()
+                    .map(|profile| profile.profile_id()),
+            )
     }
 }
 
@@ -1551,6 +1560,11 @@ pub fn profile_names() -> Vec<&'static str> {
                 .filter(|profile| profile.pack_profile.is_none()),
         )
         .map(|profile| profile.canonical)
+        .chain(
+            crate::planner::extension_profiles::registered()
+                .iter()
+                .map(|profile| profile.id),
+        )
         .collect()
 }
 

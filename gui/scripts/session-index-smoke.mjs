@@ -386,7 +386,15 @@ async function probeSourceMatrix(browser, origin, basePath) {
 
 function syntheticOptions() {
   return {
-    profiles: [{ id: "python-cli", label: "Python CLI", description: "synthetic" }],
+    profiles: [{
+      id: "python-cli",
+      label: "Python CLI",
+      description: "synthetic",
+      status: "admitted",
+      manifest_hash: null,
+      assurance_ceiling: "full",
+      base_profile: null,
+    }],
     providers: [{ id: "ollama", label: "Ollama", model_hint: "synthetic-model" }],
   };
 }

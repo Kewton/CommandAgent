@@ -83,6 +83,10 @@ export type TrialOptions = {
     id: string;
     label: string;
     description: string;
+    status: "admitted" | "draft";
+    manifest_hash: string | null;
+    assurance_ceiling: "full" | "static";
+    base_profile: string | null;
   }>;
   providers: Array<{
     id: string;
@@ -107,6 +111,13 @@ export type ConfirmationIdentity = {
   band_measurement: string;
   band_source: string;
   full_meaning: string;
+  draft_manifest?: {
+    source: "repository" | "local";
+    path: string;
+    hash: string;
+    assurance_ceiling: "static";
+    base_profile?: string;
+  };
   pins: {
     planner_provider: string;
     planner_model: string;

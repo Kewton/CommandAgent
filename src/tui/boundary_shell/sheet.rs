@@ -54,7 +54,7 @@ pub fn generate(
         .map(|parent| parent.join("summary.md").display().to_string())
         .unwrap_or_else(|| "not_recorded".to_string());
     let section5 = (!full).then(|| stop_reason.to_string());
-    let markdown = format!(
+    let mut markdown = format!(
         "# D-3c acceptance sheet\n\n\
          ## 1. Confirmed identity\n\n\
          - Card hash: {}\n\
@@ -108,6 +108,20 @@ pub fn generate(
         summary_display,
         stop_reason,
     );
+    if let Some(manifest) = identity.draft_manifest.as_ref() {
+        let route_line = format!(
+            "- Route: {} × {} × {}\n",
+            identity.profile, identity.intent, identity.task_family
+        );
+        let mut manifest_lines = format!(
+            "- Manifest: {}\n- Manifest source: {}\n- Manifest hash: {}\n- Assurance ceiling: {}\n",
+            manifest.path, manifest.source, manifest.hash, manifest.assurance_ceiling
+        );
+        if let Some(base) = manifest.base_profile.as_ref() {
+            manifest_lines.push_str(&format!("- Overlay base: {base} (admitted)\n"));
+        }
+        markdown = markdown.replacen(&route_line, &format!("{route_line}{manifest_lines}"), 1);
+    }
     Ok(GeneratedSheet {
         markdown,
         full,

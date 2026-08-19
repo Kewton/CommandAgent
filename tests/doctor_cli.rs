@@ -118,3 +118,73 @@ fn doctor_reports_missing_keys_for_an_unresolvable_incomplete_preset() {
     );
     assert!(preset["message"].as_str().unwrap().contains("missing keys"));
 }
+
+#[test]
+fn doctor_lists_external_draft_profile_hash_and_cli_requires_its_extension_root() {
+    let workspace = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    let state = workspace.path().join("state");
+    let home = workspace.path().join("home");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let profile_dir = extension.path().join("profiles/static-site");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("manifest.toml"),
+        include_str!(
+            "corpus/apps/issue117-draft-profile/extension-root/profiles/static-site/manifest.toml"
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args(["--doctor", "--json", "--profile", "static-site"])
+        .arg("--cwd")
+        .arg(workspace.path())
+        .arg("--state-dir")
+        .arg(&state)
+        .arg("--extension-root")
+        .arg(extension.path())
+        .env("HOME", &home)
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let profiles = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "profile.extensions")
+        .unwrap();
+    assert_eq!(profiles["status"], "warn");
+    assert_eq!(profiles["details"]["profiles"][0]["id"], "static-site");
+    assert_eq!(
+        profiles["details"]["profiles"][0]["assurance_ceiling"],
+        "static"
+    );
+    assert!(
+        profiles["details"]["profiles"][0]["manifest_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args(["--profile", "static-site", "--cwd"])
+        .arg(workspace.path())
+        .arg("Create the requested site")
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("requires an extension root"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

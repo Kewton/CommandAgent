@@ -131,6 +131,12 @@ async fn main() -> anyhow::Result<()> {
         if let Some(execution_root) = trial_workspace.configured_path() {
             workspace_policy::ensure_disjoint(execution_root, extension_root)?;
         }
+        commandagent::planner::extension_profiles::register(extension_root).with_context(|| {
+            format!(
+                "load draft profiles from extension root {}",
+                extension_root.display()
+            )
+        })?;
     }
     let trial_access = trial_access::TrialAccess::from_environment(
         trial_workspace.is_enabled(),

@@ -29,6 +29,10 @@ struct ProfileOption {
     id: String,
     label: String,
     description: &'static str,
+    status: &'static str,
+    manifest_hash: Option<&'static str>,
+    assurance_ceiling: &'static str,
+    base_profile: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -142,11 +146,25 @@ pub fn is_admitted_provider(value: &str) -> bool {
 }
 
 fn options() -> TrialOptions {
+    let mut profiles = admitted_profiles()
+        .into_iter()
+        .map(profile_option)
+        .collect::<Vec<_>>();
+    profiles.extend(
+        commandagent::planner::extension_profiles::registered()
+            .iter()
+            .map(|extension| ProfileOption {
+                id: extension.id.to_string(),
+                label: extension.display_label.to_string(),
+                description: extension.description,
+                status: "draft",
+                manifest_hash: Some(extension.manifest_hash),
+                assurance_ceiling: extension.assurance_ceiling(),
+                base_profile: extension.base_profile,
+            }),
+    );
     TrialOptions {
-        profiles: admitted_profiles()
-            .into_iter()
-            .map(profile_option)
-            .collect(),
+        profiles,
         providers: ADMITTED_PROVIDERS
             .into_iter()
             .map(|provider| ProviderOption {
@@ -164,6 +182,10 @@ fn profile_option(profile: ProfileId) -> ProfileOption {
         id: profile.canonical.to_string(),
         label: profile.display_name_ja.to_string(),
         description: profile.description_ja,
+        status: "admitted",
+        manifest_hash: None,
+        assurance_ceiling: "full",
+        base_profile: None,
     }
 }
 

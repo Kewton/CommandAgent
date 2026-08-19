@@ -28,6 +28,22 @@ pub fn render_gate_one(
         "## 必須チェック".to_string(),
         String::new(),
     ];
+    if let Some(manifest) = identity.draft_manifest.as_ref() {
+        let mut profile_lines = vec![
+            format!(
+                "- プロファイル: {}（draft / 未承認 / 保証上限 {}）",
+                identity.profile, manifest.assurance_ceiling
+            ),
+            format!("- manifest: {}", manifest.hash),
+        ];
+        if let Some(base) = manifest.base_profile.as_ref() {
+            profile_lines.push(format!(
+                "- overlay: {} / base: {}（admitted） / source: {} / {}",
+                identity.profile, base, manifest.source, manifest.hash
+            ));
+        }
+        lines.splice(5..5, profile_lines);
+    }
     lines.extend(identity.contract_checks.iter().map(|check| {
         format!(
             "- {}",
@@ -279,10 +295,18 @@ fn validate_identity_fields(identity: &ConfirmationIdentity) -> anyhow::Result<(
         .into_iter()
         .filter_map(|(name, value)| value.trim().is_empty().then_some(name))
         .collect::<Vec<_>>();
+    let draft_complete = identity.draft_manifest.as_ref().is_none_or(|manifest| {
+        !manifest.source.trim().is_empty()
+            && !manifest.path.trim().is_empty()
+            && !manifest.hash.trim().is_empty()
+            && manifest.assurance_ceiling == "static"
+    });
     if !missing.is_empty()
         || identity.route_bases.is_empty()
         || identity.contract_checks.is_empty()
-        || identity.band_denominator == 0
+        || (identity.band_denominator == 0 && identity.draft_manifest.is_none())
+        || !draft_complete
+        || (identity.draft_manifest.is_some() && !matches!(identity.pack, PackSelection::None))
     {
         bail!(
             "Gate 1 refuses conversational omission: missing={}, bases={}, checks={}, denominator={}",

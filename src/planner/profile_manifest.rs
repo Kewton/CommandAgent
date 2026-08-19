@@ -7,10 +7,13 @@ use serde::Deserialize;
 use crate::planner::capability_catalog::{self, CatalogError, ResolvedCapability};
 
 pub(crate) mod check_phase_scope;
+pub mod overlay;
 mod schema_v1;
+pub mod source;
 mod v1_validation;
 mod validation;
 pub use schema_v1::*;
+pub use source::{LoadedManifest, ManifestOrigin, ManifestSource, load_extension_manifests};
 
 const NEXTJS_MANIFEST_TOML: &str = include_str!("profiles/nextjs/manifest.toml");
 

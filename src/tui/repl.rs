@@ -355,7 +355,13 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 crate::tui::boundary_shell::route::RouteRequest {
                     request: &parsed_request.request,
                     workspace: &config.workspace_root,
-                    explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding::default(),
+                    explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding {
+                        profile: config
+                            .profile_explicit
+                            .then(|| crate::planner::profile::ProfileId::parse(&config.profile)),
+                        intent: config.intent_override,
+                        family: None,
+                    },
                 },
             );
             let proposal = crate::tui::boundary_shell::ambiguity::propose_route(

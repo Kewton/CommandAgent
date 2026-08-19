@@ -41,6 +41,17 @@ pub enum PackSelection {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct DraftManifestIdentity {
+    pub source: String,
+    pub path: String,
+    pub hash: String,
+    pub assurance_ceiling: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfirmationIdentity {
     pub request: String,
     pub workspace: String,
@@ -59,6 +70,8 @@ pub struct ConfirmationIdentity {
     pub full_meaning: String,
     pub pins: ExecutionPins,
     pub pack: PackSelection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_manifest: Option<DraftManifestIdentity>,
 }
 
 impl ConfirmationIdentity {
@@ -129,6 +142,55 @@ impl ConfirmationIdentity {
             full_meaning: band.full_meaning.to_string(),
             pins,
             pack,
+            draft_manifest: None,
+        })
+    }
+
+    pub fn new_draft(
+        request: String,
+        workspace: &Path,
+        route: &RouteCandidate,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        profile: &crate::planner::extension_profiles::ExtensionProfile,
+    ) -> anyhow::Result<Self> {
+        if !matches!(pack, PackSelection::None) {
+            bail!("draft profiles fix the pack selection to none");
+        }
+        let workspace = workspace
+            .canonicalize()
+            .with_context(|| format!("canonicalize workspace {}", workspace.display()))?;
+        Ok(Self {
+            request,
+            workspace: workspace.to_string_lossy().into_owned(),
+            profile: route.profile.to_string(),
+            intent: route.intent.as_str().to_string(),
+            task_family: route.family.to_string(),
+            route_bases: route
+                .bases
+                .iter()
+                .map(|basis| format!("{}={}", basis.rule, basis.observation))
+                .collect(),
+            contract_ref: route.contract_ref.to_string(),
+            contract_checks: profile.contract_checks.clone(),
+            band_full: 0,
+            band_denominator: 0,
+            band_rate: "未計測".to_string(),
+            band_arm: "draft / 未承認".to_string(),
+            band_measurement: "未計測".to_string(),
+            band_source: "未計測".to_string(),
+            full_meaning:
+                "manifest の全必須チェックに合格しても、未承認プロファイルの保証上限は static"
+                    .to_string(),
+            pins,
+            pack,
+            draft_manifest: Some(DraftManifestIdentity {
+                source: profile.source.as_str().to_string(),
+                path: profile.manifest_path.to_string(),
+                hash: profile.manifest_hash.to_string(),
+                assurance_ceiling: profile.assurance_ceiling().to_string(),
+                base_profile: profile.base_profile.map(str::to_string),
+            }),
         })
     }
 
@@ -433,6 +495,7 @@ mod tests {
                 point: "cli-validation".to_string(),
                 source: PackSource::Admitted,
             },
+            draft_manifest: None,
         };
         assert!(crate::planner::pack::catalog::is_admitted(
             PackSource::Admitted,

@@ -53,6 +53,22 @@ the trait.
 Do not add provider abstractions, profile-specific runner branches, or
 profile-specific repair loops.
 
+## External Draft Profiles
+
+An extension root can add a first-class draft profile at
+`profiles/<id>/manifest.toml`. Select it with both `--extension-root <DIR>` and
+`--profile <id>`; `--doctor` lists its exact-byte hash. External supply never
+grants admission: a manifest that says `admitted` is forced to `draft`, has no
+capability band or pack selection, and is capped at `static` with
+`profile_not_admitted`.
+
+For an admitted embedded manifest-backed profile, Issue #105 permits a single
+`profiles/<admitted-base-id>/overlay.toml`. This produces a separate draft effective
+profile and may only add artifacts, guidance variants, checks, and their local
+evidence targets. Replacement, removal, weakening, overlay chaining, and base
+identity mutation are rejected. Use an external draft when testing new
+declarations; use the compiled workflow above when seeking admission.
+
 ## Development Guardrails
 
 New entry points and execution boundaries must be registered in

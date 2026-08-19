@@ -73,6 +73,11 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
     let config = Config::from_cli(cli)?;
+    for profile in planner::extension_profiles::registered() {
+        for warning in &profile.warnings {
+            eprintln!("warning: {warning}");
+        }
+    }
     let pack = cli_pack::resolve(&pack_cli, &config)?;
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
     let summary_source =

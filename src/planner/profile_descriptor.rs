@@ -118,16 +118,23 @@ pub fn descriptor(id: &ProfileId) -> Option<&'static ProfileDescriptor> {
     PROFILE_DESCRIPTORS
         .iter()
         .find(|candidate| &candidate.id == id)
+        .or_else(|| crate::planner::extension_profiles::descriptor(id))
 }
 
 pub fn descriptor_for_name(name: &str) -> Option<&'static ProfileDescriptor> {
     let normalized = name.trim().to_ascii_lowercase();
-    PROFILE_DESCRIPTORS.iter().find(|candidate| {
-        candidate.canonical == normalized || candidate.aliases.contains(&normalized.as_str())
-    })
+    PROFILE_DESCRIPTORS
+        .iter()
+        .find(|candidate| {
+            candidate.canonical == normalized || candidate.aliases.contains(&normalized.as_str())
+        })
+        .or_else(|| crate::planner::extension_profiles::descriptor_for_name(&normalized))
 }
 
 pub fn descriptor_for_domain(name: &str) -> &'static ProfileDescriptor {
+    if let Some(extension) = crate::planner::extension_profiles::descriptor_for_name(name) {
+        return extension;
+    }
     PROFILE_DESCRIPTORS
         .iter()
         .filter(|candidate| candidate.id != ProfileId::Generic)

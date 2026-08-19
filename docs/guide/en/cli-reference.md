@@ -29,7 +29,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--preset` | `<PRESET>` | none | Select a named `[preset.<name>]` assembled from configuration files. | [Presets](configuration.md#presets) |
 | `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
 | `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
-| `--extension-root` | `<DIR>` | top-level `extension_root`, then none | Search an extension root before repository `packs/` for the selected identity. | [Pack selection](configuration.md#pack-selection) |
+| `--extension-root` | `<DIR>` | top-level `extension_root`, then none | Load local packs and `profiles/<id>/manifest.toml` draft profiles. External profiles are forced to draft and pinned by exact-byte hash. | [Pack selection](configuration.md#pack-selection) |
 | `--packs` | none | off | List compatible admitted packs and conformant packs found under `--extension-root`, including each source. Requires `--profile` and `--intent`. | [Conflicts](#conflicts-and-combinations) |
 | `--pack-verify` | `<DIR>` | none | Run strict conformance for one pack directory and print the same JSON report as `pack_conformance`. | [Conflicts](#conflicts-and-combinations) |
 | `--pack-pin` | `<DIR>` | none | Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin. | [Conflicts](#conflicts-and-combinations) |
@@ -60,7 +60,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
-| `--profile` | `<PROFILE>` | inferred, then `generic` | Set a domain profile explicitly, for example `nextjs`, `python-cli`, `data`, or `generic`. | [Profile inference](slash-commands.md#profile-inference) |
+| `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--offline` | none | off | Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider. | [Providers](providers.md) |

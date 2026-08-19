@@ -178,15 +178,21 @@ impl BoundaryShell {
         let selected = proposal
             .selected
             .context("typed unknown route requires human correction before Gate 1")?;
-        let band = selected
-            .band()
-            .context("registered route is missing a capability band")?;
-        let identity = if let Some(locator) = locator {
-            ConfirmationIdentity::new_with_locator(
-                request, workspace, &selected, band, pins, pack, locator,
-            )?
+        let identity = if let Some(profile) =
+            crate::planner::extension_profiles::find(selected.profile.as_str())
+        {
+            ConfirmationIdentity::new_draft(request, workspace, &selected, pins, pack, profile)?
         } else {
-            ConfirmationIdentity::new(request, workspace, &selected, band, pins, pack)?
+            let band = selected
+                .band()
+                .context("registered route is missing a capability band")?;
+            if let Some(locator) = locator {
+                ConfirmationIdentity::new_with_locator(
+                    request, workspace, &selected, band, pins, pack, locator,
+                )?
+            } else {
+                ConfirmationIdentity::new(request, workspace, &selected, band, pins, pack)?
+            }
         };
         let card_hash = identity.card_hash()?;
         crate::eval_events::emit(
