@@ -1,6 +1,6 @@
-use std::path::Path;
-
 use anyhow::{Context, bail};
+
+use crate::planner::pack::catalog::PackLocator;
 
 use super::acceptance::{NextAction, TerminalPresentation};
 use super::confirmation::{ConfirmationIdentity, PackSelection};
@@ -8,7 +8,7 @@ use super::pack_catalog;
 
 pub fn render_gate_one(
     identity: &ConfirmationIdentity,
-    repository_root: &Path,
+    pack_locator: &PackLocator,
 ) -> anyhow::Result<String> {
     validate_complete_identity(identity)?;
     let card_hash = identity.card_hash()?;
@@ -65,7 +65,7 @@ pub fn render_gate_one(
         ),
         format!("- 計画プリセット: {}", identity.pins.preset),
     ]);
-    render_pack(identity, repository_root, &mut lines)?;
+    render_pack(identity, pack_locator, &mut lines)?;
     let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
     lines.push(if candidates.is_empty() {
         "- ほかに利用可能な検証パック: なし".to_string()
@@ -220,7 +220,7 @@ pub fn render_gate_four(
 
 fn render_pack(
     identity: &ConfirmationIdentity,
-    repository_root: &Path,
+    pack_locator: &PackLocator,
     lines: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     match &identity.pack {
@@ -233,11 +233,13 @@ fn render_pack(
             version,
             hash,
             point,
+            source,
         } => {
             lines.push(format!("- 追加の検証パック: {id}@{version}"));
             lines.push(format!("- 検証パックの完全一致 ID: {hash}"));
+            lines.push(format!("- 検証パックの供給元: {}", source.japanese_label()));
             lines.push(format!("- 検証箇所: {point}"));
-            let observed = pack_catalog::observed_pin(repository_root, &identity.pack)?;
+            let observed = pack_catalog::observed_pin(pack_locator, &identity.pack)?;
             if observed.as_deref() != Some(hash) {
                 lines.push(format!(
                     "- 警告: 検証パックが変更されています (確認済み {hash}, 現在 {})",
@@ -306,7 +308,10 @@ fn validate_terminal_identity(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use crate::planner::adjudication::contract::IntentId;
+    use crate::planner::pack::catalog::{ADMITTED_PACKS, PackLocator, PackSource};
     use crate::planner::profile::ProfileId;
     use crate::tui::boundary_shell::band_catalog::value_for;
     use crate::tui::boundary_shell::family_catalog::TaskFamilyId;
@@ -348,7 +353,7 @@ mod tests {
     fn no_pack_card_explains_python_cli_checks_value_and_confirmation() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let identity = identity(PackSelection::None);
-        let rendered = render_gate_one(&identity, root).unwrap();
+        let rendered = render_gate_one(&identity, &PackLocator::new(root)).unwrap();
         for required in [
             "全必須チェックに合格した実行: 3件中0件 (0%)",
             "C1 — 実行動作: 通常のコマンドは成功",
@@ -365,6 +370,7 @@ mod tests {
         for internal_label in ["Card hash:", "Route:", "Checks: C1", "Value tag:"] {
             assert!(!rendered.contains(internal_label), "{rendered}");
         }
+        assert!(!rendered.contains("検証パックの供給元:"), "{rendered}");
     }
 
     #[test]
@@ -372,7 +378,8 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut missing_value = identity(PackSelection::None);
         missing_value.band_denominator = 0;
-        assert!(render_gate_one(&missing_value, root).is_err());
+        let locator = PackLocator::new(root);
+        assert!(render_gate_one(&missing_value, &locator).is_err());
 
         let mut missing_pin = identity(PackSelection::None);
         missing_pin.pack = PackSelection::Pinned {
@@ -380,8 +387,9 @@ mod tests {
             version: "1.1.0".to_string(),
             hash: String::new(),
             point: "cli-validation".to_string(),
+            source: PackSource::Admitted,
         };
-        assert!(render_gate_one(&missing_pin, root).is_err());
+        assert!(render_gate_one(&missing_pin, &locator).is_err());
     }
 
     #[test]
@@ -390,8 +398,9 @@ mod tests {
         let identity = identity(PackSelection::Pinned {
             id: "cli-assist".to_string(),
             version: "1.1.0".to_string(),
-            hash: pack_catalog::ADMITTED_PACKS[1].hash.to_string(),
+            hash: ADMITTED_PACKS[1].hash.to_string(),
             point: "cli-validation".to_string(),
+            source: PackSource::Admitted,
         });
         let temp = tempfile::tempdir().unwrap();
         let destination = temp.path().join("packs/cli-assist/1.1.0");
@@ -401,15 +410,13 @@ mod tests {
         bytes.extend_from_slice(b"\n# stale bytes\n");
         std::fs::write(destination.join("assist.yaml"), bytes).unwrap();
 
-        let rendered = render_gate_one(&identity, temp.path()).unwrap();
+        let rendered = render_gate_one(&identity, &PackLocator::new(temp.path())).unwrap();
         assert!(
             rendered.contains("警告: 検証パックが変更されています"),
             "{rendered}"
         );
-        assert!(
-            rendered.contains(pack_catalog::ADMITTED_PACKS[1].hash),
-            "{rendered}"
-        );
+        assert!(rendered.contains(ADMITTED_PACKS[1].hash), "{rendered}");
+        assert!(rendered.contains("検証パックの供給元: 承認済み"));
     }
 
     #[test]

@@ -73,7 +73,7 @@ pub fn generate(
          - Release gate: {}\n\n\
          ## 3. Definition of done\n\n\
          - Contract checks: {}\n\
-         - Pack: {}\n\n\
+         {}\n\n\
          ## 4. Machine evidence\n\n\
          - Event stream: {}\n\
          - Product summary: {}\n\n\
@@ -103,7 +103,7 @@ pub fn generate(
         final_acceptance,
         release_gate,
         identity.contract_checks.join(", "),
-        pack_label(identity),
+        pack_lines(identity),
         events_display,
         summary_display,
         stop_reason,
@@ -188,9 +188,21 @@ fn pack_label(identity: &ConfirmationIdentity) -> String {
     }
 }
 
+fn pack_lines(identity: &ConfirmationIdentity) -> String {
+    let label = pack_label(identity);
+    match &identity.pack {
+        super::confirmation::PackSelection::None => format!("- Pack: {label}"),
+        super::confirmation::PackSelection::Pinned { source, .. } => format!(
+            "- Pack: {label}\n- Pack source: {}",
+            source.japanese_label()
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::planner::adjudication::contract::IntentId;
+    use crate::planner::pack::catalog::{ADMITTED_PACKS, PackSource};
     use crate::planner::profile::ProfileId;
     use crate::tui::boundary_shell::band_catalog::value_for;
     use crate::tui::boundary_shell::confirmation::{ExecutionPins, PackSelection};
@@ -256,6 +268,28 @@ mod tests {
             sheet
                 .markdown
                 .contains("Contract checks: N1, N2, N3, N4, N5")
+        );
+    }
+
+    #[test]
+    fn pack_lines_add_a_supply_source_only_for_a_pinned_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut identity = identity(dir.path());
+        assert_eq!(pack_lines(&identity), "- Pack: no pack");
+
+        identity.pack = PackSelection::Pinned {
+            id: "cli-assist".to_string(),
+            version: "1.1.0".to_string(),
+            hash: ADMITTED_PACKS[1].hash.to_string(),
+            point: "cli-validation".to_string(),
+            source: PackSource::Admitted,
+        };
+        assert_eq!(
+            pack_lines(&identity),
+            format!(
+                "- Pack: cli-assist@1.1.0 / {}\n- Pack source: 承認済み",
+                ADMITTED_PACKS[1].hash
+            )
         );
     }
 }

@@ -4,6 +4,7 @@ use anyhow::bail;
 use rustyline::error::ReadlineError;
 
 use crate::config::Config;
+use crate::planner::pack::catalog::PackLocator;
 use crate::tui::editor::{PromptInterruptAction, ReplEditor, normalize_multiline_input};
 use crate::tui::markdown::TerminalMarkdownRenderer;
 use crate::tui::{InteractionUi, OutputRenderer, TerminalUi};
@@ -336,7 +337,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             };
             let card = crate::tui::boundary_shell::presentation::render_gate_one(
                 identity,
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+                &PackLocator::new(&config.workspace_root),
             )?;
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,

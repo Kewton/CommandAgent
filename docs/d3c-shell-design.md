@@ -291,6 +291,7 @@ The shell displays:
 ```text
 cli-assist@1.1.0
 sha256:3d11e126...
+source: 承認済み
 point: cli-validation
 source: 承認済み
 band: measured / unmeasured

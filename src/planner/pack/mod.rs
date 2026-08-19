@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub(crate) mod builtin;
+pub mod catalog;
 mod floor;
 pub(crate) mod runtime;
 mod schema;
