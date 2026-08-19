@@ -1631,3 +1631,16 @@ step_templates、vocabulary、base既存名との衝突、置換・除去・移�
 `<display_name>（下書き上乗せ）`とbase、source、hash、draft/上限を表示し、packは別表示
 する。完全なTOML断片と拒否条件は`docs/dev/profile-manifest.md`を正本とし、実装は
 E-18（Issue #117）へ委譲する。
+
+## E-23 — 読者別ドキュメントとアプリ内ヘルプ対応（Issue #122、2026-08-20）
+
+M2のCLI pack、GUI Trial／拡張／セットアップ実装を取り込んだ後、初見者、利用者、
+拡張者、運用者、開発者の所有ページへ文書を分割した。旧`docs/user/gui.md`は既存
+H2/H3 anchorを保持する互換索引とし、移設先を一意に指す。READMEのEN/JA
+QuickstartはいずれもCLI、GUI、拡張の3レイヤへ直接到達する。
+
+GUIの説明文、用語ヘルプ、空状態、actionは`docs/user/gui-help-map.md`で所有節と
+1対1対応させ、rootとproxy base pathのbrowser smokeで実在文言を確認する。公開CLI
+flag、設定key、slash command、`docs/guide/{en,ja}`のfile/H2/H3 parityは既存
+`tests/doc_drift.rs`を正本として維持し、verification／acceptance／evidence境界と
+`.anvil/` runtime schemaは変更しない。

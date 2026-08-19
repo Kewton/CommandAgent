@@ -10,7 +10,12 @@ pages have matching structures and cover the same behavior.
 
 ## English
 
-- [CLI reference](en/cli-reference.md) — all 37 public flags, defaults, and
+- [CLI getting started](../user/getting-started-cli.md) — install, provider,
+  configuration, doctor, first loop, and exact-pack A/B
+- [GUI getting started](../user/getting-started-gui.md) — readiness, sample
+  Trial, Gate 1, and result reading
+- [Extensions](../user/gui-extensions.md) — supply lifecycle, names, and review
+- [CLI reference](en/cli-reference.md) — all 51 public flags, defaults, and
   conflicts
 - [Slash commands](en/slash-commands.md) — all 15 accepted command names,
   inline flags, file expansion, and profile inference
@@ -28,7 +33,11 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 
 ## 日本語
 
-- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 37 フラグ、既定値、排他関係
+- [CLI 入門](../user/getting-started-cli.md) — 導入、provider、設定、doctor、
+  最初の 1 周、exact pack A/B
+- [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
+- [拡張](../user/gui-extensions.md) — 供給ライフサイクル、命名、レビュー
+- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 51 フラグ、既定値、排他関係
 - [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 15 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数

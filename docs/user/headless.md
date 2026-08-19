@@ -1,5 +1,7 @@
 # Headless execution
 
+[CLI getting started](getting-started-cli.md) | [CLI reference](../guide/en/cli-reference.md)
+
 Use `--summary-json` with a normal execution command when another process needs
 the terminal result. CommandAgent keeps its existing human output and writes one
 compact JSON object as the final stdout line after run evidence has been closed.

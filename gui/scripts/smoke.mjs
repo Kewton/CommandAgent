@@ -28,6 +28,48 @@ const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ??
 const managedPlaywrightPath =
   process.env.COMMANDAGENT_PLAYWRIGHT_PATH ??
   join(homedir(), ".anvil", "tools", "interaction-probe", "node_modules", "playwright");
+const helpMapEntries = [
+  {
+    copy: "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+    owner: "getting-started-gui.md#はじめに",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
+    copy: "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
+    owner: "getting-started-gui.md#terms-shown-in-the-app",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
+    copy: "Trial がファイルを変更できる、専用の作業ディレクトリです。",
+    owner: "getting-started-gui.md#terms-shown-in-the-app",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
+    copy: "目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。",
+    owner: "gui-trial.md#pack-selection-and-frozen-identity",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
+    copy: "Gate 1 は CLI 実行前の確認です",
+    owner: "gui-trial.md#gate-1-confirm-before-execution",
+    source: "gui/components/trial-run.tsx",
+  },
+  {
+    copy: "固定済みパックが見つかりません。",
+    owner: "gui-extensions.md#extensions-catalog",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "Trial で使う",
+    owner: "gui-extensions.md#extensions-catalog",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "確認済み GUI Trial セッションはありません。",
+    owner: "gui-history.md#session-rows-and-refresh",
+    source: "gui/components/trial-session-index.tsx",
+  },
+];
 
 if (outputDirectory === null) {
   console.error(
@@ -39,6 +81,22 @@ if (!Number.isFinite(trialTimeoutMs) || trialTimeoutMs <= 0) {
   console.error("--trial-timeout-ms must be a positive number");
   process.exit(2);
 }
+
+const helpMapMarkdown = await readFile(join(repositoryRoot, "docs/user/gui-help-map.md"), "utf8");
+const helpMapChecks = await Promise.all(
+  helpMapEntries.map(async (entry) => {
+    const source = await readFile(join(repositoryRoot, entry.source), "utf8");
+    return {
+      ...entry,
+      app_source_count: countOccurrences(source, entry.copy),
+      map_count: countOccurrences(helpMapMarkdown, entry.copy),
+      owner_present: helpMapMarkdown.includes(entry.owner),
+    };
+  }),
+);
+const helpMapOk = helpMapChecks.every(
+  (entry) => entry.app_source_count >= 1 && entry.map_count === 1 && entry.owner_present,
+);
 
 await mkdir(outputDirectory, { recursive: true });
 const packageMetadata = JSON.parse(
@@ -111,8 +169,13 @@ const report = {
         ? "removed_after_success"
         : scratchRoot,
   },
+  help_map: {
+    checks: helpMapChecks,
+    path: "docs/user/gui-help-map.md",
+    ok: helpMapOk,
+  },
   cases: results,
-  ok: results.every((result) => result.ok),
+  ok: helpMapOk && results.every((result) => result.ok),
 };
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
@@ -305,6 +368,10 @@ async function runCase(smokeCase) {
 
     const gettingStarted = page.locator("[data-testid='getting-started']");
     await gettingStarted.waitFor();
+    const gettingStartedText = await gettingStarted.textContent();
+    const dashboardHelpCopy = helpMapEntries
+      .filter((entry) => entry.source === "gui/components/getting-started.tsx")
+      .every((entry) => gettingStartedText?.includes(entry.copy));
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-getting-started.png`),
@@ -327,7 +394,7 @@ async function runCase(smokeCase) {
       samplePreset.goal === "Create a CLI --pattern filter command" &&
       samplePreset.profile === "python-cli" &&
       samplePreset.pack === "cli-assist@1.0.0" &&
-      samplePreset.primer.includes("Gate 1");
+      samplePreset.primer.includes("Gate 1 は CLI 実行前の確認です");
     await page.goBack({ waitUntil: "networkidle" });
     await gettingStarted.waitFor();
     await page.locator("[data-testid='getting-started-close']").click();
@@ -338,9 +405,11 @@ async function runCase(smokeCase) {
     const gettingStartedOk =
       prerequisiteStatuses.length === 3 &&
       prerequisiteStatuses.every((status) => status === "ready" || status === "action_required") &&
+      dashboardHelpCopy &&
       samplePresetOk &&
       dismissalPersistsInTab;
     dashboard.getting_started = {
+      mapped_help_copy_visible: dashboardHelpCopy,
       prerequisite_statuses: prerequisiteStatuses,
       sample_preset: samplePreset,
       dismissal_persists_in_tab: dismissalPersistsInTab,
@@ -1822,6 +1891,7 @@ async function probeExtensionCatalog(page) {
   const rowCount = await rows.count();
   const sourceLabels = await rows.locator(".pack-source").allInnerTexts();
   const trialLink = rows.locator("[data-testid='pack-trial-link']").first();
+  const trialLinkText = await trialLink.innerText();
   const href = await trialLink.getAttribute("href");
   if (href === null) throw new Error("extension catalog has no eligible Trial handoff");
   const selector = new URL(href, page.url()).searchParams.get("pack");
@@ -1837,6 +1907,7 @@ async function probeExtensionCatalog(page) {
       response?.status() === 200 &&
       sourceLabels.includes("承認済み") &&
       sourceLabels.includes("リポジトリ（未承認）") &&
+      trialLinkText.includes("Trial で使う") &&
       selector !== null &&
       selectedPack === selector,
   };
@@ -1929,4 +2000,8 @@ function resolveIfPath(name, value) {
 
 function message(reason) {
   return reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+}
+
+function countOccurrences(haystack, needle) {
+  return haystack.split(needle).length - 1;
 }

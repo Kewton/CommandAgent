@@ -50,3 +50,9 @@ creates `pack.sha256`, treats a matching existing pin as a no-op, and refuses
 to replace a stale pin. `commandagent --profile <PROFILE> --intent <INTENT> --packs`
 lists compatible admitted packs; add `--extension-root <DIR>` to
 include conformant local packs with their source labels.
+
+For the private extension lifecycle, naming, retirement, materials, and review
+path, see [`docs/user/gui-extensions.md`](../docs/user/gui-extensions.md).
+Maintainers adding a typed source or check must follow
+[`docs/dev/extension-catalog.md`](../docs/dev/extension-catalog.md); pack YAML
+cannot introduce executable logic.

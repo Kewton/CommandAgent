@@ -34,6 +34,17 @@ paths.
 | [`guide/ja/providers.md`](guide/ja/providers.md) | Ollama、LM Studio、OpenAI、Gemini の設定。 | JA | End users |
 | [`guide/ja/slash-commands.md`](guide/ja/slash-commands.md) | 対話型スラッシュコマンドのリファレンス。 | JA | End users |
 | [`guide/ja/troubleshooting.md`](guide/ja/troubleshooting.md) | 起動、プロバイダ、TUI のトラブルシューティング。 | JA | End users |
+| [`user/getting-started-cli.md`](user/getting-started-cli.md) | Install-to-first-loop CLI path, pack A/B, and bilingual glossary. | Mixed | New users |
+| [`user/getting-started-gui.md`](user/getting-started-gui.md) | First GUI landing, readiness, sample Trial, Gate 1, and result reading. | Mixed | New users |
+| [`user/gui.md`](user/gui.md) | Stable compatibility index for the former monolithic GUI guide. | EN | End users |
+| [`user/gui-trial.md`](user/gui-trial.md) | Gate 1–4 Trial flow, reconnect, and read-only lease recovery. | Mixed | End users |
+| [`user/gui-history.md`](user/gui-history.md) | Trial session source, pack columns, refresh, and A/B reading. | Mixed | End users |
+| [`user/gui-extensions.md`](user/gui-extensions.md) | Extension catalog, bounded lifecycle, naming, and review preparation. | Mixed | Extenders |
+| [`user/gui-setup.md`](user/gui-setup.md) | Setup/preflight, base paths, root separation, and proxy routing. | Mixed | Operators |
+| [`user/gui-operations.md`](user/gui-operations.md) | Tokens, Origins, APIs, backups, recovery, and GUI smoke. | Mixed | Operators |
+| [`user/gui-help-map.md`](user/gui-help-map.md) | One-to-one map from stable in-app help copy to guide sections. | Mixed | End users |
+| [`user/headless.md`](user/headless.md) | Machine-readable terminal summaries and exit semantics. | EN | End users |
+| [`user/first-loop.md`](user/first-loop.md) | Japanese four-gate and exact-pack A/B walkthrough. | JA | End users |
 
 ## Contributor documents and contracts
 
@@ -47,6 +58,7 @@ paths.
 | [`dev/dev-guardrails.md`](dev/dev-guardrails.md) | Source growth budgets and engineering guardrails. | EN | Contributors |
 | [`dev/generality.md`](dev/generality.md) | Generality and earned-assurance policy. | Mixed | Contributors |
 | [`dev/profile-manifest.md`](dev/profile-manifest.md) | Profile manifest schema and lifecycle. | EN | Contributors |
+| [`dev/extension-catalog.md`](dev/extension-catalog.md) | Registered source/check, profile descriptor, guard, locator, and supply workflows. | EN | Contributors |
 | [`dev/repository-validation.md`](dev/repository-validation.md) | Maintainer build, UAT, and copy-validation procedures. | EN | Contributors |
 | [`dev/data-profile-contract.md`](dev/data-profile-contract.md) | Canonical frozen v0 data-profile contract; see the [English counterpart](dev/data-profile-contract.en.md). | JA | Contributors |
 | [`dev/data-profile-contract.en.md`](dev/data-profile-contract.en.md) | Reference translation; the [Japanese counterpart](dev/data-profile-contract.md) remains authoritative. | EN | Contributors |

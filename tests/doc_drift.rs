@@ -11,6 +11,17 @@ const CLI_DOC: &str = "docs/guide/en/cli-reference.md";
 const SLASH_DOC: &str = "docs/guide/en/slash-commands.md";
 const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
 const CONFIG_DOC: &str = "docs/guide/en/configuration.md";
+const READER_DOCS: &[&str] = &[
+    "docs/user/getting-started-cli.md",
+    "docs/user/getting-started-gui.md",
+    "docs/user/gui-trial.md",
+    "docs/user/gui-history.md",
+    "docs/user/gui-extensions.md",
+    "docs/user/gui-setup.md",
+    "docs/user/gui-operations.md",
+    "docs/user/gui-help-map.md",
+    "docs/dev/extension-catalog.md",
+];
 
 fn repo_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
@@ -231,6 +242,203 @@ fn heading_counts(markdown: &str) -> (usize, usize) {
             h3 + usize::from(line.starts_with("### ")),
         )
     })
+}
+
+fn markdown_anchor(heading: &str) -> String {
+    heading
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter_map(|character| {
+            if character.is_alphanumeric() || matches!(character, '-' | '_') {
+                Some(character)
+            } else if character.is_whitespace() {
+                Some('-')
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn assert_local_markdown_target(source: &str, destination: &str) {
+    let (relative, fragment) = destination
+        .split_once('#')
+        .map_or((destination, None), |(path, anchor)| (path, Some(anchor)));
+    let source_path = repo_path(source);
+    let target_path = source_path
+        .parent()
+        .expect("Markdown source must have a parent")
+        .join(relative);
+    assert!(
+        target_path.is_file(),
+        "{source} links to missing local file {destination}"
+    );
+
+    let Some(fragment) = fragment else {
+        return;
+    };
+    let target = fs::read_to_string(&target_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", target_path.display()));
+    let anchors = target
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("## ")
+                .or_else(|| line.strip_prefix("### "))
+        })
+        .map(markdown_anchor)
+        .collect::<BTreeSet<_>>();
+    assert!(
+        anchors.contains(fragment),
+        "{source} links to missing fragment #{fragment} in {}",
+        target_path.display()
+    );
+}
+
+fn assert_local_markdown_links(source: &str) -> usize {
+    let markdown = read_repo_file(source);
+    let mut remainder = markdown.as_str();
+    let mut local_links = 0;
+    while let Some((_, after_open)) = remainder.split_once("](") {
+        let Some((destination, after_close)) = after_open.split_once(')') else {
+            break;
+        };
+        remainder = after_close;
+        if destination.starts_with("http://") || destination.starts_with("https://") {
+            continue;
+        }
+        assert_local_markdown_target(source, destination);
+        local_links += 1;
+    }
+    local_links
+}
+
+#[test]
+fn reader_oriented_document_set_exists() {
+    for path in READER_DOCS {
+        assert!(
+            repo_path(path).is_file(),
+            "required reader document is missing: {path}"
+        );
+        assert_local_markdown_links(path);
+    }
+}
+
+#[test]
+fn legacy_gui_index_retains_anchors_and_points_to_live_sections() {
+    let path = "docs/user/gui.md";
+    let markdown = read_repo_file(path);
+    for heading in [
+        "## Prerequisites",
+        "## はじめに",
+        "## Guided setup and preflight",
+        "## Serve at `/`",
+        "## Serve below a reverse-proxy path",
+        "## Extensions catalog",
+        "### Extension supply API",
+        "## Trial run: Gate 1 through Gate 3/4",
+        "## Workspace lease inspection and recovery",
+        "### Trial token lifetime and rotation when authentication is on",
+        "## API",
+        "### Error responses and recovery",
+        "## Two-basePath browser smoke",
+    ] {
+        assert!(
+            markdown.lines().any(|line| line == heading),
+            "{path} no longer retains legacy anchor heading {heading:?}"
+        );
+    }
+
+    let local_links = assert_local_markdown_links(path);
+    assert!(
+        local_links >= 14,
+        "{path} should route every legacy section"
+    );
+}
+
+#[test]
+fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
+    let help_map = read_repo_file("docs/user/gui-help-map.md");
+    let smoke = read_repo_file("gui/scripts/smoke.mjs");
+    for (source, copy, owner) in [
+        (
+            "gui/components/getting-started.tsx",
+            "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+            "getting-started-gui.md#はじめに",
+        ),
+        (
+            "gui/components/getting-started.tsx",
+            "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
+            "getting-started-gui.md#terms-shown-in-the-app",
+        ),
+        (
+            "gui/components/getting-started.tsx",
+            "Trial がファイルを変更できる、専用の作業ディレクトリです。",
+            "getting-started-gui.md#terms-shown-in-the-app",
+        ),
+        (
+            "gui/components/getting-started.tsx",
+            "目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。",
+            "gui-trial.md#pack-selection-and-frozen-identity",
+        ),
+        (
+            "gui/components/trial-run.tsx",
+            "Gate 1 は CLI 実行前の確認です",
+            "gui-trial.md#gate-1-confirm-before-execution",
+        ),
+        (
+            "gui/app/assets/page.tsx",
+            "固定済みパックが見つかりません。",
+            "gui-extensions.md#extensions-catalog",
+        ),
+        (
+            "gui/app/assets/page.tsx",
+            "Trial で使う",
+            "gui-extensions.md#extensions-catalog",
+        ),
+        (
+            "gui/components/trial-session-index.tsx",
+            "確認済み GUI Trial セッションはありません。",
+            "gui-history.md#session-rows-and-refresh",
+        ),
+    ] {
+        assert!(
+            read_repo_file(source).contains(copy),
+            "{source} is missing {copy:?}"
+        );
+        assert_eq!(
+            help_map.matches(copy).count(),
+            1,
+            "GUI help copy must have one document-map owner: {copy:?}"
+        );
+        assert!(
+            smoke.contains(copy) && smoke.contains(owner),
+            "GUI smoke does not bind {copy:?} to {owner}"
+        );
+    }
+    for marker in ["helpMapChecks", "map_count", "helpMapOk"] {
+        assert!(
+            smoke.contains(marker),
+            "GUI smoke is missing help-map check {marker}"
+        );
+    }
+}
+
+#[test]
+fn bilingual_readme_quickstarts_reach_cli_gui_and_extensions() {
+    for path in ["README.md", "README.ja.md"] {
+        let markdown = read_repo_file(path);
+        let quickstart = markdown_section(&markdown, "## Quickstart", path);
+        for target in [
+            "docs/user/getting-started-cli.md",
+            "docs/user/getting-started-gui.md",
+            "docs/user/gui-extensions.md",
+        ] {
+            assert!(
+                quickstart.contains(target),
+                "{path} Quickstart does not link to required layer {target}"
+            );
+        }
+    }
 }
 
 #[test]

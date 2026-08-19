@@ -1222,7 +1222,7 @@ fn trial_workspace_recovery_is_visible_but_read_only() {
         );
     }
 
-    let guide = std::fs::read_to_string("docs/user/gui.md").unwrap();
+    let guide = std::fs::read_to_string("docs/user/gui-trial.md").unwrap();
     for required in [
         "## Workspace lease inspection and recovery",
         "GET api/trial-workspace",

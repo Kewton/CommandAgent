@@ -34,6 +34,9 @@ the trait.
 
 ## Implementing A Profile
 
+The compact registration workflow and pack-capability boundary are also mapped
+in [`docs/dev/extension-catalog.md`](docs/dev/extension-catalog.md).
+
 1. Add a profile module under `src/planner/profiles/`.
 2. Implement `DomainProfile` with defaults for anything not applicable.
 3. Add one entry to `PROFILE_DESCRIPTORS` in
@@ -68,6 +71,9 @@ profile and may only add artifacts, guidance variants, checks, and their local
 evidence targets. Replacement, removal, weakening, overlay chaining, and base
 identity mutation are rejected. Use an external draft when testing new
 declarations; use the compiled workflow above when seeking admission.
+
+Operators and extenders can inspect draft/source labels and the bounded pack
+lifecycle in the [GUI extensions guide](docs/user/gui-extensions.md).
 
 ## Development Guardrails
 

@@ -76,6 +76,15 @@ scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画�
 `<your-model>` はプレースホルダーであり、実際のモデル ID ではありません。
 手元の `ollama list` に実在するモデルへ必ず置き換えてください。
 
+目的のレイヤから続けてください。
+
+- [CLI 入門](docs/user/getting-started-cli.md) — provider、config、オフライン
+  doctor、最初の 1 周、exact pack の A/B
+- [GUI 入門](docs/user/getting-started-gui.md) — セットアップ状態、サンプル
+  Trial、Gate 1、結果の読み方
+- [拡張](docs/user/gui-extensions.md) — pack/profile の供給、ライフサイクル、
+  命名、非公開拡張からレビューまで
+
 ## インストール
 
 ### 前提条件
@@ -118,7 +127,7 @@ formula を追加する案がありますが、外部リポジトリは作成し
 進めるには、`./scripts/setup.sh` を実行します。非対話の安全な既定値には
 `--yes`、何も変更せず前提条件だけ確認するには `--check-only` を使います。
 
-運用者向けの[管理 GUI](docs/user/gui.md)は `./scripts/setup.sh --gui` でビルドと
+運用者向けの[管理 GUI](docs/user/gui-setup.md)は `./scripts/setup.sh --gui` でビルドと
 起動前検査を準備できます。`--write-config --extension-root <dir>` を加えると、既存
 config を上書きせず、非公開の拡張雛形と[業務 preset](docs/guide/ja/configuration.md#プリセット)
 の例を作成します。
@@ -208,7 +217,7 @@ CommandAgent はこれらのファイルを読み込みますが、ファイル�
 `.anvil/` パスを使います。
 
 preset は `commandagent --preset <name>` で選択します。対応フィールドと優先順位は
-[設定ガイド](docs/guide/README.md#configuration)を参照してください。
+[設定ガイド](docs/guide/ja/configuration.md)を参照してください。
 
 ## 開発とセキュリティ
 
