@@ -243,6 +243,9 @@ export function TrialRun() {
               {selectedProfile !== undefined && (
                 <small className="trial-field-hint" data-testid="trial-profile-description">
                   {selectedProfile.description}
+                  {selectedProfile.status === "draft" && (
+                    <> manifest: {selectedProfile.manifest_hash} · 未承認 · 保証上限 static</>
+                  )}
                 </small>
               )}
             </label>
@@ -250,7 +253,7 @@ export function TrialRun() {
               検証 pack
               <select
                 data-testid="trial-pack"
-                disabled={launchIdentityLocked || trialOptions === null}
+                disabled={launchIdentityLocked || trialOptions === null || selectedProfile?.status === "draft"}
                 value={spec.pack ?? ""}
                 onChange={(event) => update("pack", event.target.value || null)}
               >
@@ -267,6 +270,11 @@ export function TrialRun() {
               {selectedPack !== undefined && (
                 <small className="trial-field-hint" data-testid="trial-pack-source">
                   {selectedPack.profile} × {selectedPack.intent} · 供給元: {selectedPack.source_label}
+                </small>
+              )}
+              {selectedProfile?.status === "draft" && (
+                <small className="trial-field-hint" data-testid="trial-draft-pack-note">
+                  draft profile では検証 pack は「選択なし」固定です。
                 </small>
               )}
             </label>

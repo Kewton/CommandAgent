@@ -384,8 +384,15 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         source
             .matches("disabled={launchIdentityLocked || trialOptions === null}")
             .count(),
-        3,
-        "profile, pack, and provider controls must combine option loading with the run-stage lock"
+        2,
+        "profile and provider controls must combine option loading with the run-stage lock"
+    );
+    assert_eq!(
+        source
+            .matches("disabled={launchIdentityLocked || trialOptions === null || selectedProfile?.status === \"draft\"}")
+            .count(),
+        1,
+        "the pack control must also stay disabled for an external draft profile"
     );
     for reset in [
         "setProposal(null)",

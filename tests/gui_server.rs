@@ -315,6 +315,8 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
             && option["description"]
                 .as_str()
                 .is_some_and(|value| !value.is_empty())
+            && option["status"] == "admitted"
+            && option["manifest_hash"].is_null()
     }));
 
     let providers = body["providers"].as_array().unwrap();
@@ -360,6 +362,100 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
                 .is_some_and(|hash| hash.starts_with("sha256:"))
             && pack["point"] == "cli-validation"
     }));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let profile_dir = extension.path().join("profiles/static-site");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("manifest.toml"),
+        include_str!(
+            "corpus/apps/issue117-draft-profile/extension-root/profiles/static-site/manifest.toml"
+        ),
+    )
+    .unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+    let mut server = Server::start_with_repository_root_and_env(
+        Some(workspace.path()),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        false,
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+        &static_root,
+        Some(extension.path()),
+        &[],
+    );
+
+    let response = server.request_without_access("GET", "/api/trial-options", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let options: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    let draft = options["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|profile| profile["id"] == "static-site")
+        .unwrap();
+    assert_eq!(draft["status"], "draft");
+    assert_eq!(draft["assurance_ceiling"], "static");
+    assert!(draft["label"].as_str().unwrap().contains("下書き"));
+    assert!(
+        draft["manifest_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+
+    let spec = serde_json::json!({
+        "goal": "Create the requested static site",
+        "profile": "static-site",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner",
+        "pack": null
+    });
+    let origin = format!("http://127.0.0.1:{}", server.port);
+    let response = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(response.status, 200, "{}", response.body);
+    let proposal: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(proposal["identity"]["profile"], "static-site");
+    assert_eq!(proposal["identity"]["pack"]["selection"], "none");
+    assert_eq!(
+        proposal["identity"]["draft_manifest"]["assurance_ceiling"],
+        "static"
+    );
+    assert!(
+        proposal["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("draft / 未承認 / 保証上限 static")
+    );
+    assert_eq!(proposal["price"]["source"], "未計測");
+
+    let mut packed = spec;
+    packed["pack"] = serde_json::Value::String("nextjs-quality@1.0.0".to_string());
+    let response = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&packed),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert!(response.body.contains("pack selection to none"));
     server.stop();
 }
 
@@ -1797,7 +1893,16 @@ impl Server {
             .nth(1)
             .and_then(|tail| tail.split('/').next())
             .and_then(|value| value.parse().ok())
-            .unwrap_or_else(|| panic!("unable to parse server address: {line}"));
+            .unwrap_or_else(|| {
+                let mut error = String::new();
+                child
+                    .stderr
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut error)
+                    .unwrap();
+                panic!("unable to parse server address: {line}; stderr: {error}")
+            });
         Self {
             child,
             port,

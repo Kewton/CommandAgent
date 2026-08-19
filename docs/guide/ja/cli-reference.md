@@ -28,7 +28,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--preset` | `<PRESET>` | なし | 設定ファイルから組み立てた名前付き `[preset.<name>]` を選びます。 | [Preset](configuration.md#preset) |
 | `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
-| `--extension-root` | `<DIR>` | トップレベル `extension_root`、その後なし | 選択 identity を repository の `packs/` より先に extension root から探索します。 | [Pack 選択](configuration.md#pack-選択) |
+| `--extension-root` | `<DIR>` | トップレベル `extension_root`、その後なし | ローカル pack と `profiles/<id>/manifest.toml` の draft profile を読み込みます。外部 profile は draft に強制され exact-byte hash で固定されます。 | [Pack 選択](configuration.md#pack-選択) |
 | `--packs` | なし | オフ | compatible な承認済み pack と `--extension-root` 配下の conformant な pack を供給元付きで一覧表示します。`--profile` と `--intent` が必要です。 | [排他関係](#排他関係と組み合わせ) |
 | `--pack-verify` | `<DIR>` | なし | 1 個の pack directory を strict conformance 検査し、`pack_conformance` と同じ JSON report を表示します。 | [排他関係](#排他関係と組み合わせ) |
 | `--pack-pin` | `<DIR>` | なし | green conformance 後に `pack.sha256` を作成し、同一 pin は変更せず、古い pin は拒否します。 | [排他関係](#排他関係と組み合わせ) |
@@ -57,7 +57,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--json` | なし | オフ | `--doctor` の出力を安定した機械可読 JSON として表示します。`--doctor` が必要です。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
-| `--profile` | `<PROFILE>` | 推論後に `generic` | ドメインプロファイルを明示します。例: `nextjs`、`python-cli`、`data`、`generic`。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
+| `--profile` | `<PROFILE>` | 推論後に `generic` | 組み込み profile または外部 draft ID を明示します。外部 ID には `profiles/<id>/manifest.toml` を宣言する extension root が必要です。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
 | `--offline` | なし | オフ | ネットワーク依存の依存関係セットアップと検査を禁止します。クラウドモデルをオフラインプロバイダに変えるものではありません。 | [プロバイダ](providers.md) |

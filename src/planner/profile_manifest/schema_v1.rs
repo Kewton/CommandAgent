@@ -10,6 +10,10 @@ pub struct ManifestMetadata {
     pub display_name: String,
     pub schema_version: SchemaVersion,
     pub status: ManifestStatus,
+    /// Required for externally supplied profiles, which have no compiled-in
+    /// route entry. Embedded profiles keep their catalog-declared families.
+    #[serde(default)]
+    pub task_family: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

@@ -206,6 +206,7 @@ fn collect_report(
     }
     add_config_file_checks(&mut checks, root, preset_name, resolution_error.is_some());
     checks.push(pack_selection_check(pack));
+    checks.push(extension_profiles_check());
     if let Some(config) = resolved {
         add_provider_checks(&mut checks, config);
     }
@@ -230,6 +231,52 @@ fn collect_report(
     ));
     checks.push(dotenv_check(root));
     DoctorReport::from_checks(checks)
+}
+
+fn extension_profiles_check() -> DoctorCheck {
+    let profiles = crate::planner::extension_profiles::registered();
+    if profiles.is_empty() {
+        return DoctorCheck::new(
+            "profile.extensions",
+            "profile",
+            "Draft profiles",
+            CheckStatus::Pass,
+            "no external draft profiles loaded",
+            None,
+            json!({ "profiles": [] }),
+        );
+    }
+    DoctorCheck::new(
+        "profile.extensions",
+        "profile",
+        "Draft profiles",
+        CheckStatus::Warn,
+        format!(
+            "loaded {} unapproved profile(s): {}",
+            profiles.len(),
+            profiles
+                .iter()
+                .map(|profile| format!("{} ({})", profile.id, profile.manifest_hash))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Some(
+            "review each exact-byte manifest hash; external profiles remain capped at static"
+                .to_string(),
+        ),
+        json!({
+            "profiles": profiles.iter().map(|profile| json!({
+                "id": profile.id,
+                "status": "draft",
+                "source": profile.source.as_str(),
+                "path": profile.manifest_path,
+                "manifest_hash": profile.manifest_hash,
+                "assurance_ceiling": profile.assurance_ceiling(),
+                "base_profile": profile.base_profile,
+                "warnings": profile.warnings,
+            })).collect::<Vec<_>>()
+        }),
+    )
 }
 
 fn pack_selection_check(

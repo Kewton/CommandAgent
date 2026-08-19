@@ -1,6 +1,7 @@
 pub mod adjudication;
 pub mod capability_catalog;
 pub mod contract_attribute_repair;
+pub mod extension_profiles;
 pub(crate) mod external_reproducer;
 pub(crate) mod failure_vocabulary;
 pub(crate) mod final_acceptance_contract;
@@ -51,6 +52,7 @@ pub mod profiles {
     pub mod community_mini_app;
     pub mod data;
     pub mod ingest;
+    pub mod manifest_driven;
     pub mod nextjs;
     pub mod python_cli;
     pub(crate) mod step_checks;

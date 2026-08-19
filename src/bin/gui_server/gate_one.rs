@@ -4,7 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use commandagent::planner::pack::catalog::PackLocator;
-use commandagent::planner::profile::ProfileId;
+use commandagent::planner::profile_descriptor::descriptor_for_name;
 use commandagent::tui::boundary_shell::BoundaryShell;
 use commandagent::tui::boundary_shell::ambiguity::{
     ClassifierProvenance, ProposalStatus, RouteProposal,
@@ -15,8 +15,7 @@ use commandagent::tui::boundary_shell::confirmation::{
 use commandagent::tui::boundary_shell::pack_catalog;
 use commandagent::tui::boundary_shell::presentation::render_gate_one;
 use commandagent::tui::boundary_shell::route::{
-    DeterministicResolution, ExplicitRouteBinding, RouteRequest, admitted_profiles,
-    deterministic_route,
+    DeterministicResolution, ExplicitRouteBinding, RouteRequest, deterministic_route,
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,12 +85,15 @@ pub(super) fn gate_one(
     confirmation_root: PathBuf,
 ) -> Result<(BoundaryShell, ConfirmationIdentity, String), SessionError> {
     validate_spec(spec)?;
-    let profile = ProfileId::parse(&spec.profile);
-    if !admitted_profiles().contains(&profile) {
-        return Err(unprocessable(format!(
-            "profile `{}` is not admitted for Gate 1",
-            spec.profile
-        )));
+    let descriptor = descriptor_for_name(&spec.profile)
+        .ok_or_else(|| unprocessable(format!("profile `{}` is not registered", spec.profile)))?;
+    let profile = descriptor.id.clone();
+    if commandagent::planner::extension_profiles::find(descriptor.canonical).is_some()
+        && spec.pack.is_some()
+    {
+        return Err(unprocessable(
+            "draft profiles fix the pack selection to none".to_string(),
+        ));
     }
     let deterministic = deterministic_route(RouteRequest {
         request: &spec.goal,
@@ -208,6 +210,15 @@ async fn band_price(
     repository_root: &Path,
     identity: &ConfirmationIdentity,
 ) -> Result<BandPrice, SessionError> {
+    if identity.draft_manifest.is_some() {
+        return Ok(BandPrice {
+            duration_n: 0,
+            average_duration_seconds: None,
+            cost_n: 0,
+            average_cost_usd: None,
+            source: "未計測".to_string(),
+        });
+    }
     let path = repository_root.join(&identity.band_source);
     let text = tokio::fs::read_to_string(&path).await.map_err(internal)?;
     let mut durations = Vec::new();

@@ -210,7 +210,7 @@ unapproved repository packs remain visible but are not offered by
 
 ## Trial run: Gate 1 through Gate 3/4
 
-Open **Trial run** and enter a goal, admitted profile, provider, and exact
+Open **Trial run** and enter a goal, admitted or extension-root draft profile, provider, and exact
 planner/executor model pins. Goal and both model fields start empty so a demo
 request or model cannot be delegated accidentally. **Check contract and
 price** validates those empty fields in the browser before making a proposal
@@ -218,9 +218,12 @@ request.
 
 The browser obtains profile and provider choices from `GET api/trial-options`
 and exact-version admitted plus conformant pinned local pack choices from
-`GET api/pack-options`.
-Profiles are the server's current `admitted_profiles()` set and include a short
-scope description. For `python-cli × create`, the pack selector offers
+`GET api/pack-options`. Profiles include the server's admitted set plus valid
+`<extension-root>/profiles/<id>/manifest.toml` declarations and include a short
+scope description. Draft rows are labeled **下書き**, show their exact-byte
+manifest hash and `保証上限 static`, and fix the pack selector to **選択なし**.
+An additive `overlay.toml` row also names its admitted base. For
+`python-cli × create`, the pack selector offers
 `cli-assist@1.0.0` and `cli-assist@1.1.0` with the supply source **承認済み**.
 Provider choices include model-ID guidance. Changing the provider does not
 rewrite either model pin, so the form shows a warning to review the executor
@@ -247,6 +250,10 @@ authentication is enabled.
    boundary remain visible beside the card. A selected pack adds its exact
    `id@version`, byte hash, injection point, and supply source to the frozen
    identity. Changing the pack therefore requires a fresh card hash.
+   A draft profile instead pins its manifest source/path/hash, displays
+   `draft / 未承認 / 保証上限 static`, and uses an unmeasured price tag. Its
+   terminal acceptance sheet records the same hash and
+   `profile_not_admitted`; passing checks cannot raise it above static.
 2. Select the confirmation checkbox. The launch button stays disabled until
    this explicit confirmation, and the API independently requires the exact
    card hash.
@@ -442,7 +449,7 @@ requests require a same-host Origin or an origin admitted by
 
 | Route | Operation |
 | --- | --- |
-| `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
+| `GET api/trial-options` | Return admitted and extension-root draft profiles (status/hash/ceiling), providers, and model-ID guidance without executing anything |
 | `GET api/pack-options` | Return admitted and conformant pinned local exact-version pack pins, compatibility, and supply-source labels |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
 | `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |

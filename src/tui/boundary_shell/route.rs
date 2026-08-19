@@ -76,6 +76,61 @@ pub fn admitted_profiles() -> Vec<ProfileId> {
 
 pub fn deterministic_route(request: RouteRequest<'_>) -> DeterministicRouteResult {
     let inventory = bounded_inventory(request.workspace);
+    if let Some(profile) = request.explicit.profile.as_ref()
+        && let Some(extension) =
+            crate::planner::extension_profiles::find(route_profile_name(profile))
+    {
+        let mut observations = vec![
+            RouteBasis {
+                rule: "explicit.profile",
+                observation: extension.id.to_string(),
+            },
+            RouteBasis {
+                rule: "profile.manifest",
+                observation: extension.manifest_hash.to_string(),
+            },
+        ];
+        if let Some(intent) = request.explicit.intent {
+            observations.push(RouteBasis {
+                rule: "explicit.intent",
+                observation: intent.as_str().to_string(),
+            });
+        }
+        if let Some(family) = request.explicit.family {
+            observations.push(RouteBasis {
+                rule: "explicit.family",
+                observation: family.to_string(),
+            });
+        }
+        let conflicts = request
+            .explicit
+            .intent
+            .is_some_and(|intent| intent != extension.intent)
+            || request
+                .explicit
+                .family
+                .is_some_and(|family| family != extension.task_family);
+        return DeterministicRouteResult {
+            resolution: if conflicts {
+                DeterministicResolution::ContradictoryExplicitBinding
+            } else {
+                DeterministicResolution::Unique
+            },
+            candidates: if conflicts {
+                Vec::new()
+            } else {
+                vec![RouteCandidate {
+                    profile: extension.profile_id(),
+                    intent: extension.intent,
+                    family: extension.task_family,
+                    bases: observations.clone(),
+                    contract_ref: extension.manifest_path,
+                }]
+            },
+            observations,
+            inventory_omitted: inventory.omitted,
+        };
+    }
     let mut observations = Vec::new();
     let mut profiles = BTreeSet::new();
     let mut intents = BTreeSet::new();

@@ -543,6 +543,18 @@ impl Config {
             .canonicalize()
             .context("failed to canonicalize workspace root")?;
         let preset = load_named_preset(&workspace_root, cli.preset.as_deref())?;
+        let extension_root = cli
+            .extension_root
+            .clone()
+            .or(configured_extension_root(&workspace_root)?);
+        if let Some(extension_root) = extension_root.as_deref() {
+            crate::planner::extension_profiles::register(extension_root).with_context(|| {
+                format!(
+                    "load draft profiles from extension root {}",
+                    extension_root.display()
+                )
+            })?;
+        }
         let model = cli
             .model
             .clone()
@@ -705,6 +717,19 @@ impl Config {
                     .map(|inference| sourced(inference.profile.to_string(), "default:inferred"))
             })
             .unwrap_or_else(|| sourced("generic".to_string(), "default"));
+        if profile_explicit
+            && matches!(
+                crate::planner::profile::ProfileId::parse(&profile.value),
+                crate::planner::profile::ProfileId::Other(_)
+            )
+            && crate::planner::profile_descriptor::descriptor_for_name(&profile.value).is_none()
+        {
+            bail!(
+                "draft profile `{}` requires an extension root that declares profiles/{}/manifest.toml (use --extension-root or configure extension_root)",
+                profile.value,
+                profile.value
+            );
+        }
         let field_sources = ConfigFieldSources {
             model: model.source.clone(),
             provider: provider.source.clone(),

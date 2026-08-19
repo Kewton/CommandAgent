@@ -23,6 +23,7 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         allowlist: &[
             "src/minimal_loop/build_verifier.rs",
             "src/planner/profile.rs",
+            "src/planner/profiles/manifest_driven.rs",
             "src/planner/profiles/python_cli.rs",
             "src/planner/fix_diagnostics.rs",
             "src/planner/runner/acceptance.rs",

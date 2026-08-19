@@ -53,6 +53,52 @@ ids are unique, required strings are non-empty, and `plan.profile` equals
 without port semantics, but when present it is the exact literal token.
 Arbitrary interpolation syntax is not supported.
 
+### External draft profiles and manifest identity
+
+An extension root may provide `profiles/<id>/manifest.toml`. The loader records
+each declaration as `ManifestOrigin::Extension { path, hash }` and exposes its
+closed `ManifestSource` (`local` for an extension root). The hash is a
+domain-separated SHA-256 over the exact `manifest.toml` bytes using the same
+filename/length framing discipline as pack identity, so whitespace changes
+change the identity.
+
+External manifests are always effective `draft` profiles. A declared
+`status = "admitted"` is loaded as draft with a doctor warning; filesystem
+supply can never grant admission. External manifests must use schema v1, make
+`plan.profile` match their directory/metadata id, declare one registered
+`metadata.task_family`, and bind only registered check capabilities. IDs that
+collide with a compiled descriptor or alias are rejected, as are scenario
+fixture terms in `plan`, `step_templates`, or `checks`.
+
+The dynamic descriptor binds the manifest plan preset, artifacts, always-on
+guidance, evidence repair targets, and checks to the shared runtime adapter.
+Shell checks enter the existing normalized verification boundary; the generic
+internal scaffold check is evaluated deterministically. A capability that
+needs a profile-specific adapter fails honestly until that adapter exists.
+The runner lifecycle and event schemas are unchanged.
+
+Gate 1 permits the intentionally unmeasured draft identity without inventing
+a capability band. It pins the manifest path/source/hash, displays
+`draft / 未承認 / 保証上限 static`, and fixes pack selection to none. The terminal
+admission cap and acceptance sheet retain `profile_not_admitted` and the exact
+manifest hash.
+
+### Additive overlays
+
+Following Issue #105, `profiles/<admitted-base-id>/overlay.toml` may create one
+distinct draft effective profile on an admitted, embedded, manifest-backed
+base. The base descriptor and its admitted behavior remain byte-for-byte
+unchanged. An overlay may only add artifact obligations, named guidance
+variants, registered check bindings, and local evidence-target mappings. It
+cannot declare plan, step-template, or vocabulary replacements.
+
+The overlay must declare `status = "draft"` and `mode = "additive"`. Loading
+rejects empty overlays, chaining, aliases or ID collisions, base artifact/group
+or guidance/check collisions, unknown or phase-mismatched checks, path escapes,
+and any added check without its own evidence-target mapping. Gate 1 pins the
+overlay source/hash and admitted base, while the effective profile remains
+unmeasured and capped at static.
+
 ### Named guidance variants
 
 Guidance no longer has fixed Next.js-era fields. A profile declares any
