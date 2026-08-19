@@ -49,12 +49,18 @@ try {
         server.origin,
         smokeCase.serverBasePath,
       );
+      const resourceRevalidation = await probeResourceRevalidation(
+        browser,
+        server.origin,
+        smokeCase.serverBasePath,
+      );
       results.push({
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
         lifecycle,
+        resource_revalidation: resourceRevalidation,
         source_matrix: sourceMatrix,
-        ok: lifecycle.ok && sourceMatrix.ok,
+        ok: lifecycle.ok && resourceRevalidation.ok && sourceMatrix.ok,
       });
     } finally {
       await browser.close();
@@ -89,6 +95,8 @@ async function probeLifecycle(browser, origin, basePath) {
   let indexSessions = [];
   let indexCalls = 0;
   let runtimeCalls = 0;
+  let maxConcurrentRuntimeCalls = 0;
+  const activeRuntimeRequests = new Set();
   let runtimeSession = null;
   let failNextIndex = false;
   let terminalReleased = false;
@@ -98,6 +106,18 @@ async function probeLifecycle(browser, origin, basePath) {
   });
   const sessionRequests = [];
 
+  page.on("request", (request) => {
+    if (!isRuntimeStatusRequest(request)) return;
+    activeRuntimeRequests.add(request);
+    maxConcurrentRuntimeCalls = Math.max(
+      maxConcurrentRuntimeCalls,
+      activeRuntimeRequests.size,
+    );
+  });
+  const settleRuntimeRequest = (request) => activeRuntimeRequests.delete(request);
+  page.on("requestfailed", settleRuntimeRequest);
+  page.on("requestfinished", settleRuntimeRequest);
+
   try {
     await page.route("**/api/**", async (route) => {
       const request = route.request();
@@ -105,6 +125,7 @@ async function probeLifecycle(browser, origin, basePath) {
       const method = request.method();
       if (pathname.endsWith("/api/runtime-status") && method === "GET") {
         runtimeCalls += 1;
+        await delay(75);
         await json(route, 200, {
           trial_available: true,
           trial_token_auth_enabled: true,
@@ -170,6 +191,24 @@ async function probeLifecycle(browser, origin, basePath) {
     await page.locator("[data-testid='trial-token']").fill(trialToken);
     await waitFor(() => indexCalls >= 1, "initial token index refresh");
     await page.locator("[data-testid='trial-session-freshness']").waitFor();
+    await waitFor(
+      () => activeRuntimeRequests.size === 0,
+      "runtime request settlement before hiding",
+    );
+    await setDocumentVisibility(page, "hidden");
+    await delay(150);
+    const hiddenRuntimeCalls = runtimeCalls;
+    await delay(3_350);
+    const runtimePausedWhileHidden = runtimeCalls === hiddenRuntimeCalls;
+    const indexCallsBeforeVisible = indexCalls;
+    await setDocumentVisibility(page, "visible");
+    await waitFor(() => runtimeCalls > hiddenRuntimeCalls, "visible runtime refresh");
+    await waitFor(() => indexCalls > indexCallsBeforeVisible, "visible index refresh");
+    const runtimeResumedWhenVisible = runtimeCalls > hiddenRuntimeCalls;
+    await waitFor(
+      () => activeRuntimeRequests.size === 0,
+      "visible runtime refresh settlement",
+    );
     const initialIndexCalls = indexCalls;
 
     runtimeSession = { id: createdSessionId, state: "running" };
@@ -222,6 +261,24 @@ async function probeLifecycle(browser, origin, basePath) {
       new URL(page.url()).hash === `#trial-session-${createdSessionId}`,
       "terminal history link did not navigate to its row",
     );
+    const terminalRowHighlighted = await launchedRow.evaluate(
+      (row, id) => row.getAttribute("data-session-id") === id && row.classList.contains("highlight"),
+      createdSessionId,
+    );
+    assert(terminalRowHighlighted, "terminal history link did not highlight the active row");
+    const sessionTimes = await launchedRow.locator("time").allInnerTexts();
+    const expectedSessionTimes = await page.evaluate((summary) => {
+      const formatter = new Intl.DateTimeFormat("ja-JP", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      return [
+        `開始: ${formatter.format(new Date(summary.started_epoch_seconds * 1_000))}`,
+        `最終更新: ${formatter.format(new Date(summary.modified_epoch_seconds * 1_000))}`,
+      ];
+    }, terminalSummary(createdSessionId));
+    const timeLabelsUseSharedJaJpFormat =
+      JSON.stringify(sessionTimes) === JSON.stringify(expectedSessionTimes);
 
     const freshnessBeforeFailure = await page
       .locator("[data-testid='trial-session-freshness']")
@@ -232,6 +289,7 @@ async function probeLifecycle(browser, origin, basePath) {
     await refreshError.waitFor();
     assertIncludes(await refreshError.innerText(), "最後に取得できた一覧", "stale data guidance");
     assert((await launchedRow.count()) === 1, "refresh failure removed the last successful row");
+    const refreshErrorRetainedLastSuccess = (await launchedRow.count()) === 1;
     const freshnessAfterFailure = await page
       .locator("[data-testid='trial-session-freshness']")
       .innerText();
@@ -247,12 +305,15 @@ async function probeLifecycle(browser, origin, basePath) {
     const beforeVisibility = indexCalls;
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await waitFor(() => indexCalls > beforeVisibility, "visible-tab refresh");
+    const focusRevalidated = indexCalls > beforeFocus;
+    const visibilityRevalidated = indexCalls > beforeVisibility;
 
     const reconnectLink = launchedRow.locator("[data-testid='session-reconnect-link']");
     assert(
       (await reconnectLink.getAttribute("href")) === `?session=${createdSessionId}`,
       "session deep link changed",
     );
+    const runtimeMaxConcurrentRequests = maxConcurrentRuntimeCalls;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
       reconnectLink.click(),
@@ -270,20 +331,55 @@ async function probeLifecycle(browser, origin, basePath) {
     const reconnectGetOnly =
       reconnectRequests.length > 0 && reconnectRequests.every((request) => request.method === "GET");
 
+    runtimeSession = { id: createdSessionId, state: "running" };
+    await page
+      .locator("[data-testid='runtime-status'][data-session-state='running']")
+      .waitFor({ timeout: 10_000 });
+    const runtimeLink = page.locator("[data-testid='runtime-session-link']");
+    const expectedRuntimeHref = `${prefix}try/?session=${createdSessionId}`;
+    assert(
+      (await runtimeLink.getAttribute("href")) === expectedRuntimeHref,
+      "runtime session badge did not use the base-path-safe Trial link",
+    );
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      runtimeLink.click(),
+    ]);
+    const runtimeBadgeNavigated =
+      new URL(page.url()).pathname === new URL(expectedRuntimeHref, origin).pathname &&
+      new URL(page.url()).searchParams.get("session") === createdSessionId;
+
     return {
       initial_index_calls: initialIndexCalls,
       runtime_calls: runtimeCalls,
+      runtime_max_concurrent_requests: runtimeMaxConcurrentRequests,
+      runtime_paused_while_hidden: runtimePausedWhileHidden,
+      runtime_resumed_when_visible: runtimeResumedWhenVisible,
       runtime_lease_refresh_calls: runtimeLeaseRefreshCalls,
       final_index_calls: indexCalls,
       no_periodic_index_polling: noPeriodicIndexPolling,
       optimistic_starting_text: startingText,
       terminal_text: terminalText,
-      refresh_error_retained_last_success: (await launchedRow.count()) === 1,
-      focus_revalidated: indexCalls > beforeFocus,
-      visibility_revalidated: indexCalls > beforeVisibility,
+      terminal_row_highlighted: terminalRowHighlighted,
+      time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
+      refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
+      focus_revalidated: focusRevalidated,
+      visibility_revalidated: visibilityRevalidated,
       reconnect_requests: reconnectRequests,
       reconnect_get_only: reconnectGetOnly,
-      ok: noPeriodicIndexPolling && reconnectGetOnly,
+      runtime_badge_navigated: runtimeBadgeNavigated,
+      ok:
+        noPeriodicIndexPolling &&
+        reconnectGetOnly &&
+        runtimeMaxConcurrentRequests === 1 &&
+        runtimePausedWhileHidden &&
+        runtimeResumedWhenVisible &&
+        terminalRowHighlighted &&
+        timeLabelsUseSharedJaJpFormat &&
+        refreshErrorRetainedLastSuccess &&
+        focusRevalidated &&
+        visibilityRevalidated &&
+        runtimeBadgeNavigated,
     };
   } finally {
     await page.close();
@@ -367,7 +463,7 @@ async function probeSourceMatrix(browser, origin, basePath) {
       const stateOk =
         repositoryCount === expectedRepositoryCount &&
         trialCount === expectedTrialCount &&
-        (expectedRepositoryCount > 0 || repositoryEmpty.includes("repository 記録なし")) &&
+        (expectedRepositoryCount > 0 || repositoryEmpty.includes("リポジトリ実行記録なし")) &&
         (scenario.authenticated || (indexCalls === 0 && trialText.includes("認証待ち")));
       results.push({
         id: scenario.id,
@@ -382,6 +478,81 @@ async function probeSourceMatrix(browser, origin, basePath) {
   }
 
   return { scenarios: results, ok: results.every((result) => result.state_ok) };
+}
+
+async function probeResourceRevalidation(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const retainedRun = repositoryRun("resource-retained", 1_723_769_600);
+  const refreshedRun = repositoryRun("resource-refreshed", 1_723_769_660);
+  let runs = [retainedRun];
+  let runsCalls = 0;
+  let failNextRuns = false;
+
+  try {
+    await page.route("**/api/runs", async (route) => {
+      runsCalls += 1;
+      if (failNextRuns) {
+        failNextRuns = false;
+        await json(route, 503, {
+          code: "synthetic_resource_refresh_failed",
+          error: "synthetic resource refresh failed",
+        });
+        return;
+      }
+      await json(route, 200, { runs, total: runs.length });
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
+    const retainedRow = page.locator(`.runs-panel .run-row[href*='${retainedRun.id}']`);
+    await retainedRow.waitFor();
+    const initialCalls = runsCalls;
+
+    failNextRuns = true;
+    await setDocumentVisibility(page, "hidden");
+    await setDocumentVisibility(page, "visible");
+    await waitFor(() => runsCalls > initialCalls, "visible resource revalidation");
+    await page.locator(".runs-panel [role='alert']").waitFor();
+    const failureRetainedPreviousData = (await retainedRow.count()) === 1;
+
+    runs = [refreshedRun, retainedRun];
+    const beforeFocus = runsCalls;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => runsCalls > beforeFocus, "focused resource revalidation");
+    await page.locator(`.runs-panel .run-row[href*='${refreshedRun.id}']`).waitFor();
+    const focusLoadedFreshData =
+      (await page.locator(".runs-panel .run-row").count()) === 2 &&
+      (await page.locator(".runs-panel [role='alert']").count()) === 0;
+
+    return {
+      initial_calls: initialCalls,
+      final_calls: runsCalls,
+      visibility_revalidated: runsCalls > initialCalls,
+      failure_retained_previous_data: failureRetainedPreviousData,
+      focus_loaded_fresh_data: focusLoadedFreshData,
+      ok: failureRetainedPreviousData && focusLoadedFreshData,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+function repositoryRun(id, modifiedEpochSeconds) {
+  return {
+    id,
+    modified_epoch_seconds: modifiedEpochSeconds,
+    report_path: `workspace/management/runs/${id}/acceptance.md`,
+    status: "completed",
+    status_text: "検証済み",
+    state: "pass",
+  };
+}
+
+function isRuntimeStatusRequest(request) {
+  return (
+    request.method() === "GET" &&
+    new URL(request.url()).pathname.endsWith("/api/runtime-status")
+  );
 }
 
 function syntheticOptions() {
@@ -551,6 +722,16 @@ async function waitFor(predicate, label) {
 
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+async function setDocumentVisibility(page, visibilityState) {
+  await page.evaluate((state) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibilityState);
 }
 
 function assert(condition, message) {

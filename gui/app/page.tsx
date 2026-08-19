@@ -4,7 +4,7 @@ import { Shell } from "../components/shell";
 import { GettingStarted } from "../components/getting-started";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
-import { dateLabel } from "../lib/format";
+import { dateTimeLabel } from "../lib/format";
 import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
@@ -35,7 +35,7 @@ export default function DashboardPage() {
     <Shell
       active="dashboard"
       title="概要"
-      description="repository に記録された検証・運用レポート、計測、固定アセットを確認します。"
+      description="repository に保存された実行記録、計測、固定アセットを確認します。"
     >
       <GettingStarted />
 
@@ -100,8 +100,8 @@ export default function DashboardPage() {
       <section className="panel runs-panel">
         <header className="panel-heading">
           <div>
-            <span className="panel-index">C / 検証・運用レポート</span>
-            <h2>repository の最近の記録</h2>
+            <span className="panel-index">C / リポジトリ実行記録</span>
+            <h2>repository の最近の実行記録</h2>
             <p className="source-note" data-testid="repository-run-source">
               参照元: workspace/management/runs
             </p>
@@ -127,7 +127,7 @@ export default function DashboardPage() {
               >
                 <strong>{run.id}</strong>
                 <span className={`status-badge ${statusTone(run.state)}`}>{run.status_text}</span>
-                <time>{dateLabel(run.modified_epoch_seconds, "時刻未記録")}</time>
+                <time>{dateTimeLabel(run.modified_epoch_seconds, "時刻未記録")}</time>
                 <span aria-hidden="true" className="row-arrow">↗</span>
               </a>
             ))}

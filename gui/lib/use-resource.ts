@@ -19,25 +19,70 @@ export function useResource<T>(resource: string): ResourceState<T> {
   });
 
   useEffect(() => {
-    const controller = new AbortController();
+    let cancelled = false;
+    let requestInFlight = false;
+    let refreshWhenSettled = false;
+    let controller: AbortController | undefined;
+
     setState({ data: null, error: null, loading: true });
-    fetch(apiPath(resource), { signal: controller.signal })
-      .then(async (response) => {
+
+    const revalidate = async (afterCurrent = false) => {
+      if (cancelled) return;
+      if (requestInFlight) {
+        refreshWhenSettled ||= afterCurrent;
+        return;
+      }
+
+      requestInFlight = true;
+      refreshWhenSettled = false;
+      controller = new AbortController();
+      setState((current) => ({ ...current, error: null, loading: true }));
+      try {
+        const response = await fetch(apiPath(resource), {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!response.ok) {
           throw await responseError(response);
         }
-        return response.json() as Promise<T>;
-      })
-      .then((data) => setState({ data, error: null, loading: false }))
-      .catch((error: unknown) => {
+        const data = (await response.json()) as T;
+        if (!cancelled) setState({ data, error: null, loading: false });
+      } catch (error: unknown) {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setState({
-          data: null,
-          error: describeError(error),
-          loading: false,
-        });
-      });
-    return () => controller.abort();
+        if (!cancelled) {
+          setState((current) => ({
+            data: current.data,
+            error: describeError(error),
+            loading: false,
+          }));
+        }
+      } finally {
+        requestInFlight = false;
+        controller = undefined;
+        if (!cancelled && refreshWhenSettled && document.visibilityState === "visible") {
+          refreshWhenSettled = false;
+          void revalidate();
+        }
+      }
+    };
+
+    const refresh = () => {
+      if (document.visibilityState === "visible") void revalidate();
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void revalidate(true);
+    };
+
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    void revalidate();
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [resource]);
 
   return state;

@@ -298,7 +298,7 @@ fn trial_route_is_wiring_only_and_shared_helpers_have_single_owners() {
         .map(|path| std::fs::read_to_string(path).unwrap())
         .collect::<String>();
     assert_eq!(gui.matches("function byteLabel(").count(), 1);
-    assert_eq!(gui.matches("function dateLabel(").count(), 1);
+    assert_eq!(gui.matches("function dateTimeLabel(").count(), 1);
 }
 
 #[test]
@@ -812,7 +812,7 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let titles = [
         ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
         ("gui/app/try/layout.tsx", "title: \"トライアル\""),
-        ("gui/app/runs/layout.tsx", "title: \"検証・運用レポート\""),
+        ("gui/app/runs/layout.tsx", "title: \"リポジトリ実行記録\""),
         ("gui/app/assets/layout.tsx", "title: \"拡張\""),
         ("gui/app/measurements/layout.tsx", "title: \"計測\""),
     ];
@@ -1422,6 +1422,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "x-commandagent-trial-authorization",
         "session.started_epoch_seconds",
         "session.modified_epoch_seconds",
+        "dateTimeLabel(session.started_epoch_seconds, \"反映待ち\")",
+        "dateTimeLabel(session.modified_epoch_seconds, \"反映待ち\")",
         "session.gate ?? \"unknown\"",
         "href={sessionLink(session.id)}",
         "return `?session=${encodeURIComponent(id)}`",
@@ -1436,6 +1438,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "previous === \"running\"",
         "runtimeLease === \"idle\" || runtimeLease === \"recovery_required\"",
         "mergeObservedSession",
+        "data-session-id={session.id}",
+        "className={highlight === session.id ? \"highlight\" : undefined}",
     ] {
         assert!(
             panel.contains(required),
@@ -1460,6 +1464,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "revalidationKey={sessionIndexRevision}",
         "setSessionIndexRevision((current) => current + 1)",
         "data-testid=\"terminal-session-history-link\"",
+        "highlight={highlightedSessionId}",
+        "setHighlightedSessionId(session.id)",
         "launchBlockReason !== null",
         "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
     ] {
@@ -1501,6 +1507,14 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "focus refresh",
         "visible-tab refresh",
         "reconnect_get_only",
+        "runtime_max_concurrent_requests",
+        "runtime_paused_while_hidden",
+        "runtime_resumed_when_visible",
+        "terminal_row_highlighted",
+        "time_labels_use_shared_ja_jp_format",
+        "runtime_badge_navigated",
+        "resource_revalidation",
+        "failure_retained_previous_data",
         "repository-only",
         "trial-only",
         "both",
@@ -1514,7 +1528,9 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
 
     let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
     assert!(shell.contains("RuntimeStatusContext.Provider value={runtime}"));
-    assert!(shell.contains("label: \"検証・運用レポート\""));
+    assert!(shell.contains("label: \"リポジトリ実行記録\""));
+    assert!(shell.contains("data-testid=\"runtime-session-link\""));
+    assert!(shell.contains("routePath(\"try\", runtimeSession.id)"));
     let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
@@ -1528,6 +1544,78 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     }
     assert!(dashboard.contains("参照元: workspace/management/runs"));
     assert!(panel.contains("EXECUTION ROOT / .anvil/runs"));
+}
+
+#[test]
+fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
+    let runtime = std::fs::read_to_string("gui/lib/use-runtime-status.ts").unwrap();
+    for required in [
+        "let requestInFlight = false",
+        "document.visibilityState === \"hidden\"",
+        "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
+        "document.removeEventListener(\"visibilitychange\", refreshWhenVisible)",
+        "controller?.abort()",
+        "signal: controller.signal",
+    ] {
+        assert!(
+            runtime.contains(required),
+            "runtime status visibility contract is missing {required:?}"
+        );
+    }
+
+    let gui = gui_source_files(Path::new("gui"))
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .collect::<String>();
+    assert_eq!(
+        gui.matches("useRuntimeStatus();").count(),
+        1,
+        "Shell must remain the sole runtime-status poller"
+    );
+
+    let resource = std::fs::read_to_string("gui/lib/use-resource.ts").unwrap();
+    for required in [
+        "window.addEventListener(\"focus\", refresh)",
+        "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
+        "data: current.data",
+        "cache: \"no-store\"",
+    ] {
+        assert!(
+            resource.contains(required),
+            "resource revalidation contract is missing {required:?}"
+        );
+    }
+
+    let format = std::fs::read_to_string("gui/lib/format.ts").unwrap();
+    assert_eq!(format.matches("Intl.DateTimeFormat").count(), 1);
+    assert!(format.contains("export function dateTimeLabel"));
+    for path in [
+        "gui/app/page.tsx",
+        "gui/app/runs/page.tsx",
+        "gui/components/trial-run.tsx",
+        "gui/components/trial-session-index.tsx",
+    ] {
+        assert!(
+            std::fs::read_to_string(path)
+                .unwrap()
+                .contains("dateTimeLabel("),
+            "{path} does not use the shared GUI date-time formatter"
+        );
+    }
+
+    let base_path = std::fs::read_to_string("gui/lib/base-path.ts").unwrap();
+    assert!(base_path.contains("`/try/?session=${encodeURIComponent(resourceId)}`"));
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert!(styles.contains(".session-list li.highlight"));
+    assert!(styles.contains("@keyframes session-row-highlight"));
+
+    let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
+    let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
+    let history = std::fs::read_to_string("docs/user/gui-history.md").unwrap();
+    for source in [&shell, &runs, &history] {
+        assert!(source.contains("リポジトリ実行記録"));
+        assert!(!source.contains("検証・運用レポート"));
+    }
 }
 
 fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {

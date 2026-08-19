@@ -7,6 +7,12 @@ This page owns runtime access, API, recovery, backup, and smoke guidance for an
 installed GUI. Run [GUI preflight](gui-setup.md#guided-setup-and-preflight)
 before binding a listener.
 
+The Shell owns one `runtime-status` poller for every page. It pauses while the
+document is hidden and refreshes immediately when the tab becomes visible.
+Repository records, measurements, and extension lists also revalidate on a
+visible-tab transition or window focus. A failed refresh reports the new error
+without removing the last successful list.
+
 ## Token and Origin boundaries
 
 `--trial-token-auth` accepts `on` or `off` and defaults to `off`. Off hides the
@@ -155,7 +161,8 @@ npm run smoke -- \
 
 Use `--overview-only` for the provider-free first-run/help check and
 `--read-only` for all read-only projections. The smoke verifies base-safe
-links, runtime/help copy, empty-state wording, extension labels/handoff,
-dashboard/API/SVG, Trial workflow, reconnect, and mobile layout. It records
+links, runtime visibility/concurrency, list revalidation, help copy, empty-state
+wording, extension labels/handoff, dashboard/API/SVG, Trial workflow,
+reconnect, and mobile layout. It records
 screenshots and `browser-smoke.json`; it never makes a successful result by
 weakening Gate 1 or terminal acceptance.

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { describeError } from "../lib/errors";
-import { sessionTimeLabel } from "../lib/format";
+import { dateTimeLabel } from "../lib/format";
 import { fetchSessionIndex } from "../lib/trial-api";
 import type {
   TrialSessionIndex,
@@ -18,6 +18,7 @@ type ObservedSession = Pick<TrialSessionSummary, "gate" | "id" | "status">;
 
 type TrialSessionIndexProps = {
   accessToken: string;
+  highlight: string | null;
   observedSession: ObservedSession | null;
   onAccessTokenRejected: (reason: unknown, rejectedValue: string) => void;
   onLeaseChange: (lease: TrialWorkspaceLease | null) => void;
@@ -26,6 +27,7 @@ type TrialSessionIndexProps = {
 
 export function TrialSessionIndexPanel({
   accessToken,
+  highlight,
   observedSession,
   onAccessTokenRejected,
   onLeaseChange,
@@ -159,7 +161,7 @@ export function TrialSessionIndexPanel({
         <p className="session-index-freshness" data-testid="trial-session-freshness">
           {lastSuccessAt === null
             ? refreshing ? "実行ルートを確認中…" : "取得成功記録なし"
-            : `最終取得: ${lastSuccessAt}${refreshing ? " · 再検証中" : ""}`}
+            : `最終取得: ${dateTimeLabel(lastSuccessAt, "取得成功記録なし")}${refreshing ? " · 再検証中" : ""}`}
         </p>
       )}
       {error !== null && (
@@ -175,11 +177,16 @@ export function TrialSessionIndexPanel({
       {authenticated && sessions.length > 0 && (
         <ol className="session-list">
           {sessions.map((session) => (
-            <li id={sessionAnchor(session.id)} key={session.id}>
+            <li
+              className={highlight === session.id ? "highlight" : undefined}
+              data-session-id={session.id}
+              id={sessionAnchor(session.id)}
+              key={session.id}
+            >
               <div>
                 <code>{session.id}</code>
-                <time>開始: {sessionTimeLabel(session.started_epoch_seconds)}</time>
-                <time>最終更新: {sessionTimeLabel(session.modified_epoch_seconds)}</time>
+                <time>開始: {dateTimeLabel(session.started_epoch_seconds, "反映待ち")}</time>
+                <time>最終更新: {dateTimeLabel(session.modified_epoch_seconds, "反映待ち")}</time>
               </div>
               <span className={`session-status ${session.status}`}>
                 {session.gate ?? "unknown"} / {session.status}

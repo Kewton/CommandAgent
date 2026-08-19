@@ -1,14 +1,17 @@
 "use client";
 
+import { useState } from "react";
+
 import { DocumentViewer } from "./document-viewer";
 import { GateCardMarkdown } from "./gate-card-markdown";
 import { TrialSessionIndexPanel } from "./trial-session-index";
-import { byteLabel, elapsedLabel, lastSuccessLabel } from "../lib/format";
+import { byteLabel, dateTimeLabel, elapsedLabel } from "../lib/format";
 import type { MonitorStatus } from "../lib/trial-monitor";
 import type { PolledSession, TrialWorkspaceLease } from "../lib/types";
 import { useTrialRun, type ScreenStage } from "../hooks/use-trial-run";
 
 export function TrialRun() {
+  const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
   const {
     artifacts,
     busy,
@@ -430,7 +433,7 @@ export function TrialRun() {
             <div>
               <strong>監視: {monitorLabel(monitor.status)}</strong>
               <span>
-                最終更新成功: {lastSuccessLabel(monitor.lastSuccessAt)}
+                最終更新成功: {dateTimeLabel(monitor.lastSuccessAt ?? "", "未接続")}
               </span>
             </div>
             <small>
@@ -554,6 +557,7 @@ export function TrialRun() {
               className="terminal-history-link"
               data-testid="terminal-session-history-link"
               href={`#trial-session-${session.id}`}
+              onClick={() => setHighlightedSessionId(session.id)}
             >
               このセッションを GUI Trial 実行履歴で確認
             </a>
@@ -604,6 +608,7 @@ export function TrialRun() {
       )}
           <TrialSessionIndexPanel
             accessToken={trialToken}
+            highlight={highlightedSessionId}
             observedSession={observedSession}
             onAccessTokenRejected={rejectTrialToken}
             onLeaseChange={setWorkspaceLease}

@@ -19,14 +19,16 @@ export function withBasePath(path: string): string {
   return `${BASE_PATH}${normalized}`;
 }
 
-export function routePath(route: GuiRoute, runId?: string): string {
+export function routePath(route: GuiRoute, resourceId?: string): string {
   switch (route) {
     case "dashboard":
       return "/";
     case "try":
-      return "/try/";
+      return resourceId === undefined
+        ? "/try/"
+        : `/try/?session=${encodeURIComponent(resourceId)}`;
     case "run":
-      return `/runs/?id=${encodeURIComponent(runId ?? "")}`;
+      return `/runs/?id=${encodeURIComponent(resourceId ?? "")}`;
     case "assets":
       return "/assets/";
     case "measurements":
