@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::planner::pack::catalog::PackLocator;
 use crate::planner::pack::catalog::PackSource;
 
 use super::band_catalog::BandValue;
@@ -74,6 +75,35 @@ impl ConfirmationIdentity {
             route.intent.as_str(),
             &pack,
         )?;
+        Self::from_validated(request, workspace, route, band, pins, pack)
+    }
+
+    pub fn new_with_locator(
+        request: String,
+        workspace: &Path,
+        route: &RouteCandidate,
+        band: &BandValue,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        locator: &PackLocator,
+    ) -> anyhow::Result<Self> {
+        super::pack_catalog::validate_selection_with_locator(
+            route.profile.as_str(),
+            route.intent.as_str(),
+            &pack,
+            locator,
+        )?;
+        Self::from_validated(request, workspace, route, band, pins, pack)
+    }
+
+    fn from_validated(
+        request: String,
+        workspace: &Path,
+        route: &RouteCandidate,
+        band: &BandValue,
+        pins: ExecutionPins,
+        pack: PackSelection,
+    ) -> anyhow::Result<Self> {
         let workspace = workspace
             .canonicalize()
             .with_context(|| format!("canonicalize workspace {}", workspace.display()))?;

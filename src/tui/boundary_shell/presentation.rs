@@ -10,7 +10,7 @@ pub fn render_gate_one(
     identity: &ConfirmationIdentity,
     pack_locator: &PackLocator,
 ) -> anyhow::Result<String> {
-    validate_complete_identity(identity)?;
+    validate_complete_identity_with_locator(identity, pack_locator)?;
     let card_hash = identity.card_hash()?;
     let mut lines = vec![
         "# Gate 1 — 実行前の確認".to_string(),
@@ -253,7 +253,7 @@ fn render_pack(
     Ok(())
 }
 
-fn validate_complete_identity(identity: &ConfirmationIdentity) -> anyhow::Result<()> {
+fn validate_identity_fields(identity: &ConfirmationIdentity) -> anyhow::Result<()> {
     let required = [
         ("request", identity.request.as_str()),
         ("workspace", identity.workspace.as_str()),
@@ -292,7 +292,25 @@ fn validate_complete_identity(identity: &ConfirmationIdentity) -> anyhow::Result
             identity.band_denominator
         );
     }
+    Ok(())
+}
+
+fn validate_complete_identity(identity: &ConfirmationIdentity) -> anyhow::Result<()> {
+    validate_identity_fields(identity)?;
     pack_catalog::validate_selection(&identity.profile, &identity.intent, &identity.pack)
+}
+
+fn validate_complete_identity_with_locator(
+    identity: &ConfirmationIdentity,
+    locator: &PackLocator,
+) -> anyhow::Result<()> {
+    validate_identity_fields(identity)?;
+    pack_catalog::validate_selection_with_locator(
+        &identity.profile,
+        &identity.intent,
+        &identity.pack,
+        locator,
+    )
 }
 
 fn validate_terminal_identity(

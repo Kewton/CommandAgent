@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use serde_json::json;
 
+use crate::planner::pack::catalog::PackLocator;
+
 use self::acceptance::{NextAction, TerminalPresentation};
 use self::ambiguity::RouteProposal;
 use self::confirmation::{ConfirmationIdentity, ConfirmedDispatch, ExecutionPins, PackSelection};
@@ -134,6 +136,37 @@ impl BoundaryShell {
         pins: ExecutionPins,
         pack: PackSelection,
     ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_gate_one_inner(proposal, request.into(), workspace, pins, pack, None)
+    }
+
+    pub fn begin_gate_one_with_locator(
+        &mut self,
+        proposal: RouteProposal,
+        request: impl Into<String>,
+        workspace: &Path,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        locator: &PackLocator,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_gate_one_inner(
+            proposal,
+            request.into(),
+            workspace,
+            pins,
+            pack,
+            Some(locator),
+        )
+    }
+
+    fn begin_gate_one_inner(
+        &mut self,
+        proposal: RouteProposal,
+        request: String,
+        workspace: &Path,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        locator: Option<&PackLocator>,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
         if !matches!(
             self.state,
             BoundaryState::Collecting
@@ -148,8 +181,13 @@ impl BoundaryShell {
         let band = selected
             .band()
             .context("registered route is missing a capability band")?;
-        let identity =
-            ConfirmationIdentity::new(request.into(), workspace, &selected, band, pins, pack)?;
+        let identity = if let Some(locator) = locator {
+            ConfirmationIdentity::new_with_locator(
+                request, workspace, &selected, band, pins, pack, locator,
+            )?
+        } else {
+            ConfirmationIdentity::new(request, workspace, &selected, band, pins, pack)?
+        };
         let card_hash = identity.card_hash()?;
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),

@@ -19,6 +19,7 @@ pub(crate) mod runtime;
 mod schema;
 mod score;
 mod strict_yaml;
+pub mod supply;
 mod vocabulary;
 
 pub use floor::{ConformanceError, ConformanceReport, conform, conform_directory};
@@ -28,6 +29,10 @@ pub use schema::{
 };
 pub use score::{
     AtomState, ScoreAtom, ScoreAtomVector, ScoreDeclaration, ScoreUsage, ScoreVector, ScoreWeight,
+};
+pub use supply::{
+    Action as SupplyAction, Actor, JournalEntry, ScrubReport, StageReport, StagedFile,
+    SuppliedPack, SupplyError, SupplyRoot,
 };
 pub use vocabulary::{
     AssistSource, CheckId, ExtractionId, InjectionPoint, NormalizerId, PackIntent, PackProfile,
@@ -41,6 +46,8 @@ const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_MATERIAL_BYTES: u64 = 65_536;
 const MAX_TOTAL_MATERIAL_BYTES: u64 = 262_144;
 const MATERIALS_DIRECTORY: &str = "materials";
+/// Pack subtree of a repository root or an operator-supplied extension root.
+pub const PACKS_DIRECTORY: &str = "packs";
 
 #[derive(Debug, Error)]
 pub enum PackError {
@@ -208,10 +215,29 @@ fn validate_pack_directory(path: &Path) -> Result<(), PackError> {
         let name = entry.file_name();
         let supported = matches!(
             name.to_str(),
-            Some(ASSIST_FILE | EVAL_FILE | MATERIALS_DIRECTORY | "pack.sha256" | "RETIRED")
+            Some(
+                ASSIST_FILE
+                    | EVAL_FILE
+                    | MATERIALS_DIRECTORY
+                    | catalog::PACK_PIN_FILE
+                    | catalog::RETIRED_MARKER_FILE
+            )
         );
         if !supported {
             return Err(PackError::UnsupportedMember { path: entry.path() });
+        }
+        if matches!(
+            name.to_str(),
+            Some(catalog::PACK_PIN_FILE | catalog::RETIRED_MARKER_FILE)
+        ) && !entry
+            .file_type()
+            .map_err(|source| PackError::Io {
+                path: entry.path(),
+                source,
+            })?
+            .is_file()
+        {
+            return Err(PackError::NotRegularFile { path: entry.path() });
         }
     }
     Ok(())

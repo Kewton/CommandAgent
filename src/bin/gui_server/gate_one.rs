@@ -123,11 +123,14 @@ pub(super) fn gate_one(
         .candidates
         .first()
         .expect("unique deterministic routes have one selected candidate");
+    let locator =
+        PackLocator::with_extension_root(&state.repository_root, state.extension_root.clone());
     let pack = match spec.pack.as_deref() {
-        Some(selector) => pack_catalog::select(
+        Some(selector) => pack_catalog::select_with_locator(
             selected.profile.as_str(),
             selected.intent.as_str(),
             selector,
+            &locator,
         )
         .map_err(unprocessable)?,
         None => PackSelection::None,
@@ -156,11 +159,10 @@ pub(super) fn gate_one(
     };
     let mut shell = BoundaryShell::new(confirmation_root, None);
     let identity = shell
-        .begin_gate_one(proposal, spec.goal.clone(), workspace, pins, pack)
+        .begin_gate_one_with_locator(proposal, spec.goal.clone(), workspace, pins, pack, &locator)
         .map_err(unprocessable)?
         .clone();
-    let card =
-        render_gate_one(&identity, &PackLocator::new(&state.repository_root)).map_err(internal)?;
+    let card = render_gate_one(&identity, &locator).map_err(internal)?;
     Ok((shell, identity, card))
 }
 

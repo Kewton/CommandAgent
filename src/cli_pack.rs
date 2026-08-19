@@ -109,6 +109,11 @@ fn resolve_inner(cli: &Cli, config: &Config) -> Result<Option<ResolvedPack>, Pac
         id,
         version,
     )?;
+    if crate::planner::pack::catalog::is_retired(&directory) {
+        return Err(PackCliError::new(format!(
+            "pack `{id}@{version}` is retired and cannot be selected"
+        )));
+    }
     let loaded = crate::planner::pack::load_directory(&directory).map_err(|error| {
         PackCliError::new(format!(
             "load selected pack {}: {error}",

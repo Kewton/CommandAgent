@@ -170,14 +170,43 @@ warning.
 
 Each row shows both `pack.sha256` and the hash recomputed from the exact pack
 bytes. A missing pin, parse failure, retirement marker, or hash mismatch stays
-visible as a row warning and is never presented as approved. The endpoint and
-screen are read-only; they do not pin, retire, rewrite, or approve a pack.
+visible as a row warning and is never presented as approved. The catalog screen
+remains read-only. Authenticated extension-supply clients use the dedicated API
+below; the GUI server delegates every filesystem change to
+`planner::pack::supply::SupplyRoot`.
 
-`Trial で使う` is available only for a non-retired admitted row whose observed
-hash matches its pin. The base-path-safe link opens Trial with that pack and its
-registered profile preselected. Local and unapproved repository packs remain
-visible but cannot be handed to Trial until the authenticated selection API
-admits that source.
+### Extension supply API
+
+Configure an existing private `--extension-root` to enable these routes. GET
+requests require Trial authentication. POST requests additionally require a
+same-host or allowlisted `Origin`, accept JSON only, and cap the complete body
+at 1 MiB.
+
+| Route | Operation |
+| --- | --- |
+| `GET api/extensions/packs` | List local packs as `staged`, `pinned`, or `retired`, including the observed hash and conformance state |
+| `GET api/extensions/packs/{id}/{version}` | Return the editable UTF-8 member bundle and the latest verification result |
+| `POST api/extensions/packs` | Atomically stage `assist.yaml`, `eval.yaml`, and bounded `materials/*.md`, then verify them |
+| `POST api/extensions/packs/{id}/{version}/verify` | Re-run strict decoding, vocabulary, floor, hash, and credential-scrub checks |
+| `POST api/extensions/packs/{id}/{version}/pin` | Create `pack.sha256` only when the submitted `sha256:` hash matches |
+| `POST api/extensions/packs/{id}/{version}/retire` | Create the `RETIRED` marker without deleting pack bytes, the pin, or history |
+
+There are no PUT, PATCH, DELETE, unretire, or pin-overwrite routes. A failed
+verification returns `extension_verification_failed` with a diagnostic report;
+conflicting lifecycle changes return `extension_conflict`; malformed identities,
+paths, members, or JSON return `extension_invalid_request`. An unconfigured root
+returns `extensions_disabled`.
+
+Supply operations append scrubbed records to
+`<extension-root>/journal.jsonl`. Keep the extension root owner-private and
+include the complete root—including packs, pins, retirement markers, and the
+append-only journal—in normal operator backups.
+
+`Trial で使う` is available for a non-retired admitted row or a conformant,
+exact-byte pinned local row. The base-path-safe link opens Trial with that pack
+and its registered profile preselected. Unpinned, stale, retired, and
+unapproved repository packs remain visible but are not offered by
+`api/pack-options`.
 
 ## Trial run: Gate 1 through Gate 3/4
 
@@ -188,7 +217,8 @@ price** validates those empty fields in the browser before making a proposal
 request.
 
 The browser obtains profile and provider choices from `GET api/trial-options`
-and admitted exact-version pack choices from `GET api/pack-options`.
+and exact-version admitted plus conformant pinned local pack choices from
+`GET api/pack-options`.
 Profiles are the server's current `admitted_profiles()` set and include a short
 scope description. For `python-cli × create`, the pack selector offers
 `cli-assist@1.0.0` and `cli-assist@1.1.0` with the supply source **承認済み**.
@@ -399,8 +429,8 @@ followed during listing, and individual text views are capped at 1 MiB.
 Trial run adds these bounded routes:
 
 `GET api/trial-options` and `GET api/pack-options` are unauthenticated,
-read-only projections of compiled profile/provider metadata and the admitted
-pack catalog, so the form can be populated before a Trial token is entered.
+read-only projections of compiled profile/provider metadata and selectable
+pack metadata, so the form can be populated before a Trial token is entered.
 They neither inspect the execution workspace nor contact a provider.
 
 When `--trial-token-auth on` is selected, every other route in this table
@@ -413,7 +443,7 @@ requests require a same-host Origin or an origin admitted by
 | Route | Operation |
 | --- | --- |
 | `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
-| `GET api/pack-options` | Return admitted exact-version pack pins, compatibility, and supply-source labels |
+| `GET api/pack-options` | Return admitted and conformant pinned local exact-version pack pins, compatibility, and supply-source labels |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
 | `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |
 | `GET api/trial-workspace` | Read the current workspace lease and active/recovery session ID |
