@@ -303,6 +303,49 @@ async function runCase(smokeCase) {
       runLedgerAccessibility.invalidTableRoleCount === 0 &&
       runLedgerAccessibility.nativeLinkRows;
 
+    const gettingStarted = page.locator("[data-testid='getting-started']");
+    await gettingStarted.waitFor();
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-getting-started.png`),
+    });
+    const prerequisiteStatuses = await page
+      .locator("[data-testid='getting-started-prerequisites'] .prerequisite-row")
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-status")));
+    await page.locator("[data-testid='getting-started-sample']").click();
+    await page.locator("[data-testid='gate-one-primer']").waitFor();
+    await page
+      .locator("[data-testid='trial-pack'] option[value='cli-assist@1.0.0']")
+      .waitFor({ state: "attached" });
+    const samplePreset = {
+      goal: await page.locator("[data-testid='trial-goal']").inputValue(),
+      profile: await page.locator("[data-testid='trial-profile']").inputValue(),
+      pack: await page.locator("[data-testid='trial-pack']").inputValue(),
+      primer: await page.locator("[data-testid='gate-one-primer']").innerText(),
+    };
+    const samplePresetOk =
+      samplePreset.goal === "Create a CLI --pattern filter command" &&
+      samplePreset.profile === "python-cli" &&
+      samplePreset.pack === "cli-assist@1.0.0" &&
+      samplePreset.primer.includes("Gate 1");
+    await page.goBack({ waitUntil: "networkidle" });
+    await gettingStarted.waitFor();
+    await page.locator("[data-testid='getting-started-close']").click();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator("[data-testid='runtime-status']").waitFor();
+    await page.waitForTimeout(100);
+    const dismissalPersistsInTab = (await gettingStarted.count()) === 0;
+    const gettingStartedOk =
+      prerequisiteStatuses.length === 3 &&
+      prerequisiteStatuses.every((status) => status === "ready" || status === "action_required") &&
+      samplePresetOk &&
+      dismissalPersistsInTab;
+    dashboard.getting_started = {
+      prerequisite_statuses: prerequisiteStatuses,
+      sample_preset: samplePreset,
+      dismissal_persists_in_tab: dismissalPersistsInTab,
+    };
+
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-dashboard.png`),
@@ -318,7 +361,7 @@ async function runCase(smokeCase) {
         run_ledger_accessibility: runLedgerAccessibility,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
-        ok: dashboardOk && dashboardAccessible && consoleErrors.length === 0,
+        ok: dashboardOk && dashboardAccessible && gettingStartedOk && consoleErrors.length === 0,
       };
     }
     const assets = await probePage(
@@ -342,6 +385,7 @@ async function runCase(smokeCase) {
     const readOnlyOk =
       dashboardOk &&
       dashboardAccessible &&
+      gettingStartedOk &&
       assets.status === 200 &&
       assets.headingMatches &&
       assets.titleMatches &&

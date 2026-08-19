@@ -1,6 +1,7 @@
 "use client";
 
 import { Shell } from "../components/shell";
+import { GettingStarted } from "../components/getting-started";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
 import { dateLabel } from "../lib/format";
@@ -36,6 +37,8 @@ export default function DashboardPage() {
       title="概要"
       description="repository に記録された検証・運用レポート、計測、固定アセットを確認します。"
     >
+      <GettingStarted />
+
       <section className="metric-strip" aria-label="リポジトリ概要">
         <div>
           <span>表示件数 / 総数</span>

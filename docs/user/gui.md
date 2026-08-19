@@ -21,6 +21,24 @@ cd gui
 npm ci --include=dev
 ```
 
+## はじめに
+
+概要ページを初めて開くと、ページ内容の最上部に **はじめに** が表示されます。
+`runtime-status` による前提チェックは、Trial の作業場所、`commandagent` CLI、
+Trial アクセスをそれぞれ **準備済み**、**未設定**、**要対応** で示します。
+**閉じる** を選ぶと、同じブラウザータブではページを移動したり再読み込みしたり
+しても再表示されません。別のタブでは独立して表示されます。
+
+**サンプル目標を Trial に入力** は、Python CLI の小さな目標、プロファイル、
+承認済み pack を Trial フォームに設定します。実行モデルと計画モデルの正確な ID
+は利用環境ごとに異なるため自動入力しません。Gate 1 のプライマーを読み、モデル
+ID を入力して契約カードを取得し、内容を確認してください。サンプルを選んだだけで
+CLI が起動したり Gate 1 の確認が省略されたりすることはありません。
+
+用語ヘルプでは **Gate 1**（CLI 実行前の確認）、**execution root**（Trial が変更
+できる専用作業場所）、**pack**（版とハッシュを固定する追加検証知識）を確認
+できます。この節は E-23 (#122) で `getting-started-gui` へ移設する予定です。
+
 ## Guided setup and preflight
 
 From a new checkout, the setup script can build the export and server, create

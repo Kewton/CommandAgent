@@ -219,6 +219,14 @@ fn gui_server_disables_trial_without_an_execution_root() {
     assert_eq!(runtime["trial_available"], false);
     assert_eq!(runtime["trial_token_auth_enabled"], false);
     assert!(runtime["session"].is_null());
+    assert_eq!(
+        runtime["prerequisites"]["execution_root"]["status"],
+        "unconfigured"
+    );
+    assert_eq!(
+        runtime["prerequisites"]["trial_authentication"]["status"],
+        "ready"
+    );
     let response =
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
@@ -525,6 +533,13 @@ fn gui_server_defaults_trial_token_auth_to_off() {
     let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
     assert_eq!(runtime["trial_available"], true);
     assert_eq!(runtime["trial_token_auth_enabled"], false);
+    for prerequisite in [
+        "execution_root",
+        "commandagent_binary",
+        "trial_authentication",
+    ] {
+        assert_eq!(runtime["prerequisites"][prerequisite]["status"], "ready");
+    }
 
     let index = server.request_without_access("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);
@@ -864,6 +879,10 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert_eq!(idle["trial_available"], true);
     assert_eq!(idle["trial_token_auth_enabled"], true);
     assert!(idle["session"].is_null());
+    assert_eq!(
+        idle["prerequisites"]["trial_authentication"]["status"],
+        "action_required"
+    );
     let spec = serde_json::json!({
         "goal": "Create a CLI --pattern filter command",
         "profile": "python-cli",

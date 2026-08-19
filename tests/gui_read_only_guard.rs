@@ -316,6 +316,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "option.source_label",
         "data-testid=\"trial-profile-description\"",
         "data-testid=\"trial-provider-model-hint\"",
+        "data-testid=\"gate-one-primer\"",
         "プロバイダーを変更しても実行モデルは自動更新されません。",
         "契約を確認する前に、目標を入力してください。",
         "契約を確認する前に、実行モデルの正確な ID を入力してください。",
@@ -780,6 +781,19 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     assert!(dashboard.contains("data-testid=\"assets-link\""));
+    let getting_started = std::fs::read_to_string("gui/components/getting-started.tsx").unwrap();
+    for required in [
+        "data-testid=\"getting-started\"",
+        "data-testid=\"getting-started-sample\"",
+        "data-testid=\"getting-started-close\"",
+        "window.sessionStorage",
+        "?sample=python-cli",
+    ] {
+        assert!(
+            getting_started.contains(required),
+            "getting-started guide is missing {required:?}"
+        );
+    }
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert!(styles.contains("grid-template-columns: repeat(5, minmax(0, 1fr));"));
     assert!(styles.contains(".page-intro > p {\n    display: none;"));
@@ -801,7 +815,19 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let server = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(server.contains("/api/runtime-status"));
     let runtime = std::fs::read_to_string("src/bin/gui_server/runtime_status.rs").unwrap();
-    assert!(runtime.contains("runtime_status(state.trial_access.authentication_enabled())"));
+    for required in [
+        "state.trial_workspace.runtime_status(authentication_enabled)",
+        "execution_root: execution_root(&state)",
+        "commandagent_binary: commandagent_binary(&state.commandagent_bin)",
+        "trial_authentication:",
+        "status: \"unconfigured\"",
+        "status: \"action_required\"",
+    ] {
+        assert!(
+            runtime.contains(required),
+            "runtime status is missing {required:?}"
+        );
+    }
 }
 
 #[test]

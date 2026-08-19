@@ -59,6 +59,12 @@ const initialSpec: SessionSpec = {
   pack: null,
 };
 
+const pythonCliSample: Pick<SessionSpec, "goal" | "profile" | "pack"> = {
+  goal: "Create a CLI --pattern filter command",
+  profile: "python-cli",
+  pack: "cli-assist@1.0.0",
+};
+
 export type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
 
 type MonitorState = {
@@ -112,6 +118,14 @@ export function useTrialRun(
     stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
   const [artifacts, setArtifacts] = useState<DocumentSummary[]>([]);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("sample") !== "python-cli") return;
+    setSpec((current) => ({
+      ...current,
+      ...pythonCliSample,
+    }));
+  }, []);
   const [evidenceDocument, setEvidenceDocument] = useState<DocumentRecord | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
