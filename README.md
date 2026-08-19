@@ -74,6 +74,15 @@ provider.
 `<your-model>` is a placeholder, not a literal model ID. Replace it with a
 model that actually exists in your local `ollama list` output.
 
+Continue at the layer you need:
+
+- [CLI getting started](docs/user/getting-started-cli.md) — provider, config,
+  offline doctor, first loop, and exact-pack A/B
+- [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
+  sample Trial, Gate 1, and result reading
+- [Extensions](docs/user/gui-extensions.md) — pack/profile supply, lifecycle,
+  naming, and the path from a private extension to review
+
 ## Install
 
 ### Prerequisites
@@ -118,7 +127,7 @@ For guided prerequisite checks, installation, and optional provider/probe
 setup, run `./scripts/setup.sh`. Use `--yes` for non-interactive safe defaults
 or `--check-only` to inspect prerequisites without changing anything.
 
-Operators can build and preflight the [management GUI](docs/user/gui.md) with
+Operators can build and preflight the [management GUI](docs/user/gui-setup.md) with
 `./scripts/setup.sh --gui`. Add `--write-config --extension-root <dir>` to
 create a private extension skeleton and an example
 [business preset](docs/guide/en/configuration.md#presets) without overwriting an
@@ -210,7 +219,7 @@ automatically. Live run, plan, and repair artifacts continue to use their
 existing `.anvil/` paths.
 
 A preset is selected with `commandagent --preset <name>`. See the
-[configuration guide](docs/guide/README.md#configuration) for the supported
+[configuration guide](docs/guide/en/configuration.md) for the supported
 fields and precedence rules.
 
 ## Development and security

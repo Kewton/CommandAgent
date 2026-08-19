@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Add the repository's MIT License, contribution guide, and changelog.
 - Add documented `just` development tasks and a reproducible Dev Container.
+- Reorganize CLI, GUI, and extension documentation by reader, with stable GUI
+  compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
 
 ### Fixed
 

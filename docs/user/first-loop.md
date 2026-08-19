@@ -1,5 +1,7 @@
 # はじめての境界ループ
 
+[CLI 入門](getting-started-cli.md) | [CLI リファレンス](../guide/ja/cli-reference.md)
+
 この手順は、CommandAgentを初めて触る人が、依頼の確認、無対話実行、
 検収シートの判定までを自力で1周し、その後にpackのパラメータだけを
 変えたローカルA/Bを1回行うためのものです。リポジトリrootから実行して
