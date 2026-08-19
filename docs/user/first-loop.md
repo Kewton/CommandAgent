@@ -141,15 +141,18 @@ fullでなければGate 4がシート全文、節5、typed next actionsを表示
 - `retry`: 同じ構成でもう一度Gate 1から確認する。
 - `recovery_circle`: 失敗証拠を引き継ぐ回復円環へ切り替える。
 - `elevated_model`: 上位モデル構成を新しい値札とpinで確認する。
-- `pack_change`: compatibleなadmitted packへ変更して再確認する。
+- `pack_change`: `/pack <id@version>`でcompatibleなadmitted packへ変更し、
+  新しいGate 1カードを再確認する。
 - `human_directive`: 失敗runへ追加指示を保存・確認して同じworkspaceで継続する。
 - `close`: 実行を増やさず閉じる。
 
 現行REPLでは、失敗runに限り`/directive <instruction>`で追加指示を
 提案できます。指示は資格情報検査後にhash付きで保存され、表示された
 `/confirm-directive <hash>`を明示実行するまで継続runへ渡りません。
-再試行・elevated・pack変更など、その他のGate 4選択肢は引き続き
-新しいGate 1確認が必要で、勝手に次の処理へ進むことはありません。
+`pack_change`がavailableなら、たとえば`/pack cli-assist@1.0.0`を入力します。
+selector、exact-byte hash、検証箇所、供給元を含む新しいGate 1が表示され、
+新しい`/confirm <hash>`なしには次のrunへ進みません。再試行・elevatedなど、
+その他のconsequentialなGate 4選択肢にも新しいGate 1確認が必要です。
 
 ## 2. packを1パラメータだけ変えてA/Bする
 
@@ -165,6 +168,16 @@ packの効果は、同じsuiteでpack pinだけを変えて測ります。ここ
 ```bash
 commandagent --extension-root packs --profile python-cli --intent create --packs
 ```
+
+同じprofile/intentでREPLを起動している場合、`/packs`はこの`--packs`と同一内容を
+表示します。最初のGate 1からpackを使う依頼は次のように入力します。
+
+```text
+Python CLIのfilterを作る --pack cli-assist@1.1.0
+```
+
+Gate 1には`cli-assist@1.1.0`、`sha256:`付きhash、検証箇所、供給元が表示されます。
+`/confirm`後は完全一致packがrunへ導入され、eventsに`pack_injected`が残ります。
 
 ### scaffoldと1パラメータ変更
 

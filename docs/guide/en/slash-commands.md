@@ -8,14 +8,16 @@ source of truth for the installed binary.
 
 ## Command reference
 
-The registry contains 15 primary entries. `/quit` is a separately accepted
-command name and an alias of `/exit`, giving 16 accepted names in total.
+The registry contains 17 primary entries. `/quit` is a separately accepted
+command name and an alias of `/exit`, giving 18 accepted names in total.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
 | `/help` | `/help` | Show the command list, footer hint, queued-input limits, multi-line continuation, and interrupt behavior. |
 | `/status` | `/status` | Show effective configuration and provider readiness. |
 | `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
+| `/packs` | `/packs` | List compatible admitted and local packs with the same columns and ordering as `commandagent --packs` for the active profile and intent. |
+| `/pack` | `/pack <id@version>` | At Gate 4, select a compatible admitted exact-byte pack and return to a new Gate 1 card. |
 | `/runs` | `/runs` | List recent workspace runs and recovery availability. |
 | `/resume` | `/resume [run-id\|yaml-path]` | Prepare and, after confirmation, resume a recovery UltraPlan. An empty argument selects the latest recoverable run when available. |
 | `/plan` | `/plan` | Show the active plan and current activity. |
@@ -55,6 +57,22 @@ before applying them.
 /plan-run --profile nextjs --style compact "Build an app on port 3011"
 /ultra-plan-run --prompt-layout stable Improve the current project
 ```
+
+## Gate 1 pack selection
+
+Append `--pack <id@version>` to a plain request to freeze a compatible admitted
+pack in Gate 1. The card shows its selector, exact-byte `sha256:` hash,
+injection point, supply source, and byte verification status. Confirmation
+installs that exact selection for the run and records `pack_injected` in the
+event stream.
+
+```text
+Create a Python CLI filter --pack cli-assist@1.1.0
+```
+
+Use `/packs` to list choices. After a non-full run, an available `pack_change`
+action is performed with `/pack <id@version>`; this produces a new Gate 1 card
+and requires a new `/confirm <hash>` before dispatch.
 
 ## Goal text and quoting
 

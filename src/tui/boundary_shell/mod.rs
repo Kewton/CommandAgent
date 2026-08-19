@@ -174,6 +174,42 @@ impl BoundaryShell {
         }
     }
 
+    pub fn begin_pack_change(
+        &mut self,
+        previous: &ConfirmationIdentity,
+        pack: PackSelection,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        if !matches!(self.state, BoundaryState::FailureReady(_)) {
+            bail!("pack changes are available only at Gate 4");
+        }
+        pack_catalog::validate_selection(&previous.profile, &previous.intent, &pack)?;
+        self.select_next_action(NextAction::PackChange)?;
+        let mut identity = previous.clone();
+        identity.pack = pack;
+        let card_hash = identity.card_hash()?;
+        crate::eval_events::emit(
+            self.audit_events_path.as_deref(),
+            json!({
+                "event": "route_proposed",
+                "profile": identity.profile,
+                "intent": identity.intent,
+                "task_family": identity.task_family,
+                "card_hash": card_hash,
+                "confirmation_required": true,
+                "classifier_used": false,
+                "classifier_parse_reason": "gate_4_pack_change",
+            }),
+        );
+        self.state = BoundaryState::AwaitingConfirmation {
+            identity,
+            card_hash,
+        };
+        match &self.state {
+            BoundaryState::AwaitingConfirmation { identity, .. } => Ok(identity),
+            _ => unreachable!(),
+        }
+    }
+
     pub fn confirm(&mut self, card_hash: &str) -> anyhow::Result<&ConfirmedDispatch> {
         let BoundaryState::AwaitingConfirmation {
             identity,

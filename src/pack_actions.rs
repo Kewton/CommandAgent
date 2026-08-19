@@ -31,21 +31,41 @@ fn list(cli: &Cli) -> anyhow::Result<()> {
         .profile
         .as_deref()
         .context("--packs requires --profile")?;
-    let profile = crate::planner::profile_descriptor::descriptor_for_name(requested_profile)
-        .and_then(|descriptor| descriptor.pack_profile)
-        .or_else(|| PackProfile::parse(requested_profile))
-        .with_context(|| format!("profile `{requested_profile}` does not support packs"))?;
     let intent = match cli.intent.context("--packs requires --intent")? {
         IntentArg::Create => PackIntent::Create,
         IntentArg::Fix => PackIntent::Fix,
         IntentArg::Investigate => PackIntent::Investigate,
     };
+    print!(
+        "{}",
+        render_list(
+            requested_profile,
+            intent.as_str(),
+            cli.extension_root.as_deref()
+        )?
+    );
+    Ok(())
+}
 
-    println!("PACK\tHASH\tSOURCE");
+pub(crate) fn render_list(
+    requested_profile: &str,
+    requested_intent: &str,
+    extension_root: Option<&Path>,
+) -> anyhow::Result<String> {
+    let profile = crate::planner::profile_descriptor::descriptor_for_name(requested_profile)
+        .and_then(|descriptor| descriptor.pack_profile)
+        .or_else(|| PackProfile::parse(requested_profile))
+        .with_context(|| format!("profile `{requested_profile}` does not support packs"))?;
+    let intent = PackIntent::parse(requested_intent)
+        .with_context(|| format!("intent `{requested_intent}` does not support packs"))?;
+    let mut lines = vec!["PACK\tHASH\tSOURCE".to_string()];
     for pack in crate::planner::pack::catalog::compatible(profile.as_str(), intent.as_str()) {
-        println!("{}@{}\t{}\tadmitted", pack.id, pack.version, pack.hash);
+        lines.push(format!(
+            "{}@{}\t{}\tadmitted",
+            pack.id, pack.version, pack.hash
+        ));
     }
-    if let Some(extension_root) = &cli.extension_root {
+    if let Some(extension_root) = extension_root {
         for directory in local_pack_directories(extension_root)? {
             let report =
                 crate::planner::pack::conform_directory(&directory).with_context(|| {
@@ -55,14 +75,14 @@ fn list(cli: &Cli) -> anyhow::Result<()> {
                     )
                 })?;
             if report.profile == profile.as_str() && report.intent == intent.as_str() {
-                println!(
+                lines.push(format!(
                     "{}@{}\t{}\tlocal",
                     report.pack_id, report.pack_version, report.exact_byte_hash
-                );
+                ));
             }
         }
     }
-    Ok(())
+    Ok(format!("{}\n", lines.join("\n")))
 }
 
 fn local_pack_directories(extension_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
