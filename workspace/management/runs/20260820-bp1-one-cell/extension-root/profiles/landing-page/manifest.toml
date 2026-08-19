@@ -1,0 +1,91 @@
+[metadata]
+id = "landing-page"
+display_name = "Landing page"
+schema_version = "v1"
+status = "draft"
+task_family = "Quiz"
+
+[plan]
+profile = "landing-page"
+style = "default"
+intent = "create"
+
+[plan.placeholders]
+goal = "{goal}"
+
+[[plan.phases]]
+id = "implementation"
+prompt = "Create the requested landing page for {goal}."
+
+[step_templates.scaffold]
+phase = []
+phase_id = []
+port_phase_markers = []
+port_script_phase = []
+
+[step_templates.build_verify]
+phase = []
+
+[step_templates.implementation_kill]
+phase = []
+
+[step_templates.ownership.setup_classifier]
+package_phrases = []
+package_tokens = []
+scaffold_phrases = []
+scaffold_tokens = []
+scaffold_setup_markers = []
+scaffold_project_marker = "landing-page"
+scaffold_dependency_exclusion = "landing-page"
+
+[step_templates.ownership.template_owned_artifacts]
+package_phrases = []
+package_tokens = []
+scaffold_phrases = []
+scaffold_tokens = []
+package_manifest_names = []
+artifact_path_suffixes = []
+artifact_path_contains = []
+package_check_marker = "landing-page"
+scaffold_check_marker = "landing-page"
+
+[step_templates.artifacts]
+package_script_build = "build"
+package_script_dev = "dev"
+package_script_start = "start"
+required_hooks = []
+scaffold_files = ["index.html"]
+tailwind_config_rels = []
+tailwind_config = "tailwind.config.ts"
+tailwind_config_cjs = "tailwind.config.cjs"
+package_json = "package.json"
+tsconfig = "tsconfig.json"
+postcss_config = "postcss.config.js"
+tailwind_css = "tailwind.css"
+global_d_ts = "global.d.ts"
+layout_tsx = "layout.tsx"
+
+[artifacts]
+required = ["index.html"]
+groups = []
+
+[vocabulary]
+source = "evidence_knowledge"
+sections = ["vocabulary", "goal_hints.translations"]
+
+[guidance.variants.landing_page]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.landing_page.messages]
+instruction = "Keep the page self-contained and produce index.html."
+
+[[checks.final]]
+id = "scaffold_files_present"
+
+[checks.final.params]
+files = ["index.html"]
+
+[evidence_targets]
+
+[evidence_targets.mappings]
+scaffold_files_present = ["index.html"]

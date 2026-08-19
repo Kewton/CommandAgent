@@ -1644,3 +1644,24 @@ GUIの説明文、用語ヘルプ、空状態、actionは`docs/user/gui-help-map
 flag、設定key、slash command、`docs/guide/{en,ja}`のfile/H2/H3 parityは既存
 `tests/doc_drift.rs`を正本として維持し、verification／acceptance／evidence境界と
 `.anvil/` runtime schemaは変更しない。
+
+## E-24 — G/BP1第三者1セル実測（Issue #123、2026-08-20）
+
+E-3/E-4およびE-17/E-18の実装に参加していないIssue workerが、E-18の外部draft
+`landing-page`を1セル追加した。セルはv1 `manifest.toml` 1件、既存の
+`scaffold_files_present` check、`index.html` 1件で成立し、strict loadとfinal
+verificationがgreen、manifest hashは
+`sha256:ebe5c468d9ed2c030d53109a8891dd3351680cb6519758e7a7dff35c80c2ccb7`、
+assurance上限は既定どおり`static`だった。catalog追加、overlay、production code変更、
+provider呼び出しは0、外部課金はUSD 0.00である。
+
+campaign全体は13ファイルで、内訳はセル1、実測fixture/test 2、指定scaffold出力4、
+台帳・Issue報告6。`scaffold.py profile landing-page`自体は0.19秒だったが、生成物は
+旧`[manifest]`形式かつ`scaffolds/profile/`配置で、E-18の
+`profiles/<id>/manifest.toml` v1へ直接投入できなかった。したがってcatalogは既存の
+再利用可能なtyped capabilityで表現不能な意味だけに増やし、overlayはartifact
+cardinality、guidance、profile-bound check、evidence targetの追加専用範囲を広げない。
+先にscaffoldを外部draft v1へ追従させる。工数・読んだ資料・全コマンドと初回doctorの
+環境失敗は
+[`20260820-bp1-one-cell/report.md`](../../workspace/management/runs/20260820-bp1-one-cell/report.md)
+を正本とする。
