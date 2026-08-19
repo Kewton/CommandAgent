@@ -1193,6 +1193,7 @@ fn trial_session_files_reject_a_symlinked_runtime_root() {
 struct Server {
     child: Child,
     port: u16,
+    _stdout: BufReader<std::process::ChildStdout>,
 }
 
 #[cfg(unix)]
@@ -1312,16 +1313,19 @@ impl Server {
         }
         let mut child = command.spawn().unwrap();
         let mut line = String::new();
-        BufReader::new(child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        stdout.read_line(&mut line).unwrap();
         let port = line
             .split("127.0.0.1:")
             .nth(1)
             .and_then(|tail| tail.split('/').next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("unable to parse server address: {line}"));
-        Self { child, port }
+        Self {
+            child,
+            port,
+            _stdout: stdout,
+        }
     }
 
     fn request(&self, method: &str, path: &str, body: Option<&serde_json::Value>) -> HttpResponse {

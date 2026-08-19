@@ -860,7 +860,7 @@ print_gui_command() {
     local auth_mode=$2
     local include_check=$3
     if [[ "$auth_mode" == "on" ]]; then
-        printf 'GUI_TRIAL_TOKEN="$(<%q)" ' "$gui_token_file"
+        printf "GUI_TRIAL_TOKEN=\"\$(<%q)\" " "$gui_token_file"
     fi
     printf '%q --base-path %q --static-dir %q --repository-root %q ' \
         "$gui_server_bin" "$gui_base_path" "$repo_root/gui/out" "$repo_root"
