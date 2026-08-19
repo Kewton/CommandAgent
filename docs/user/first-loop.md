@@ -159,6 +159,13 @@ packの効果は、同じsuiteでpack pinだけを変えて測ります。ここ
 です。境界シェルでは選択せず、bench A/Bだけに使います。
 複製元の実体は`packs/cli-assist/1.1.0/assist.yaml`です。
 
+現在利用できる承認済みpackとローカルpackは、profileとintentを固定して一覧できます。
+各行の`SOURCE`は`admitted`または`local`です。
+
+```bash
+commandagent --extension-root packs --profile python-cli --intent create --packs
+```
+
 ### scaffoldと1パラメータ変更
 
 ```bash
@@ -177,11 +184,26 @@ python3 workspace/management/scripts/scaffold.py pack cli-assist --from-version 
 初回pinを作るコマンドです。
 
 ```bash
+commandagent --pack-pin packs/cli-assist/1.1.1
+```
+
+管理用Python wrapperを使う代替経路は次です。
+
+```bash
 python3 workspace/management/scripts/pack_conformance.py --pack packs/cli-assist/1.1.1 --write-pin
 ```
 
+新しいCLI直接アクションを通常は使い、管理用Python wrapperとの互換性確認が必要な場合だけ
+後者を使います。どちらも既存pinの不一致を上書きしません。
+
 出力の`exact_byte_hash`と`packs/cli-assist/1.1.1/pack.sha256`が一致することを
 確認します。
+
+```bash
+commandagent --pack-verify packs/cli-assist/1.1.1
+```
+
+同じreportは管理用wrapperからも確認できます。
 
 ```bash
 python3 workspace/management/scripts/pack_conformance.py --pack packs/cli-assist/1.1.1

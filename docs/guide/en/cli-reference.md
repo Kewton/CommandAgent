@@ -13,11 +13,12 @@ Use one of the action-selector flags for a direct command, or omit all of them
 for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 `--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
 `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
-`--doctor`. CommandAgent rejects a call that combines more than one action
-selector.
+`--doctor`. The offline pack actions `--packs`, `--pack-verify`, and
+`--pack-pin` are also mutually exclusive with those actions and with one
+another. CommandAgent rejects a call that combines action selectors.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-48 application flags below. The hidden `--completion-contract-json <PATH>` is an
+51 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -29,6 +30,9 @@ internal integration surface and is intentionally not a public user flag.
 | `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
 | `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
 | `--extension-root` | `<DIR>` | top-level `extension_root`, then none | Search an extension root before repository `packs/` for the selected identity. | [Pack selection](configuration.md#pack-selection) |
+| `--packs` | none | off | List compatible admitted packs and conformant packs found under `--extension-root`, including each source. Requires `--profile` and `--intent`. | [Conflicts](#conflicts-and-combinations) |
+| `--pack-verify` | `<DIR>` | none | Run strict conformance for one pack directory and print the same JSON report as `pack_conformance`. | [Conflicts](#conflicts-and-combinations) |
+| `--pack-pin` | `<DIR>` | none | Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin. | [Conflicts](#conflicts-and-combinations) |
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
@@ -99,6 +103,10 @@ See [Configuration](configuration.md) for the exact per-field layers.
   together.
 - Only one action selector may be used. This is checked after parsing and fails
   with `only one action selector can be used at a time`.
+- `--packs`, `--pack-verify`, and `--pack-pin` are Clap-level direct actions.
+  They conflict with one another, run action selectors, `--pack`, and
+  `--pack-hash`. Listing allows `--extension-root`, while verify and pin take
+  their target directory directly.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
 - A different `--planner-provider` requires an explicit or preset

@@ -1,0 +1,118 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+fn repository_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn commandagent(arguments: &[&std::ffi::OsStr]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args(arguments)
+        .current_dir(repository_root())
+        .output()
+        .unwrap()
+}
+
+fn copy_pack(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).unwrap();
+    for name in ["assist.yaml", "eval.yaml"] {
+        let source_file = source.join(name);
+        if source_file.is_file() {
+            fs::copy(source_file, destination.join(name)).unwrap();
+        }
+    }
+}
+
+#[test]
+fn packs_lists_two_admitted_entries_and_a_local_pack_with_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("cli-assist/1.0.0");
+    copy_pack(&repository_root().join("packs/cli-assist/1.0.0"), &local);
+
+    let output = commandagent(&[
+        "--extension-root".as_ref(),
+        temp.path().as_os_str(),
+        "--profile".as_ref(),
+        "python-cli".as_ref(),
+        "--intent".as_ref(),
+        "create".as_ref(),
+        "--packs".as_ref(),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.ends_with("\tadmitted"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.ends_with("\tlocal"))
+            .count(),
+        1
+    );
+    assert!(stdout.contains("cli-assist@1.0.0"));
+    assert!(stdout.contains("cli-assist@1.1.0"));
+}
+
+#[test]
+fn pack_verify_matches_the_pack_conformance_binary_report() {
+    let directory = repository_root().join("packs/cli-assist/1.0.0");
+    let commandagent_output = commandagent(&["--pack-verify".as_ref(), directory.as_os_str()]);
+    let conformance_output = Command::new(env!("CARGO_BIN_EXE_pack_conformance"))
+        .arg(&directory)
+        .current_dir(repository_root())
+        .output()
+        .unwrap();
+
+    assert!(commandagent_output.status.success());
+    assert!(conformance_output.status.success());
+    let direct: serde_json::Value = serde_json::from_slice(&commandagent_output.stdout).unwrap();
+    let standalone: serde_json::Value = serde_json::from_slice(&conformance_output.stdout).unwrap();
+    assert_eq!(direct, standalone);
+    assert_eq!(direct["status"], "conformant");
+    assert_eq!(direct["exact_byte_hash"], standalone["exact_byte_hash"]);
+}
+
+#[test]
+fn pack_pin_creates_then_preserves_a_pin_and_rejects_tampering_with_exit_one() {
+    let temp = tempfile::tempdir().unwrap();
+    let pack = temp.path().join("cli-assist/1.0.0");
+    copy_pack(&repository_root().join("packs/cli-assist/1.0.0"), &pack);
+    let pin_path = pack.join("pack.sha256");
+
+    let first = commandagent(&["--pack-pin".as_ref(), pack.as_os_str()]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(String::from_utf8_lossy(&first.stdout).starts_with("created "));
+    let pinned = fs::read(&pin_path).unwrap();
+
+    let second = commandagent(&["--pack-pin".as_ref(), pack.as_os_str()]);
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(String::from_utf8_lossy(&second.stdout).starts_with("unchanged "));
+    assert_eq!(fs::read(&pin_path).unwrap(), pinned);
+
+    let assist_path = pack.join("assist.yaml");
+    let mut assist = fs::read(&assist_path).unwrap();
+    assist.push(b'\n');
+    fs::write(assist_path, assist).unwrap();
+    let tampered = commandagent(&["--pack-pin".as_ref(), pack.as_os_str()]);
+    assert_eq!(tampered.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&tampered.stderr).contains("pack hash mismatch"));
+    assert_eq!(fs::read(&pin_path).unwrap(), pinned);
+}
