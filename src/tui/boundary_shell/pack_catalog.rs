@@ -1,11 +1,29 @@
 use anyhow::bail;
 
-use crate::planner::pack::catalog::{self, AdmittedPack, PackLocator};
+use crate::planner::pack::catalog::{self, AdmittedPack, PackLocator, PackSource};
 
 use super::confirmation::PackSelection;
 
 pub fn compatible(profile: &str, intent: &str) -> Vec<&'static AdmittedPack> {
     catalog::compatible(profile, intent).collect()
+}
+
+pub fn select(profile: &str, intent: &str, selector: &str) -> anyhow::Result<PackSelection> {
+    let Some((id, version)) = selector.trim().split_once('@') else {
+        bail!("pack selector `{selector}` must pin id@MAJOR.MINOR.PATCH")
+    };
+    let pack = catalog::compatible(profile, intent)
+        .find(|pack| pack.id == id && pack.version == version)
+        .ok_or_else(|| {
+            anyhow::anyhow!("pack `{selector}` is not an admitted pack for {profile} × {intent}")
+        })?;
+    Ok(PackSelection::Pinned {
+        id: pack.id.to_string(),
+        version: pack.version.to_string(),
+        hash: pack.hash.to_string(),
+        point: pack.point.to_string(),
+        source: PackSource::Admitted,
+    })
 }
 
 pub fn validate_selection(
@@ -73,5 +91,21 @@ mod tests {
             source: PackSource::Repository,
         };
         assert!(validate_selection(PYTHON_CLI_PROFILE_ID, "create", &unapproved).is_err());
+    }
+
+    #[test]
+    fn selector_resolves_only_an_exact_compatible_admitted_pack() {
+        assert_eq!(
+            select(PYTHON_CLI_PROFILE_ID, "create", "cli-assist@1.1.0").unwrap(),
+            PackSelection::Pinned {
+                id: "cli-assist".to_string(),
+                version: "1.1.0".to_string(),
+                hash: ADMITTED_PACKS[1].hash.to_string(),
+                point: "cli-validation".to_string(),
+                source: PackSource::Admitted,
+            }
+        );
+        assert!(select(PYTHON_CLI_PROFILE_ID, "fix", "cli-assist@1.1.0").is_err());
+        assert!(select(PYTHON_CLI_PROFILE_ID, "create", "cli-assist@1.1").is_err());
     }
 }

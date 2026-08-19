@@ -249,7 +249,7 @@ plain-language stop reason and only these typed next-action proposals:
 | retry | retry remains contractually allowed and the cause is not a deterministic repeat | Creates a new run proposal; never consumes a retry automatically |
 | recovery circle | recovery YAML and an admitted workflow edge exist | Proposes the existing circle with its carry/evidence requirements |
 | elevated model | an admitted provider/model configuration is available | Changes the model pin and value tag; returns to Gate 1 |
-| pack change | an admitted compatible pack exists | Changes exact pack identity; returns to Gate 1 and invalidates direct A/B comparability unless recorded |
+| pack change | an admitted compatible pack exists | `/pack <id@version>` changes exact pack identity; returns to Gate 1 and invalidates direct A/B comparability unless recorded |
 | close | always | Records no further action |
 
 The shell shows why unavailable actions are disabled. It does not infer that a
@@ -285,6 +285,12 @@ YAML file is never a Gate 1 candidate.
 `No pack` is an explicit choice and preserves the existing product path.
 Builtin compatibility packs that preserve historical bytes are implementation
 detail unless they change the user-visible measurement identity.
+
+The REPL accepts `request --pack <id@version>` before the first Gate 1 and
+`/pack <id@version>` from an available Gate 4 `pack_change`. Both freeze the
+catalog hash, point, and source in a fresh confirmation. `/packs` uses the same
+renderer as the direct `--packs` action, and confirmed dispatch records the
+installed identity as `pack_injected` without replacing existing run events.
 
 The shell displays:
 

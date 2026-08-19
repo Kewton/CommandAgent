@@ -183,11 +183,19 @@ pub struct ParsedSlash {
     pub goal: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedInlineRequest {
+    pub request: String,
+    pub pack: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashCommandKind {
     Help,
     Status,
     Doctor,
+    Packs,
+    Pack,
     Runs,
     Resume,
     Plan,
@@ -232,6 +240,20 @@ pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
         help_usage: "/doctor",
         description: "diagnose configuration, providers, probes, and environment",
         kind: SlashCommandKind::Doctor,
+    },
+    SlashCommandSpec {
+        name: "/packs",
+        aliases: &[],
+        help_usage: "/packs",
+        description: "list compatible admitted and local packs",
+        kind: SlashCommandKind::Packs,
+    },
+    SlashCommandSpec {
+        name: "/pack",
+        aliases: &[],
+        help_usage: "/pack <id@version>",
+        description: "change the pack from Gate 4 and return to Gate 1",
+        kind: SlashCommandKind::Pack,
     },
     SlashCommandSpec {
         name: "/runs",
@@ -411,6 +433,17 @@ pub fn handle_command(
         SlashCommandKind::Doctor => {
             return Ok(crate::doctor::diagnose(&config).render_human());
         }
+        SlashCommandKind::Packs => {
+            let extension_root = crate::config::configured_extension_root(&config.workspace_root)?;
+            return crate::pack_actions::render_list(
+                &config.profile,
+                config.resolved_run_intent().as_str(),
+                extension_root.as_deref(),
+            );
+        }
+        SlashCommandKind::Pack => {
+            bail!("/pack is available only from Gate 4; use /pack <id@version>");
+        }
         SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
         SlashCommandKind::Runs => {
             return Ok(crate::runs::render_runs_table(&config.workspace_root));
@@ -549,6 +582,8 @@ pub fn handle_command(
             SlashCommandKind::Help
             | SlashCommandKind::Status
             | SlashCommandKind::Doctor
+            | SlashCommandKind::Packs
+            | SlashCommandKind::Pack
             | SlashCommandKind::Runs
             | SlashCommandKind::Plan
             | SlashCommandKind::Exit => unreachable!("handled before command execution"),
@@ -1000,6 +1035,35 @@ pub fn parse_words(input: &str) -> Vec<String> {
     out
 }
 
+pub fn parse_inline_request(input: &str) -> anyhow::Result<ParsedInlineRequest> {
+    let words = parse_words(input);
+    let mut request = Vec::new();
+    let mut pack = None;
+    let mut index = 0;
+    while index < words.len() {
+        if words[index] != "--pack" {
+            request.push(words[index].clone());
+            index += 1;
+            continue;
+        }
+        let selector = words
+            .get(index + 1)
+            .filter(|value| !value.starts_with("--"))
+            .ok_or_else(|| anyhow::anyhow!("--pack requires <id@version>"))?;
+        if pack.replace(selector.clone()).is_some() {
+            bail!("--pack may be specified only once");
+        }
+        index += 2;
+    }
+    if request.is_empty() {
+        bail!("a request is required before Gate 1");
+    }
+    Ok(ParsedInlineRequest {
+        request: request.join(" "),
+        pack,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1088,6 +1152,19 @@ mod tests {
     }
 
     #[test]
+    fn inline_request_extracts_one_exact_pack_selector() {
+        let parsed =
+            parse_inline_request(r#"Python CLI の一覧を作る --pack "cli-assist@1.1.0""#).unwrap();
+        assert_eq!(parsed.request, "Python CLI の一覧を作る");
+        assert_eq!(parsed.pack.as_deref(), Some("cli-assist@1.1.0"));
+
+        assert!(parse_inline_request("依頼 --pack").is_err());
+        assert!(
+            parse_inline_request("依頼 --pack cli-assist@1.0.0 --pack cli-assist@1.1.0").is_err()
+        );
+    }
+
+    #[test]
     fn parse_slash_uses_config_defaults() {
         let parsed = parse_slash("/plan-run goal", &config()).unwrap();
         assert_eq!(parsed.profile, "generic");
@@ -1140,6 +1217,8 @@ mod tests {
             "/resume [run-id|yaml-path] - resume from a recovery UltraPlan",
             "/status - show effective configuration and readiness",
             "/doctor - diagnose configuration, providers, probes, and environment",
+            "/packs - list compatible admitted and local packs",
+            "/pack <id@version> - change the pack from Gate 4 and return to Gate 1",
             "/setup-interaction-probe - install the interaction readiness probe",
             "/exit or /quit - leave the TUI",
             "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback.",
@@ -1153,7 +1232,7 @@ mod tests {
 
     #[test]
     fn slash_registry_is_the_help_and_alias_source() {
-        assert_eq!(SLASH_COMMANDS.len(), 15);
+        assert_eq!(SLASH_COMMANDS.len(), 17);
         let help = render_help();
         for command in SLASH_COMMANDS {
             assert!(
@@ -1166,6 +1245,27 @@ mod tests {
             slash_command_spec("/quit").map(|command| command.name),
             Some("/exit")
         );
+    }
+
+    #[test]
+    fn packs_slash_uses_the_same_renderer_as_the_direct_cli_action() {
+        let mut config = config();
+        config.workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        config.profile = "python-cli".to_string();
+        config.profile_explicit = true;
+        config.intent_override = Some(crate::config::IntentId::Create);
+        let expected = crate::pack_actions::render_list("python-cli", "create", None).unwrap();
+        let mut planner = DummyClient;
+        let mut execution = DummyClient;
+        let actual = handle_command(
+            "/packs",
+            &config,
+            &mut planner,
+            &mut execution,
+            &crate::tui::NOOP_UI,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
     }
 
     #[test]

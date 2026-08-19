@@ -7,14 +7,16 @@
 
 ## コマンド一覧
 
-レジストリには主コマンドが 15 件あります。`/quit` は `/exit` の別名として独立して受け付ける
-コマンド名なので、受け付ける名前は合計 16 件です。
+レジストリには主コマンドが 17 件あります。`/quit` は `/exit` の別名として独立して受け付ける
+コマンド名なので、受け付ける名前は合計 18 件です。
 
 | コマンド名 | `/help` に表示される使用法 | 動作 |
 | --- | --- | --- |
 | `/help` | `/help` | コマンド一覧、footer のヒント、入力キュー上限、複数行の継続入力、interrupt 動作を表示します。 |
 | `/status` | `/status` | 実効設定とプロバイダの readiness を表示します。 |
 | `/doctor` | `/doctor` | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 |
+| `/packs` | `/packs` | 実効 profile と intent に対し、`commandagent --packs` と同じ列・順序で compatible な admitted/local pack を一覧表示します。 |
+| `/pack` | `/pack <id@version>` | Gate 4 で compatible な admitted exact-byte pack を選び、新しい Gate 1 カードへ戻ります。 |
 | `/runs` | `/runs` | ワークスペースの最近の run と recovery 可否を一覧表示します。 |
 | `/resume` | `/resume [run-id\|yaml-path]` | recovery UltraPlan を準備し、確認後に再開します。引数が空の場合、利用可能なら最新の再開可能 run を選びます。 |
 | `/plan` | `/plan` | アクティブな plan と現在の activity を表示します。 |
@@ -51,6 +53,21 @@ plan を実行または生成するコマンドで有用です。すべてのス
 /plan-run --profile nextjs --style compact "3011ポートでアプリを作成する"
 /ultra-plan-run --prompt-layout stable 現在のプロジェクトを改善する
 ```
+
+## Gate 1 の pack 選択
+
+平文の依頼へ `--pack <id@version>` を付けると、compatible な admitted pack を
+Gate 1 で固定します。カードには selector、exact-byte `sha256:` hash、検証箇所、
+供給元、byte 検証状態が表示されます。確認後はその完全一致 selection が run に
+導入され、event stream に `pack_injected` が記録されます。
+
+```text
+Python CLI の絞り込みを作る --pack cli-assist@1.1.0
+```
+
+候補は `/packs` で一覧できます。non-full run 後に `pack_change` が available なら、
+`/pack <id@version>` で実行します。新しい Gate 1 カードが出て、新しい
+`/confirm <hash>` まで dispatch されません。
 
 ## ゴールのテキストと引用符
 
