@@ -22,8 +22,11 @@ fn gui_server_help_exposes_only_serving_inputs() {
         "--static-dir",
         "--repository-root",
         "--execution-root",
+        "--extension-root",
         "--trial-token-auth",
         "--commandagent-bin",
+        "--check",
+        "--json",
     ] {
         assert!(help.contains(option), "missing {option}: {help}");
     }
@@ -46,6 +49,162 @@ fn gui_server_rejects_noncanonical_base_paths() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_check_reports_all_ok_without_binding() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repository = tempfile::tempdir().unwrap();
+    let execution = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let static_root = repository.path().join("gui/out");
+    std::fs::create_dir_all(&static_root).unwrap();
+    std::fs::write(
+        static_root.join("index.html"),
+        r#"<script src="/proxy/commandagent/_next/static/app.js"></script>"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--check", "--json", "--base-path", "/proxy/commandagent"])
+        .arg("--repository-root")
+        .arg(repository.path())
+        .arg("--execution-root")
+        .arg(execution.path())
+        .arg("--extension-root")
+        .arg(extension.path())
+        .arg("--static-dir")
+        .arg(&static_root)
+        .arg("--commandagent-bin")
+        .arg(env!("CARGO_BIN_EXE_commandagent"))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", combined_output(&output));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "ok");
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|check| check["status"] == "ok")
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("listening on"));
+}
+
+#[test]
+fn gui_server_check_reports_base_path_mismatch() {
+    let repository = tempfile::tempdir().unwrap();
+    let static_root = repository.path().join("out");
+    std::fs::create_dir_all(&static_root).unwrap();
+    std::fs::write(
+        static_root.join("index.html"),
+        r#"<script src="/built/path/_next/static/app.js"></script>"#,
+    )
+    .unwrap();
+    let output = base_check_command(
+        repository.path(),
+        &static_root,
+        Some(std::path::Path::new(env!("CARGO_BIN_EXE_commandagent"))),
+    )
+    .args(["--base-path", "/configured/path"])
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(text.contains("ng: static.base_path"), "{text}");
+}
+
+#[test]
+fn gui_server_check_reports_overlapping_roots() {
+    let repository = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    let execution = repository.path().join("execution");
+    std::fs::create_dir_all(&execution).unwrap();
+    let output = base_check_command(
+        repository.path(),
+        &static_root,
+        Some(std::path::Path::new(env!("CARGO_BIN_EXE_commandagent"))),
+    )
+    .arg("--execution-root")
+    .arg(&execution)
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(text.contains("ng: roots.disjoint"), "{text}");
+}
+
+#[test]
+fn gui_server_check_reports_missing_binary() {
+    let repository = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    let output = base_check_command(repository.path(), &static_root, None)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(text.contains("ng: binary.version"), "{text}");
+}
+
+#[test]
+fn gui_server_check_reports_invalid_token() {
+    let repository = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    let output = base_check_command(
+        repository.path(),
+        &static_root,
+        Some(std::path::Path::new(env!("CARGO_BIN_EXE_commandagent"))),
+    )
+    .args(["--trial-token-auth", "on"])
+    .env("GUI_TRIAL_TOKEN", "too short")
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(text.contains("ng: trial.access"), "{text}");
+}
+
+fn base_check_command(
+    repository: &std::path::Path,
+    static_root: &std::path::Path,
+    binary: Option<&std::path::Path>,
+) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
+    command
+        .arg("--check")
+        .arg("--repository-root")
+        .arg(repository)
+        .arg("--static-dir")
+        .arg(static_root)
+        .env_remove("GUI_TRIAL_TOKEN")
+        .env_remove("GUI_TRIAL_ALLOWED_ORIGINS");
+    if let Some(binary) = binary {
+        command.arg("--commandagent-bin").arg(binary);
+    }
+    command
+}
+
+fn write_root_export(repository: &std::path::Path) -> std::path::PathBuf {
+    let static_root = repository.join("out");
+    std::fs::create_dir_all(&static_root).unwrap();
+    std::fs::write(
+        static_root.join("index.html"),
+        r#"<script src="/_next/static/app.js"></script>"#,
+    )
+    .unwrap();
+    static_root
+}
+
+fn combined_output(output: &std::process::Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 #[test]

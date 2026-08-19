@@ -118,6 +118,12 @@ For guided prerequisite checks, installation, and optional provider/probe
 setup, run `./scripts/setup.sh`. Use `--yes` for non-interactive safe defaults
 or `--check-only` to inspect prerequisites without changing anything.
 
+Operators can build and preflight the [management GUI](docs/user/gui.md) with
+`./scripts/setup.sh --gui`. Add `--write-config --extension-root <dir>` to
+create a private extension skeleton and an example
+[business preset](docs/guide/en/configuration.md#presets) without overwriting an
+existing config.
+
 For OpenAI, set `OPENAI_API_KEY` only in the launching process environment.
 Gemini may use the process environment or `.env` at the active workspace root.
 When LM Studio server authentication is enabled, set the optional

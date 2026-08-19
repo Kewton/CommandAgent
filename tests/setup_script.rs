@@ -24,6 +24,7 @@ impl SetupFixture {
         let state = temp.path().join("state");
         let log = temp.path().join("commands.log");
         fs::create_dir_all(root.join("scripts")).unwrap();
+        fs::create_dir_all(root.join("gui")).unwrap();
         fs::create_dir_all(&fake_bin).unwrap();
         fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&state).unwrap();
@@ -61,6 +62,12 @@ if [ "${1-}" = "build" ] && [ "${2-}" = "--release" ]; then
   chmod 0755 target/release/commandagent
   exit 0
 fi
+if [ "${1-}" = "build" ] && [ "${2-}" = "--features" ] && [ "${3-}" = "gui" ]; then
+  mkdir -p target/debug
+  printf '#!/bin/sh\nexit 0\n' > target/debug/gui_server
+  chmod 0755 target/debug/gui_server
+  exit 0
+fi
 exit 2
 "#,
         );
@@ -83,10 +90,26 @@ esac
         );
         write_executable(&fake_bin.join("curl"), "#!/bin/sh\nexit 0\n");
         write_executable(&fake_bin.join("node"), "#!/bin/sh\nprintf 'v24.0.0\\n'\n");
-        write_executable(&fake_bin.join("npm"), "#!/bin/sh\nprintf '11.0.0\\n'\n");
+        write_executable(
+            &fake_bin.join("npm"),
+            r#"#!/bin/sh
+printf 'npm|%s|GUI_BASE_PATH=%s\n' "$*" "${GUI_BASE_PATH-}" >> "$SETUP_TEST_LOG"
+if [ "${1-}" = "run" ] && [ "${2-}" = "build" ]; then
+  mkdir -p out
+  base=${GUI_BASE_PATH%/}
+  [ "$base" = "/" ] && base=""
+  printf '<script src="%s/_next/static/app.js"></script>\n' "$base" > out/index.html
+fi
+exit 0
+"#,
+        );
         write_executable(
             &fake_bin.join("python3"),
             "#!/bin/sh\nprintf 'Python 3.13.0\\n'\n",
+        );
+        write_executable(
+            &fake_bin.join("openssl"),
+            "#!/bin/sh\nprintf '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\n'\n",
         );
         write_executable(
             &fake_bin.join("ollama"),
@@ -132,6 +155,10 @@ case "${1-}" in
   --model-probe)
     printf 'commandagent|--model-probe\n' >> "$SETUP_TEST_LOG"
     printf 'model probe fixture passed\n'
+    ;;
+  --doctor)
+    printf 'commandagent|--doctor --json\n' >> "$SETUP_TEST_LOG"
+    printf '{"status":"pass"}\n'
     ;;
   *) exit 2 ;;
 esac
@@ -284,6 +311,67 @@ fn check_only_rejects_outdated_rust_with_remediation() {
         "{text}"
     );
     assert!(!fixture.state.join("installed").exists());
+}
+
+#[test]
+fn gui_mode_builds_private_scaffolding_and_prints_a_passing_check_command() {
+    let fixture = SetupFixture::new("1.94.0");
+    fixture.mark_current_binary();
+    let extension = fixture._temp.path().join("extensions");
+    let token = fixture._temp.path().join("secrets/gui-token");
+    let extension_text = extension.to_str().unwrap();
+    let token_text = token.to_str().unwrap();
+    let output = fixture.run(
+        &[
+            "--gui",
+            "--base-path",
+            "/proxy/commandagent/",
+            "--extension-root",
+            extension_text,
+            "--write-config",
+            "--gui-token-file",
+            token_text,
+        ],
+        "n\nn\nn\nn\nn\n",
+    );
+    let text = combined(&output);
+
+    assert!(output.status.success(), "{text}");
+    assert!(extension.join("packs").is_dir());
+    assert!(extension.join("profiles").is_dir());
+    assert_eq!(
+        fs::read_to_string(extension.join("journal.jsonl")).unwrap(),
+        ""
+    );
+    assert_eq!(
+        fs::metadata(&extension).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&token).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let config = fs::read_to_string(fixture.root.join(".commandagent/config.toml")).unwrap();
+    assert!(config.contains(&format!(
+        "extension_root = \"{}\"",
+        extension.canonicalize().unwrap().display()
+    )));
+    assert!(config.contains("[preset.nextjs_acme_cagentpack]"));
+    assert!(text.contains("GUI preflight command:"), "{text}");
+    assert!(text.contains("--base-path /proxy/commandagent"), "{text}");
+    assert!(text.contains("--check"), "{text}");
+    assert!(!text.contains("0123456789abcdef0123456789abcdef"), "{text}");
+    let log = fixture.log_text();
+    assert!(log.contains("npm|ci --include=dev"), "{log}");
+    assert!(
+        log.contains("npm|run build|GUI_BASE_PATH=/proxy/commandagent"),
+        "{log}"
+    );
+    assert!(
+        log.contains("cargo|build --features gui --bin gui_server"),
+        "{log}"
+    );
+    assert!(log.contains("commandagent|--doctor --json"), "{log}");
 }
 
 #[test]

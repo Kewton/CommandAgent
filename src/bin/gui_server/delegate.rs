@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 use axum::Json;
@@ -31,6 +32,27 @@ const DELEGATE_PARENT_ENV_ALLOWLIST: &[&str] = &[
 ];
 const DELEGATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI delegation";
 const CONTINUATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI continuation";
+
+pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {
+    let mut command = Command::new(path);
+    command.env_clear();
+    restore_allowed_environment(&mut command);
+    let output = command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|cause| anyhow::anyhow!("run {} --version: {cause}", path.display()))?;
+    if !output.status.success() {
+        anyhow::bail!("{} --version exited with {}", path.display(), output.status);
+    }
+    let version = String::from_utf8(output.stdout)
+        .map_err(|_| anyhow::anyhow!("{} --version returned non-UTF-8 output", path.display()))?;
+    let version = version.trim();
+    if version.is_empty() {
+        anyhow::bail!("{} --version returned no output", path.display());
+    }
+    Ok(version.to_string())
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -185,11 +207,7 @@ fn delegated_cli_command(
     }
     let mut command = Command::new(&state.commandagent_bin);
     command.env_clear();
-    for name in DELEGATE_PARENT_ENV_ALLOWLIST {
-        if let Some(value) = std::env::var_os(name) {
-            command.env(name, value);
-        }
-    }
+    restore_allowed_environment(&mut command);
     command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
@@ -211,5 +229,16 @@ fn delegated_cli_command(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(extension_root) = state.extension_root.as_deref() {
+        command.arg("--extension-root").arg(extension_root);
+    }
     Ok(command)
+}
+
+fn restore_allowed_environment(command: &mut Command) {
+    for name in DELEGATE_PARENT_ENV_ALLOWLIST {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
 }

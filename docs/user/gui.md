@@ -21,6 +21,33 @@ cd gui
 npm ci --include=dev
 ```
 
+## Guided setup and preflight
+
+From a new checkout, the setup script can build the export and server, create
+an independent private extension root, write a config example only when none
+exists, and create a 0600 Trial token file without printing its value:
+
+```bash
+./scripts/setup.sh --gui \
+  --base-path /proxy/commandagent/ \
+  --extension-root /srv/commandagent/extensions \
+  --write-config \
+  --gui-token-file "$HOME/.config/commandagent/gui-token"
+```
+
+The final summary prints separate preflight and start commands. Run the
+preflight form first. `gui_server --check` does not bind a port; it reports
+`ok` or `ng` for the static export/base path, pairwise-disjoint repository,
+execution, and extension roots, `commandagent --version`, and Trial token/origin
+settings. A fully green check exits 0, any `ng` exits 1, malformed arguments
+exit 2, and `--check --json` emits the same result as JSON.
+
+An existing `.commandagent/config.toml` or token file is never overwritten.
+The setup script displays a proposed config diff and leaves the existing file
+unchanged. The extension root contains private `packs/`, `profiles/`, and
+`journal.jsonl` scaffolding and must not overlap the repository or Trial
+execution root.
+
 ## Serve at `/`
 
 Build the static export and start the optional GUI binary from the repository
@@ -36,6 +63,7 @@ cargo run --features gui --bin gui_server -- \
   --static-dir gui/out \
   --repository-root . \
   --execution-root /path/to/trial-workspace \
+  --extension-root /path/to/commandagent-extensions \
   --trial-token-auth off \
   --commandagent-bin target/release/commandagent
 ```
@@ -57,6 +85,10 @@ If `--execution-root` is omitted, the dashboard remains available but all
 Trial APIs fail closed with HTTP 503 regardless of the authentication mode.
 
 Open `http://127.0.0.1:4173/`.
+
+After the listening URL, startup prints one line containing authentication
+mode, execution root, extension root, and approved/local pack counts. Treat
+that line as configuration evidence; it never includes the Trial token.
 
 The `gui` Cargo feature is not a default feature. Ordinary CommandAgent
 builds, tests, and the product binary therefore do not compile the Axum GUI

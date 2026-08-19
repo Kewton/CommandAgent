@@ -6,6 +6,7 @@ use axum::http::{HeaderMap, Uri, header};
 const TOKEN_ENV: &str = "GUI_TRIAL_TOKEN";
 const ORIGINS_ENV: &str = "GUI_TRIAL_ALLOWED_ORIGINS";
 const PROXY_SAFE_AUTHORIZATION_HEADER: &str = "x-commandagent-trial-authorization";
+type ValidatedEnvironment = (Option<Arc<str>>, Arc<[String]>);
 
 #[derive(Debug, Clone)]
 pub struct TrialAccess {
@@ -15,6 +16,10 @@ pub struct TrialAccess {
 }
 
 impl TrialAccess {
+    pub(super) fn validate_environment(authentication_enabled: bool) -> anyhow::Result<()> {
+        validated_environment(authentication_enabled).map(|_| ())
+    }
+
     pub fn from_environment(
         execution_enabled: bool,
         authentication_enabled: bool,
@@ -26,35 +31,11 @@ impl TrialAccess {
                 allowed_origins: Arc::from([]),
             });
         }
-        let token = authentication_enabled
-            .then(|| {
-                let token = std::env::var(TOKEN_ENV).with_context(|| {
-                    format!("{TOKEN_ENV} is required when --trial-token-auth is on")
-                })?;
-                if token.len() < 32 || token.len() > 4096 || token.chars().any(char::is_whitespace)
-                {
-                    bail!("{TOKEN_ENV} must contain 32..=4096 non-whitespace characters");
-                }
-                Ok::<Arc<str>, anyhow::Error>(Arc::from(token))
-            })
-            .transpose()?;
-        let allowed_origins = std::env::var(ORIGINS_ENV)
-            .ok()
-            .into_iter()
-            .flat_map(|value| {
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .filter(|value| !value.is_empty())
-            .map(|value| normalize_origin(&value))
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let (token, allowed_origins) = validated_environment(authentication_enabled)?;
         Ok(Self {
             token,
             authentication_enabled,
-            allowed_origins: Arc::from(allowed_origins),
+            allowed_origins,
         })
     }
 
@@ -110,6 +91,34 @@ impl TrialAccess {
             })
             .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
     }
+}
+
+fn validated_environment(authentication_enabled: bool) -> anyhow::Result<ValidatedEnvironment> {
+    let token = authentication_enabled
+        .then(|| {
+            let token = std::env::var(TOKEN_ENV).with_context(|| {
+                format!("{TOKEN_ENV} is required when --trial-token-auth is on")
+            })?;
+            if token.len() < 32 || token.len() > 4096 || token.chars().any(char::is_whitespace) {
+                bail!("{TOKEN_ENV} must contain 32..=4096 non-whitespace characters");
+            }
+            Ok::<Arc<str>, anyhow::Error>(Arc::from(token))
+        })
+        .transpose()?;
+    let allowed_origins = std::env::var(ORIGINS_ENV)
+        .ok()
+        .into_iter()
+        .flat_map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|value| !value.is_empty())
+        .map(|value| normalize_origin(&value))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok((token, Arc::from(allowed_origins)))
 }
 
 #[derive(Debug, Clone, Copy)]

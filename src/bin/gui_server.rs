@@ -16,6 +16,8 @@ mod directives;
 mod error_response;
 #[path = "gui_server/gate_one.rs"]
 mod gate_one;
+#[path = "gui_server/preflight.rs"]
+mod preflight;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
 #[path = "gui_server/session_files.rs"]
@@ -41,6 +43,7 @@ pub struct AppState {
     pub static_root: PathBuf,
     pub base_path: String,
     pub commandagent_bin: PathBuf,
+    pub extension_root: Option<PathBuf>,
     pub trial_access: trial_access::TrialAccess,
     pub trial_workspace: workspace_policy::TrialWorkspace,
 }
@@ -58,10 +61,16 @@ struct Arguments {
     repository_root: PathBuf,
     #[arg(long)]
     execution_root: Option<PathBuf>,
+    #[arg(long)]
+    extension_root: Option<PathBuf>,
     #[arg(long, value_enum, default_value = "off")]
     trial_token_auth: TrialTokenAuthArg,
     #[arg(long, default_value = "target/debug/commandagent")]
     commandagent_bin: PathBuf,
+    #[arg(long)]
+    check: bool,
+    #[arg(long, requires = "check")]
+    json: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -79,6 +88,19 @@ impl TrialTokenAuthArg {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let arguments = Arguments::parse();
+    if arguments.check {
+        let report = preflight::Report::run(&arguments);
+        let passed = report.passed();
+        if arguments.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            report.print_human();
+        }
+        if !passed {
+            bail!("preflight checks failed");
+        }
+        return Ok(());
+    }
     let base_path = normalize_base_path(&arguments.base_path)?;
     let repository_root = arguments.repository_root.canonicalize().with_context(|| {
         format!(
@@ -90,6 +112,26 @@ async fn main() -> anyhow::Result<()> {
         &repository_root,
         arguments.execution_root.as_deref(),
     )?;
+    let extension_root = arguments
+        .extension_root
+        .as_deref()
+        .map(|path| {
+            path.canonicalize()
+                .with_context(|| format!("canonicalize extension root {}", path.display()))
+        })
+        .transpose()?;
+    if let Some(extension_root) = extension_root.as_deref() {
+        if !extension_root.is_dir() {
+            bail!(
+                "extension root must be an existing directory: {}",
+                extension_root.display()
+            );
+        }
+        workspace_policy::ensure_disjoint(&repository_root, extension_root)?;
+        if let Some(execution_root) = trial_workspace.configured_path() {
+            workspace_policy::ensure_disjoint(execution_root, extension_root)?;
+        }
+    }
     let trial_access = trial_access::TrialAccess::from_environment(
         trial_workspace.is_enabled(),
         arguments.trial_token_auth.is_enabled(),
@@ -99,11 +141,20 @@ async fn main() -> anyhow::Result<()> {
     } else {
         repository_root.join(arguments.commandagent_bin)
     };
+    let execution_root_summary = trial_workspace
+        .configured_path()
+        .map_or_else(|| "-".to_string(), |path| path.display().to_string());
+    let extension_root_summary = extension_root
+        .as_deref()
+        .map_or_else(|| "-".to_string(), |path| path.display().to_string());
+    let approved_pack_count = preflight::count_packs(Some(&repository_root));
+    let local_pack_count = preflight::count_packs(extension_root.as_deref());
     let state = AppState {
         repository_root,
         static_root: arguments.static_dir,
         base_path: base_path.clone(),
         commandagent_bin,
+        extension_root: extension_root.clone(),
         trial_access,
         trial_workspace,
     };
@@ -126,6 +177,18 @@ async fn main() -> anyhow::Result<()> {
         actual.ip(),
         actual.port(),
         display_base_path(&base_path)
+    );
+    println!(
+        "gui_server auth={} execution_root={} extension_root={} packs={}/{} (approved/local)",
+        if arguments.trial_token_auth.is_enabled() {
+            "on"
+        } else {
+            "off"
+        },
+        execution_root_summary,
+        extension_root_summary,
+        approved_pack_count,
+        local_pack_count
     );
     axum::serve(listener, app)
         .await

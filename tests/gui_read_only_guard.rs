@@ -63,16 +63,20 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         "Command::new(&state.commandagent_bin)",
         "command.env_clear()",
         "DELEGATE_PARENT_ENV_ALLOWLIST",
+        "fn check_binary(path: &Path)",
+        ".arg(\"--version\")",
+        ".output()",
         ".arg(\"--ultra-plan-run\")",
         ".arg(\"--run-ultra-plan\")",
         "COMMANDAGENT_EVAL_EVENTS",
+        ".arg(\"--extension-root\")",
     ] {
         assert!(
             delegate.contains(required),
             "CLI delegation guard is missing {required:?}"
         );
     }
-    for shell_bypass in ["sh\")", "bash\")", ".arg(\"-c\")", ".output("] {
+    for shell_bypass in ["sh\")", "bash\")", ".arg(\"-c\")"] {
         assert!(
             !delegate.contains(shell_bypass),
             "delegate contains an unbounded process surface {shell_bypass:?}"
