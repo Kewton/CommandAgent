@@ -555,7 +555,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
@@ -574,7 +574,21 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .success()
     );
     let direct_bytes = std::fs::read(&direct_events).unwrap();
-    let mut server = Server::start(&workspace, &cli);
+    let mut server = Server::start_with_delegate_env(
+        &workspace,
+        &cli,
+        &[
+            ("OPENAI_API_KEY", "allowlisted-provider-key"),
+            ("COMMANDAGENT_PACK_DIRECTORY", "/tmp/untrusted-pack"),
+            ("COMMANDAGENT_PACK_ID", "untrusted-pack"),
+            ("COMMANDAGENT_PACK_VERSION", "9.9.9"),
+            ("COMMANDAGENT_PACK_HASH", "sha256:untrusted"),
+            (
+                "COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET",
+                "must-not-cross",
+            ),
+        ],
+    );
     let idle = server.request_without_access("GET", "/api/runtime-status", None);
     assert_eq!(idle.status, 200, "{}", idle.body);
     let idle: serde_json::Value = serde_json::from_str(&idle.body).unwrap();
@@ -706,6 +720,24 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read(&delegated_events).unwrap(), direct_bytes);
+    let delegated_env =
+        std::fs::read_to_string(delegated_events.parent().unwrap().join("delegated-env.txt"))
+            .unwrap();
+    assert!(delegated_env.contains("PATH="), "{delegated_env}");
+    assert!(
+        delegated_env.contains("OPENAI_API_KEY=allowlisted-provider-key"),
+        "{delegated_env}"
+    );
+    for forbidden in [
+        "COMMANDAGENT_PACK_",
+        "COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET",
+        "GUI_TRIAL_TOKEN=",
+    ] {
+        assert!(
+            !delegated_env.contains(forbidden),
+            "delegated environment contains {forbidden}: {delegated_env}"
+        );
+    }
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
@@ -1016,6 +1048,22 @@ impl Server {
         Self::start_with_workspace(Some(workspace), cli, false, &static_root)
     }
 
+    fn start_with_delegate_env(
+        workspace: &std::path::Path,
+        cli: &std::path::Path,
+        environment: &[(&str, &str)],
+    ) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_repository_root_and_env(
+            Some(workspace),
+            cli,
+            true,
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &static_root,
+            environment,
+        )
+    }
+
     fn start_dashboard_only() -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
         Self::start_dashboard_only_with_static_root(&static_root)
@@ -1063,6 +1111,24 @@ impl Server {
         repository_root: &std::path::Path,
         static_root: &std::path::Path,
     ) -> Self {
+        Self::start_with_repository_root_and_env(
+            workspace,
+            cli,
+            authenticated,
+            repository_root,
+            static_root,
+            &[],
+        )
+    }
+
+    fn start_with_repository_root_and_env(
+        workspace: Option<&std::path::Path>,
+        cli: &std::path::Path,
+        authenticated: bool,
+        repository_root: &std::path::Path,
+        static_root: &std::path::Path,
+        environment: &[(&str, &str)],
+    ) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
         command
             .args(["--port", "0", "--base-path", "/"])
@@ -1074,6 +1140,7 @@ impl Server {
             .arg(cli)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        command.envs(environment.iter().copied());
         if let Some(workspace) = workspace {
             command.arg("--execution-root").arg(workspace);
         }

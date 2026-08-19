@@ -43,7 +43,7 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         allowlist: &[
             "src/provider_call.rs",
             "src/bounded_process.rs",
-            "src/bin/gui_server/sessions.rs",
+            "src/bin/gui_server/delegate.rs",
         ],
         audit: audit_bounded_execution_chokepoints,
     },
@@ -108,6 +108,10 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             r#"fn f() { let _ = std::process::Command::new("sh").output(); }"#,
         ),
         (
+            "src/bin/gui_server/sessions.rs",
+            r#"fn f() { let _ = std::process::Command::new("commandagent").spawn(); }"#,
+        ),
+        (
             "src/new_fetch.rs",
             r#"fn f() { let _ = std::process::Command::new("curl").arg("https://example.test"); let _ = transport.get(root, request); }"#,
         ),
@@ -159,6 +163,11 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         violations.contains("src/new_fetch.rs")
             && violations.contains("constructs a fetch child outside the boundary"),
         "mock fetch site did not trip the single-boundary guard: {violations}"
+    );
+    assert!(
+        violations.contains("src/bin/gui_server/sessions.rs")
+            && violations.contains("direct child-process invocation"),
+        "old GUI process location did not trip the moved delegate guard: {violations}"
     );
 }
 
