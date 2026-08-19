@@ -368,7 +368,10 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
 #[cfg(unix)]
 #[test]
 fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
+    use std::os::unix::fs::PermissionsExt;
+
     let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let profile_dir = extension.path().join("profiles/static-site");
     std::fs::create_dir_all(&profile_dir).unwrap();
     std::fs::write(
@@ -1890,7 +1893,16 @@ impl Server {
             .nth(1)
             .and_then(|tail| tail.split('/').next())
             .and_then(|value| value.parse().ok())
-            .unwrap_or_else(|| panic!("unable to parse server address: {line}"));
+            .unwrap_or_else(|| {
+                let mut error = String::new();
+                child
+                    .stderr
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut error)
+                    .unwrap();
+                panic!("unable to parse server address: {line}; stderr: {error}")
+            });
         Self {
             child,
             port,
