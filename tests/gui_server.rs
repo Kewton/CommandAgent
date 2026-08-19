@@ -667,18 +667,12 @@ fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
     let response = server.request("POST", "/api/sessions", Some(&proposal));
     assert_eq!(response.status, 202, "{}", response.body);
     let session_id = response.json()["id"].as_str().unwrap().to_string();
-    let delegated_env = workspace
+    let delegated_env_path = workspace
         .path()
         .join(".anvil/runs")
         .join(&session_id)
         .join("delegated-env.txt");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !delegated_env.is_file() {
-        assert!(Instant::now() < deadline, "local pack delegation timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let delegated_env = std::fs::read_to_string(delegated_env).unwrap();
-    for expected in [
+    let expected_env = [
         "COMMANDAGENT_PACK_ID=local-supply".to_string(),
         "COMMANDAGENT_PACK_VERSION=1.0.0".to_string(),
         format!(
@@ -694,7 +688,30 @@ fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
                 .join("packs/local-supply/1.0.0")
                 .display()
         ),
-    ] {
+    ];
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let delegated_env = loop {
+        match std::fs::read_to_string(&delegated_env_path) {
+            Ok(contents)
+                if expected_env
+                    .iter()
+                    .all(|expected| contents.contains(expected)) =>
+            {
+                break contents;
+            }
+            Ok(contents) => assert!(
+                Instant::now() < deadline,
+                "local pack delegation timed out: {contents:?}"
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => assert!(
+                Instant::now() < deadline,
+                "local pack delegation timed out before the environment file appeared"
+            ),
+            Err(error) => panic!("could not read delegated environment: {error}"),
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    for expected in expected_env {
         assert!(delegated_env.contains(&expected), "{delegated_env}");
     }
 
