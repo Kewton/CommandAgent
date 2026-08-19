@@ -446,8 +446,7 @@ mod tests {
             ],
         ] {
             let error =
-                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments.into_iter()))
-                    .unwrap_err();
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments)).unwrap_err();
             assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
         }
     }
@@ -467,8 +466,7 @@ mod tests {
             ],
         ] {
             let error =
-                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments.into_iter()))
-                    .unwrap_err();
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments)).unwrap_err();
             assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
         }
     }
