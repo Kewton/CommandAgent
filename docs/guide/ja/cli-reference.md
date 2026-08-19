@@ -13,10 +13,11 @@
 アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
 `--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、`--doctor` です。
-複数のアクション選択フラグを組み合わせると拒否されます。
+オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin` も、これらの
+アクションおよび相互に排他です。複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-48 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+51 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -28,6 +29,9 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
 | `--extension-root` | `<DIR>` | トップレベル `extension_root`、その後なし | 選択 identity を repository の `packs/` より先に extension root から探索します。 | [Pack 選択](configuration.md#pack-選択) |
+| `--packs` | なし | オフ | compatible な承認済み pack と `--extension-root` 配下の conformant な pack を供給元付きで一覧表示します。`--profile` と `--intent` が必要です。 | [排他関係](#排他関係と組み合わせ) |
+| `--pack-verify` | `<DIR>` | なし | 1 個の pack directory を strict conformance 検査し、`pack_conformance` と同じ JSON report を表示します。 | [排他関係](#排他関係と組み合わせ) |
+| `--pack-pin` | `<DIR>` | なし | green conformance 後に `pack.sha256` を作成し、同一 pin は変更せず、古い pin は拒否します。 | [排他関係](#排他関係と組み合わせ) |
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
@@ -94,6 +98,9 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 - `--footer` と `--no-footer` は Clap レベルで排他であり、同時に使えません。
 - アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
   `only one action selector can be used at a time` で失敗します。
+- `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。
+  相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
+  `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--planner-provider` が実行プロバイダと異なる場合、明示または preset の
   `planner_model` が必要です。なければ起動に失敗します。

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{ArgAction, ArgGroup, Parser, ValueEnum};
 use clap_complete::Shell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -69,6 +69,11 @@ pub enum IntentArg {
 #[command(name = "commandagent")]
 #[command(about = "Minimal loop + YAML plan runner MVP")]
 #[command(version = crate::build_info::VERSION)]
+#[command(group(
+    ArgGroup::new("pack_direct_action")
+        .args(["packs", "pack_verify", "pack_pin"])
+        .multiple(false)
+))]
 pub struct Cli {
     #[arg(long, action = ArgAction::SetTrue)]
     pub yes: bool,
@@ -93,6 +98,40 @@ pub struct Cli {
         help = "Search this extension root before repository packs"
     )]
     pub extension_root: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires_all = ["profile", "intent"],
+        conflicts_with_all = [
+            "pack", "pack_hash", "workflow", "prompt", "plan_steps", "plan_run", "run_plan",
+            "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe", "runs",
+            "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help = "List compatible admitted and local packs"
+    )]
+    pub packs: bool,
+    #[arg(
+        long,
+        value_name = "DIR",
+        conflicts_with_all = [
+            "pack", "pack_hash", "extension_root", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help = "Verify strict conformance for a pack directory"
+    )]
+    pub pack_verify: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "DIR",
+        conflicts_with_all = [
+            "pack", "pack_hash", "extension_root", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help = "Create or validate a pack.sha256 pin"
+    )]
+    pub pack_pin: Option<PathBuf>,
     #[arg(long)]
     pub context_budget: Option<usize>,
     #[arg(long)]
@@ -368,6 +407,92 @@ mod tests {
         assert!(help.contains("--intent"));
         assert!(help.contains("create|fix|investigate"));
         assert!(help.contains("omitted keeps goal-based resolution"));
+    }
+
+    #[test]
+    fn help_includes_pack_direct_actions() {
+        let help = Cli::command().render_long_help().to_string();
+        for flag in ["--packs", "--pack-verify <DIR>", "--pack-pin <DIR>"] {
+            assert!(help.contains(flag), "missing {flag} from help:\n{help}");
+        }
+    }
+
+    #[test]
+    fn pack_direct_actions_are_mutually_exclusive() {
+        for arguments in [
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--pack-verify",
+                "packs/cli-assist/1.0.0",
+            ],
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--pack-pin",
+                "packs/cli-assist/1.0.0",
+            ],
+            vec![
+                "--pack-verify",
+                "packs/cli-assist/1.0.0",
+                "--pack-pin",
+                "packs/cli-assist/1.0.0",
+            ],
+        ] {
+            let error =
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments.into_iter()))
+                    .unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn pack_direct_actions_conflict_with_run_and_selection_actions() {
+        for arguments in [
+            vec!["--pack-verify", "pack-dir", "--prompt", "run something"],
+            vec!["--pack-pin", "pack-dir", "--pack", "cli-assist@1.0.0"],
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--runs",
+            ],
+        ] {
+            let error =
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments.into_iter()))
+                    .unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn packs_requires_profile_and_intent_but_allows_an_extension_root() {
+        for arguments in [
+            vec!["commandagent", "--packs"],
+            vec!["commandagent", "--profile", "python-cli", "--packs"],
+        ] {
+            assert!(Cli::try_parse_from(arguments).is_err());
+        }
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--extension-root",
+            "local-packs",
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+            "--packs",
+        ])
+        .unwrap();
+        assert!(cli.packs);
     }
 
     #[test]

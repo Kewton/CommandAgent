@@ -28,6 +28,13 @@ external supply remains queued for Phase G.
 vocabulary, contract-floor, and exact-byte checks with:
 
 ```bash
+commandagent --pack-verify packs/builtin/ingest-create/1.0.0
+```
+
+The management wrapper exposes the same conformance report for repository
+automation:
+
+```bash
 python3 workspace/management/scripts/pack_conformance.py \
   --pack packs/builtin/ingest-create/1.0.0
 ```
@@ -37,3 +44,9 @@ demonstrates two bounded convention-material injections plus the three
 additive, shell-free checks `path_layout_conforms`, `design_tokens_only`, and
 `lint_config_present`. Its presence and pin do not add it to the admitted
 catalog or grant a measured band.
+
+Use `commandagent --pack-pin <DIR>` for an unpinned conformant scaffold. It
+creates `pack.sha256`, treats a matching existing pin as a no-op, and refuses
+to replace a stale pin. `commandagent --profile <PROFILE> --intent <INTENT> --packs`
+lists compatible admitted packs; add `--extension-root <DIR>` to
+include conformant local packs with their source labels.

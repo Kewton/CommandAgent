@@ -27,6 +27,7 @@ pub mod minimal_loop;
 pub mod mode;
 pub mod model_probe;
 mod openai_model;
+mod pack_actions;
 pub mod planner;
 pub mod preflight;
 pub mod provider_call;
@@ -54,6 +55,9 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    if pack_actions::run_if_requested(&cli)? {
+        return Ok(());
+    }
     if let Some(shell) = cli.completions {
         let stdout = std::io::stdout();
         return cli_artifacts::write_completions(shell, &mut stdout.lock());
