@@ -456,3 +456,40 @@ fn nextjs_convention_pack_vocabulary_stays_bound_to_the_profile_contract() {
         assert!(readme.contains(marker), "pack README missing {marker}");
     }
 }
+
+#[test]
+fn additive_profile_overlay_decision_stays_bound_to_the_ledger() {
+    let contract = read_repo_file("docs/dev/profile-manifest.md");
+    for marker in [
+        "## Additive overlay contract",
+        "[overlay]",
+        "base_profile = \"nextjs\"",
+        "mode = \"additive\"",
+        "status = \"draft\"",
+        "`artifacts`, `guidance`, `checks`, and\n`evidence_targets`",
+        "`plan`, `step_templates`, and `vocabulary` are forbidden",
+        "`ManifestSource` values for overlays are `repository` and `local`",
+        "`base -> overlay -> pack`",
+        "reason `profile_not_admitted`",
+        "<display_name>（下書き上乗せ）",
+    ] {
+        assert!(
+            contract.contains(marker),
+            "profile overlay contract is missing fixed marker {marker:?}"
+        );
+    }
+
+    let ledger = read_repo_file("docs/dev/mechanism-ledger.md");
+    for marker in [
+        "E-02 — 承認 profile への追加専用 overlay",
+        "Issue #105",
+        "E-17（Issue #116、`ef0703f6`）",
+        "ManifestSource",
+        "E-18（Issue #117）",
+    ] {
+        assert!(
+            ledger.contains(marker),
+            "mechanism ledger is missing overlay decision marker {marker:?}"
+        );
+    }
+}
