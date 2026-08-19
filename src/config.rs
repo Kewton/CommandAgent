@@ -17,6 +17,7 @@ pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
 pub const DEFAULT_CONTEXT_BUDGET: usize = 65_536;
 pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
 pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
+    "pack",
     "model",
     "provider",
     "api",
@@ -33,6 +34,7 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "plan_preset",
 ];
 pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
+    "extension_root",
     "narration",
     "footer",
     "stream",
@@ -425,6 +427,7 @@ fn sourced<T>(value: T, source: impl Into<String>) -> Sourced<T> {
 
 #[derive(Debug, Clone, Default)]
 struct PresetConfig {
+    pack: Option<Sourced<String>>,
     model: Option<Sourced<String>>,
     provider: Option<Sourced<Provider>>,
     openai_api: Option<Sourced<OpenAiApi>>,
@@ -444,6 +447,7 @@ struct PresetConfig {
 #[derive(Debug, Clone, Default)]
 struct ConfigFile {
     presets: HashMap<String, PresetConfig>,
+    extension_root: Option<Sourced<String>>,
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
     stream: Option<Sourced<bool>>,
@@ -910,6 +914,7 @@ fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
 }
 
 fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
+    merge_preset_field(&mut target.pack, &source.pack);
     merge_preset_field(&mut target.model, &source.model);
     merge_preset_field(&mut target.provider, &source.provider);
     merge_preset_field(&mut target.openai_api, &source.openai_api);
@@ -1169,6 +1174,16 @@ fn parse_top_level_key(
         bail!("{}:{} unknown config key '{key}'", path.display(), line_no);
     }
     match key {
+        "extension_root" => {
+            file.extension_root = Some(sourced(
+                parse_string_value(path, line_no, key, value)?,
+                format!(
+                    "config:{}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            ));
+            Ok(())
+        }
         "narration" => {
             file.narration = Some(sourced(
                 parse_narration_value(path, line_no, key, value)?,
@@ -1241,6 +1256,12 @@ fn parse_preset_key(
         );
     }
     match key {
+        "pack" => {
+            preset.pack = Some(sourced(
+                parse_string_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "model" => {
             preset.model = Some(sourced(
                 parse_string_value(path, line_no, &full_key, value)?,
@@ -1328,6 +1349,29 @@ fn parse_preset_key(
         _ => unreachable!("SUPPORTED_PRESET_KEYS contains unhandled key '{key}'"),
     }
     Ok(())
+}
+
+pub(crate) fn selected_preset_pack(
+    root: &Path,
+    name: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    Ok(load_named_preset(root, name)?.and_then(|preset| preset.pack.map(|value| value.value)))
+}
+
+pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
+    for path in config_paths(root) {
+        if let Some(file) = parse_config_file_if_present(&path)?
+            && let Some(value) = file.extension_root
+        {
+            let configured = PathBuf::from(value.value);
+            return Ok(Some(if configured.is_absolute() {
+                configured
+            } else {
+                root.join(configured)
+            }));
+        }
+    }
+    Ok(None)
 }
 
 fn strip_toml_comment(line: &str) -> &str {

@@ -4,6 +4,6 @@ fn main() {
     let cli = commandagent::cli::Cli::parse();
     if let Err(err) = commandagent::run(cli) {
         eprintln!("error: {err:#}");
-        std::process::exit(1);
+        std::process::exit(commandagent::cli_error_exit_code(&err));
     }
 }

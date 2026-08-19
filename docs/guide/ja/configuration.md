@@ -27,6 +27,8 @@ CLI フラグ > 選択した preset のフィールド > トップレベル設�
 | `tool_protocol` | CLI > preset > プロバイダ能力の既定値 |
 | `planner_model`、`planner_provider` | CLI > preset > 実行役割から継承。異なるプロバイダには planner model が必要 |
 | `profile` | CLI > preset > ゴール／ワークスペース推論 > `generic` |
+| `pack` | CLI `--pack` > 選択 preset。明示値が矛盾すると失敗 |
+| `extension_root` | CLI `--extension-root` > トップレベルキー > repository のみ探索 |
 | `ollama_host`、`think`、`lm_studio_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
 
 timeout の既定値は、いずれかの役割が Ollama または LM Studio なら `600` 秒、両方がリモートなら `180` 秒です。
@@ -54,11 +56,12 @@ timeout の既定値は、いずれかの役割が Ollama または LM Studio �
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 14 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 15 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
 | --- | --- | --- |
+| `pack` | exact な `"id@MAJOR.MINOR.PATCH"` selector | pack なし |
 | `model` | model ID 文字列 | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | `"ollama"` |
 | `api` | `"chat_completions"` または `"responses"` | `"chat_completions"` |
@@ -102,18 +105,19 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 `context_budget`、`chat_timeout_secs`、`plan_preset`、`profile`、`narration`、`footer`、
 `stream` の 11 フィールドが揃った時点で早期停止します。
 
-`prompt_layout`、`api`、`tool_protocol` は受け付けるキーですが、この完全性判定には**含まれません**。優先度の高い preset が
+`prompt_layout`、`api`、`tool_protocol`、`pack` は受け付けるキーですが、この完全性判定には**含まれません**。優先度の高い preset が
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 14 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 15 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 
-`config.toml` のトップレベルで有効なキーは次の 5 個だけです。
+`config.toml` のトップレベルで有効なキーは次の 6 個だけです。
 
 | キー | 受け付ける値 | 対応する CLI 上書き |
 | --- | --- | --- |
+| `extension_root` | ディレクトリパス文字列 | `--extension-root` |
 | `narration` | `"normal"` または `"quiet"` | `--quiet` が `quiet` を強制 |
 | `footer` | `"on"` または `"off"` | `--footer`、`--no-footer` |
 | `stream` | `"on"` または `"off"` | `--stream` |
@@ -121,6 +125,7 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 | `plan_preset` | `"none"` または `"profile"` | `--plan-preset` |
 
 ```toml
+extension_root = "extensions"
 narration = "quiet"
 footer = "off"
 stream = "on"
@@ -132,6 +137,23 @@ plan_preset = "none"
 あると、そのファイルの構文解析が失敗します。名前付き preset の読み込みは構文解析エラーを表示し、
 トップレベルフィールドの検索は構文解析できなかったファイルを飛ばして優先度の低いファイルへ進みます。
 現在の小さなパーサーは `[preset.<name>]` 以外のセクションを設定として扱わず、無視します。
+
+## Pack 選択
+
+Pack selector は `nextjs-acme@1.0.0` のように exact version を必ず含めます。
+CommandAgent は `<workspace>/packs/<id>/<version>` より先に
+`<extension_root>/<id>/<version>`（互換レイアウト
+`<extension_root>/packs/<id>/<version>` も可）を探索します。選択ディレクトリには、読み込んだ
+assist/eval の exact-byte hash と一致する `pack.sha256` が必要です。pin 不在、古い pin、
+`--pack-hash` 不一致、profile/intent 不一致は run-start evidence の出力前に終了コード 2 で停止します。
+
+```toml
+extension_root = "extensions"
+
+[preset.nextjs_acme_cagentpack]
+pack = "nextjs-acme@1.0.0"
+profile = "nextjs"
+```
 
 ## 旧形式の拡張子なし設定
 

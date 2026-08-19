@@ -23,8 +23,9 @@ jq -R 'fromjson? // empty' commandagent.log | tail -n 1
 
 ## JSON schema
 
-The schema identifier is `commandagent.headless-summary/v1`. Every key is
-present; unavailable measurements are JSON `null`.
+The schema identifier is `commandagent.headless-summary/v1`. Existing scalar
+keys are always present; unavailable measurements are JSON `null`. The
+additive `pack` object is omitted when no pack was selected.
 
 | Field | Source and meaning |
 | --- | --- |
@@ -40,6 +41,7 @@ present; unavailable measurements are JSON `null`.
 | `provider_cost_usd` | Persisted provider/run cost when one exists; CommandAgent does not invent prices from tokens. |
 | `stop_class` | Failed terminal event `failure_kind`; `null` for a successful terminal. |
 | `directive_round` | Latest persisted directive round, or `0` for an ordinary non-directive run. |
+| `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
 
 Builder Plane and similar callers should gate on both `verdict` and `assurance`,
 then use `artifacts_dir`, `acceptance_sheet_path`, and `events_path` as the

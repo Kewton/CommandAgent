@@ -74,6 +74,25 @@ pub struct Cli {
     pub yes: bool,
     #[arg(long)]
     pub preset: Option<String>,
+    #[arg(
+        long,
+        value_name = "ID@VERSION",
+        help = "Activate an exact-version assist/eval pack"
+    )]
+    pub pack: Option<String>,
+    #[arg(
+        long,
+        value_name = "SHA256",
+        requires = "pack",
+        help = "Require the selected pack's exact-byte hash"
+    )]
+    pub pack_hash: Option<String>,
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Search this extension root before repository packs"
+    )]
+    pub extension_root: Option<PathBuf>,
     #[arg(long)]
     pub context_budget: Option<usize>,
     #[arg(long)]
