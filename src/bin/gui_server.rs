@@ -16,6 +16,8 @@ mod directives;
 mod error_response;
 #[path = "gui_server/gate_one.rs"]
 mod gate_one;
+#[path = "gui_server/pack_catalog.rs"]
+mod pack_catalog;
 #[path = "gui_server/preflight.rs"]
 mod preflight;
 #[path = "gui_server/runtime_status.rs"]

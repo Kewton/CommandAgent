@@ -357,6 +357,88 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
 
 #[cfg(unix)]
 #[test]
+fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
+    let mut repository_server = Server::start_dashboard_only();
+    let response = repository_server.request_without_access("GET", "/api/packs", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let packs: Vec<serde_json::Value> = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(
+        packs
+            .iter()
+            .filter(|pack| pack["source"] == "admitted")
+            .count(),
+        ADMITTED_PACKS.len()
+    );
+    assert!(packs.iter().all(|pack| {
+        pack["source"] != "admitted"
+            || (pack["source_label"] == "承認済み"
+                && pack["hash_matches_pin"] == true
+                && pack["pin"] == pack["expected_hash"]
+                && pack["trial_eligible"] == true)
+    }));
+    let nextjs = packs
+        .iter()
+        .find(|pack| pack["id"] == "nextjs-acme")
+        .expect("missing unadmitted repository pack");
+    assert_eq!(nextjs["source"], "repository");
+    assert_eq!(nextjs["source_label"], "リポジトリ（未承認）");
+    repository_server.stop();
+
+    let extension = tempfile::tempdir().unwrap();
+    let stale = extension.path().join("packs/local-assist/1.0.0");
+    std::fs::create_dir_all(&stale).unwrap();
+    let admitted_assist = std::fs::read_to_string("packs/cli-assist/1.0.0/assist.yaml").unwrap();
+    std::fs::write(
+        stale.join("assist.yaml"),
+        admitted_assist.replace("id: cli-assist", "id: local-assist"),
+    )
+    .unwrap();
+    std::fs::write(stale.join("pack.sha256"), "sha256:stale\n").unwrap();
+
+    let shadow = extension.path().join("packs/cli-assist/1.0.0");
+    std::fs::create_dir_all(&shadow).unwrap();
+    std::fs::copy(
+        "packs/cli-assist/1.0.0/assist.yaml",
+        shadow.join("assist.yaml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        "packs/cli-assist/1.0.0/pack.sha256",
+        shadow.join("pack.sha256"),
+    )
+    .unwrap();
+
+    let mut local_server = Server::start_dashboard_only_with_extension(extension.path());
+    let response = local_server.request_without_access("GET", "/api/packs", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let packs: Vec<serde_json::Value> = serde_json::from_str(&response.body).unwrap();
+    let stale = packs
+        .iter()
+        .find(|pack| pack["id"] == "local-assist")
+        .expect("missing stale local pack");
+    assert_eq!(stale["source"], "local");
+    assert_eq!(stale["source_label"], "ローカル（未承認・帯域未計測）");
+    assert_eq!(stale["hash_matches_pin"], false);
+    assert!(
+        stale["warning"]
+            .as_str()
+            .unwrap()
+            .contains("hash と pin が一致しません")
+    );
+    assert_eq!(stale["trial_eligible"], false);
+
+    let shadow = packs
+        .iter()
+        .find(|pack| pack["id"] == "cli-assist" && pack["version"] == "1.0.0")
+        .expect("missing shadowing local pack");
+    assert_eq!(shadow["source"], "local");
+    assert_eq!(shadow["shadowing_repository"], true);
+    assert!(shadow["warning"].as_str().unwrap().contains("ローカル優先"));
+    local_server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn run_index_reports_total_before_limit_and_normalized_status_state() {
     let repository = tempfile::tempdir().unwrap();
     let runs_root = repository.path().join("workspace/management/runs");
@@ -1294,6 +1376,7 @@ impl Server {
             true,
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
             &static_root,
+            None,
             environment,
         )
     }
@@ -1320,6 +1403,19 @@ impl Server {
             false,
             repository_root,
             &static_root,
+        )
+    }
+
+    fn start_dashboard_only_with_extension(extension_root: &std::path::Path) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_repository_root_and_env(
+            None,
+            std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+            false,
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &static_root,
+            Some(extension_root),
+            &[],
         )
     }
 
@@ -1351,6 +1447,7 @@ impl Server {
             authenticated,
             repository_root,
             static_root,
+            None,
             &[],
         )
     }
@@ -1361,6 +1458,7 @@ impl Server {
         authenticated: bool,
         repository_root: &std::path::Path,
         static_root: &std::path::Path,
+        extension_root: Option<&std::path::Path>,
         environment: &[(&str, &str)],
     ) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
@@ -1377,6 +1475,9 @@ impl Server {
         command.envs(environment.iter().copied());
         if let Some(workspace) = workspace {
             command.arg("--execution-root").arg(workspace);
+        }
+        if let Some(extension_root) = extension_root {
+            command.arg("--extension-root").arg(extension_root);
         }
         if authenticated {
             command

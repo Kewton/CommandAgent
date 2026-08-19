@@ -86,6 +86,7 @@ export function useTrialRun(
   const gateOneRef = useRef<HTMLElement>(null);
   const executionRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<HTMLElement>(null);
+  const packPreselectionApplied = useRef(false);
   const [trialToken, setTrialToken] = useState("");
   const [reconnectSessionId, setReconnectSessionId] = useState("");
   const [spec, setSpec] = useState<SessionSpec>(initialSpec);
@@ -184,6 +185,18 @@ export function useTrialRun(
     const id = new URLSearchParams(window.location.search).get("session");
     if (id !== null) setReconnectSessionId(id);
   }, []);
+
+  useEffect(() => {
+    if (packOptions === null || packPreselectionApplied.current) return;
+    packPreselectionApplied.current = true;
+    const selector = new URLSearchParams(window.location.search).get("pack");
+    const option = packOptions.packs.find(
+      (candidate) => `${candidate.id}@${candidate.version}` === selector,
+    );
+    if (selector !== null && option !== undefined) {
+      setSpec((current) => ({ ...current, profile: option.profile, pack: selector }));
+    }
+  }, [packOptions]);
 
   useEffect(() => {
     if (

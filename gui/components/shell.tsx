@@ -14,8 +14,9 @@ export function useShellRuntimeStatus(): RuntimeState | null {
 const navigation: { route: GuiRoute; label: string; index: string }[] = [
   { route: "dashboard", label: "概要", index: "01" },
   { route: "try", label: "トライアル", index: "02" },
-  { route: "run", label: "検証・運用レポート", index: "03" },
-  { route: "measurements", label: "計測", index: "04" },
+  { route: "assets", label: "拡張", index: "03" },
+  { route: "run", label: "検証・運用レポート", index: "04" },
+  { route: "measurements", label: "計測", index: "05" },
 ];
 
 type ShellProps = {

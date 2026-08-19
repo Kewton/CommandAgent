@@ -37,9 +37,20 @@ export type PackSummary = {
   id: string;
   version: string;
   path: string;
+  profile: string | null;
+  intent: string | null;
+  source: "admitted" | "repository" | "local";
+  source_label: string;
   pin: string;
+  expected_hash: string | null;
+  observed_hash: string | null;
+  hash_matches_pin: boolean;
   has_assist: boolean;
   has_eval: boolean;
+  retired: boolean;
+  shadowing_repository: boolean;
+  trial_eligible: boolean;
+  warning: string | null;
 };
 
 export type SessionSpec = {
