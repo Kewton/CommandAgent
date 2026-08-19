@@ -2,7 +2,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::planner::adjudication::contract::{IntentId, intent_contract};
-use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
+use crate::planner::profile::ProfileId;
+use crate::planner::profile_descriptor::{
+    DATA_PROFILE_ID, INGEST_PROFILE_ID, NEXTJS_PROFILE_ID, PROFILE_DESCRIPTORS,
+    PYTHON_CLI_PROFILE_ID, descriptor_for_name,
+};
 use crate::planner::profile_manifest::ManifestStatus;
 
 use super::band_catalog::{BandValue, value_for};
@@ -28,7 +32,8 @@ pub struct RouteCandidate {
 
 impl RouteCandidate {
     pub fn band(&self) -> Option<&'static BandValue> {
-        value_for(route_profile_name(&self.profile), self.intent, self.family)
+        let band_key = descriptor_for_name(route_profile_name(&self.profile))?.band_key?;
+        value_for(band_key, self.intent, self.family)
     }
 }
 
@@ -62,11 +67,10 @@ pub struct RouteRequest<'a> {
 }
 
 pub fn admitted_profiles() -> Vec<ProfileId> {
-    ProfileRuntimeRegistry::registered()
-        .filter(|profile| {
-            crate::planner::profile_admission::status(route_profile_name(profile))
-                == ManifestStatus::Admitted
-        })
+    PROFILE_DESCRIPTORS
+        .iter()
+        .filter(|profile| (profile.admission)() == ManifestStatus::Admitted)
+        .map(|profile| profile.id.clone())
         .collect()
 }
 
@@ -178,20 +182,15 @@ fn contract_ref(profile: &str, intent: IntentId) -> &'static str {
             .expect("typed intent must have a contract")
             .contract_ref;
     }
-    match profile {
-        "nextjs" => "docs/nextjs-profile-contract.md",
-        "data" => "docs/dev/data-profile-contract.md",
-        "python-cli" => "docs/cli-profile-contract.md",
-        "ingest" => "docs/ingest-profile-contract.md",
-        _ => intent_contract("create").unwrap().contract_ref,
-    }
+    descriptor_for_name(profile)
+        .and_then(|profile| profile.contract_ref)
+        .unwrap_or_else(|| intent_contract("create").unwrap().contract_ref)
 }
 
 fn route_profile_name(profile: &ProfileId) -> &str {
-    match profile {
-        ProfileId::Cli => "python-cli",
-        _ => profile.as_str(),
-    }
+    descriptor_for_name(profile.as_str())
+        .map(|descriptor| descriptor.canonical)
+        .unwrap_or_else(|| profile.as_str())
 }
 
 fn explicit_binding_conflicts(
@@ -220,21 +219,21 @@ fn observe_workspace(
     let has = |needle: &str| paths.iter().any(|path| path == needle);
     let prefix = |needle: &str| paths.iter().any(|path| path.starts_with(needle));
     if prefix("data/snapshots/") {
-        profiles.insert("ingest".to_string());
+        profiles.insert(INGEST_PROFILE_ID.to_string());
         observations.push(RouteBasis {
             rule: "workspace.snapshots",
             observation: "data/snapshots/".to_string(),
         });
     }
     if has("cli/main.py") {
-        profiles.insert("python-cli".to_string());
+        profiles.insert(PYTHON_CLI_PROFILE_ID.to_string());
         observations.push(RouteBasis {
             rule: "workspace.cli_main",
             observation: "cli/main.py".to_string(),
         });
     }
     if has("package.json") && (prefix("app/") || prefix("src/app/")) {
-        profiles.insert("nextjs".to_string());
+        profiles.insert(NEXTJS_PROFILE_ID.to_string());
         observations.push(RouteBasis {
             rule: "workspace.nextjs_app_router",
             observation: "package.json + App Router".to_string(),
@@ -245,7 +244,7 @@ fn observe_workspace(
             .iter()
             .any(|path| path.ends_with(".csv") || path.ends_with(".tsv"))
     {
-        profiles.insert("data".to_string());
+        profiles.insert(DATA_PROFILE_ID.to_string());
         observations.push(RouteBasis {
             rule: "workspace.tabular_pipeline",
             observation: "pipeline/main.py + tabular input".to_string(),
@@ -295,7 +294,7 @@ fn observe_request(
     insert_on_tokens(
         &compact,
         &["snapshot", "スナップショット", "htmlから", "イベント一覧"],
-        "ingest",
+        INGEST_PROFILE_ID,
         "request.profile.ingest",
         profiles,
         observations,
@@ -303,7 +302,7 @@ fn observe_request(
     insert_on_tokens(
         &compact,
         &["cli", "コマンドライン", "--help"],
-        "python-cli",
+        PYTHON_CLI_PROFILE_ID,
         "request.profile.cli",
         profiles,
         observations,
@@ -311,7 +310,7 @@ fn observe_request(
     insert_on_tokens(
         &compact,
         &["next.js", "nextjs", "webアプリ", "クイズ", "ゲーム"],
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         "request.profile.nextjs",
         profiles,
         observations,
@@ -319,7 +318,7 @@ fn observe_request(
     insert_on_tokens(
         &compact,
         &["csv", "tsv", "集計", "移動平均", "前月比"],
-        "data",
+        DATA_PROFILE_ID,
         "request.profile.data",
         profiles,
         observations,
@@ -473,6 +472,7 @@ fn ignored_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::planner::profile::ProfileRuntimeRegistry;
 
     fn touch(root: &Path, relative: &str) {
         let path = root.join(relative);

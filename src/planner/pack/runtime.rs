@@ -11,7 +11,7 @@ use super::{
     load_directory,
 };
 use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
-use crate::planner::profile::ProfileId;
+use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
 use crate::planner::profiles::python_cli::argv_probe;
 
 mod cli_testimony;
@@ -232,15 +232,13 @@ fn load_selected(
 }
 
 fn pack_profile(profile: &str) -> Option<PackProfile> {
-    match ProfileId::parse(profile) {
-        ProfileId::Cli | ProfileId::PythonCli => Some(PackProfile::PythonCli),
-        ProfileId::Data | ProfileId::DataAnalysis | ProfileId::DataPipeline => {
-            Some(PackProfile::Data)
-        }
-        ProfileId::Ingest => Some(PackProfile::Ingest),
-        ProfileId::Nextjs => Some(PackProfile::Nextjs),
-        _ => None,
-    }
+    let profile_id = ProfileId::parse(profile);
+    crate::planner::profile_descriptor::descriptor_for_name(profile_id.as_str())
+        .or_else(|| {
+            let runtime_id = ProfileRuntimeRegistry::resolve(&profile_id).profile_id();
+            crate::planner::profile_descriptor::descriptor(&runtime_id)
+        })
+        .and_then(|profile| profile.pack_profile)
 }
 
 fn matching_injections(pack: &LoadedPack, point: InjectionPoint) -> Vec<&Injection> {

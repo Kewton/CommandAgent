@@ -1,5 +1,8 @@
 use crate::planner::adjudication::contract::IntentId;
 use crate::planner::profile::ProfileId;
+use crate::planner::profile_descriptor::{
+    DATA_PROFILE_ID, INGEST_PROFILE_ID, NEXTJS_PROFILE_ID, PYTHON_CLI_PROFILE_ID,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum TaskFamilyId {
@@ -89,91 +92,91 @@ const INVESTIGATION_BAND: &str = "workspace/management/runs/band_summary_investi
 pub const TASK_FAMILY_CATALOG: &[TaskFamilyCatalogEntry] = &[
     entry(
         TaskFamilyId::Quiz,
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         NEXTJS_BAND,
         "Quiz",
     ),
     entry(
         TaskFamilyId::Breakout,
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         NEXTJS_BAND,
         "Breakout",
     ),
     entry(
         TaskFamilyId::Space,
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         NEXTJS_BAND,
         "Space",
     ),
     entry(
         TaskFamilyId::Aggregation,
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Create,
         DATA_BAND,
         "aggregation",
     ),
     entry(
         TaskFamilyId::Timeseries,
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Create,
         DATA_BAND,
         "timeseries",
     ),
     entry(
         TaskFamilyId::Stats,
-        "python-cli",
+        PYTHON_CLI_PROFILE_ID,
         IntentId::Create,
         CLI_BAND,
         "stats",
     ),
     entry(
         TaskFamilyId::Filter,
-        "python-cli",
+        PYTHON_CLI_PROFILE_ID,
         IntentId::Create,
         CLI_BAND,
         "filter",
     ),
     entry(
         TaskFamilyId::List,
-        "ingest",
+        INGEST_PROFILE_ID,
         IntentId::Create,
         INGEST_BAND,
         "list",
     ),
     entry(
         TaskFamilyId::Table,
-        "ingest",
+        INGEST_PROFILE_ID,
         IntentId::Create,
         INGEST_BAND,
         "table",
     ),
     entry(
         TaskFamilyId::CompileErrorFix,
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Fix,
         FIX_BAND,
         "compile_error_fix",
     ),
     entry(
         TaskFamilyId::ContractHookFix,
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Fix,
         FIX_BAND,
         "contract_hook_fix",
     ),
     entry(
         TaskFamilyId::Pipe,
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Investigate,
         INVESTIGATION_BAND,
         "pipe",
     ),
     entry(
         TaskFamilyId::Schema,
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Investigate,
         INVESTIGATION_BAND,
         "schema",
@@ -205,10 +208,9 @@ pub fn entries_for(profile: &ProfileId, intent: IntentId) -> Vec<&'static TaskFa
 }
 
 fn canonical_route_profile(profile: &ProfileId) -> &str {
-    match profile {
-        ProfileId::Cli => "python-cli",
-        _ => profile.as_str(),
-    }
+    crate::planner::profile_descriptor::descriptor_for_name(profile.as_str())
+        .map(|descriptor| descriptor.canonical)
+        .unwrap_or_else(|| profile.as_str())
 }
 
 #[cfg(test)]

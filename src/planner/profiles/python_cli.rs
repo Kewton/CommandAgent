@@ -36,13 +36,13 @@ pub struct PythonCliProfile;
 
 impl DomainProfile for PythonCliProfile {
     fn id(&self) -> &'static str {
-        "python-cli"
+        crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID
     }
 
     fn matches(&self, profile: &str) -> bool {
         matches!(
             crate::planner::profile::canonical_profile_name(profile).as_str(),
-            "python-cli"
+            crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID
         )
     }
 

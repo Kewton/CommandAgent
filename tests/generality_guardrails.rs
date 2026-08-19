@@ -191,17 +191,14 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/planner/lint.rs".to_string(), 1),
         ("src/planner/runner/acceptance.rs".to_string(), 5),
         ("src/planner/verify.rs".to_string(), 3),
-        // D-3c fixes these exact literals in typed, read-only routing catalogs.
-        // Counts remain pinned here so the boundary shell cannot become a new
-        // unaudited profile-dispatch surface.
-        ("src/tui/boundary_shell/band_catalog.rs".to_string(), 5),
         ("src/tui/boundary_shell/confirmation.rs".to_string(), 1),
-        ("src/tui/boundary_shell/family_catalog.rs".to_string(), 5),
         // Issue #73 renders reader-facing profile/check descriptions here.
         // Pin these literals so presentation cannot silently grow into an
         // unaudited profile-dispatch surface.
         ("src/tui/boundary_shell/presentation.rs".to_string(), 6),
-        ("src/tui/boundary_shell/route.rs".to_string(), 4),
+        // Issue #107 moved routing identity and contract registration behind
+        // PROFILE_DESCRIPTORS; only the request-token inference literal stays.
+        ("src/tui/boundary_shell/route.rs".to_string(), 1),
     ]);
     assert_eq!(
         actual, expected,

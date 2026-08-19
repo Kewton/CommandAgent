@@ -45,12 +45,45 @@ macro_rules! closed_id {
     };
 }
 
-closed_id! {
-    pub enum PackProfile {
-        Data => "data",
-        PythonCli => "python-cli",
-        Ingest => "ingest",
-        Nextjs => crate::planner::profiles::nextjs::PROFILE_ID,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PackProfile {
+    Data,
+    PythonCli,
+    Ingest,
+    Nextjs,
+}
+
+impl PackProfile {
+    pub fn as_str(self) -> &'static str {
+        crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
+            .iter()
+            .find(|profile| profile.pack_profile == Some(self))
+            .map(|profile| profile.canonical)
+            .expect("every PackProfile variant must have a ProfileDescriptor")
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
+            .iter()
+            .find(|profile| profile.canonical == value)
+            .and_then(|profile| profile.pack_profile)
+    }
+}
+
+impl fmt::Display for PackProfile {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for PackProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value)
+            .ok_or_else(|| D::Error::custom(format!("unregistered PackProfile id `{value}`")))
     }
 }
 

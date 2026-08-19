@@ -1,6 +1,7 @@
 use axum::Json;
 use commandagent::config::Provider;
 use commandagent::planner::profile::ProfileId;
+use commandagent::planner::profile_descriptor::descriptor;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 use serde::Serialize;
 
@@ -59,36 +60,11 @@ fn options() -> TrialOptions {
 }
 
 fn profile_option(profile: ProfileId) -> ProfileOption {
-    let (label, description) = match &profile {
-        ProfileId::Nextjs => (
-            "Next.js",
-            "ブラウザー向け契約チェックを備えた Next.js App Router プロジェクト。",
-        ),
-        ProfileId::PythonCli => (
-            "Python CLI",
-            "使用方法と動作を検証する Python コマンドラインツール。",
-        ),
-        ProfileId::Data => (
-            "表形式データパイプライン",
-            "CSV または TSV の検査、変換、照合、レポート作成。",
-        ),
-        ProfileId::Ingest => (
-            "スナップショット取り込みパイプライン",
-            "ソースと候補件数を検証するオフライン・スナップショット抽出。",
-        ),
-        ProfileId::Generic => (
-            "汎用",
-            "許可済みの専用プロファイル契約を使用しない一般的な作業。",
-        ),
-        _ => (
-            profile.as_str(),
-            "許可済みの CommandAgent ランタイムプロファイル。",
-        ),
-    };
+    let profile = descriptor(&profile).expect("admitted profiles must have descriptors");
     ProfileOption {
-        id: profile.to_string(),
-        label: label.to_string(),
-        description,
+        id: profile.canonical.to_string(),
+        label: profile.display_name_ja.to_string(),
+        description: profile.description_ja,
     }
 }
 
