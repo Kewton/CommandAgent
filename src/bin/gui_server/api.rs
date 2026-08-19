@@ -68,16 +68,6 @@ pub struct DocumentSummary {
     size_bytes: u64,
 }
 
-#[derive(Debug, Serialize)]
-pub struct PackSummary {
-    id: String,
-    version: String,
-    path: String,
-    pin: String,
-    has_assist: bool,
-    has_eval: bool,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct EvidenceQuery {
     path: String,
@@ -216,34 +206,13 @@ pub async fn score_time_map(State(state): State<AppState>) -> Result<Response, A
         .into_response())
 }
 
-pub async fn packs(State(state): State<AppState>) -> Result<Json<Vec<PackSummary>>, ApiError> {
-    let root = state.repository_root.join("packs");
-    let documents = collect_documents(&root, 5).await?;
-    let mut packs = Vec::new();
-    for pin_path in documents
-        .iter()
-        .filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("pack.sha256"))
-    {
-        let Some(version_directory) = pin_path.parent() else {
-            continue;
-        };
-        let version = file_name(version_directory)?;
-        let id = version_directory
-            .parent()
-            .map(file_name)
-            .transpose()?
-            .unwrap_or_else(|| "unknown".to_string());
-        packs.push(PackSummary {
-            id,
-            version,
-            path: relative_string(&state.repository_root, version_directory)?,
-            pin: read_text(pin_path).await?.trim().to_string(),
-            has_assist: version_directory.join("assist.yaml").is_file(),
-            has_eval: version_directory.join("eval.yaml").is_file(),
-        });
-    }
-    packs.sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
-    Ok(Json(packs))
+pub async fn packs(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<super::pack_catalog::PackSummary>>, ApiError> {
+    super::pack_catalog::list(state.repository_root, state.extension_root)
+        .await
+        .map(Json)
+        .map_err(internal)
 }
 
 pub async fn contracts(State(state): State<AppState>) -> Result<Json<Vec<Document>>, ApiError> {

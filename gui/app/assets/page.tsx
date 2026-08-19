@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
+import { routePath, withBasePath } from "../../lib/base-path";
 import type { DocumentRecord, PackSummary } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -28,8 +29,8 @@ export default function AssetsPage() {
   return (
     <Shell
       active="assets"
-      title="アセット"
-      description="登録済みのパック・契約・計測スイートを読み取り専用で確認します。"
+      title="拡張"
+      description="pack の供給元、承認状態、exact-byte hash と pin を読み取り専用で確認します。"
     >
       <section className="asset-tabs" aria-label="アセット種別">
         {(["packs", "contracts", "suites"] as const).map((item, index) => (
@@ -51,24 +52,48 @@ export default function AssetsPage() {
           {packs.error !== null && <ErrorState message={packs.error} />}
           {packs.data?.length === 0 && <EmptyState message="固定済みパックが見つかりません。" />}
           <div className="pack-grid">
-            {packs.data?.map((pack) => (
-              <article className="pack-card" key={`${pack.id}-${pack.version}`}>
-                <header>
-                  <span>登録済みパック</span>
-                  <strong>{pack.version}</strong>
-                </header>
-                <h2>{pack.id}</h2>
-                <p>{pack.path}</p>
-                <div className="pin-block">
-                  <span>完全一致の固定値</span>
-                  <code>{pack.pin}</code>
-                </div>
-                <footer>
-                  <span className={pack.has_assist ? "present" : "absent"}>assist.yaml</span>
-                  <span className={pack.has_eval ? "present" : "absent"}>eval.yaml</span>
-                </footer>
-              </article>
-            ))}
+            {packs.data?.map((pack) => {
+              const selector = `${pack.id}@${pack.version}`;
+              return (
+                <article
+                  className={pack.warning === null ? "pack-card" : "pack-card warning"}
+                  data-pack-source={pack.source}
+                  data-testid="extension-pack-row"
+                  key={selector}
+                >
+                  <header>
+                    <span className={`pack-source source-${pack.source}`}>{pack.source_label}</span>
+                    <strong>{selector}</strong>
+                  </header>
+                  <h2>{pack.id}</h2>
+                  <p>{pack.path} · {pack.profile ?? "profile 不明"} × {pack.intent ?? "intent 不明"}</p>
+                  <div className="pin-block">
+                    <span>pin / 期待 hash</span>
+                    <code>{pack.expected_hash ?? "未固定"}</code>
+                    <span>観測 hash</span>
+                    <code>{pack.observed_hash ?? "算出不可"}</code>
+                  </div>
+                  {pack.warning !== null && (
+                    <p className="pack-warning" data-testid="pack-warning" role="alert">
+                      {pack.warning}
+                    </p>
+                  )}
+                  <footer>
+                    <span className={pack.has_assist ? "present" : "absent"}>assist.yaml</span>
+                    <span className={pack.has_eval ? "present" : "absent"}>eval.yaml</span>
+                    {pack.trial_eligible && (
+                      <a
+                        className="pack-trial-link"
+                        data-testid="pack-trial-link"
+                        href={withBasePath(`${routePath("try")}?pack=${encodeURIComponent(selector)}`)}
+                      >
+                        Trial で使う ↗
+                      </a>
+                    )}
+                  </footer>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}

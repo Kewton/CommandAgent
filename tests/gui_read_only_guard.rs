@@ -761,9 +761,9 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
             .lines()
             .filter(|line| line.trim_start().starts_with("{ route: \""))
             .count(),
-        4
+        5
     );
-    assert!(!shell.contains("{ route: \"assets\""));
+    assert!(shell.contains("{ route: \"assets\", label: \"拡張\", index: \"03\" }"));
     for required in [
         "data-testid=\"runtime-status\"",
         "data-trial-available",
@@ -781,14 +781,14 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     assert!(dashboard.contains("data-testid=\"assets-link\""));
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
-    assert!(styles.contains("grid-template-columns: repeat(4, minmax(0, 1fr));"));
+    assert!(styles.contains("grid-template-columns: repeat(5, minmax(0, 1fr));"));
     assert!(styles.contains(".page-intro > p {\n    display: none;"));
 
     let titles = [
         ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
         ("gui/app/try/layout.tsx", "title: \"トライアル\""),
         ("gui/app/runs/layout.tsx", "title: \"検証・運用レポート\""),
-        ("gui/app/assets/layout.tsx", "title: \"アセット\""),
+        ("gui/app/assets/layout.tsx", "title: \"拡張\""),
         ("gui/app/measurements/layout.tsx", "title: \"計測\""),
     ];
     for (path, title) in titles {
@@ -802,6 +802,66 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     assert!(server.contains("/api/runtime-status"));
     let runtime = std::fs::read_to_string("src/bin/gui_server/runtime_status.rs").unwrap();
     assert!(runtime.contains("runtime_status(state.trial_access.authentication_enabled())"));
+}
+
+#[test]
+fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
+    let server = std::fs::read_to_string("src/bin/gui_server/pack_catalog.rs").unwrap();
+    for required in [
+        "PackSource::Repository",
+        "PackSource::Local",
+        "PackSource::Admitted",
+        "hash と pin が一致しません。",
+        "ローカル優先: 同名のリポジトリ pack より拡張ルートを優先",
+        "trial_eligible",
+    ] {
+        assert!(
+            server.contains(required),
+            "catalog server is missing {required:?}"
+        );
+    }
+
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    for required in [
+        "title=\"拡張\"",
+        "data-testid=\"extension-pack-row\"",
+        "data-testid=\"pack-warning\"",
+        "{pack.source_label}",
+        "{pack.expected_hash ?? \"未固定\"}",
+        "{pack.observed_hash ?? \"算出不可\"}",
+        "Trial で使う",
+        "routePath(\"try\")",
+    ] {
+        assert!(
+            page.contains(required),
+            "extension page is missing {required:?}"
+        );
+    }
+
+    let trial = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
+    for required in [
+        "packPreselectionApplied",
+        "new URLSearchParams(window.location.search).get(\"pack\")",
+        "profile: option.profile, pack: selector",
+    ] {
+        assert!(
+            trial.contains(required),
+            "Trial preselection is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeExtensionCatalog(page)",
+        "sourceLabels.includes(\"承認済み\")",
+        "sourceLabels.includes(\"リポジトリ（未承認）\")",
+        "selectedPack === selector",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "extension smoke is missing {required:?}"
+        );
+    }
 }
 
 #[test]

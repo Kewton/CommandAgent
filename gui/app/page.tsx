@@ -87,11 +87,11 @@ export default function DashboardPage() {
 
       <section className="panel asset-entry">
         <div>
-          <span className="panel-index">運用アセット</span>
+          <span className="panel-index">拡張カタログ</span>
           <h2>パック・契約・計測スイート</h2>
-          <p>日常ナビゲーションから外した固定アセットを、必要なときだけ参照できます。</p>
+          <p>pack の供給元、承認状態、exact-byte pin を読み取り専用で確認できます。</p>
         </div>
-        <a data-testid="assets-link" href={withBasePath(routePath("assets"))}>アセットを開く ↗</a>
+        <a data-testid="assets-link" href={withBasePath(routePath("assets"))}>拡張を開く ↗</a>
       </section>
 
       <section className="panel runs-panel">

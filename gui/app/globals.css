@@ -907,6 +907,20 @@ button {
   background: var(--surface-soft);
 }
 
+.pack-card.warning {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--line));
+}
+
+.pack-source {
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.pack-source.source-admitted {
+  color: var(--success);
+}
+
 .pack-card h2 {
   margin: 1.5rem 0 0;
   font-size: 1.35rem;
@@ -933,6 +947,26 @@ button {
   overflow-wrap: anywhere;
   color: var(--muted-strong);
   font: 0.64rem/1.5 var(--mono);
+}
+
+.pin-block span:not(:first-child) {
+  margin-top: 0.75rem;
+}
+
+.pack-warning {
+  margin: 0.8rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.pack-trial-link {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 650;
 }
 
 .pack-card footer {
@@ -2254,7 +2288,7 @@ button {
 
   .sidebar nav {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     overflow: visible;
   }
 

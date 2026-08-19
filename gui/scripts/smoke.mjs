@@ -278,7 +278,13 @@ async function runCase(smokeCase) {
       apiChecks.every((check) => check.status === 200) &&
       linksUseBasePath &&
       JSON.stringify(primaryNavigation) ===
-        JSON.stringify(["01\n概要", "02\nトライアル", "03\n検証・運用レポート", "04\n計測"]) &&
+        JSON.stringify([
+          "01\n概要",
+          "02\nトライアル",
+          "03\n拡張",
+          "04\n検証・運用レポート",
+          "05\n計測",
+        ]) &&
       assetsLink === `${expectedPrefix}assets/` &&
       runCountText === expectedRunCountText &&
       statusBadgesArePlainText;
@@ -320,9 +326,10 @@ async function runCase(smokeCase) {
       server.origin,
       smokeCase.serverBasePath,
       "assets/",
-      "アセット",
-      "アセット | CommandAgent",
+      "拡張",
+      "拡張 | CommandAgent",
     );
+    const extensionCatalog = await probeExtensionCatalog(page);
     const readOnlyUi = await probeReadOnlyUi(
       page,
       server.origin,
@@ -338,6 +345,7 @@ async function runCase(smokeCase) {
       assets.status === 200 &&
       assets.headingMatches &&
       assets.titleMatches &&
+      extensionCatalog.ok &&
       readOnlyUi.ok &&
       consoleErrors.length === 0;
 
@@ -350,7 +358,7 @@ async function runCase(smokeCase) {
         svg: map,
         links_use_base_path: linksUseBasePath,
         run_ledger_accessibility: runLedgerAccessibility,
-        pages: { assets, measurements, run_detail: runDetail },
+        pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail },
         issue_75: readOnlyUi,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
@@ -749,6 +757,7 @@ async function runCase(smokeCase) {
       assets.status === 200 &&
       assets.headingMatches &&
       assets.titleMatches &&
+      extensionCatalog.ok &&
       measurements.status === 200 &&
       measurements.headingMatches &&
       measurements.titleMatches &&
@@ -837,7 +846,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       run_ledger_accessibility: runLedgerAccessibility,
-      pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
+      pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       issue_75: readOnlyUi,
       mobile,
       ten_minute_polling: pollingBudget,
@@ -1760,6 +1769,32 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading, 
     headingMatches: heading === expectedHeading,
     title,
     titleMatches: title === expectedTitle,
+  };
+}
+
+async function probeExtensionCatalog(page) {
+  const rows = page.locator("[data-testid='extension-pack-row']");
+  await rows.first().waitFor();
+  const rowCount = await rows.count();
+  const sourceLabels = await rows.locator(".pack-source").allInnerTexts();
+  const trialLink = rows.locator("[data-testid='pack-trial-link']").first();
+  const href = await trialLink.getAttribute("href");
+  if (href === null) throw new Error("extension catalog has no eligible Trial handoff");
+  const selector = new URL(href, page.url()).searchParams.get("pack");
+  const response = await page.goto(new URL(href, page.url()).href, { waitUntil: "networkidle" });
+  const selectedPack = await page.locator("[data-testid='trial-pack']").inputValue();
+  return {
+    row_count: rowCount,
+    selected_pack: selectedPack,
+    selector,
+    source_labels: sourceLabels,
+    status: response?.status() ?? 0,
+    ok:
+      response?.status() === 200 &&
+      sourceLabels.includes("承認済み") &&
+      sourceLabels.includes("リポジトリ（未承認）") &&
+      selector !== null &&
+      selectedPack === selector,
   };
 }
 

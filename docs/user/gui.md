@@ -140,6 +140,27 @@ symlink aliases of those paths. It canonicalizes the workspace again before
 initial dispatch and D-3d continuation. Use one dedicated project workspace;
 the GUI permits only one delegated process in that workspace at a time.
 
+## Extensions catalog
+
+Open **拡張** to inspect pack supply without changing it. The three compiled
+repository catalog entries are labeled `承認済み`. Other pinned repository
+packs are labeled `リポジトリ（未承認）`, and packs below the configured
+`<extension-root>/packs/<id>/<version>` layout are labeled
+`ローカル（未承認・帯域未計測）`. A local pack with the same `id@version` as a
+repository pack is the displayed resolution and carries the local-precedence
+warning.
+
+Each row shows both `pack.sha256` and the hash recomputed from the exact pack
+bytes. A missing pin, parse failure, retirement marker, or hash mismatch stays
+visible as a row warning and is never presented as approved. The endpoint and
+screen are read-only; they do not pin, retire, rewrite, or approve a pack.
+
+`Trial で使う` is available only for a non-retired admitted row whose observed
+hash matches its pin. The base-path-safe link opens Trial with that pack and its
+registered profile preselected. Local and unapproved repository packs remain
+visible but cannot be handed to Trial until the authenticated selection API
+admits that source.
+
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
@@ -348,7 +369,7 @@ The evidence routes are same-origin GET requests below the selected base path:
 | `api/runs/{id}/evidence?path=…` | One bounded text evidence file |
 | `api/bands` | Formal band summaries |
 | `api/maps` and `api/maps/score-time.svg` | Score/time map inventory and SVG |
-| `api/packs` | Pack versions and exact-byte pins |
+| `api/packs` | Resolved repository/extension pack catalog, supply labels, and expected/observed exact-byte hashes |
 | `api/contracts` | Contract documents |
 | `api/suites` | Measurement suite definitions |
 | `api/reports` and `api/reports/view?path=…` | Measurement report archive |
