@@ -139,6 +139,7 @@ closed_id! {
         DataInspectionSchema => "data_inspection_schema",
         BrowserInteraction => "browser_interaction",
         HumanDirective => "human_directive",
+        PackMaterialDocument => "pack_material_document",
     }
 }
 
@@ -197,6 +198,9 @@ impl CheckId {
             "ingest_candidate_accounting",
             "ingest_format_schema",
             "ingest_rerun_consistency",
+            "path_layout_conforms",
+            "design_tokens_only",
+            "lint_config_present",
         ];
         let profile_registered = PROFILE_IDS.contains(&value)
             && crate::planner::capability_catalog::registry()

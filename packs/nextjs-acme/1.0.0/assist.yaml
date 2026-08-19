@@ -1,0 +1,19 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: nextjs-acme
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: project-setup
+    source: pack_material_document
+    required: true
+    params:
+      file: CONVENTIONS.md
+      max_bytes: 16384
+  - point: contract-wiring
+    source: pack_material_document
+    required: true
+    params:
+      file: DESIGN-RULES.md
+      max_bytes: 16384

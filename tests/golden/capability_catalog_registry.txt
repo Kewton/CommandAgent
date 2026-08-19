@@ -44,3 +44,13 @@ ingest_format_schema | InternalCheck
 ingest_rerun_consistency | Probe
   - entry: path required default=-
   - timeout_seconds: u16 required default=-
+path_layout_conforms | InternalCheck
+  - required: [glob] required default=-
+  - forbidden: [glob] optional default=[]
+design_tokens_only | InternalCheck
+  - css_globs: [glob] required default=-
+  - tokens_file: path required default=-
+  - allow: [string] optional default=[]
+lint_config_present | InternalCheck
+  - path: path required default=-
+  - must_contain: [string] optional default=[]

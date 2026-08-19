@@ -239,3 +239,28 @@ its effective pack ID/hash, if any, remains independently pinned. Every band
 must state the profile-specific meaning of `full` and the testimony-test
 state. It must not compare v0 and v0.1 percentages without these labels,
 because the two windows do not apply identical testimony tests.
+
+## 8. Additive convention packs
+
+A selected Next.js create pack may add reviewed convention material at
+`project-setup`, `core-implementation`, `contract-wiring`, or
+`build-verification` through `pack_material_document`. Material Markdown is
+part of the pack's exact-byte hash and is rendered as bounded, credential-
+scrubbed, explicitly untrusted observation data. It cannot change this
+profile contract or any system/tool instruction.
+
+The initial generic convention-check vocabulary is:
+
+| Check | Mechanical meaning |
+|---|---|
+| `path_layout_conforms` | Every required confined glob matches and no forbidden confined glob matches. |
+| `design_tokens_only` | Selected CSS files contain no raw color literal outside the declared token file, except exact allowlisted literals. |
+| `lint_config_present` | The confined lint configuration exists and contains every declared literal. |
+
+All three run as shell-free Rust checks at final acceptance and emit
+`pack_check_result` events. They are additive only: a failure blocks
+acceptance, while a pass cannot satisfy, remove, or weaken the existing build,
+route, browser, interaction, hook, testimony, assurance, or release gates in
+sections 1–7. `nextjs-acme@1.0.0` at `packs/nextjs-acme/1.0.0` is a
+conformance fixture for this binding and remains an unadmitted repository
+pack.

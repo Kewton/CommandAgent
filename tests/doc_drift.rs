@@ -423,3 +423,36 @@ fn pack_supply_contract_v0_1_is_fixed_across_institution_docs() {
         );
     }
 }
+
+#[test]
+fn nextjs_convention_pack_vocabulary_stays_bound_to_the_profile_contract() {
+    let institution = read_repo_file("docs/pack-institution-contract.md");
+    let profile = read_repo_file("docs/nextjs-profile-contract.md");
+    let readme = read_repo_file("packs/README.md");
+    for marker in [
+        "pack_material_document",
+        "path_layout_conforms",
+        "design_tokens_only",
+        "lint_config_present",
+        "pack_check_result",
+        "nextjs-acme@1.0.0",
+    ] {
+        assert!(
+            institution.contains(marker),
+            "institution contract missing {marker}"
+        );
+        assert!(
+            profile.contains(marker),
+            "Next.js contract missing {marker}"
+        );
+    }
+    for marker in [
+        "packs/nextjs-acme/1.0.0",
+        "unadmitted repository conformance fixture",
+        "path_layout_conforms",
+        "design_tokens_only",
+        "lint_config_present",
+    ] {
+        assert!(readme.contains(marker), "pack README missing {marker}");
+    }
+}

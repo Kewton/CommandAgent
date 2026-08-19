@@ -227,3 +227,90 @@ fn strict_decoder_rejects_multiple_documents_and_non_string_keys() {
         .replace("params:\n      max_files: 8", "params:\n      7: 8");
     assert!(parse_bytes(Some(non_string.as_bytes()), None).is_err());
 }
+
+#[test]
+fn material_source_is_closed_and_missing_material_fails_conformance() {
+    let assist = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: material-test
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: project-setup
+    source: pack_material_document
+    params: { file: CONVENTIONS.md, max_bytes: 16384 }
+"#;
+    let pack = parse_bytes(Some(assist), None).unwrap();
+    let error = conform(&pack).unwrap_err().to_string();
+    assert!(
+        error.contains("materials/CONVENTIONS.md` is missing"),
+        "{error}"
+    );
+
+    for replacement in [
+        "params: { file: ../CONVENTIONS.md, max_bytes: 16384 }",
+        "params: { file: CONVENTIONS.md, max_bytes: 65537 }",
+        "params: { file: CONVENTIONS.md, invented: true }",
+    ] {
+        let invalid = String::from_utf8(assist.to_vec()).unwrap().replace(
+            "params: { file: CONVENTIONS.md, max_bytes: 16384 }",
+            replacement,
+        );
+        assert!(
+            parse_bytes(Some(invalid.as_bytes()), None).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
+#[test]
+fn material_members_are_hash_visible_and_membership_is_strict() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(ASSIST_FILE), VALID_ASSIST).unwrap();
+    std::fs::create_dir(root.path().join("materials")).unwrap();
+    std::fs::write(root.path().join("materials/guide.md"), "first").unwrap();
+    let first = load_directory(root.path()).unwrap();
+    assert_eq!(first.materials["guide.md"], b"first");
+    std::fs::write(root.path().join("materials/guide.md"), "second").unwrap();
+    let second = load_directory(root.path()).unwrap();
+    assert_ne!(first.hash, second.hash);
+
+    std::fs::write(root.path().join("materials/nested.txt"), "unsupported").unwrap();
+    assert!(matches!(
+        load_directory(root.path()),
+        Err(PackError::InvalidMaterialName { .. })
+    ));
+}
+
+#[test]
+fn material_credentials_and_per_file_limit_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let assist = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: material-test
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: project-setup
+    source: pack_material_document
+    params: { file: guide.md }
+"#;
+    std::fs::write(root.path().join(ASSIST_FILE), assist).unwrap();
+    std::fs::create_dir(root.path().join("materials")).unwrap();
+    std::fs::write(
+        root.path().join("materials/guide.md"),
+        format!("token={}", "a".repeat(24)),
+    )
+    .unwrap();
+    let pack = load_directory(root.path()).unwrap();
+    let error = conform(&pack).unwrap_err().to_string();
+    assert!(error.contains("credential scrub"), "{error}");
+
+    std::fs::write(root.path().join("materials/guide.md"), vec![b'x'; 65_537]).unwrap();
+    assert!(matches!(
+        load_directory(root.path()),
+        Err(PackError::MaterialTooLarge { .. })
+    ));
+}

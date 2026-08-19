@@ -319,6 +319,16 @@ impl CheckBinding {
             self.normalizers.iter().map(|item| item.as_str()),
             "normalizer id",
         )?;
+        if matches!(
+            self.id.as_str(),
+            "path_layout_conforms" | "design_tokens_only" | "lint_config_present"
+        ) && self.at != CheckAt::FinalAcceptance
+        {
+            return Err(format!(
+                "check `{}` is registered only at final_acceptance",
+                self.id.as_str()
+            ));
+        }
         validate_check_params(&self.id, &self.params)
     }
 }
@@ -439,6 +449,13 @@ fn validate_source_point(source: AssistSource, point: InjectionPoint) -> Result<
         AssistSource::HumanDirective => {
             matches!(point, InjectionPoint::ImplementFix | InjectionPoint::Repair)
         }
+        AssistSource::PackMaterialDocument => matches!(
+            point,
+            InjectionPoint::ProjectSetup
+                | InjectionPoint::CoreImplementation
+                | InjectionPoint::ContractWiring
+                | InjectionPoint::BuildVerification
+        ),
     };
     if compatible {
         Ok(())
@@ -612,6 +629,18 @@ fn validate_source_params(
         AssistSource::HumanDirective => {
             reject_unknown_params(params, &["max_rendered_bytes"])?;
             validate_optional_unsigned(params, "max_rendered_bytes", 24_000)
+        }
+        AssistSource::PackMaterialDocument => {
+            reject_unknown_params(params, &["file", "max_bytes"])?;
+            let Some(Value::String(file)) = params.get("file") else {
+                return Err("pack_material_document.file must be a string".to_string());
+            };
+            if !super::valid_material_name(file) {
+                return Err(
+                    "pack_material_document.file must be a safe Markdown basename".to_string(),
+                );
+            }
+            validate_optional_unsigned(params, "max_bytes", 65_536)
         }
     }
 }

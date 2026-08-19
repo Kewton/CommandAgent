@@ -60,13 +60,12 @@ pub fn conform(pack: &LoadedPack) -> Result<ConformanceReport, ConformanceError>
     if let Some(eval) = &pack.eval {
         for check in &eval.checks {
             let id = check.id.as_str();
-            let floor_check = floor.get(id).ok_or_else(|| {
-                ConformanceError::FloorViolation(format!(
-                    "check `{id}` is not part of the registered {} × {} contract floor",
-                    pack.identity.profile, pack.identity.intent
-                ))
-            })?;
-            effective.insert(id.to_string(), validate_override(id, floor_check, check)?);
+            let resolved = if let Some(floor_check) = floor.get(id) {
+                validate_override(id, floor_check, check)?
+            } else {
+                validate_additive(&pack.identity, check)?
+            };
+            effective.insert(id.to_string(), resolved);
         }
     }
 
@@ -75,6 +74,7 @@ pub fn conform(pack: &LoadedPack) -> Result<ConformanceReport, ConformanceError>
     guard_effective_floor(&floor, &effective)?;
     validate_shared_cli_input(&pack.identity, &effective)?;
     validate_assist_gates(pack, &floor)?;
+    validate_material_injections(pack)?;
 
     Ok(ConformanceReport {
         status: "conformant",
@@ -92,6 +92,71 @@ pub fn conform(pack: &LoadedPack) -> Result<ConformanceReport, ConformanceError>
             .as_ref()
             .map_or(0, |document| document.schemas.len()),
     })
+}
+
+fn validate_additive(
+    identity: &PackIdentity,
+    binding: &CheckBinding,
+) -> Result<FloorCheck, ConformanceError> {
+    if identity.profile != PackProfile::Nextjs || identity.intent != PackIntent::Create {
+        return Err(ConformanceError::FloorViolation(format!(
+            "check `{}` is not part of the registered {} × {} contract floor",
+            binding.id.as_str(),
+            identity.profile,
+            identity.intent
+        )));
+    }
+    if binding.at != CheckAt::FinalAcceptance
+        || !binding.extraction.is_empty()
+        || !binding.normalizers.is_empty()
+    {
+        return Err(ConformanceError::FloorViolation(format!(
+            "additive check `{}` must remain a final_acceptance check without extractors or normalizers",
+            binding.id.as_str()
+        )));
+    }
+    let capability = resolve_binding(binding)?;
+    if !matches!(
+        capability,
+        Some(ResolvedCapability::Internal(
+            crate::planner::capability_catalog::InternalCapability::Pack(_)
+        ))
+    ) {
+        return Err(ConformanceError::FloorViolation(format!(
+            "check `{}` is not registered as an additive pack check",
+            binding.id.as_str()
+        )));
+    }
+    Ok(FloorCheck {
+        at: binding.at.clone(),
+        capability,
+        extraction: Vec::new(),
+        normalizers: Vec::new(),
+    })
+}
+
+fn validate_material_injections(pack: &LoadedPack) -> Result<(), ConformanceError> {
+    super::material_document::validate_all(pack)
+        .map_err(|error| ConformanceError::FloorViolation(error.to_string()))?;
+    let Some(assist) = &pack.assist else {
+        return Ok(());
+    };
+    for injection in &assist.inject {
+        if injection.source != super::AssistSource::PackMaterialDocument {
+            continue;
+        }
+        let file = injection
+            .params
+            .get("file")
+            .and_then(serde_yaml::Value::as_str)
+            .expect("pack material file is schema-validated");
+        if !pack.materials.contains_key(file) {
+            return Err(ConformanceError::FloorViolation(format!(
+                "pack material `materials/{file}` is missing"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_assist_gates(
@@ -461,6 +526,17 @@ checks:
         let report = conform_directory(&directory).unwrap();
         assert_eq!(report.exact_byte_hash, expected.trim());
         assert_eq!(report.status, "conformant");
+    }
+
+    #[test]
+    fn nextjs_repository_fixture_adds_three_checks_without_changing_its_floor() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/nextjs-acme/1.0.0");
+        let expected = std::fs::read_to_string(directory.join("pack.sha256")).unwrap();
+        let report = conform_directory(&directory).unwrap();
+        assert_eq!(report.exact_byte_hash, expected.trim());
+        assert_eq!(report.floor_check_count, 0);
+        assert_eq!(report.effective_check_count, 3);
+        assert_eq!(report.schema_count, 1);
     }
 
     #[test]
