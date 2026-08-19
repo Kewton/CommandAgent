@@ -3,6 +3,7 @@ export class GuiRequestError extends Error {
     readonly status: number,
     readonly code: string,
     readonly serverMessage: string,
+    readonly report: unknown = null,
   ) {
     super(serverMessage);
     this.name = "GuiRequestError";
@@ -12,6 +13,7 @@ export class GuiRequestError extends Error {
 type ErrorPayload = {
   code?: unknown;
   error?: unknown;
+  report?: unknown;
 };
 
 export async function responseError(response: Response): Promise<GuiRequestError> {
@@ -27,7 +29,7 @@ export async function responseError(response: Response): Promise<GuiRequestError
     typeof payload.error === "string" && payload.error.trim() !== ""
       ? payload.error
       : text.trim() || response.statusText || "empty error response";
-  return new GuiRequestError(response.status, code, serverMessage);
+  return new GuiRequestError(response.status, code, serverMessage, payload.report ?? null);
 }
 
 export function describeError(reason: unknown): string {

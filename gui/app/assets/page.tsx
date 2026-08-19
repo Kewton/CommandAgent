@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { PackWizard } from "../../components/pack-wizard";
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { routePath, withBasePath } from "../../lib/base-path";
@@ -48,6 +49,7 @@ export default function AssetsPage() {
 
       {tab === "packs" && (
         <section className="asset-content">
+          <PackWizard />
           {packs.loading && <LoadingState label="パックの固定情報を読み込んでいます" />}
           {packs.error !== null && <ErrorState message={packs.error} />}
           {packs.data?.length === 0 && <EmptyState message="固定済みパックが見つかりません。" />}

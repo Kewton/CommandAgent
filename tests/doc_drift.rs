@@ -396,6 +396,11 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
             "gui-extensions.md#extensions-catalog",
         ),
         (
+            "gui/components/pack-wizard.tsx",
+            "pack 作成ウィザードを開く",
+            "gui-extensions.md#pack-creation-wizard",
+        ),
+        (
             "gui/components/trial-session-index.tsx",
             "確認済み GUI Trial セッションはありません。",
             "gui-history.md#session-rows-and-refresh",
