@@ -13,4 +13,5 @@ copy on both supported base paths.
 | Gate primer | Gate 1 は CLI 実行前の確認です | `gui/components/trial-run.tsx` | [`gui-trial.md#gate-1-confirm-before-execution`](gui-trial.md#gate-1-confirm-before-execution) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | action | Trial で使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
+| action | pack 作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
 | empty state | 確認済み GUI Trial セッションはありません。 | `gui/components/trial-session-index.tsx` | [`gui-history.md#session-rows-and-refresh`](gui-history.md#session-rows-and-refresh) |

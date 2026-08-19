@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +12,7 @@ const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
 const readOnly = arguments_.includes("--read-only");
 const overviewOnly = arguments_.includes("--overview-only");
+const wizardOnly = arguments_.includes("--wizard-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
@@ -25,6 +26,7 @@ const fixtureRoot = resolve(
 const model = valueArgument(arguments_, "--model") ?? "qwen3:8b";
 const trialCredential = process.env.GUI_TRIAL_TOKEN ?? randomBytes(32).toString("hex");
 const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ?? 1_800_000);
+const expectedNextjsAcmeHash = "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0";
 const managedPlaywrightPath =
   process.env.COMMANDAGENT_PLAYWRIGHT_PATH ??
   join(homedir(), ".anvil", "tools", "interaction-probe", "node_modules", "playwright");
@@ -65,6 +67,11 @@ const helpMapEntries = [
     source: "gui/app/assets/page.tsx",
   },
   {
+    copy: "pack 作成ウィザードを開く",
+    owner: "gui-extensions.md#pack-creation-wizard",
+    source: "gui/components/pack-wizard.tsx",
+  },
+  {
     copy: "確認済み GUI Trial セッションはありません。",
     owner: "gui-history.md#session-rows-and-refresh",
     source: "gui/components/trial-session-index.tsx",
@@ -73,7 +80,7 @@ const helpMapEntries = [
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -120,7 +127,9 @@ try {
   for (const smokeCase of cases) {
     try {
       results.push(
-        await (feedbackOnly
+        await (wizardOnly
+          ? runWizardCase(smokeCase)
+          : feedbackOnly
           ? runFeedbackCase(smokeCase)
           : pollingOnly
             ? runPollingCase(smokeCase)
@@ -151,7 +160,9 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: readOnly
+    mode: wizardOnly
+      ? "pack_wizard"
+      : readOnly
       ? "read_only"
       : overviewOnly
         ? "overview_only"
@@ -180,6 +191,50 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function runWizardCase(smokeCase) {
+  const executionRoot = join(scratchRoot, `${smokeCase.id}-wizard-execution`);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const consoleErrors = [];
+  page.on("console", (entry) => {
+    if (entry.type() === "error") consoleErrors.push(entry.text());
+  });
+  try {
+    const wizard = await probePackWizard(
+      page,
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
+    const expectedFailureConsoleErrors = consoleErrors.filter((entry) =>
+      entry.includes("server responded with a status of 422"),
+    );
+    const unexpectedConsoleErrors = consoleErrors.filter(
+      (entry) => !entry.includes("server responded with a status of 422"),
+    );
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      pack_wizard: wizard,
+      expected_verification_failure_console_errors: expectedFailureConsoleErrors,
+      unexpected_console_errors: unexpectedConsoleErrors,
+      ok:
+        wizard.ok &&
+        expectedFailureConsoleErrors.length === 1 &&
+        unexpectedConsoleErrors.length === 0,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runFeedbackCase(smokeCase) {
   const executionRoot = join(scratchRoot, smokeCase.id);
@@ -1885,6 +1940,113 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading, 
   };
 }
 
+async function probePackWizard(page, browser, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  const assetsUrl = new URL(`${prefix}assets/`, origin).href;
+  await page.goto(assetsUrl, { waitUntil: "networkidle" });
+  await page.evaluate(
+    ({ key, token }) => window.sessionStorage.setItem(key, token),
+    { key: trialTokenStorageKey(basePath), token: trialCredential },
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator("[data-testid='pack-wizard-open']").click();
+  await page.locator("[data-testid='pack-wizard-target']").waitFor();
+  await page.getByRole("button", { name: "出発点を選ぶ" }).click();
+  await page.locator("[data-testid='pack-wizard-nextjs-acme']").check();
+  await page.getByRole("button", { name: "編集を開始" }).click();
+
+  const assist = page.locator("[data-testid='pack-wizard-assist']");
+  const validAssist = await assist.inputValue();
+  await assist.fill(`${validAssist}unexpected: true\n`);
+  await page.getByRole("button", { name: "保存して検証" }).click();
+  const issueList = page.locator("[data-testid='pack-wizard-issues']");
+  await issueList.waitFor();
+  const issueText = await issueList.innerText();
+  const focusAction = issueList.getByRole("button", { name: "該当項目へ移動" }).first();
+  const focusTarget = await focusAction.getAttribute("data-focus-target");
+  await focusAction.click();
+  await page.waitForFunction(() => document.activeElement?.id === "pack-wizard-assist");
+  const activeAfterFailure = await page.evaluate(() => document.activeElement?.id ?? null);
+
+  await assist.fill(validAssist);
+  await page.getByRole("button", { name: "保存して検証" }).click();
+  const success = page.locator("[data-testid='pack-verification-success']");
+  await success.waitFor();
+  const verifiedHash = await page.locator("[data-testid='pack-wizard-hash']").innerText();
+  await page.locator("[data-testid='pack-wizard-to-pin']").click();
+  await page.locator("[data-testid='pack-wizard-pin-action']").click();
+  await page.locator("[data-testid='pack-wizard-pinned']").waitFor();
+  const trialLink = page.locator("[data-testid='pack-wizard-trial-link']");
+  const trialHref = await trialLink.getAttribute("href");
+  if (trialHref === null) throw new Error("pinned wizard has no Trial handoff");
+  const selector = new URL(trialHref, page.url()).searchParams.get("pack");
+
+  await page.locator(".pack-wizard-steps li:nth-child(1) button").click();
+  const pinnedTargetDisabled =
+    (await page.locator("[data-testid='pack-wizard-profile']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard-intent']").isDisabled());
+  await page.locator(".pack-wizard-steps li:nth-child(2) button").click();
+  const pinnedStartingPointDisabled = await page
+    .locator("input[name='pack-starting-point']")
+    .first()
+    .isDisabled();
+  await page.locator(".pack-wizard-steps li:nth-child(3) button").click();
+  const pinnedEditorDisabled =
+    pinnedTargetDisabled &&
+    pinnedStartingPointDisabled &&
+    (await page.locator("[data-testid='pack-wizard-id']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard-version']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard-assist']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard-eval']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard-material'] textarea").first().isDisabled());
+  await page.locator(".pack-wizard-steps li:nth-child(5) button").click();
+
+  const trialPage = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  let selectedPack = null;
+  try {
+    const trialResponse = await trialPage.goto(new URL(trialHref, page.url()).href, {
+      waitUntil: "networkidle",
+    });
+    await trialPage.locator("[data-testid='trial-pack']").waitFor();
+    selectedPack = await trialPage.locator("[data-testid='trial-pack']").inputValue();
+    if (trialResponse?.status() !== 200) {
+      throw new Error(`wizard Trial handoff returned ${trialResponse?.status()}`);
+    }
+  } finally {
+    await trialPage.close();
+  }
+
+  await page.locator(".pack-retire-panel summary").click();
+  await page.locator("[data-testid='pack-wizard-retire-confirm']").check();
+  await page.locator("[data-testid='pack-wizard-retire-action']").click();
+  await page.locator("[data-testid='pack-wizard-retired']").waitFor();
+  const retiredHasNoTrialLink = (await page.locator("[data-testid='pack-wizard-trial-link']").count()) === 0;
+  await page.locator(".pack-wizard-steps li:nth-child(3) button").click();
+  const retiredEditorDisabled = await page.locator("[data-testid='pack-wizard-assist']").isDisabled();
+
+  return {
+    active_after_failure: activeAfterFailure,
+    failure_focus_target: focusTarget,
+    failure_text: issueText,
+    pinned_editor_disabled: pinnedEditorDisabled,
+    retired_editor_disabled: retiredEditorDisabled,
+    retired_has_no_trial_link: retiredHasNoTrialLink,
+    selected_pack: selectedPack,
+    selector,
+    verified_hash: verifiedHash,
+    ok:
+      issueText.includes("assist.yaml") &&
+      focusTarget === "pack-wizard-assist" &&
+      activeAfterFailure === "pack-wizard-assist" &&
+      verifiedHash === expectedNextjsAcmeHash &&
+      pinnedEditorDisabled &&
+      selector === "nextjs-acme@1.0.0" &&
+      selectedPack === selector &&
+      retiredEditorDisabled &&
+      retiredHasNoTrialLink,
+  };
+}
+
 async function probeExtensionCatalog(page) {
   const rows = page.locator("[data-testid='extension-pack-row']");
   await rows.first().waitFor();
@@ -1914,6 +2076,9 @@ async function probeExtensionCatalog(page) {
 }
 
 async function startServer(basePath, executionRoot) {
+  const extensionRoot = `${executionRoot}-extensions`;
+  await mkdir(extensionRoot, { recursive: true, mode: 0o700 });
+  await chmod(extensionRoot, 0o700);
   const child = spawn(
     "cargo",
     [
@@ -1933,6 +2098,8 @@ async function startServer(basePath, executionRoot) {
       repositoryRoot,
       "--execution-root",
       executionRoot,
+      "--extension-root",
+      extensionRoot,
       "--trial-token-auth",
       "on",
       "--commandagent-bin",

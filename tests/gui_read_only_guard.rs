@@ -902,6 +902,74 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
 }
 
 #[test]
+fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    assert!(page.contains("<PackWizard />"));
+
+    let wizard = std::fs::read_to_string("gui/components/pack-wizard.tsx").unwrap();
+    for required in [
+        "対象セル",
+        "出発点",
+        "編集",
+        "検証",
+        "pin",
+        "data-testid=\"pack-wizard-nextjs-acme\"",
+        "data-testid=\"pack-wizard-issues\"",
+        "該当項目へ移動",
+        "focusEditorField",
+        "stageExtensionPack",
+        "verifyExtensionPack",
+        "pinExtensionPack",
+        "retireExtensionPack",
+        "immutableLifecycleFromConflict",
+        "immutable = lifecycle === \"pinned\" || lifecycle === \"retired\"",
+        "disabled={immutable}",
+        "data-testid=\"pack-wizard-trial-link\"",
+        "ローカル（未承認・帯域未計測）",
+        "retired — 終端状態",
+    ] {
+        assert!(
+            wizard.contains(required),
+            "extension pack wizard is missing {required:?}"
+        );
+    }
+
+    let api = std::fs::read_to_string("gui/lib/extension-api.ts").unwrap();
+    for required in [
+        "extensions/packs",
+        "/verify",
+        "/pin",
+        "/retire",
+        "encodeURIComponent(id)",
+        "trialAuthorizationHeaders(token",
+        "method: \"POST\"",
+    ] {
+        assert!(api.contains(required), "wizard API is missing {required:?}");
+    }
+    for forbidden in ["method: \"PUT\"", "method: \"PATCH\"", "method: \"DELETE\""] {
+        assert!(
+            !api.contains(forbidden),
+            "wizard API exposes forbidden mutation {forbidden:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "--wizard-only",
+        "probePackWizard",
+        "pack-wizard-issues",
+        "pack-wizard-pinned",
+        "pack-wizard-retired",
+        "selectedPack === selector",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "wizard smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupted() {
     let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
     for required in [

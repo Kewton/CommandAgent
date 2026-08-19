@@ -3,10 +3,41 @@
 [GUI index](gui.md) | [Pack reference](../../packs/README.md) |
 [Extension developer catalog](../dev/extension-catalog.md)
 
-This page is for pack/profile extenders. The visible **拡張** screen is a
-read-only catalog. Supply mutations are available only through the bounded,
-authenticated lifecycle API; the application currently has no browser editing
-wizard.
+This page is for pack/profile extenders. The visible **拡張** screen combines
+the read-only catalog with an authenticated local-pack creation wizard. Every
+mutation still goes through the bounded lifecycle API and its `SupplyRoot`
+write boundary; the browser never writes an extension directory directly.
+
+## Pack creation wizard
+
+Choose **pack 作成ウィザードを開く** on the **パック** tab. The five visible
+steps preserve the lifecycle boundary:
+
+1. **対象セル** fixes the profile and intent whose contract floor will be
+   used during verification.
+2. **出発点** starts from a minimal assist scaffold or the complete
+   `nextjs-acme` example for Next.js create.
+3. **編集** owns the ID, semantic version, optional assist/eval YAML, and
+   direct `materials/*.md` text members. With token authentication enabled,
+   use the same tab-scoped Trial access token as the Trial screen.
+4. **検証** stages the complete member map and displays the server's strict
+   conformance, scrub, and exact-byte hash result. A failed item has an
+   **該当項目へ移動** action that returns focus to the responsible identity,
+   YAML, material, or token control; the failure itself is never suppressed.
+5. **pin** sends only the hash returned by the successful verification. The
+   resulting local pack remains **ローカル（未承認・帯域未計測）** and can be
+   handed to Trial with **Trial で使う**.
+
+The `nextjs-acme` starting point lets an operator complete the example entirely
+in the GUI: keep `nextjs-acme@1.0.0` or assign a new identity, inspect/edit its
+two YAML documents and two Markdown materials, verify, pin, then follow the
+Trial handoff. If the local identity matches the repository example, the
+existing local-precedence warning applies.
+
+A pinned editor is read-only. Retirement requires a separate irreversible
+acknowledgement, removes the Trial handoff, and enters a terminal read-only
+state. There is no edit-after-pin, pin overwrite, delete, or unretire control;
+create a new version for any byte change.
 
 ## Extensions catalog
 
@@ -25,7 +56,8 @@ for a non-retired admitted row or a conformant, exact-byte pinned local row.
 
 ## Lifecycle workflow
 
-Treat the API sequence as a review wizard with explicit state transitions:
+The browser wizard delegates to this API sequence with explicit state
+transitions:
 
 ```text
 new version -> staged -> verified -> pinned -> selectable
