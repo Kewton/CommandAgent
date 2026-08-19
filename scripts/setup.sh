@@ -6,9 +6,16 @@ script_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(CDPATH='' cd -- "$script_dir/.." && pwd -P)"
 quickstart_link="README.md#quickstart"
 ollama_url="http://localhost:11434"
+minimum_node_version="20.9.0"
 
 mode="interactive"
 check_only=false
+gui_enabled=false
+gui_base_path="/"
+extension_root=""
+write_config=false
+gui_token_file=""
+profile_set=""
 current_step="initialization"
 commandagent_bin=""
 package_version=""
@@ -24,11 +31,21 @@ summary_details=()
 
 usage() {
     cat <<'EOF'
-Usage: ./scripts/setup.sh [--yes | --check-only]
+Usage: ./scripts/setup.sh [--yes | --check-only] [GUI/config options]
 
   no arguments   Interactive setup with confirmation at each optional step
   --yes          Non-interactive setup using safe defaults
   --check-only   Check prerequisites without changing anything
+  --gui          Install dependencies and build the management GUI
+  --base-path PATH
+                 Build and serve the GUI below PATH (default: /)
+  --extension-root DIR
+                 Create the private extension-root skeleton at DIR
+  --write-config Write .commandagent/config.toml when it does not exist
+  --gui-token-file PATH
+                 Write a new private GUI Trial token without displaying it
+  --profile-set PROFILE
+                 Check profile prerequisites (nextjs or python-cli)
 EOF
 }
 
@@ -76,27 +93,52 @@ interrupted() {
 trap 'unexpected_failure "$LINENO"' ERR
 trap interrupted HUP INT TERM
 
-if [[ $# -gt 1 ]]; then
-    usage >&2
-    fail "invalid arguments; rerun ./scripts/setup.sh with no argument, --yes, or --check-only"
-fi
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yes)
+            [[ "$mode" == "interactive" ]] || fail "--yes and --check-only cannot be combined"
+            mode="yes"
+            ;;
+        --check-only)
+            [[ "$mode" == "interactive" ]] || fail "--yes and --check-only cannot be combined"
+            mode="check-only"
+            check_only=true
+            ;;
+        --gui) gui_enabled=true ;;
+        --write-config) write_config=true ;;
+        --base-path|--extension-root|--gui-token-file|--profile-set)
+            [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
+            case "$1" in
+                --base-path) gui_base_path=$2 ;;
+                --extension-root) extension_root=$2 ;;
+                --gui-token-file) gui_token_file=$2 ;;
+                --profile-set) profile_set=$2 ;;
+            esac
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            fail "unknown option '$1'; rerun ./scripts/setup.sh --help"
+            ;;
+    esac
+    shift
+done
 
-case "${1-}" in
-    "") mode="interactive" ;;
-    --yes) mode="yes" ;;
-    --check-only)
-        mode="check-only"
-        check_only=true
-        ;;
-    --help|-h)
-        usage
-        exit 0
-        ;;
-    *)
-        usage >&2
-        fail "unknown option '$1'; rerun ./scripts/setup.sh with no argument, --yes, or --check-only"
-        ;;
+case "$profile_set" in
+    ""|nextjs|python-cli) ;;
+    *) fail "--profile-set must be nextjs or python-cli" ;;
 esac
+if [[ "$gui_base_path" != /* || "$gui_base_path" == *"//"* || "$gui_base_path" == *".."* \
+    || "$gui_base_path" == *"?"* || "$gui_base_path" == *"#"* ]]; then
+    fail "--base-path must be '/' or an absolute path"
+fi
+if [[ "$gui_base_path" != "/" ]]; then
+    gui_base_path=${gui_base_path%/}
+fi
 
 confirm() {
     local prompt=$1
@@ -169,6 +211,7 @@ check_prerequisites() {
     local required_failures=0
     local required_detail="cargo, rustc, and git available"
     local node_detail=""
+    local node_version=""
     local ollama_detail=""
     local python_detail=""
     local api_detail=""
@@ -224,16 +267,34 @@ check_prerequisites() {
     fi
 
     if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-        node_ready=true
-        node_detail="node and npm available"
-        printf 'ok: node and npm are available for the interaction probe\n'
-        add_summary "Node/npm (optional)" "ok" "$node_detail"
+        node_version="$(node --version 2>/dev/null || true)"
+        node_version=${node_version#v}
+        if version_at_least "$node_version" "$minimum_node_version"; then
+            node_ready=true
+            node_detail="node $node_version and npm available"
+            printf 'ok: node %s and npm are available for GUI and interaction probes\n' "$node_version"
+            add_summary "Node/npm (optional)" "ok" "$node_detail"
+        elif [[ "$gui_enabled" == true || "$profile_set" == "nextjs" ]]; then
+            node_detail="node ${node_version:-unknown} is older than required $minimum_node_version"
+            printf 'required: %s; update from https://nodejs.org/\n' "$node_detail" >&2
+            add_summary "Node/npm (GUI)" "warn" "$node_detail"
+            required_failures=$((required_failures + 1))
+        else
+            node_detail="node ${node_version:-unknown} is older than GUI minimum $minimum_node_version"
+            printf 'warning: %s\n' "$node_detail" >&2
+            add_summary "Node/npm (optional)" "warn" "$node_detail"
+        fi
     else
         node_detail="node and/or npm missing; install from https://nodejs.org/ to enable the interaction probe"
-        printf 'warning: %s\n' "$node_detail" >&2
-        add_summary "Node/npm (optional)" "warn" "$node_detail"
+        if [[ "$gui_enabled" == true || "$profile_set" == "nextjs" ]]; then
+            printf 'required: %s\n' "$node_detail" >&2
+            add_summary "Node/npm (GUI)" "warn" "$node_detail"
+            required_failures=$((required_failures + 1))
+        else
+            printf 'warning: %s\n' "$node_detail" >&2
+            add_summary "Node/npm (optional)" "warn" "$node_detail"
+        fi
     fi
-
     if command -v ollama >/dev/null 2>&1; then
         ollama_installed=true
     fi
@@ -262,8 +323,14 @@ check_prerequisites() {
         add_summary "Python (optional)" "ok" "$python_detail"
     else
         python_detail="python3 missing; install from https://www.python.org/downloads/ for evaluation tooling"
-        printf 'warning: %s\n' "$python_detail" >&2
-        add_summary "Python (optional)" "warn" "$python_detail"
+        if [[ "$profile_set" == "python-cli" ]]; then
+            printf 'required: %s\n' "$python_detail" >&2
+            add_summary "Python (python-cli)" "warn" "$python_detail"
+            required_failures=$((required_failures + 1))
+        else
+            printf 'warning: %s\n' "$python_detail" >&2
+            add_summary "Python (optional)" "warn" "$python_detail"
+        fi
     fi
 
     if key_is_configured GEMINI_API_KEY || key_is_configured OPENAI_API_KEY; then
@@ -658,6 +725,155 @@ smoke_model_probe() {
     add_summary "Model probe" "ok" "model smoke test completed"
 }
 
+prepare_extension_root() {
+    local canonical=""
+    if [[ -z "$extension_root" && "$write_config" == true ]]; then
+        extension_root="$repo_root/../commandagent-extensions"
+    fi
+    if [[ -z "$extension_root" ]]; then
+        return
+    fi
+    current_step="extension root setup"
+    if [[ "$extension_root" == *$'\n'* || "$extension_root" == *'"'* ]]; then
+        fail "--extension-root cannot contain a newline or double quote"
+    fi
+    mkdir -p -- "$extension_root/packs" "$extension_root/profiles"
+    canonical="$(CDPATH='' cd -- "$extension_root" && pwd -P)"
+    case "$canonical/" in
+        "$repo_root/"* ) fail "extension root must be disjoint from repository root" ;;
+    esac
+    case "$repo_root/" in
+        "$canonical/"* ) fail "extension root must be disjoint from repository root" ;;
+    esac
+    extension_root=$canonical
+    chmod 700 "$extension_root" "$extension_root/packs" "$extension_root/profiles"
+    if [[ ! -e "$extension_root/journal.jsonl" ]]; then
+        (umask 177 && : >"$extension_root/journal.jsonl")
+    fi
+    printf 'ok: prepared private extension root at %s\n' "$extension_root"
+    add_summary "Extension root" "ok" "packs/, profiles/, and journal.jsonl prepared"
+}
+
+write_config_template() {
+    local config_dir="$repo_root/.commandagent"
+    local config_file="$config_dir/config.toml"
+    local candidate=""
+    if [[ "$write_config" != true ]]; then
+        return
+    fi
+    current_step="config template"
+    mkdir -p -- "$config_dir"
+    candidate="$(mktemp "$config_dir/config.toml.candidate.XXXXXX")"
+    chmod 600 "$candidate"
+    {
+        printf '# CommandAgent workspace configuration. Customize the example preset before use.\n'
+        printf 'extension_root = "%s"\n\n' "$extension_root"
+        printf '[preset.nextjs_acme_cagentpack]\n'
+        printf 'profile = "nextjs"\n'
+        printf 'provider = "ollama"\n'
+        printf 'model = "qwen3.6:27b-coding-nvfp4"\n'
+        printf 'planner_provider = "ollama"\n'
+        printf 'planner_model = "qwen3.6:27b-coding-nvfp4"\n'
+        printf 'plan_preset = "profile"\n'
+        printf 'pack = "nextjs-acme@1.0.0"\n'
+    } >"$candidate"
+    if [[ -e "$config_file" ]]; then
+        printf 'skipped: %s already exists; review this proposed diff:\n' "$config_file"
+        diff -u --label "$config_file" --label "proposed config" "$config_file" "$candidate" || true
+        rm -f -- "$candidate"
+        add_summary "Config" "skipped" "existing config preserved; proposed diff shown"
+        return
+    fi
+    mv -- "$candidate" "$config_file"
+    chmod 600 "$config_file"
+    printf 'ok: wrote config template at %s\n' "$config_file"
+    add_summary "Config" "ok" "workspace config template created"
+}
+
+write_gui_token() {
+    local token_dir=""
+    local temporary=""
+    if [[ -z "$gui_token_file" ]]; then
+        return
+    fi
+    current_step="GUI Trial token setup"
+    if [[ "$mode" == "yes" ]]; then
+        printf 'skipped: --yes never writes GUI Trial tokens; rerun without --yes\n'
+        gui_token_file=""
+        add_summary "GUI token" "skipped" "non-interactive mode never writes secrets"
+        return
+    fi
+    if [[ -e "$gui_token_file" ]]; then
+        printf 'skipped: GUI Trial token file already exists at %s; it was not changed\n' "$gui_token_file"
+        add_summary "GUI token" "skipped" "existing token file preserved"
+        return
+    fi
+    command -v openssl >/dev/null 2>&1 \
+        || fail "openssl is required to generate --gui-token-file safely"
+    token_dir=${gui_token_file%/*}
+    if [[ "$token_dir" == "$gui_token_file" ]]; then
+        token_dir="."
+    fi
+    mkdir -p -- "$token_dir"
+    temporary="${gui_token_file}.tmp.$$"
+    (umask 177 && openssl rand -hex 32 >"$temporary")
+    chmod 600 "$temporary"
+    mv -- "$temporary" "$gui_token_file"
+    printf 'ok: wrote private GUI Trial token to %s (value hidden)\n' "$gui_token_file"
+    add_summary "GUI token" "ok" "private token file created; value hidden"
+}
+
+setup_gui() {
+    local gui_server_bin="$repo_root/target/debug/gui_server"
+    local auth_mode="off"
+    local doctor_output=""
+    if [[ "$gui_enabled" != true ]]; then
+        return
+    fi
+    current_step="GUI dependency installation and build"
+    (cd -- "$repo_root/gui" && npm ci --include=dev)
+    (cd -- "$repo_root/gui" && GUI_BASE_PATH="$gui_base_path" npm run build)
+    (cd -- "$repo_root" && cargo build --features gui --bin gui_server)
+    [[ -x "$gui_server_bin" ]] || fail "GUI build completed without $gui_server_bin"
+    if [[ -n "$gui_token_file" && -f "$gui_token_file" ]]; then
+        auth_mode="on"
+    fi
+    printf '\nGUI preflight command:\n'
+    print_gui_command "$gui_server_bin" "$auth_mode" true
+    printf '\nGUI start command:\n'
+    print_gui_command "$gui_server_bin" "$auth_mode" false
+    add_summary "GUI" "ok" "built for base path $gui_base_path; preflight/start commands shown"
+
+    current_step="CommandAgent doctor"
+    if doctor_output="$(cd -- "$repo_root" && "$commandagent_bin" --doctor --json 2>&1)"; then
+        printf '\nCommandAgent doctor:\n%s\n' "$doctor_output"
+        add_summary "Doctor" "ok" "commandagent --doctor --json passed"
+    else
+        printf '\nCommandAgent doctor:\n%s\n' "$doctor_output"
+        printf 'warning: commandagent --doctor --json reported a problem; inspect the report above\n' >&2
+        add_summary "Doctor" "warn" "doctor reported a configuration or environment problem"
+    fi
+}
+
+print_gui_command() {
+    local gui_server_bin=$1
+    local auth_mode=$2
+    local include_check=$3
+    if [[ "$auth_mode" == "on" ]]; then
+        printf "GUI_TRIAL_TOKEN=\"\$(<%q)\" " "$gui_token_file"
+    fi
+    printf '%q --base-path %q --static-dir %q --repository-root %q ' \
+        "$gui_server_bin" "$gui_base_path" "$repo_root/gui/out" "$repo_root"
+    if [[ -n "$extension_root" ]]; then
+        printf '%s %q ' "--extension-root" "$extension_root"
+    fi
+    printf '%s %q --commandagent-bin %q' "--trial-token-auth" "$auth_mode" "$commandagent_bin"
+    if [[ "$include_check" == true ]]; then
+        printf ' --check'
+    fi
+    printf '\n'
+}
+
 check_prerequisites
 if [[ "$check_only" == true ]]; then
     add_summary "Changes" "skipped" "--check-only made no changes"
@@ -672,4 +888,8 @@ setup_ollama_model
 setup_interaction_probe
 smoke_version
 smoke_model_probe
+prepare_extension_root
+write_config_template
+write_gui_token
+setup_gui
 print_summary

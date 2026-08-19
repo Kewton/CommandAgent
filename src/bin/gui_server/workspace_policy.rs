@@ -69,6 +69,12 @@ impl TrialWorkspace {
         self.configured.is_some()
     }
 
+    pub fn configured_path(&self) -> Option<&Path> {
+        self.configured
+            .as_ref()
+            .map(|workspace| workspace.canonical.as_path())
+    }
+
     pub fn runtime_status(&self, trial_token_auth_enabled: bool) -> RuntimeStatus {
         let trial_available = self.require_current().is_ok();
         let session = self.lease.lock().ok().and_then(|lease| match &*lease {
@@ -199,7 +205,7 @@ fn require_directory(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ensure_disjoint(repository: &Path, workspace: &Path) -> anyhow::Result<()> {
+pub(super) fn ensure_disjoint(repository: &Path, workspace: &Path) -> anyhow::Result<()> {
     if repository.starts_with(workspace) || workspace.starts_with(repository) {
         bail!(
             "trial workspace must be disjoint from repository root: repository={}, workspace={}",

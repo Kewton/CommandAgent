@@ -118,6 +118,11 @@ formula を追加する案がありますが、外部リポジトリは作成し
 進めるには、`./scripts/setup.sh` を実行します。非対話の安全な既定値には
 `--yes`、何も変更せず前提条件だけ確認するには `--check-only` を使います。
 
+運用者向けの[管理 GUI](docs/user/gui.md)は `./scripts/setup.sh --gui` でビルドと
+起動前検査を準備できます。`--write-config --extension-root <dir>` を加えると、既存
+config を上書きせず、非公開の拡張雛形と[業務 preset](docs/guide/ja/configuration.md#プリセット)
+の例を作成します。
+
 OpenAI を使う場合は `OPENAI_API_KEY` を起動プロセスの環境だけに設定します。
 Gemini はプロセス環境またはアクティブなワークスペース直下の `.env` を利用できます。
 LM Studio のサーバー認証を有効にした場合は、任意の `LM_STUDIO_API_TOKEN` を
