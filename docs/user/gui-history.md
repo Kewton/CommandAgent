@@ -8,7 +8,7 @@ runs without confusing Trial evidence with repository management records.
 
 ## Two histories, two sources
 
-**検証・運用レポート** projects repository-side
+**リポジトリ実行記録** projects repository-side
 `workspace/management/runs`. **GUI Trial 実行履歴** projects `.anvil/runs`
 under the configured execution root. Both screens show their source path. The
 repository page does not discover Trial sessions, and the Trial index does not
@@ -31,9 +31,10 @@ error separately. A missing/incomplete token is authentication pending, not an
 authenticated empty history. A real empty history says
 **確認済み GUI Trial セッションはありません。**
 
-Rows show the UUID-v7-derived start time (or creation fallback), latest update,
+Rows show the UUID-v7-derived start time (or creation fallback) and latest
+update with the same `ja-JP` formatter as repository records, followed by the
 file-backed gate/status, pack identity/source, and a GET-only reconnect link.
-Terminal results link back to their exact history row.
+Terminal results scroll to and highlight their exact history row.
 
 ## Lease projection
 

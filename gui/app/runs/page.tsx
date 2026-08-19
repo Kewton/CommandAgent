@@ -7,7 +7,7 @@ import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
 import { describeError, responseError } from "../../lib/errors";
-import { byteLabel, dateLabel } from "../../lib/format";
+import { byteLabel, dateTimeLabel } from "../../lib/format";
 import type { DocumentRecord, RunDetail, RunIndex } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -59,7 +59,7 @@ export default function RunDetailPage() {
     const query = filter.trim().toLocaleLowerCase("ja-JP");
     if (query === "") return available;
     return available.filter((run) =>
-      [run.id, dateLabel(run.modified_epoch_seconds, "時刻不明"), run.status_text, run.state]
+      [run.id, dateTimeLabel(run.modified_epoch_seconds, "時刻不明"), run.status_text, run.state]
         .join(" ")
         .toLocaleLowerCase("ja-JP")
         .includes(query),
@@ -99,8 +99,8 @@ export default function RunDetailPage() {
   return (
     <Shell
       active="run"
-      title="検証・運用レポート"
-      description="repository に保存された検証・運用記録の受入シートと証跡を確認します。"
+      title="リポジトリ実行記録"
+      description="repository に保存された実行の受入シートと証跡を確認します。"
     >
       <section className="panel source-banner" data-testid="repository-run-source">
         <span className="panel-index">REPOSITORY / workspace/management/runs</span>
@@ -123,7 +123,7 @@ export default function RunDetailPage() {
             <option value="">実行を選択…</option>
             {filteredRuns.map((run) => (
               <option key={run.id} value={run.id}>
-                {dateLabel(run.modified_epoch_seconds, "時刻不明")} — {run.status_text} — {run.id}
+                {dateTimeLabel(run.modified_epoch_seconds, "時刻不明")} — {run.status_text} — {run.id}
               </option>
             ))}
           </select>
@@ -131,8 +131,8 @@ export default function RunDetailPage() {
           {runs.error !== null && <ErrorState message={runs.error} />}
           {runs.data?.runs.length === 0 && (
             <EmptyState
-              label="repository 記録なし"
-              message="workspace/management/runs に検証・運用レポートがありません。"
+              label="リポジトリ実行記録なし"
+              message="workspace/management/runs にリポジトリ実行記録がありません。"
             />
           )}
           {runs.data !== null && runs.data.runs.length > 0 && filteredRuns.length === 0 && (

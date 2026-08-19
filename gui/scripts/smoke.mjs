@@ -400,7 +400,7 @@ async function runCase(smokeCase) {
           "01\n概要",
           "02\nトライアル",
           "03\n拡張",
-          "04\n検証・運用レポート",
+          "04\nリポジトリ実行記録",
           "05\n計測",
         ]) &&
       assetsLink === `${expectedPrefix}assets/` &&
@@ -1169,8 +1169,8 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     origin,
     basePath,
     "runs/",
-    "検証・運用レポート",
-    "検証・運用レポート | CommandAgent",
+    "リポジトリ実行記録",
+    "リポジトリ実行記録 | CommandAgent",
   );
   await page.waitForFunction(
     () => document.querySelectorAll("#run-select option:not([value=''])").length > 0,

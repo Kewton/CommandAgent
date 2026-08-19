@@ -15,7 +15,7 @@ const navigation: { route: GuiRoute; label: string; index: string }[] = [
   { route: "dashboard", label: "概要", index: "01" },
   { route: "try", label: "トライアル", index: "02" },
   { route: "assets", label: "拡張", index: "03" },
-  { route: "run", label: "検証・運用レポート", index: "04" },
+  { route: "run", label: "リポジトリ実行記録", index: "04" },
   { route: "measurements", label: "計測", index: "05" },
 ];
 
@@ -28,7 +28,15 @@ type ShellProps = {
 
 export function Shell({ active, title, description, children }: ShellProps) {
   const runtime = useRuntimeStatus();
-  const sessionState = runtime.data?.session?.state ?? "idle";
+  const runtimeSession = runtime.data?.session ?? null;
+  const sessionState = runtimeSession?.state ?? "idle";
+  const sessionLabel = runtime.failed
+    ? "状態取得失敗"
+    : runtimeSession?.state === "running"
+      ? `実行中 ${shortSessionId(runtimeSession.id)}`
+      : runtimeSession?.state === "recovery_required"
+        ? `要復旧 ${shortSessionId(runtimeSession.id)}`
+        : "実行中なし";
 
   return (
     <RuntimeStatusContext.Provider value={runtime}>
@@ -57,16 +65,21 @@ export function Shell({ active, title, description, children }: ShellProps) {
                 ? "Trial 利用可"
                 : "Trial 利用不可"}
           </span>
-          <span className={`runtime-badge session-${sessionState}`}>
-            <i />
-            {runtime.failed
-              ? "状態取得失敗"
-              : runtime.data?.session?.state === "running"
-                ? `実行中 ${shortSessionId(runtime.data.session.id)}`
-                : runtime.data?.session?.state === "recovery_required"
-                  ? `要復旧 ${shortSessionId(runtime.data.session.id)}`
-                  : "実行中なし"}
-          </span>
+          {runtimeSession === null ? (
+            <span className={`runtime-badge session-${sessionState}`}>
+              <i />
+              {sessionLabel}
+            </span>
+          ) : (
+            <a
+              className={`runtime-badge session-${sessionState}`}
+              data-testid="runtime-session-link"
+              href={withBasePath(routePath("try", runtimeSession.id))}
+            >
+              <i />
+              {sessionLabel}
+            </a>
+          )}
         </div>
       </header>
 
