@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::process::{Command, Output};
 
 fn run_doctor(workspace: &std::path::Path, key: Option<&str>) -> Output {
@@ -137,8 +139,36 @@ fn doctor_lists_external_draft_profile_hash_and_cli_requires_its_extension_root(
     )
     .unwrap();
 
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 1024];
+        let read = stream.read(&mut request).unwrap();
+        assert!(String::from_utf8_lossy(&request[..read]).contains("GET /api/tags"));
+        let body = r#"{"models":[{"name":"doctor-fixture"}]}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    });
+
     let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
-        .args(["--doctor", "--json", "--profile", "static-site"])
+        .args([
+            "--doctor",
+            "--json",
+            "--profile",
+            "static-site",
+            "--model",
+            "doctor-fixture",
+            "--planner-model",
+            "doctor-fixture",
+            "--ollama-host",
+        ])
+        .arg(format!("http://{address}"))
         .arg("--cwd")
         .arg(workspace.path())
         .arg("--state-dir")
@@ -149,6 +179,7 @@ fn doctor_lists_external_draft_profile_hash_and_cli_requires_its_extension_root(
         .env("PATH", "")
         .output()
         .unwrap();
+    server.join().unwrap();
     assert!(
         output.status.success(),
         "{}",
