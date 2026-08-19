@@ -49,6 +49,22 @@ export type SessionSpec = {
   model: string;
   planner_provider: string;
   planner_model: string;
+  pack: string | null;
+};
+
+export type PackOption = {
+  id: string;
+  version: string;
+  profile: string;
+  intent: string;
+  hash: string;
+  point: string;
+  source: "admitted";
+  source_label: string;
+};
+
+export type PackOptions = {
+  packs: PackOption[];
 };
 
 export type TrialOptions = {
@@ -87,6 +103,16 @@ export type ConfirmationIdentity = {
     executor_model: string;
     preset: string;
   };
+  pack:
+    | { selection: "none" }
+    | {
+        selection: "pinned";
+        id: string;
+        version: string;
+        hash: string;
+        point: string;
+        source: "admitted" | "repository" | "local";
+      };
 };
 
 export type SessionProposal = {
@@ -121,6 +147,13 @@ export type TrialSessionSummary = {
   modified_epoch_seconds: number;
   gate: "gate_2" | "gate_3" | "gate_4" | null;
   status: string;
+  pack: {
+    id: string;
+    version: string;
+    hash: string;
+    source: "admitted" | "repository" | "local";
+    source_label: string;
+  } | null;
 };
 
 export type TrialSessionIndex = {

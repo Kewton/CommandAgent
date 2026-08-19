@@ -211,6 +211,7 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/reports", get(api::reports))
         .route("/api/reports/view", get(api::report_content))
         .route("/api/trial-options", get(trial_options::get))
+        .route("/api/pack-options", get(trial_options::get_packs))
         .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(gate_one::proposal))
         .route("/api/trial-workspace", get(sessions::workspace_status))

@@ -148,11 +148,14 @@ request or model cannot be delegated accidentally. **Check contract and
 price** validates those empty fields in the browser before making a proposal
 request.
 
-The browser obtains profile and provider choices from `GET api/trial-options`.
+The browser obtains profile and provider choices from `GET api/trial-options`
+and admitted exact-version pack choices from `GET api/pack-options`.
 Profiles are the server's current `admitted_profiles()` set and include a short
-scope description. Provider choices include model-ID guidance. Changing the
-provider does not rewrite either model pin, so the form shows a warning to
-review the executor model before Gate 1.
+scope description. For `python-cli × create`, the pack selector offers
+`cli-assist@1.0.0` and `cli-assist@1.1.0` with the supply source **承認済み**.
+Provider choices include model-ID guidance. Changing the provider does not
+rewrite either model pin, so the form shows a warning to review the executor
+model before Gate 1.
 
 The page shows a compact **依頼 → 確認 → 実行 → 結果** step indicator and only
 the current workflow state. Completed forms and progress cards do not remain
@@ -172,7 +175,9 @@ authentication is enabled.
    required check, including Python CLI C1-C4, and states the comparable runs
    that passed every check instead of exposing only the internal rate/window
    labels. Recorded mean duration/cost and the canonical filesystem write
-   boundary remain visible beside the card.
+   boundary remain visible beside the card. A selected pack adds its exact
+   `id@version`, byte hash, injection point, and supply source to the frozen
+   identity. Changing the pack therefore requires a fresh card hash.
 2. Select the confirmation checkbox. The launch button stays disabled until
    this explicit confirmation, and the API independently requires the exact
    card hash.
@@ -214,7 +219,9 @@ show their source path explicitly.
 
 Entering or restoring a complete runtime token loads up to 100 confirmed Trial
 run directories, with the active lease session first and the remaining rows
-ordered by latest update. The list is revalidated after a launch is accepted,
+ordered by latest update. Each row projects the pack pin from the persisted
+Gate 1 confirmation (or **選択なし**), so history does not infer identity from
+mutable events. The list is revalidated after a launch is accepted,
 on a Gate 3/4 transition, after reconnect succeeds, when the shared runtime
 lease leaves `running`, on window focus or tab visibility, and by **セッションを
 更新**. It does not run an independent short-interval list poll. A launch row
@@ -352,9 +359,10 @@ followed during listing, and individual text views are capped at 1 MiB.
 
 Trial run adds these bounded routes:
 
-`GET api/trial-options` is an unauthenticated, read-only projection of compiled
-profile/provider metadata so the form can be populated before a Trial token is
-entered. It neither inspects the execution workspace nor contacts a provider.
+`GET api/trial-options` and `GET api/pack-options` are unauthenticated,
+read-only projections of compiled profile/provider metadata and the admitted
+pack catalog, so the form can be populated before a Trial token is entered.
+They neither inspect the execution workspace nor contact a provider.
 
 When `--trial-token-auth on` is selected, every other route in this table
 requires `X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the
@@ -366,6 +374,7 @@ requests require a same-host Origin or an origin admitted by
 | Route | Operation |
 | --- | --- |
 | `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
+| `GET api/pack-options` | Return admitted exact-version pack pins, compatibility, and supply-source labels |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
 | `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |
 | `GET api/trial-workspace` | Read the current workspace lease and active/recovery session ID |

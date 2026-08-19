@@ -184,6 +184,11 @@ export function TrialSessionIndexPanel({
               <span className={`session-status ${session.status}`}>
                 {session.gate ?? "unknown"} / {session.status}
               </span>
+              <span className="session-pack" data-testid="session-pack">
+                {session.pack === null
+                  ? "pack: 選択なし"
+                  : `pack: ${session.pack.id}@${session.pack.version} · ${session.pack.source_label}`}
+              </span>
               <a data-testid="session-reconnect-link" href={sessionLink(session.id)}>
                 再接続
               </a>
@@ -215,6 +220,7 @@ function mergeObservedSession(
     {
       ...observed,
       modified_epoch_seconds: 0,
+      pack: null,
       started_epoch_seconds: 0,
     },
     ...sessions,

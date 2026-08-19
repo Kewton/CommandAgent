@@ -7,6 +7,7 @@ import type {
   DocumentRecord,
   DocumentSummary,
   PolledSession,
+  PackOptions,
   SessionProposal,
   SessionSpec,
   TrialOptions,
@@ -33,6 +34,10 @@ export function trialAuthorizationHeaders(
 
 export async function fetchTrialOptions(): Promise<TrialOptions> {
   return fetchJson<TrialOptions>(apiPath("trial-options"));
+}
+
+export async function fetchPackOptions(): Promise<PackOptions> {
+  return fetchJson<PackOptions>(apiPath("pack-options"));
 }
 
 export async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> {

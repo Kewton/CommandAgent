@@ -1264,6 +1264,13 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                 modified_epoch_seconds: 1_723_769_660,
                 gate: "gate_2",
                 status: "running",
+                pack: {
+                  id: "cli-assist",
+                  version: "1.0.0",
+                  hash: "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+                  source: "admitted",
+                  source_label: "承認済み",
+                },
               },
             ],
             lease: { status: "running", session_id: sessionId },
@@ -1323,6 +1330,7 @@ async function probeSessionIndexLease(browser, origin, basePath) {
         leaseText.includes(sessionId) &&
         sessionText.includes(sessionId) &&
         sessionText.includes("GATE_2 / RUNNING") &&
+        sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
         launchDisabled &&
         reason.includes(sessionId) &&
         reason.includes("新しい起動はできません") &&

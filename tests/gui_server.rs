@@ -4,6 +4,7 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use commandagent::planner::pack::catalog::ADMITTED_PACKS;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
@@ -323,6 +324,33 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
             && option["model_hint"]
                 .as_str()
                 .is_some_and(|value| !value.is_empty())
+    }));
+
+    let response = server.request_without_access("GET", "/api/pack-options", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let packs = response.json()["packs"].as_array().unwrap().clone();
+    let cli_packs = packs
+        .iter()
+        .filter(|pack| pack["profile"] == "python-cli" && pack["intent"] == "create")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cli_packs
+            .iter()
+            .map(|pack| format!(
+                "{}@{}",
+                pack["id"].as_str().unwrap(),
+                pack["version"].as_str().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        ["cli-assist@1.0.0", "cli-assist@1.1.0"]
+    );
+    assert!(cli_packs.iter().all(|pack| {
+        pack["source"] == "admitted"
+            && pack["source_label"] == "承認済み"
+            && pack["hash"]
+                .as_str()
+                .is_some_and(|hash| hash.starts_with("sha256:"))
+            && pack["point"] == "cli-validation"
     }));
     server.stop();
 }
@@ -760,7 +788,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         "provider": "ollama",
         "model": "fixture-executor",
         "planner_provider": "ollama",
-        "planner_model": "fixture-planner"
+        "planner_model": "fixture-planner",
+        "pack": "cli-assist@1.0.0"
     });
 
     let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
@@ -772,6 +801,17 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         proposal_json["identity"]["contract_checks"],
         serde_json::json!(["C1", "C2", "C3", "C4"])
     );
+    assert_eq!(
+        proposal_json["identity"]["pack"],
+        serde_json::json!({
+            "selection": "pinned",
+            "id": "cli-assist",
+            "version": "1.0.0",
+            "hash": ADMITTED_PACKS[0].hash,
+            "point": "cli-validation",
+            "source": "admitted"
+        })
+    );
     let card_markdown = proposal_json["card_markdown"].as_str().unwrap();
     for expected in [
         "# Gate 1 — 実行前の確認",
@@ -779,6 +819,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         "C2 — ヘルプの正確さ",
         "C3 — 出力の正確さ",
         "C4 — 再現性",
+        "追加の検証パック: cli-assist@1.0.0",
+        "検証パックの供給元: 承認済み",
         card_hash,
     ] {
         assert!(card_markdown.contains(expected), "{card_markdown}");
@@ -819,9 +861,17 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         "Gate 1 confirmation_hash is required before dispatch",
     );
 
-    let mut stale_confirmation = spec.clone();
-    stale_confirmation["confirmation_hash"] =
-        serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
+    let mut changed_pack = spec.clone();
+    changed_pack["pack"] = serde_json::json!("cli-assist@1.1.0");
+    let changed_proposal = server.request("POST", "/api/session-proposals", Some(&changed_pack));
+    assert_eq!(changed_proposal.status, 200, "{}", changed_proposal.body);
+    let changed_hash = changed_proposal.json()["card_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(changed_hash, card_hash);
+    let mut stale_confirmation = changed_pack;
+    stale_confirmation["confirmation_hash"] = serde_json::json!(card_hash);
     let stale = server.request("POST", "/api/sessions", Some(&stale_confirmation));
     assert_eq!(stale.status, 412, "{}", stale.body);
     assert_error(
@@ -861,6 +911,16 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let sessions = index["sessions"].as_array().unwrap();
     assert_eq!(sessions.first().unwrap()["id"], id);
     assert_eq!(sessions.first().unwrap()["gate"], "gate_2");
+    assert_eq!(
+        sessions.first().unwrap()["pack"],
+        serde_json::json!({
+            "id": "cli-assist",
+            "version": "1.0.0",
+            "hash": ADMITTED_PACKS[0].hash,
+            "source": "admitted",
+            "source_label": "承認済み"
+        })
+    );
     assert!(
         sessions.first().unwrap()["started_epoch_seconds"]
             .as_u64()
@@ -887,8 +947,19 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         delegated_env.contains("OPENAI_API_KEY=allowlisted-provider-key"),
         "{delegated_env}"
     );
+    for expected in [
+        "COMMANDAGENT_PACK_ID=cli-assist".to_string(),
+        "COMMANDAGENT_PACK_VERSION=1.0.0".to_string(),
+        format!("COMMANDAGENT_PACK_HASH={}", ADMITTED_PACKS[0].hash),
+        "COMMANDAGENT_PACK_DIRECTORY=".to_string(),
+    ] {
+        assert!(delegated_env.contains(&expected), "{delegated_env}");
+    }
     for forbidden in [
-        "COMMANDAGENT_PACK_",
+        "COMMANDAGENT_PACK_ID=untrusted-pack",
+        "COMMANDAGENT_PACK_VERSION=9.9.9",
+        "COMMANDAGENT_PACK_HASH=sha256:untrusted",
+        "COMMANDAGENT_PACK_DIRECTORY=/tmp/untrusted-pack",
         "COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET",
         "GUI_TRIAL_TOKEN=",
     ] {
@@ -934,6 +1005,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .unwrap()
             .contains("# D-3c acceptance sheet")
     );
+    let acceptance_sheet = status_json["acceptance_sheet"].as_str().unwrap();
+    assert!(acceptance_sheet.contains("Pack: cli-assist@1.0.0"));
+    assert!(acceptance_sheet.contains("Pack source: 承認済み"));
     let unchanged = server.request_if_none_match(&format!("/api/sessions/{id}"), &etag);
     assert_eq!(unchanged.status, 304, "{}", unchanged.body);
     assert!(unchanged.body.is_empty(), "304 response had a body");

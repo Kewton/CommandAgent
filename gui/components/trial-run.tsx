@@ -13,6 +13,7 @@ export function TrialRun() {
     artifacts,
     busy,
     checkContract,
+    compatiblePacks,
     confirmDirective,
     confirmed,
     created,
@@ -48,6 +49,7 @@ export function TrialRun() {
     rejectTrialToken,
     selectedProfile,
     selectedProvider,
+    selectedPack,
     session,
     sessionIndexRevision,
     setConfirmed,
@@ -234,6 +236,30 @@ export function TrialRun() {
               {selectedProfile !== undefined && (
                 <small className="trial-field-hint" data-testid="trial-profile-description">
                   {selectedProfile.description}
+                </small>
+              )}
+            </label>
+            <label>
+              検証 pack
+              <select
+                data-testid="trial-pack"
+                disabled={launchIdentityLocked || trialOptions === null}
+                value={spec.pack ?? ""}
+                onChange={(event) => update("pack", event.target.value || null)}
+              >
+                <option value="">選択なし</option>
+                {compatiblePacks.map((option) => {
+                  const selector = `${option.id}@${option.version}`;
+                  return (
+                    <option key={selector} value={selector}>
+                      {selector} · {option.source_label}
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedPack !== undefined && (
+                <small className="trial-field-hint" data-testid="trial-pack-source">
+                  {selectedPack.profile} × {selectedPack.intent} · 供給元: {selectedPack.source_label}
                 </small>
               )}
             </label>

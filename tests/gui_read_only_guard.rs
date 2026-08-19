@@ -70,6 +70,11 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         ".arg(\"--run-ultra-plan\")",
         "COMMANDAGENT_EVAL_EVENTS",
         ".arg(\"--extension-root\")",
+        "apply_confirmed_pack(&mut command, state, identity)",
+        "PackSelection::Pinned",
+        "locator.observed_hash(*source, id, version)",
+        ".args([\"--pack-hash\", hash])",
+        ".env(PACK_DIRECTORY_ENV, directory)",
     ] {
         assert!(
             delegate.contains(required),
@@ -82,9 +87,12 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
             "delegate contains an unbounded process surface {shell_bypass:?}"
         );
     }
+    let allowlist_end = delegate
+        .find("];")
+        .expect("delegate environment allowlist must be closed");
     assert!(
-        !delegate.contains("\"COMMANDAGENT_PACK_"),
-        "delegate allowlist admits ambient pack selectors"
+        !delegate[..allowlist_end].contains("COMMANDAGENT_PACK_"),
+        "delegate parent allowlist admits ambient pack selectors"
     );
 
     let directives = std::fs::read_to_string(DIRECTIVES_MODULE).unwrap();
@@ -301,8 +309,11 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "proposal.identity.workspace",
         "このディレクトリ内の内容だけを作成・変更・削除できます",
         "apiPath(\"trial-options\")",
+        "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
+        "data-testid=\"trial-pack\"",
+        "option.source_label",
         "data-testid=\"trial-profile-description\"",
         "data-testid=\"trial-provider-model-hint\"",
         "プロバイダーを変更しても実行モデルは自動更新されません。",
@@ -368,8 +379,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         source
             .matches("disabled={launchIdentityLocked || trialOptions === null}")
             .count(),
-        2,
-        "profile and provider controls must combine option loading with the run-stage lock"
+        3,
+        "profile, pack, and provider controls must combine option loading with the run-stage lock"
     );
     for reset in [
         "setProposal(null)",
@@ -1192,6 +1203,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "href={sessionLink(session.id)}",
         "return `?session=${encodeURIComponent(id)}`",
         "data-testid=\"session-reconnect-link\"",
+        "data-testid=\"session-pack\"",
+        "session.pack.id}@${session.pack.version}",
         "data-testid=\"trial-session-auth-required\"",
         "data-testid=\"trial-session-freshness\"",
         "最後に取得できた一覧を表示しています。",

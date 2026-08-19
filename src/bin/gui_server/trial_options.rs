@@ -1,5 +1,6 @@
 use axum::Json;
 use commandagent::config::Provider;
+use commandagent::planner::pack::catalog::{PackSource, admitted_packs};
 use commandagent::planner::profile::ProfileId;
 use commandagent::planner::profile_descriptor::descriptor;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
@@ -32,8 +33,43 @@ struct ProviderOption {
     model_hint: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PackOptions {
+    packs: Vec<PackOption>,
+}
+
+#[derive(Debug, Serialize)]
+struct PackOption {
+    id: &'static str,
+    version: &'static str,
+    profile: &'static str,
+    intent: &'static str,
+    hash: &'static str,
+    point: &'static str,
+    source: PackSource,
+    source_label: &'static str,
+}
+
 pub async fn get() -> Json<TrialOptions> {
     Json(options())
+}
+
+pub async fn get_packs() -> Json<PackOptions> {
+    Json(PackOptions {
+        packs: admitted_packs()
+            .iter()
+            .map(|pack| PackOption {
+                id: pack.id,
+                version: pack.version,
+                profile: pack.profile,
+                intent: pack.intent,
+                hash: pack.hash,
+                point: pack.point,
+                source: PackSource::Admitted,
+                source_label: PackSource::Admitted.japanese_label(),
+            })
+            .collect(),
+    })
 }
 
 pub fn is_admitted_provider(value: &str) -> bool {
