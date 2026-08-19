@@ -12,6 +12,7 @@ use commandagent::tui::boundary_shell::ambiguity::{
 use commandagent::tui::boundary_shell::confirmation::{
     ConfirmationIdentity, ExecutionPins, PackSelection,
 };
+use commandagent::tui::boundary_shell::pack_catalog;
 use commandagent::tui::boundary_shell::presentation::render_gate_one;
 use commandagent::tui::boundary_shell::route::{
     DeterministicResolution, ExplicitRouteBinding, RouteRequest, admitted_profiles,
@@ -35,6 +36,7 @@ pub struct SessionSpec {
     model: String,
     planner_provider: String,
     planner_model: String,
+    pack: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,8 +119,21 @@ pub(super) fn gate_one(
             "Gate 1 requires one deterministic registered route; candidates: {candidates}"
         )));
     }
+    let selected = deterministic
+        .candidates
+        .first()
+        .expect("unique deterministic routes have one selected candidate");
+    let pack = match spec.pack.as_deref() {
+        Some(selector) => pack_catalog::select(
+            selected.profile.as_str(),
+            selected.intent.as_str(),
+            selector,
+        )
+        .map_err(unprocessable)?,
+        None => PackSelection::None,
+    };
     let proposal = RouteProposal {
-        selected: deterministic.candidates.first().cloned(),
+        selected: Some(selected.clone()),
         alternatives: deterministic.candidates,
         classifier: ClassifierProvenance {
             used: false,
@@ -141,13 +156,7 @@ pub(super) fn gate_one(
     };
     let mut shell = BoundaryShell::new(confirmation_root, None);
     let identity = shell
-        .begin_gate_one(
-            proposal,
-            spec.goal.clone(),
-            workspace,
-            pins,
-            PackSelection::None,
-        )
+        .begin_gate_one(proposal, spec.goal.clone(), workspace, pins, pack)
         .map_err(unprocessable)?
         .clone();
     let card =
@@ -173,6 +182,15 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
                 "{name} must contain 1..={MAX_FIELD_BYTES} UTF-8 bytes"
             )));
         }
+    }
+    if spec
+        .pack
+        .as_deref()
+        .is_some_and(|pack| pack.trim().is_empty() || pack.len() > MAX_FIELD_BYTES)
+    {
+        return Err(unprocessable(format!(
+            "pack must contain 1..={MAX_FIELD_BYTES} UTF-8 bytes when selected"
+        )));
     }
     for provider in [&spec.provider, &spec.planner_provider] {
         if !trial_options::is_admitted_provider(provider) {
@@ -280,6 +298,7 @@ mod tests {
             model: "qwen/test".to_string(),
             planner_provider: "lm-studio".to_string(),
             planner_model: "qwen/test".to_string(),
+            pack: None,
         };
 
         validate_spec(&spec).unwrap();

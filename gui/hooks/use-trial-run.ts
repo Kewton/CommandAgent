@@ -31,6 +31,7 @@ import {
   fetchSessionArtifacts,
   fetchSessionEvents,
   fetchSessionPoll,
+  fetchPackOptions,
   fetchTrialOptions,
   fetchWorkspaceLease,
   proposeSession,
@@ -41,6 +42,7 @@ import type {
   DocumentRecord,
   DocumentSummary,
   PolledSession,
+  PackOptions,
   SessionProposal,
   SessionSpec,
   TrialOptions,
@@ -54,6 +56,7 @@ const initialSpec: SessionSpec = {
   model: "",
   planner_provider: "ollama",
   planner_model: "",
+  pack: null,
 };
 
 export type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
@@ -97,6 +100,7 @@ export function useTrialRun(
   const [error, setError] = useState<string | null>(null);
   const [errorReconnectSessionId, setErrorReconnectSessionId] = useState<string | null>(null);
   const [trialOptions, setTrialOptions] = useState<TrialOptions | null>(null);
+  const [packOptions, setPackOptions] = useState<PackOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [providerChanged, setProviderChanged] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
@@ -158,8 +162,14 @@ export function useTrialRun(
     let cancelled = false;
     const loadOptions = async () => {
       try {
-        const value = await fetchTrialOptions();
-        if (!cancelled) setTrialOptions(value);
+        const [value, packs] = await Promise.all([
+          fetchTrialOptions(),
+          fetchPackOptions(),
+        ]);
+        if (!cancelled) {
+          setTrialOptions(value);
+          setPackOptions(packs);
+        }
       } catch (reason) {
         if (!cancelled) setOptionsError(describeError(reason));
       }
@@ -302,9 +312,17 @@ export function useTrialRun(
   }, [session]);
   const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
   const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
+  const compatiblePacks = packOptions?.packs.filter(
+    (option) => option.profile === spec.profile && option.intent === "create",
+  ) ?? [];
+  const selectedPack = compatiblePacks.find(
+    (option) => `${option.id}@${option.version}` === spec.pack,
+  );
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
-    setSpec((current) => ({ ...current, [field]: value }));
+    setSpec((current) => field === "profile"
+      ? { ...current, profile: value as string, pack: null }
+      : { ...current, [field]: value });
     setProposal(null);
     setConfirmed(false);
     setError(null);
@@ -559,6 +577,7 @@ export function useTrialRun(
     monitor,
     observedSession,
     optionsError,
+    compatiblePacks,
     persistDirective,
     priceCost,
     priceDuration,
@@ -571,6 +590,7 @@ export function useTrialRun(
     rejectTrialToken,
     selectedProfile,
     selectedProvider,
+    selectedPack,
     session,
     sessionIndexRevision,
     setConfirmed,

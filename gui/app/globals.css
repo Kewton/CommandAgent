@@ -1287,12 +1287,17 @@ button {
 
 .session-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 1rem;
   align-items: center;
   padding: 0.8rem 1.25rem;
   border-bottom: 1px solid var(--line);
   scroll-margin-top: 1rem;
+}
+
+.session-pack {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .session-list li:last-child {

@@ -4,6 +4,8 @@ use std::time::UNIX_EPOCH;
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use commandagent::planner::pack::catalog::PackSource;
+use commandagent::tui::boundary_shell::confirmation::{PackSelection, load_latest_confirmation};
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -28,6 +30,16 @@ struct SessionSummary {
     modified_epoch_seconds: u64,
     gate: Option<&'static str>,
     status: String,
+    pack: Option<SessionPack>,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionPack {
+    id: String,
+    version: String,
+    hash: String,
+    source: PackSource,
+    source_label: &'static str,
 }
 
 #[derive(Debug)]
@@ -71,7 +83,8 @@ pub async fn list(
         let Some(id) = canonical_session_id(&entry.file_name().to_string_lossy()) else {
             continue;
         };
-        if !has_confirmation_record(&path.join("state/boundary-confirmations")).await {
+        let confirmation_root = path.join("state/boundary-confirmations");
+        if !has_confirmation_record(&confirmation_root).await {
             continue;
         }
         let events_path = path.join("events.jsonl");
@@ -83,6 +96,7 @@ pub async fn list(
             modified_epoch_seconds: modified_epoch_seconds(&path, &events_path).await,
             gate: projection.gate,
             status: projection.status,
+            pack: confirmed_pack(&confirmation_root),
         });
     }
     let active_session = match &lease {
@@ -105,6 +119,27 @@ pub async fn list(
     });
     sessions.truncate(MAX_SESSIONS);
     Ok(Json(SessionIndex { sessions, lease }))
+}
+
+fn confirmed_pack(root: &Path) -> Option<SessionPack> {
+    let confirmed = load_latest_confirmation(root).ok().flatten()?;
+    let PackSelection::Pinned {
+        id,
+        version,
+        hash,
+        source,
+        ..
+    } = &confirmed.identity().pack
+    else {
+        return None;
+    };
+    Some(SessionPack {
+        id: id.clone(),
+        version: version.clone(),
+        hash: hash.clone(),
+        source: *source,
+        source_label: source.japanese_label(),
+    })
 }
 
 fn canonical_session_id(value: &str) -> Option<String> {

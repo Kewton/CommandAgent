@@ -5,7 +5,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use commandagent::tui::boundary_shell::confirmation::ConfirmationIdentity;
+use commandagent::planner::pack::catalog::PackLocator;
+use commandagent::tui::boundary_shell::confirmation::{ConfirmationIdentity, PackSelection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,6 +33,10 @@ const DELEGATE_PARENT_ENV_ALLOWLIST: &[&str] = &[
 ];
 const DELEGATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI delegation";
 const CONTINUATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI continuation";
+const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
+const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
+const PACK_VERSION_ENV: &str = "COMMANDAGENT_PACK_VERSION";
+const PACK_HASH_ENV: &str = "COMMANDAGENT_PACK_HASH";
 
 pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {
     let mut command = Command::new(path);
@@ -208,6 +213,7 @@ fn delegated_cli_command(
     let mut command = Command::new(&state.commandagent_bin);
     command.env_clear();
     restore_allowed_environment(&mut command);
+    let confirmed_pack_applied = apply_confirmed_pack(&mut command, state, identity)?;
     command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
@@ -229,7 +235,7 @@ fn delegated_cli_command(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(extension_root) = state.extension_root.as_deref() {
+    if !confirmed_pack_applied && let Some(extension_root) = state.extension_root.as_deref() {
         command.arg("--extension-root").arg(extension_root);
     }
     Ok(command)
@@ -241,4 +247,39 @@ fn restore_allowed_environment(command: &mut Command) {
             command.env(name, value);
         }
     }
+}
+
+fn apply_confirmed_pack(
+    command: &mut Command,
+    state: &AppState,
+    identity: &ConfirmationIdentity,
+) -> anyhow::Result<bool> {
+    let PackSelection::Pinned {
+        id,
+        version,
+        hash,
+        source,
+        ..
+    } = &identity.pack
+    else {
+        return Ok(false);
+    };
+    let locator = PackLocator::new(&state.repository_root);
+    let directory = locator.locate(*source, id, version)?;
+    let observed = locator.observed_hash(*source, id, version)?;
+    if observed != *hash {
+        anyhow::bail!(
+            "confirmed pack changed before CLI delegation: expected {hash}, observed {observed}"
+        );
+    }
+    command
+        .args(["--extension-root"])
+        .arg(state.repository_root.join("packs"))
+        .args(["--pack", &format!("{id}@{version}")])
+        .args(["--pack-hash", hash])
+        .env(PACK_DIRECTORY_ENV, directory)
+        .env(PACK_ID_ENV, id)
+        .env(PACK_VERSION_ENV, version)
+        .env(PACK_HASH_ENV, hash);
+    Ok(true)
 }
