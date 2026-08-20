@@ -316,6 +316,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
+        "planner_provider: value as string",
         "data-testid=\"trial-pack\"",
         "option.source_label",
         "data-testid=\"trial-profile-description\"",

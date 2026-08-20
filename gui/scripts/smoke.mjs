@@ -16,6 +16,7 @@ const wizardOnly = arguments_.includes("--wizard-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
+const providerOnly = arguments_.includes("--provider-only");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
 );
@@ -80,7 +81,7 @@ const helpMapEntries = [
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only | --provider-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -112,6 +113,7 @@ const packageMetadata = JSON.parse(
 const require = createRequire(import.meta.url);
 const { chromium } = require(managedPlaywrightPath);
 const scratchRoot = await mkdtemp(join(tmpdir(), "commandagent-g1-gui-smoke-"));
+const providerProbeBin = providerOnly ? await createProviderProbeBinary() : null;
 
 const cases = [
   { id: "root", buildBasePath: "/", serverBasePath: "/" },
@@ -127,7 +129,9 @@ try {
   for (const smokeCase of cases) {
     try {
       results.push(
-        await (wizardOnly
+        await (providerOnly
+          ? runProviderCase(smokeCase, providerProbeBin)
+          : wizardOnly
           ? runWizardCase(smokeCase)
           : feedbackOnly
           ? runFeedbackCase(smokeCase)
@@ -160,19 +164,21 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: wizardOnly
-      ? "pack_wizard"
-      : readOnly
-      ? "read_only"
-      : overviewOnly
-        ? "overview_only"
-        : feedbackOnly
-          ? "feedback_only"
-          : pollingOnly
-            ? "polling_only"
-            : "full_trial",
-    commandagent_bin: commandagentBin,
-    provider: "ollama",
+    mode: providerOnly
+      ? "provider_propagation"
+      : wizardOnly
+        ? "pack_wizard"
+        : readOnly
+          ? "read_only"
+          : overviewOnly
+            ? "overview_only"
+            : feedbackOnly
+              ? "feedback_only"
+              : pollingOnly
+                ? "polling_only"
+                : "full_trial",
+    commandagent_bin: providerProbeBin ?? commandagentBin,
+    provider: providerOnly ? "openai+gemini" : "ollama",
     model,
     fixture: fixtureRoot,
     scratch_runtime:
@@ -191,6 +197,135 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function createProviderProbeBinary() {
+  const path = join(scratchRoot, "provider-probe-commandagent");
+  const terminalEvents = await readFile(
+    join(repositoryRoot, "tests/fixtures/gui_cli_events.jsonl"),
+    "utf8",
+  );
+  const script = [
+    "#!/bin/sh",
+    'if [ "${1-}" = "--version" ]; then',
+    "  printf 'commandagent 0.1.0 provider-probe\\n'",
+    "  exit 0",
+    "fi",
+    'run_directory=${COMMANDAGENT_EVAL_EVENTS%/*}',
+    'printf \'%s\\n\' "$@" > "$run_directory/delegated-args.txt"',
+    `printf '%s' '${terminalEvents.replaceAll("'", "'\\''")}' > "$COMMANDAGENT_EVAL_EVENTS"`,
+    "",
+  ].join("\n");
+  await writeFile(path, script, { mode: 0o700 });
+  await chmod(path, 0o700);
+  return path;
+}
+
+async function runProviderCase(smokeCase, probeBinary) {
+  const executionRoot = join(scratchRoot, `${smokeCase.id}-provider-execution`);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot, probeBinary);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const consoleErrors = [];
+  page.on("console", (entry) => {
+    if (entry.type() === "error") consoleErrors.push(entry.text());
+  });
+  try {
+    const prefix = displayBasePath(smokeCase.serverBasePath);
+    const trialUrl = new URL(`${prefix}try/`, server.origin).href;
+    const response = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await page
+      .locator("[data-testid='trial-provider'] option[value='gemini']")
+      .waitFor({ state: "attached" });
+    const providers = [];
+    for (const provider of ["openai", "gemini"]) {
+      const executorModel = `${provider}-executor-model`;
+      const plannerModel = `${provider}-planner-model`;
+      await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+      await page.locator("[data-testid='trial-token']").fill(trialCredential);
+      await page.locator("[data-testid='trial-provider']").selectOption(provider);
+      await page.locator("[data-testid='trial-executor-model']").fill(executorModel);
+      await page.locator("[data-testid='trial-planner-model']").fill(plannerModel);
+      await page.locator("[data-testid='check-contract']").click();
+      await page.locator("[data-testid='gate-one-card']").waitFor();
+      await page.locator("[data-testid='gate-one-confirm']").check();
+      const createRequestPromise = page.waitForRequest((candidate) => {
+        const url = new URL(candidate.url());
+        return candidate.method() === "POST" && url.pathname.endsWith("/api/sessions");
+      });
+      const createResponsePromise = page.waitForResponse((candidate) => {
+        const url = new URL(candidate.url());
+        return candidate.request().method() === "POST" && url.pathname.endsWith("/api/sessions");
+      });
+      await page.locator("[data-testid='launch-session']").click();
+      const [createRequest, createResponse] = await Promise.all([
+        createRequestPromise,
+        createResponsePromise,
+      ]);
+      const createBody = createRequest.postDataJSON();
+      const created = await createResponse.json();
+      const delegatedArgs = (
+        await readEventually(
+          join(executionRoot, ".anvil", "runs", created.id, "delegated-args.txt"),
+        )
+      ).trim().split("\n");
+      await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: 10_000 });
+      const identityText = await page.locator("[data-testid='trial-run-identity']").innerText();
+      const result = {
+        provider,
+        request_provider: createBody.provider,
+        request_planner_provider: createBody.planner_provider,
+        cli_provider: cliArgumentValue(delegatedArgs, "--provider"),
+        cli_planner_provider: cliArgumentValue(delegatedArgs, "--planner-provider"),
+        cli_model: cliArgumentValue(delegatedArgs, "--model"),
+        cli_planner_model: cliArgumentValue(delegatedArgs, "--planner-model"),
+        identity_text: identityText,
+      };
+      result.ok =
+        createResponse.status() === 202 &&
+        result.request_provider === provider &&
+        result.request_planner_provider === provider &&
+        result.cli_provider === provider &&
+        result.cli_planner_provider === provider &&
+        result.cli_model === executorModel &&
+        result.cli_planner_model === plannerModel &&
+        identityText.includes(provider) &&
+        identityText.includes(executorModel) &&
+        identityText.includes(plannerModel);
+      providers.push(result);
+      await page
+        .locator("[data-testid='runtime-status'][data-session-state='idle']")
+        .waitFor({ timeout: 10_000 });
+      if (provider !== "gemini") {
+        await page.locator("[data-testid='close-session']").click();
+        await page.locator("[data-testid='start-new-run']").click();
+      }
+    }
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-provider-propagation.png`),
+    });
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      status: response?.status() ?? 0,
+      providers,
+      unexpected_console_errors: consoleErrors,
+      ok:
+        response?.status() === 200 &&
+        providers.length === 2 &&
+        providers.every((provider) => provider.ok) &&
+        consoleErrors.length === 0,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runWizardCase(smokeCase) {
   const executionRoot = join(scratchRoot, `${smokeCase.id}-wizard-execution`);
@@ -2165,7 +2300,7 @@ async function probeExtensionCatalog(page) {
   };
 }
 
-async function startServer(basePath, executionRoot) {
+async function startServer(basePath, executionRoot, delegateBin = commandagentBin) {
   const extensionRoot = `${executionRoot}-extensions`;
   await mkdir(extensionRoot, { recursive: true, mode: 0o700 });
   await chmod(extensionRoot, 0o700);
@@ -2193,7 +2328,7 @@ async function startServer(basePath, executionRoot) {
       "--trial-token-auth",
       "on",
       "--commandagent-bin",
-      commandagentBin,
+      delegateBin,
     ],
     {
       cwd: repositoryRoot,
@@ -2235,6 +2370,24 @@ async function runChecked(command, arguments_, cwd, env) {
       else reject(new Error(`${command} exited with ${code}`));
     });
   });
+}
+
+async function readEventually(path) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (reason) {
+      if (reason?.code !== "ENOENT") throw reason;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+function cliArgumentValue(arguments_, name) {
+  const index = arguments_.indexOf(name);
+  return index === -1 ? null : arguments_[index + 1] ?? null;
 }
 
 function displayBasePath(basePath) {
