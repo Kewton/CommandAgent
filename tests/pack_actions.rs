@@ -137,6 +137,55 @@ fn co_located_profiles_and_packs_remain_independently_usable() {
 }
 
 #[test]
+fn packs_warns_for_invalid_candidates_and_keeps_listing_valid_local_packs() {
+    let temp = tempfile::tempdir().unwrap();
+    let extension = temp.path().join("extensions");
+    let valid = extension.join("packs/valid-local/1.0.0");
+    let invalid = extension.join("packs/broken/1.0.0");
+    let memo = extension.join("notes/2026-08-21");
+    write_named_cli_pack(&valid, "valid-local");
+    fs::create_dir_all(&invalid).unwrap();
+    fs::create_dir_all(&memo).unwrap();
+    fs::write(memo.join("memo.txt"), "not a pack\n").unwrap();
+
+    let output = commandagent(&[
+        "--extension-root".as_ref(),
+        extension.as_os_str(),
+        "--profile".as_ref(),
+        "python-cli".as_ref(),
+        "--intent".as_ref(),
+        "create".as_ref(),
+        "--packs".as_ref(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with("valid-local@1.0.0\t") && line.ends_with("\tlocal")),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("broken@1.0.0"), "{stdout}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("warning: skipping invalid local pack"))
+            .count(),
+        2,
+        "{stderr}"
+    );
+    for skipped in [invalid, memo] {
+        assert!(stderr.contains(&skipped.display().to_string()), "{stderr}");
+    }
+}
+
+#[test]
 fn pack_verify_matches_the_pack_conformance_binary_report() {
     let directory = repository_root().join("packs/cli-assist/1.0.0");
     let commandagent_output = commandagent(&["--pack-verify".as_ref(), directory.as_os_str()]);
