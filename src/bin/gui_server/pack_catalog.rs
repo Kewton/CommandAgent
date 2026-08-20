@@ -6,6 +6,7 @@ use serde::Serialize;
 
 const PACK_PIN_FILE: &str = "pack.sha256";
 const RETIRED_FILE: &str = "RETIRED";
+const BUILTIN_PACKS_DIRECTORY: &str = "builtin";
 
 #[derive(Debug, Serialize)]
 pub struct PackSummary {
@@ -43,7 +44,11 @@ fn list_sync(
 ) -> Result<Vec<PackSummary>, String> {
     let mut resolved = BTreeMap::new();
     for mut pack in discover(repository_root, PackSource::Repository, "packs")? {
+        if pack.id == BUILTIN_PACKS_DIRECTORY {
+            continue;
+        }
         classify_repository(&mut pack);
+        finalize_warning(&mut pack);
         resolved.insert((pack.id.clone(), pack.version.clone()), pack);
     }
     if let Some(extension_root) = extension_root {
@@ -147,7 +152,6 @@ fn inspect(
     } else if !identity_matches_path {
         row.warning = Some("ディレクトリ名と pack の識別子が一致しません。".to_string());
     }
-    finalize_warning(&mut row);
     row
 }
 
@@ -165,7 +169,6 @@ fn classify_repository(pack: &mut PackSummary) {
         pack.source_label = PackSource::Admitted.japanese_label();
         pack.trial_eligible = !pack.retired;
     }
-    finalize_warning(pack);
 }
 
 fn finalize_warning(pack: &mut PackSummary) {
@@ -211,4 +214,37 @@ fn file_name(path: &Path) -> Result<String, String> {
         .and_then(|name| name.to_str())
         .map(str::to_string)
         .ok_or_else(|| format!("{} has no UTF-8 file name", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_catalog_skips_builtin_namespace_and_does_not_repeat_warnings() {
+        let repository = tempfile::tempdir().unwrap();
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .create(repository.path().join("packs/builtin/ingest-create/1.0.0"))
+            .unwrap();
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .create(repository.path().join("packs/broken/1.0.0"))
+            .unwrap();
+
+        let packs = list_sync(repository.path(), None).unwrap();
+
+        assert!(packs.iter().all(|pack| pack.id != "builtin"));
+        let broken = packs
+            .iter()
+            .find(|pack| pack.id == "broken")
+            .expect("missing malformed public pack");
+        let warning = broken.warning.as_deref().expect("missing warning");
+        for expected in [
+            "pack の内容を解析できません。",
+            "pack.sha256 がありません。",
+        ] {
+            assert_eq!(warning.matches(expected).count(), 1, "{warning}");
+        }
+    }
 }
