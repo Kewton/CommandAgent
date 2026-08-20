@@ -3308,6 +3308,11 @@ mod tests {
             summary.contains("[prefill 20% · generation 60% · load 10%]"),
             "{summary}"
         );
+        assert!(summary.contains("Provider usage by role:"), "{summary}");
+        assert!(
+            summary.contains("| planner | 20s | 1200 | 200 | n/a | 20% |"),
+            "{summary}"
+        );
         assert!(summary.contains("Time profile by phase:"), "{summary}");
         assert!(
             summary.contains("| setup | 30s | 20s | 10s | 0s | 0s | 0s |"),

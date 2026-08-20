@@ -65,6 +65,7 @@ struct HeadlessSummary {
     events_path: Option<String>,
     duration_secs: Option<f64>,
     provider_cost_usd: Option<f64>,
+    provider_usage_by_role: Value,
     stop_class: Option<String>,
     directive_round: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,6 +101,8 @@ fn project(source: &Source) -> HeadlessSummary {
         .and_then(Path::parent)
         .map(|parent| parent.join("summary.md"))
         .filter(|path| path.is_file());
+    let provider_usage_by_role =
+        crate::time_profile::aggregate_events(&events).provider_usage_by_role_json();
 
     HeadlessSummary {
         schema_version: SCHEMA_VERSION,
@@ -116,6 +119,7 @@ fn project(source: &Source) -> HeadlessSummary {
         events_path: events_path.map(display_path),
         duration_secs,
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
+        provider_usage_by_role,
         stop_class: failed
             .then(|| {
                 latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
@@ -233,6 +237,31 @@ mod tests {
         assert_eq!(value["score"], 92.5);
         assert_eq!(value["duration_secs"], 12.5);
         assert_eq!(value["provider_cost_usd"], 0.0123);
+        assert_eq!(
+            value["provider_usage_by_role"]["planner"]["duration_ms"],
+            4_500
+        );
+        assert_eq!(
+            value["provider_usage_by_role"]["planner"]["prompt_tokens"],
+            700
+        );
+        assert_eq!(
+            value["provider_usage_by_role"]["planner"]["generation_tokens"],
+            120
+        );
+        assert_eq!(
+            value["provider_usage_by_role"]["planner"]["thinking_tokens"],
+            40
+        );
+        assert_eq!(
+            value["provider_usage_by_role"]["planner"]["prefill_ratio"],
+            0.25
+        );
+        assert_eq!(
+            value["provider_usage_by_role"]["executor"]["duration_ms"],
+            8_000
+        );
+        assert!(value["provider_usage_by_role"]["executor"]["thinking_tokens"].is_null());
         assert!(value["stop_class"].is_null());
         assert_eq!(value["directive_round"], 0);
     }
@@ -253,6 +282,7 @@ mod tests {
         assert_eq!(value["assurance"], "static");
         assert!(value["score"].is_null());
         assert!(value["provider_cost_usd"].is_null());
+        assert_eq!(value["provider_usage_by_role"], serde_json::json!({}));
         assert!(value["stop_class"].is_null());
     }
 
