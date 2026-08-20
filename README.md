@@ -17,15 +17,30 @@ break a larger goal into phases and repair failures along the way.
 
 ## Demo
 
+Both recordings below are real screens captured from this repository's build
+(`commandagent 0.1.0`, commit `15b7e362`, 2026-08-20) running against a local
+Ollama model. Nothing is staged or edited: the REPL output, the Gate 1 card,
+the phase progress, and the final verdict are what the binary produced. Only
+the pacing is changed — idle gaps are shortened and the running phases are
+played as a time-lapse.
+
+**CLI — a request in the REPL, the Gate 1 card, `/confirm`, and the run**
+
 <p align="center">
-  <img src="docs/assets/ux-demo.svg" alt="Animated CommandAgent terminal demo" width="900">
+  <img src="docs/assets/demo/cli-demo.gif" alt="Real terminal recording of the CommandAgent REPL: a request, the Gate 1 confirmation card, /confirm, and the phased run" width="900">
 </p>
 
-`commandagent --ux-demo` is a completely offline, scripted walkthrough; it is
-not a normal provider-backed run. The embedded image is a hand-authored SVG
-excerpt of that script, not a terminal recording. See the
-[recording notes](docs/assets/ux-demo.md) for both the scripted asset and the
-separate recording of a real provider-backed REPL `/ultra-plan-run`.
+**GUI — one delegated Trial from the management GUI**
+
+<p align="center">
+  <img src="docs/assets/demo/gui-demo.gif" alt="Real screen recording of the CommandAgent management GUI: sample goal, Gate 1 card, running phases, and the result" width="900">
+</p>
+
+The [recording notes](docs/assets/ux-demo.md) explain how both GIFs were
+captured and how to regenerate them with `scripts/demo/`. The
+[tutorial](docs/guide/en/tutorial.md) walks through the same screens step by
+step. `commandagent --ux-demo` still exists as a completely offline, scripted
+walkthrough; it contacts no provider and is not a provider-backed run.
 
 ## Features
 
@@ -76,6 +91,8 @@ model that actually exists in your local `ollama list` output.
 
 Continue at the layer you need:
 
+- [Tutorial](docs/guide/en/tutorial.md) — a 20-minute walkthrough with real
+  screens: doctor, the first REPL request through Gate 1–4, and one GUI Trial
 - [CLI getting started](docs/user/getting-started-cli.md) — provider, config,
   offline doctor, first loop, and exact-pack A/B
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,

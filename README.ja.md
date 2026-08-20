@@ -18,15 +18,28 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
 
 ## デモ
 
+以下の 2 本は、このリポジトリのビルド（`commandagent 0.1.0`、コミット `15b7e362`、
+2026-08-20）をローカルの Ollama モデルで動かして撮影した実際の画面です。演出や
+編集はありません。REPL の出力、Gate 1 カード、phase の進捗、最終判定はすべて
+バイナリが実際に出力したものです。変えているのは再生速度だけで、待ち時間を
+詰め、実行中の phase は早回しにしています。
+
+**CLI — REPL への依頼、Gate 1 カード、`/confirm`、そして実行**
+
 <p align="center">
-  <img src="docs/assets/ux-demo.svg" alt="CommandAgent のターミナルデモアニメーション" width="900">
+  <img src="docs/assets/demo/cli-demo.gif" alt="CommandAgent REPL の実録: 依頼、Gate 1 確認カード、/confirm、phase 分割された実行" width="900">
 </p>
 
-`commandagent --ux-demo` は完全オフラインの scripted walkthrough であり、通常の
-provider-backed run ではありません。上の画像はそのスクリプトを手作業で抜粋した
-SVG で、ターミナル実録ではありません。[録画メモ](docs/assets/ux-demo.md)では、この
-scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画を区別して
-案内しています。
+**GUI — 管理 GUI から Trial を 1 本委譲する**
+
+<p align="center">
+  <img src="docs/assets/demo/gui-demo.gif" alt="CommandAgent 管理 GUI の実録: サンプル目標、Gate 1 カード、実行中の phase、結果" width="900">
+</p>
+
+撮影方法と `scripts/demo/` による再生成手順は[録画メモ](docs/assets/ux-demo.md)に
+あります。同じ画面を順に追う[チュートリアル](docs/guide/ja/tutorial.md)も用意
+しました。`commandagent --ux-demo` は完全オフラインの scripted walkthrough として
+引き続き利用できます。プロバイダーには接続せず、provider-backed run ではありません。
 
 ## 機能
 
@@ -78,6 +91,8 @@ scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画�
 
 目的のレイヤから続けてください。
 
+- [チュートリアル](docs/guide/ja/tutorial.md) — 実際の画面で追う 20 分の
+  ウォークスルー: doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本
 - [CLI 入門](docs/user/getting-started-cli.md) — provider、config、オフライン
   doctor、最初の 1 周、exact pack の A/B
 - [GUI 入門](docs/user/getting-started-gui.md) — セットアップ状態、サンプル
@@ -129,7 +144,7 @@ formula を追加する案がありますが、外部リポジトリは作成し
 
 運用者向けの[管理 GUI](docs/user/gui-setup.md)は `./scripts/setup.sh --gui` でビルドと
 起動前検査を準備できます。`--write-config --extension-root <dir>` を加えると、既存
-config を上書きせず、非公開の拡張雛形と[業務 preset](docs/guide/ja/configuration.md#プリセット)
+config を上書きせず、非公開の拡張雛形と[業務 preset](docs/guide/ja/configuration.md#preset)
 の例を作成します。
 
 OpenAI を使う場合は `OPENAI_API_KEY` を起動プロセスの環境だけに設定します。

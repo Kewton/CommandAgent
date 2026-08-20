@@ -512,18 +512,47 @@ fn demo_docs_distinguish_scripted_assets_from_provider_backed_recording() {
     let notes = read_repo_file("docs/assets/ux-demo.md");
     let recording = repo_path("docs/assets/repl-ultra-plan-run.rec");
 
-    for (path, readme, offline_marker) in [
-        ("README.md", english, "offline"),
-        ("README.ja.md", japanese, "オフライン"),
+    for (path, readme, offline_marker, real_marker) in [
+        ("README.md", english, "offline", "real screens"),
+        ("README.ja.md", japanese, "オフライン", "実際の画面"),
     ] {
+        assert!(
+            readme.contains("docs/assets/demo/cli-demo.gif")
+                && readme.contains("docs/assets/demo/gui-demo.gif")
+                && readme.contains(real_marker)
+                && readme.contains("docs/assets/ux-demo.md"),
+            "{path} must embed the real CLI and GUI recordings and link the recording notes"
+        );
         assert!(
             readme.contains("--ux-demo")
                 && readme.contains(offline_marker)
-                && readme.contains("provider-backed")
-                && readme.contains("SVG"),
-            "{path} must identify --ux-demo and the SVG as scripted rather than provider-backed"
+                && readme.contains("provider-backed"),
+            "{path} must still identify --ux-demo as offline and scripted rather than provider-backed"
+        );
+        assert!(
+            !readme.contains("ux-demo.svg"),
+            "{path} must not embed the hand-authored SVG excerpt as if it were a recording"
         );
     }
+    for asset in [
+        "docs/assets/demo/cli-demo.gif",
+        "docs/assets/demo/gui-demo.gif",
+    ] {
+        let size = fs::metadata(repo_path(asset))
+            .unwrap_or_else(|err| panic!("missing demo asset {asset}: {err}"))
+            .len();
+        assert!(
+            size > 16 * 1024,
+            "{asset} should be a real multi-frame recording"
+        );
+    }
+    assert!(
+        notes.contains("record_cli_demo.py")
+            && notes.contains("render_cli_demo.py")
+            && notes.contains("record_gui_demo.mjs")
+            && notes.contains("cli-demo.cast.json"),
+        "recording notes must explain how the committed GIFs are captured and regenerated"
+    );
     assert!(
         notes.contains("repl-ultra-plan-run.rec")
             && notes.contains("provider-backed")
