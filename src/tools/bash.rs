@@ -611,6 +611,8 @@ pub struct BashPathConfinementRejection {
     pub root: String,
     pub nearest_relative: String,
     pub guidance: String,
+    pub operation: String,
+    pub reason: String,
     pub message: String,
 }
 
@@ -620,6 +622,24 @@ pub fn path_confinement_rejection(
 ) -> Option<BashPathConfinementRejection> {
     let raw_root = root.to_path_buf();
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    if let Some(rejection) = super::bash_write_guard::confinement_rejection(command, &root) {
+        let nearest_relative = nearest_relative_form(&rejection.path, &root);
+        let guidance = workspace_relative_retry_guidance(&nearest_relative);
+        let root_display = root.to_string_lossy().to_string();
+        let message = format!(
+            "bash_path_confinement_error: {}; use workspace-relative path `{nearest_relative}`; {guidance}; Bash may create, modify, or delete only within current workspace root `{root_display}`",
+            rejection.reason,
+        );
+        return Some(BashPathConfinementRejection {
+            path: rejection.path.clone(),
+            root: root_display.clone(),
+            nearest_relative,
+            guidance,
+            operation: rejection.operation,
+            reason: rejection.reason.clone(),
+            message,
+        });
+    }
     for candidate in absolute_path_candidates(command) {
         if bash_path_allowed(candidate, &root, &raw_root) {
             continue;
@@ -627,11 +647,16 @@ pub fn path_confinement_rejection(
         let nearest_relative = nearest_relative_form(candidate, &root);
         let guidance = workspace_relative_retry_guidance(&nearest_relative);
         let root_display = root.to_string_lossy().to_string();
+        let reason = format!(
+            "absolute path `{candidate}` resolves outside current workspace root `{root_display}`"
+        );
         return Some(BashPathConfinementRejection {
             path: candidate.to_string(),
             root: root_display.clone(),
             nearest_relative: nearest_relative.clone(),
             guidance: guidance.clone(),
+            operation: "path reference".to_string(),
+            reason,
             message: format!(
                 "bash_path_confinement_error: rejected absolute path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
             ),
