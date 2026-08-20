@@ -1586,6 +1586,21 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
         );
     }
 
+    let measurements = std::fs::read_to_string("gui/app/measurements/page.tsx").unwrap();
+    assert!(measurements.contains("report.path === selectedPath"));
+    assert!(measurements.contains("[reports.data, selectedPath]"));
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "setDocumentVisibility(page, \"hidden\")",
+        "setDocumentVisibility(page, \"visible\")",
+        "selection_retained_after_visibility",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "measurement visibility smoke is missing {required:?}"
+        );
+    }
+
     let format = std::fs::read_to_string("gui/lib/format.ts").unwrap();
     assert_eq!(format.matches("Intl.DateTimeFormat").count(), 1);
     assert!(format.contains("export function dateTimeLabel"));
