@@ -31,6 +31,8 @@ pub struct PhaseStatus {
 #[derive(Debug, Serialize)]
 pub struct PolledSession {
     id: String,
+    started_epoch_seconds: u64,
+    average_duration_seconds: Option<f64>,
     gate: String,
     status: String,
     verdict: Option<String>,
@@ -119,8 +121,14 @@ pub async fn status(
     } else {
         "running"
     };
+    let started_epoch_seconds = started_epoch_seconds(&id, paths.run_root(), &events_path).await;
+    let average_duration_seconds =
+        super::gate_one::average_duration_seconds(&state.repository_root, confirmed.identity())
+            .await?;
     let session = PolledSession {
         id,
+        started_epoch_seconds,
+        average_duration_seconds,
         gate: gate.to_string(),
         status: status.to_string(),
         verdict,
@@ -299,6 +307,37 @@ fn insert_status_headers(response: &mut Response, etag: &str) {
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-cache"),
     );
+}
+
+pub(super) async fn started_epoch_seconds(
+    id: &str,
+    run_root: &FilePath,
+    events_path: &FilePath,
+) -> u64 {
+    let uuid_epoch = Uuid::parse_str(id)
+        .ok()
+        .filter(|id| id.get_version_num() == 7)
+        .and_then(|id| id.get_timestamp())
+        .map(|timestamp| timestamp.to_unix().0);
+    if let Some(epoch) = uuid_epoch {
+        return epoch;
+    }
+    let events_created = metadata_created(events_path).await;
+    if events_created > 0 {
+        events_created
+    } else {
+        metadata_created(run_root).await
+    }
+}
+
+async fn metadata_created(path: &FilePath) -> u64 {
+    tokio::fs::symlink_metadata(path)
+        .await
+        .ok()
+        .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()).ok())
+        .and_then(|created| created.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 pub(super) async fn require_current_terminal(path: &FilePath) -> Result<(), SessionError> {

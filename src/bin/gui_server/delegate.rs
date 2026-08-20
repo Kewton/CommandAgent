@@ -70,6 +70,7 @@ pub struct CreateSessionRequest {
 #[derive(Debug, Serialize)]
 pub struct CreatedSession {
     id: String,
+    started_epoch_seconds: u64,
     gate: &'static str,
     status: &'static str,
     events_path: String,
@@ -135,10 +136,13 @@ pub async fn create(
             }
         };
     }
+    let started_epoch_seconds =
+        super::sessions::started_epoch_seconds(&id, paths.run_root(), &events_path).await;
     Ok((
         StatusCode::ACCEPTED,
         Json(CreatedSession {
             id,
+            started_epoch_seconds,
             gate: "gate_2",
             status: "starting",
             events_path: relative_path(&workspace, &events_path),

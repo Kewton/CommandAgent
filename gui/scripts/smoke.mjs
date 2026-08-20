@@ -1300,6 +1300,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
 async function probeTrialFeedback(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const sessionId = "0198b9c8-fab8-7000-8000-000000000069";
+  const startedEpochSeconds = Date.parse("2026-08-16T00:00:00Z") / 1_000;
   let phaseTotal = 0;
   let terminal = false;
   try {
@@ -1329,6 +1330,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
           status: 202,
           body: JSON.stringify({
             id: sessionId,
+            started_epoch_seconds: startedEpochSeconds,
             gate: "gate_2",
             status: "starting",
             events_path: `.anvil/runs/${sessionId}/events.jsonl`,
@@ -1340,7 +1342,9 @@ async function probeTrialFeedback(browser, origin, basePath) {
         await route.fulfill({
           contentType: "application/json",
           status: 200,
-          body: JSON.stringify(syntheticFeedbackSession(sessionId, phaseTotal, terminal)),
+          body: JSON.stringify(
+            syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochSeconds),
+          ),
         });
         return;
       }
@@ -1381,6 +1385,35 @@ async function probeTrialFeedback(browser, origin, basePath) {
     const feedbackAfterMonitor =
       await page.locator("[data-testid='monitor-state'] + [data-testid='execution-feedback']").count();
 
+    const sessionQueryBeforeReload = new URL(page.url()).searchParams.get("session");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForFunction(
+      ({ expectedId, expectedToken }) => {
+        const token = document.querySelector("[data-testid='trial-token']");
+        const reconnect = document.querySelector("[data-testid='reconnect-session-button']");
+        return (
+          new URL(window.location.href).searchParams.get("session") === expectedId &&
+          token instanceof HTMLInputElement &&
+          token.value === expectedToken &&
+          reconnect instanceof HTMLButtonElement &&
+          !reconnect.disabled
+        );
+      },
+      { expectedId: sessionId, expectedToken: "synthetic-feedback-token" },
+    );
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const reconnectedElapsed = page.locator("[data-testid='elapsed-time']");
+    const elapsedAfterReconnect = Number(
+      await reconnectedElapsed.getAttribute("data-elapsed-seconds"),
+    );
+    const meanAfterReconnect = await page
+      .locator("[data-testid='mean-duration-comparison'] strong")
+      .innerText();
+    const elapsedPreservedAfterReconnect =
+      sessionQueryBeforeReload === sessionId && elapsedAfterReconnect >= elapsedAfter;
+    const meanPreservedAfterReconnect = meanAfterReconnect === meanText;
+
     terminal = true;
     await page.clock.runFor(1_100);
     await page.locator("[data-testid='terminal-gate']").waitFor();
@@ -1397,11 +1430,15 @@ async function probeTrialFeedback(browser, origin, basePath) {
       elapsed_before_text: elapsedTextBefore,
       elapsed_after_text: elapsedTextAfter,
       elapsed_changed: elapsedChanged,
+      elapsed_after_reconnect_seconds: elapsedAfterReconnect,
+      elapsed_preserved_after_reconnect: elapsedPreservedAfterReconnect,
       zero_total_hidden: zeroTotalHidden,
       phase_text: phaseText,
       phase_uses_total: phaseText === "フェーズ 2 / 5",
       measured_mean_text: meanText,
       measured_mean_visible: meanText === "平均 10.2 分",
+      measured_mean_after_reconnect: meanAfterReconnect,
+      mean_preserved_after_reconnect: meanPreservedAfterReconnect,
       mean_is_not_eta: meanLabel.includes("予測ではありません"),
       monitor_and_progress_separate: feedbackAfterMonitor === 1,
       running_title: runningTitle,
@@ -1409,6 +1446,8 @@ async function probeTrialFeedback(browser, origin, basePath) {
       title_changed: titleChanged,
       ok:
         elapsedChanged &&
+        elapsedPreservedAfterReconnect &&
+        meanPreservedAfterReconnect &&
         zeroTotalHidden &&
         phaseText === "フェーズ 2 / 5" &&
         meanText === "平均 10.2 分" &&
@@ -1652,9 +1691,11 @@ function syntheticFeedbackProposal() {
   };
 }
 
-function syntheticFeedbackSession(sessionId, phaseTotal, terminal) {
+function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochSeconds) {
   return {
     id: sessionId,
+    started_epoch_seconds: startedEpochSeconds,
+    average_duration_seconds: 612,
     gate: terminal ? "gate_3" : "gate_2",
     status: terminal ? "completed" : "running",
     verdict: terminal ? "pass" : null,
