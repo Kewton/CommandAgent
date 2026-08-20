@@ -336,9 +336,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             continue;
         }
         if crate::tui::boundary_shell::execution_slash_requires_gate_one(line) {
-            renderer.render_assistant(
-                "D-3c Gate 1 confirmation is required before this REPL execution command.",
-            )?;
+            renderer.render_assistant(crate::tui::repl_output::GATE_ONE_REQUIRED_GUIDANCE)?;
             ui.reset_interrupt();
             continue;
         }

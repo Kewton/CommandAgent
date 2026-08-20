@@ -133,7 +133,8 @@ pub(crate) fn render_startup_banner_for_locale(
     if crate::build_info::dirty() {
         out.push_str("warning: build stamp is dirty; rebuild cleanly before measurement runs\n");
     }
-    out.push_str("help: /help for commands | /doctor for setup diagnostics\n");
+    out.push_str(crate::tui::repl_output::FIRST_RUN_HELP_LINE);
+    out.push('\n');
     crate::tui::glyphs::for_locale(&out, use_utf8)
 }
 
@@ -266,7 +267,11 @@ mod tests {
         assert!(out.contains("footer=on (default)"));
         assert!(out.contains("yes=true"));
         assert!(out.contains("--yes skips mutating-tool approval"));
-        assert!(out.contains("help: /help for commands | /doctor for setup diagnostics"));
+        assert!(
+            out.contains(
+                "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help"
+            )
+        );
         assert!(!out.contains("╔═╗"));
     }
 }

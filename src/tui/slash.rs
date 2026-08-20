@@ -192,6 +192,7 @@ pub struct ParsedInlineRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashCommandKind {
     Help,
+    Confirm,
     Status,
     Doctor,
     Packs,
@@ -226,6 +227,13 @@ pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
         help_usage: "/help",
         description: "show this command list",
         kind: SlashCommandKind::Help,
+    },
+    SlashCommandSpec {
+        name: "/confirm",
+        aliases: &[],
+        help_usage: "/confirm <hash>",
+        description: "confirm and execute the reviewed Gate 1 card",
+        kind: SlashCommandKind::Confirm,
     },
     SlashCommandSpec {
         name: "/status",
@@ -427,6 +435,11 @@ pub fn handle_command(
     ui.render_command_receipt(&receipt)?;
     match command.kind {
         SlashCommandKind::Help => return Ok(render_help()),
+        SlashCommandKind::Confirm => {
+            bail!(
+                "/confirm is available only after a Gate 1 card; type a plain-text request first"
+            );
+        }
         SlashCommandKind::Status => {
             return Ok(crate::tui::presentation::render_status_card(&config));
         }
@@ -580,6 +593,7 @@ pub fn handle_command(
                 Ok(output.card)
             }
             SlashCommandKind::Help
+            | SlashCommandKind::Confirm
             | SlashCommandKind::Status
             | SlashCommandKind::Doctor
             | SlashCommandKind::Packs
@@ -1210,6 +1224,7 @@ mod tests {
     fn help_lists_discovery_commands_and_interrupt_semantics() {
         let help = render_help();
         for expected in [
+            "/confirm <hash> - confirm and execute the reviewed Gate 1 card",
             "/ultra-plan-run <goal> - generate and run an UltraPlan",
             "/plan-run <goal> - generate and run a step plan",
             "/plan - show the active plan and current activity",
@@ -1232,7 +1247,7 @@ mod tests {
 
     #[test]
     fn slash_registry_is_the_help_and_alias_source() {
-        assert_eq!(SLASH_COMMANDS.len(), 17);
+        assert_eq!(SLASH_COMMANDS.len(), 18);
         let help = render_help();
         for command in SLASH_COMMANDS {
             assert!(
