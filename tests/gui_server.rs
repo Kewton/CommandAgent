@@ -1344,7 +1344,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         "Gate 1 card changed; request and confirm the current card",
     );
 
-    let mut confirmed = spec;
+    let mut confirmed = spec.clone();
     confirmed["confirmation_hash"] = serde_json::Value::String(card_hash.to_string());
     let created = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(created.status, 202, "{}", created.body);
@@ -1459,6 +1459,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "events_path",
             "gate",
             "id",
+            "identity",
             "phases",
             "section5",
             "started_epoch_seconds",
@@ -1473,6 +1474,22 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
     assert_eq!(status_json["gate"], "gate_3");
     assert_eq!(status_json["verdict"], "full");
+    assert_eq!(status_json["identity"]["request"], spec["goal"]);
+    assert_eq!(status_json["identity"]["profile"], spec["profile"]);
+    assert_eq!(
+        status_json["identity"]["pins"],
+        serde_json::json!({
+            "planner_provider": "ollama",
+            "planner_model": "fixture-planner",
+            "executor_provider": "ollama",
+            "executor_model": "fixture-executor",
+            "preset": "profile"
+        })
+    );
+    assert_eq!(
+        status_json["identity"]["pack"],
+        proposal_json["identity"]["pack"]
+    );
     assert_eq!(status_json["phases"][0]["status"], "completed");
     assert!(
         status_json["acceptance_sheet"]

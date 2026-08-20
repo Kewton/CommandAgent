@@ -1035,10 +1035,25 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "acceptance_sheet:",
         "section5:",
         "events_path:",
+        "identity:",
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 12);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 13);
+
+    let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
+    for required in [
+        "trial-run-identity-goal",
+        "trial-run-identity-profile",
+        "trial-run-identity-pack",
+        "trial-run-identity-executor-model",
+        "trial-run-identity-planner-model",
+    ] {
+        assert!(
+            identity.contains(required),
+            "Trial run identity summary lost {required:?}"
+        );
+    }
 
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [

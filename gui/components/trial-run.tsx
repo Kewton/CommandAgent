@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { DocumentViewer } from "./document-viewer";
 import { GateCardMarkdown } from "./gate-card-markdown";
+import { TrialRunIdentity } from "./trial-run-identity";
 import { TrialSessionIndexPanel } from "./trial-session-index";
 import { byteLabel, dateTimeLabel, elapsedLabel } from "../lib/format";
 import type { MonitorStatus } from "../lib/trial-monitor";
@@ -75,6 +76,7 @@ export function TrialRun() {
     updateTrialToken,
     workspaceLease,
   } = useTrialRun(terminalHeading);
+  const runIdentity = session?.identity ?? proposal?.identity ?? null;
 
   return (
       <section className="trial-layout">
@@ -425,6 +427,7 @@ export function TrialRun() {
               <i /> 実行: {session?.status ?? "starting"}
             </span>
           </header>
+          {runIdentity !== null && <TrialRunIdentity identity={runIdentity} />}
           <div
             className={`monitor-state ${monitor.status}`}
             data-monitor-status={monitor.status}
@@ -548,6 +551,7 @@ export function TrialRun() {
             <span className="panel-index">実行結果 / {session.gate === "gate_3" ? "Gate 3" : "Gate 4"}</span>
             <h2 data-testid="terminal-result-heading">{terminalHeading(session)}</h2>
             <p className="terminal-gate-explanation">{gateExplanation(session.gate)}</p>
+            <TrialRunIdentity identity={session.identity} />
             <dl className="terminal-result-summary" data-testid="terminal-result-summary">
               <div><dt>結果</dt><dd data-testid="terminal-verdict-summary">{verdictSummary(session)}</dd></div>
               <div><dt>保証水準</dt><dd data-testid="terminal-assurance-summary">{assuranceSummary(session.assurance)}</dd></div>

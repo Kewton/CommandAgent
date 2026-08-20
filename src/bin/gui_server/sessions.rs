@@ -6,7 +6,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use commandagent::tui::boundary_shell::confirmation::load_latest_confirmation;
+use commandagent::tui::boundary_shell::confirmation::{
+    ConfirmationIdentity, load_latest_confirmation,
+};
 use commandagent::tui::boundary_shell::sheet;
 use serde::Serialize;
 use serde_json::Value;
@@ -42,6 +44,7 @@ pub struct PolledSession {
     acceptance_sheet: Option<String>,
     section5: Option<String>,
     events_path: String,
+    identity: ConfirmationIdentity,
 }
 
 pub type SessionError = GuiError;
@@ -138,6 +141,7 @@ pub async fn status(
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
+        identity: confirmed.identity().clone(),
     };
     let mut response = Json(session).into_response();
     insert_status_headers(&mut response, &etag);

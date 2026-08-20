@@ -162,6 +162,7 @@ async function probeLifecycle(browser, origin, basePath) {
         sessionRequests.push({ method, pathname });
         await json(route, 202, {
           id: createdSessionId,
+          started_epoch_seconds: 1_723_769_600,
           gate: "gate_2",
           status: "starting",
           events_path: `.anvil/runs/${createdSessionId}/events.jsonl`,
@@ -598,6 +599,7 @@ function syntheticProposal() {
         executor_model: "synthetic-model",
         preset: "profile",
       },
+      pack: { selection: "none" },
     },
     price: {
       duration_n: 0,
@@ -629,6 +631,8 @@ function terminalSummary(id) {
 function terminalSession(id) {
   return {
     id,
+    started_epoch_seconds: 1_723_769_600,
+    average_duration_seconds: null,
     gate: "gate_3",
     status: "completed",
     verdict: "pass",
@@ -638,6 +642,7 @@ function terminalSession(id) {
     acceptance_sheet: "# Synthetic acceptance\n\nPASS",
     section5: "PASS",
     events_path: `.anvil/runs/${id}/events.jsonl`,
+    identity: syntheticProposal().identity,
   };
 }
 
