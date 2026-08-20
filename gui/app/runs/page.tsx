@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
@@ -11,14 +11,24 @@ import { byteLabel, dateTimeLabel } from "../../lib/format";
 import type { DocumentRecord, RunDetail, RunIndex } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
+type RunOwned<T> = {
+  runId: string;
+  value: T;
+};
+
 export default function RunDetailPage() {
   const runs = useResource<RunIndex>("runs");
   const [runId, setRunId] = useState("");
-  const [detail, setDetail] = useState<RunDetail | null>(null);
-  const [selected, setSelected] = useState<DocumentRecord | null>(null);
+  const [loadedDetail, setLoadedDetail] = useState<RunOwned<RunDetail> | null>(null);
+  const [selectedEvidence, setSelectedEvidence] = useState<RunOwned<DocumentRecord> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("");
+  const requestVersion = useRef(0);
+  const evidenceController = useRef<AbortController | null>(null);
+
+  const detail = loadedDetail?.runId === runId ? loadedDetail.value : null;
+  const selected = selectedEvidence?.runId === runId ? selectedEvidence.value : null;
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("id");
@@ -26,23 +36,38 @@ export default function RunDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (runId === "") return;
+    const version = ++requestVersion.current;
+    evidenceController.current?.abort();
+    evidenceController.current = null;
+    setLoadedDetail(null);
+    setSelectedEvidence(null);
+    setError(null);
+    if (runId === "") {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
-    setError(null);
-    setSelected(null);
     fetch(apiPath(`runs/${encodeURIComponent(runId)}`), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw await responseError(response);
         return response.json() as Promise<RunDetail>;
       })
-      .then((value) => setDetail(value))
+      .then((value) => {
+        if (requestVersion.current === version) setLoadedDetail({ runId, value });
+      })
       .catch((reason: unknown) => {
+        if (requestVersion.current !== version) return;
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         setError(describeError(reason));
       })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
+      .finally(() => {
+        if (requestVersion.current === version) setLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (requestVersion.current === version) requestVersion.current += 1;
+    };
   }, [runId]);
 
   const acceptance = useMemo<DocumentRecord | null>(() => {
@@ -76,23 +101,52 @@ export default function RunDetailPage() {
   }, [acceptance, runId, selected]);
 
   function chooseRun(id: string) {
+    requestVersion.current += 1;
+    evidenceController.current?.abort();
+    evidenceController.current = null;
+    setLoadedDetail(null);
+    setSelectedEvidence(null);
+    setError(null);
+    setLoading(id !== "");
     setRunId(id);
     window.history.replaceState(null, "", withBasePath(routePath("run", id)));
   }
 
+  function showAcceptance() {
+    requestVersion.current += 1;
+    evidenceController.current?.abort();
+    evidenceController.current = null;
+    setSelectedEvidence(null);
+    setError(null);
+    setLoading(false);
+  }
+
   async function readEvidence(path: string) {
     if (runId === "") return;
+    const requestedRunId = runId;
+    const version = ++requestVersion.current;
+    evidenceController.current?.abort();
+    const controller = new AbortController();
+    evidenceController.current = controller;
     setLoading(true);
     setError(null);
     try {
       const query = new URLSearchParams({ path });
-      const response = await fetch(apiPath(`runs/${encodeURIComponent(runId)}/evidence`, query));
+      const response = await fetch(apiPath(`runs/${encodeURIComponent(requestedRunId)}/evidence`, query), {
+        signal: controller.signal,
+      });
       if (!response.ok) throw await responseError(response);
-      setSelected((await response.json()) as DocumentRecord);
-    } catch (reason) {
+      const value = (await response.json()) as DocumentRecord;
+      if (requestVersion.current === version) {
+        setSelectedEvidence({ runId: requestedRunId, value });
+      }
+    } catch (reason: unknown) {
+      if (requestVersion.current !== version) return;
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
       setError(describeError(reason));
     } finally {
-      setLoading(false);
+      if (requestVersion.current === version) setLoading(false);
+      if (evidenceController.current === controller) evidenceController.current = null;
     }
   }
 
@@ -147,7 +201,7 @@ export default function RunDetailPage() {
               <div className="evidence-list">
                 <button
                   className={selected === null ? "active" : ""}
-                  onClick={() => setSelected(null)}
+                  onClick={showAcceptance}
                   type="button"
                 >
                   <span>受入シート</span>
