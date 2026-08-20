@@ -1,7 +1,7 @@
 # Tutorial: your first run, in the terminal and in the GUI
 
 [日本語版](../ja/tutorial.md) | [CLI getting started](../../user/getting-started-cli.md)
-| [GUI getting started](../../user/getting-started-gui.md)
+| [CLI reference](cli-reference.md) | [GUI getting started](../../user/getting-started-gui.md)
 
 This walkthrough takes about 20 minutes and uses only real screens: every
 terminal excerpt and screenshot below was captured from this repository's

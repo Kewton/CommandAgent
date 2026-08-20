@@ -29,7 +29,7 @@ command name and an alias of `/exit`, giving 19 accepted names in total.
 | `/ultra-plan-run` | `/ultra-plan-run <goal>` | Generate and run an UltraPlan. |
 | `/run-ultra-plan` | `/run-ultra-plan <path>` | Run an existing UltraPlan YAML file. |
 | `/setup-interaction-probe` | `/setup-interaction-probe` | Install or validate the managed Playwright interaction readiness probe. |
-| `/model-probe` | `/model-probe` | Run the bounded model behavior probe battery. See [Model Behavior Probe](../../model-probe.md). |
+| `/model-probe` | `/model-probe` | Run the bounded model behavior probe battery. See [Model Behavior Probe](../model-probe.md). |
 | `/exit` | `/exit or /quit` | Leave the TUI. |
 | `/quit` | `/exit or /quit` | Alias of `/exit`; leave the TUI. |
 

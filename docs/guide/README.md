@@ -8,6 +8,13 @@ pages have matching structures and cover the same behavior.
 英語版と日本語版から成るエンドユーザーガイドの入口です。両言語のページは同じ構成で、
 同じ動作を説明します。
 
+Recommended route / 推奨順路:
+
+- English: [Getting started](../user/getting-started-cli.md) →
+  [Detailed tutorial](en/tutorial.md) → [CLI reference](en/cli-reference.md)
+- 日本語: [CLI 入門](../user/getting-started-cli.md) →
+  [詳細チュートリアル](ja/tutorial.md) → [CLI リファレンス](ja/cli-reference.md)
+
 ## English
 
 - [Tutorial](en/tutorial.md) — a 20-minute walkthrough with real screens:
@@ -17,7 +24,7 @@ pages have matching structures and cover the same behavior.
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
   Trial, Gate 1, and result reading
 - [Extensions](../user/gui-extensions.md) — supply lifecycle, names, and review
-- [CLI reference](en/cli-reference.md) — all 51 public flags, defaults, and
+- [CLI reference](en/cli-reference.md) — all 54 public flags, defaults, and
   conflicts
 - [Slash commands](en/slash-commands.md) — all 19 accepted command names,
   inline flags, file expansion, and profile inference
@@ -41,7 +48,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   最初の 1 周、exact pack A/B
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
 - [拡張](../user/gui-extensions.md) — 供給ライフサイクル、命名、レビュー
-- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 51 フラグ、既定値、排他関係
+- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 54 フラグ、既定値、排他関係
 - [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 19 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数

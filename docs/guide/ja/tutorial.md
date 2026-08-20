@@ -1,7 +1,7 @@
 # チュートリアル: ターミナルと GUI で最初の 1 本を動かす
 
 [English](../en/tutorial.md) | [CLI 入門](../../user/getting-started-cli.md)
-| [GUI 入門](../../user/getting-started-gui.md)
+| [CLI リファレンス](cli-reference.md) | [GUI 入門](../../user/getting-started-gui.md)
 
 所要時間は約 20 分です。掲載しているターミナル出力とスクリーンショットは
 すべて実際の画面で、このリポジトリのビルド（`commandagent 0.1.0`、コミット

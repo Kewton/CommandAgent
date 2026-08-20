@@ -28,7 +28,7 @@
 | `/ultra-plan-run` | `/ultra-plan-run <goal>` | UltraPlan を生成して実行します。 |
 | `/run-ultra-plan` | `/run-ultra-plan <path>` | 既存の UltraPlan YAML ファイルを実行します。 |
 | `/setup-interaction-probe` | `/setup-interaction-probe` | 管理対象の Playwright interaction readiness probe をインストールまたは検証します。 |
-| `/model-probe` | `/model-probe` | 限定的なモデル動作プローブ一式を実行します。[モデル動作プローブ](../../model-probe.md)も参照してください。 |
+| `/model-probe` | `/model-probe` | 限定的なモデル動作プローブ一式を実行します。[モデル動作プローブ](../model-probe.md)も参照してください。 |
 | `/exit` | `/exit or /quit` | TUI を終了します。 |
 | `/quit` | `/exit or /quit` | `/exit` の別名として TUI を終了します。 |
 

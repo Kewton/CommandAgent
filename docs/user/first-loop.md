@@ -1,6 +1,8 @@
 # はじめての境界ループ
 
-[CLI 入門](getting-started-cli.md) | [CLI リファレンス](../guide/ja/cli-reference.md)
+[CLI 入門](getting-started-cli.md) |
+[詳細チュートリアル](../guide/ja/tutorial.md) |
+[CLI リファレンス](../guide/ja/cli-reference.md)
 
 この手順は、CommandAgentを初めて触る人が、依頼の確認、無対話実行、
 検収シートの判定までを自力で1周し、その後にpackのパラメータだけを
@@ -11,6 +13,11 @@
 数えません。
 
 ## 1. ingest依頼を4ゲートで回す
+
+入門と画面チュートリアルで使う共通サンプル目標は
+`Create a CLI --pattern filter command` です。ここからは別の
+`ingest` profile を詳しく確認するため、意図的に自治体イベント抽出の依頼を
+使います。
 
 ### 準備
 

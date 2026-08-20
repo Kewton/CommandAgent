@@ -1,7 +1,17 @@
 # Getting started with the CLI
 
-[日本語の最初の境界ループ](first-loop.md) | [CLI reference](../guide/en/cli-reference.md)
-| [Configuration](../guide/en/configuration.md)
+Learning path:
+[README](../../README.md) → Getting started (this page) →
+[Detailed tutorial](../guide/en/tutorial.md) →
+[CLI reference](../guide/en/cli-reference.md)
+
+日本語の順路:
+[README](../../README.ja.md) → CLI 入門（このページ）→
+[詳細チュートリアル](../guide/ja/tutorial.md) →
+[CLI リファレンス](../guide/ja/cli-reference.md)
+
+[Ingest four-gate walkthrough](first-loop.md) |
+[Configuration](../guide/en/configuration.md)
 
 This is the shortest path from a new checkout to one inspectable CommandAgent
 run. Use it for the terminal product. GUI operators should instead begin with
@@ -82,27 +92,27 @@ automation; it does not relax any readiness or acceptance gate.
 
 ## 5. Complete the first loop
 
-Move to a trusted workspace, keep approval interactive, and start with a small
-goal:
+Move to a trusted workspace, keep approval interactive, and start the REPL:
 
 ```bash
 cd /path/to/trusted/project
-commandagent --preset local_cli \
-  --prompt "Inspect this project and suggest one focused improvement."
+commandagent --preset local_cli
 ```
 
-For a structured create run:
+Use the same sample goal as the recorded tutorial and the GUI first-run card:
 
-```bash
-commandagent --preset local_cli --intent create --plan-run \
-  "Add one small, tested command."
+```text
+commandagent> Create a CLI --pattern filter command
+commandagent> /confirm sha256:<card-hash>
 ```
 
-Read Gate 1 before confirming. At the end, distinguish the process exit status,
-the final verdict, and the earned assurance level. The detailed Japanese
-[first-loop walkthrough](first-loop.md) follows all four gates, including the
-Gate 4 recovery choices. For another process, add `--summary-json` and follow
-the stable [headless handoff](headless.md).
+Replace `<card-hash>` with the exact value shown after you read Gate 1. At the
+end, distinguish the process exit status, the final verdict, and the earned
+assurance level. Continue with the [detailed tutorial](../guide/en/tutorial.md)
+for the recorded CLI/GUI flow or the Japanese
+[ingest four-gate walkthrough](first-loop.md) for a profile-specific example.
+For another process, add `--summary-json` and follow the stable
+[headless handoff](headless.md).
 
 ## 6. Compare one pack variable at a time
 

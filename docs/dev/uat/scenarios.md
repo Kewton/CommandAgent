@@ -89,7 +89,7 @@ bounded handoff reasons.
 
 New-model acceptance order: before any scenario UAT for a new model family or
 version, run the model behavior probe documented in
-[../model-probe.md](../model-probe.md), review its card, then run two smoke
+[model-probe.md](../../guide/model-probe.md), review its card, then run two smoke
 checks (one CLI and one TOOL), then the full scenario round with landing
 criteria committed before measurement. The tier-table entry cites the probe
 profile. Re-run the probe when the model version or digest changes; for

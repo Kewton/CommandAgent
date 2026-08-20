@@ -8,10 +8,23 @@ use commandagent::config::{SUPPORTED_PRESET_KEYS, SUPPORTED_TOP_LEVEL_KEYS};
 use commandagent::tui::slash::{SLASH_COMMANDS, render_help};
 
 const CLI_DOC: &str = "docs/guide/en/cli-reference.md";
+const JA_CLI_DOC: &str = "docs/guide/ja/cli-reference.md";
 const SLASH_DOC: &str = "docs/guide/en/slash-commands.md";
 const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
 const GUIDE_INDEX: &str = "docs/guide/README.md";
 const CONFIG_DOC: &str = "docs/guide/en/configuration.md";
+const CANONICAL_SAMPLE_GOAL: &str = "Create a CLI --pattern filter command";
+const ROOT_MARKDOWN_DOCS: &[&str] = &[
+    ".devcontainer/README.md",
+    "benchmarks/README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "PROFILES.md",
+    "README.ja.md",
+    "README.md",
+    "SECURITY.md",
+];
+const MARKDOWN_DOC_DIRECTORIES: &[&str] = &["docs", "packs"];
 const READER_DOCS: &[&str] = &[
     "docs/user/getting-started-cli.md",
     "docs/user/getting-started-gui.md",
@@ -85,22 +98,36 @@ fn assert_same_entries(
 }
 
 #[test]
-fn public_cli_flags_match_english_reference() {
+fn public_cli_flags_match_bilingual_references_and_advertised_counts() {
     let code_flags = Cli::command()
         .get_arguments()
         .filter(|argument| !argument.is_hide_set())
         .filter_map(|argument| argument.get_long())
         .map(|long| format!("--{long}"))
         .collect::<BTreeSet<_>>();
-    let documented_flags = first_cell_entries(&read_repo_file(CLI_DOC), "--");
+    for path in [CLI_DOC, JA_CLI_DOC] {
+        let documented_flags = first_cell_entries(&read_repo_file(path), "--");
+        assert_same_entries(
+            "public CLI flag",
+            &code_flags,
+            &documented_flags,
+            "src/cli.rs (Cli::command())",
+            path,
+        );
+    }
 
-    assert_same_entries(
-        "public CLI flag",
-        &code_flags,
-        &documented_flags,
-        "src/cli.rs (Cli::command())",
-        CLI_DOC,
-    );
+    let flag_count = code_flags.len();
+    for (path, marker) in [
+        (CLI_DOC, format!("{flag_count} application flags below")),
+        (JA_CLI_DOC, format!("{flag_count} フラグには含めません")),
+        (GUIDE_INDEX, format!("all {flag_count} public flags")),
+        (GUIDE_INDEX, format!("全 {flag_count} フラグ")),
+    ] {
+        assert!(
+            read_repo_file(path).contains(&marker),
+            "{path} is missing implementation-derived flag count {marker:?}"
+        );
+    }
 }
 
 fn rendered_help_commands() -> BTreeSet<String> {
@@ -118,7 +145,7 @@ fn rendered_help_commands() -> BTreeSet<String> {
 }
 
 #[test]
-fn slash_commands_match_rendered_help_dispatch_and_english_reference() {
+fn slash_commands_match_rendered_help_dispatch_and_bilingual_references() {
     let dispatch_commands = SLASH_COMMANDS
         .iter()
         .flat_map(|spec| std::iter::once(spec.name).chain(spec.aliases.iter().copied()))
@@ -133,14 +160,16 @@ fn slash_commands_match_rendered_help_dispatch_and_english_reference() {
         "src/tui/slash.rs (render_help)",
     );
 
-    let documented_commands = first_cell_entries(&read_repo_file(SLASH_DOC), "/");
-    assert_same_entries(
-        "slash command",
-        &help_commands,
-        &documented_commands,
-        "src/tui/slash.rs (render_help)",
-        SLASH_DOC,
-    );
+    for path in [SLASH_DOC, JA_SLASH_DOC] {
+        let documented_commands = first_cell_entries(&read_repo_file(path), "/");
+        assert_same_entries(
+            "slash command",
+            &help_commands,
+            &documented_commands,
+            "src/tui/slash.rs (render_help)",
+            path,
+        );
+    }
 }
 
 #[test]
@@ -285,7 +314,47 @@ fn heading_counts(markdown: &str) -> (usize, usize) {
     })
 }
 
-fn markdown_anchor(heading: &str) -> String {
+fn is_table_row(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('|') && line.ends_with('|') && line.matches('|').count() >= 2
+}
+
+fn is_table_separator(line: &str) -> bool {
+    if !is_table_row(line) {
+        return false;
+    }
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .all(|cell| {
+            let dashes = cell.trim_matches(':');
+            dashes.len() >= 3 && dashes.bytes().all(|byte| byte == b'-')
+        })
+}
+
+fn table_row_counts(markdown: &str) -> Vec<usize> {
+    let visible = markdown_without_fenced_code(markdown);
+    let lines = visible.lines().collect::<Vec<_>>();
+    let mut counts = Vec::new();
+    let mut index = 1;
+    while index < lines.len() {
+        if is_table_row(lines[index - 1]) && is_table_separator(lines[index]) {
+            let mut rows = 0;
+            index += 1;
+            while index < lines.len() && is_table_row(lines[index]) {
+                rows += 1;
+                index += 1;
+            }
+            counts.push(rows);
+        } else {
+            index += 1;
+        }
+    }
+    counts
+}
+
+fn github_slug(heading: &str) -> String {
     heading
         .chars()
         .flat_map(char::to_lowercase)
@@ -301,56 +370,222 @@ fn markdown_anchor(heading: &str) -> String {
         .collect()
 }
 
-fn assert_local_markdown_target(source: &str, destination: &str) {
+fn markdown_without_fenced_code(markdown: &str) -> String {
+    let mut in_fence = false;
+    let mut visible = String::with_capacity(markdown.len());
+    for line in markdown.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            visible.push('\n');
+        } else if in_fence {
+            visible.push('\n');
+        } else {
+            visible.push_str(line);
+            visible.push('\n');
+        }
+    }
+    visible
+}
+
+fn markdown_heading(line: &str) -> Option<&str> {
+    let indentation = line.len() - line.trim_start_matches(' ').len();
+    if indentation > 3 {
+        return None;
+    }
+    let line = &line[indentation..];
+    let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
+    if !(1..=6).contains(&hashes) || !line[hashes..].starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some(line[hashes..].trim().trim_end_matches('#').trim_end())
+}
+
+fn github_anchors(markdown: &str) -> BTreeSet<String> {
+    let visible = markdown_without_fenced_code(markdown);
+    let mut anchors = BTreeSet::new();
+    for heading in visible.lines().filter_map(markdown_heading) {
+        let base = github_slug(heading);
+        let mut candidate = base.clone();
+        let mut suffix = 0;
+        while anchors.contains(&candidate) {
+            suffix += 1;
+            candidate = format!("{base}-{suffix}");
+        }
+        anchors.insert(candidate);
+    }
+    anchors
+}
+
+fn markdown_destinations(markdown: &str) -> Vec<(usize, String)> {
+    let visible = markdown_without_fenced_code(markdown);
+    let mut destinations = Vec::new();
+    let mut offset = 0;
+    while let Some(open) = visible[offset..].find("](") {
+        let destination_start = offset + open + 2;
+        let Some(close) = visible[destination_start..].find(')') else {
+            break;
+        };
+        let raw = visible[destination_start..destination_start + close].trim();
+        let destination = if let Some(angle) = raw.strip_prefix('<') {
+            angle.split_once('>').map_or(angle, |(value, _)| value)
+        } else {
+            raw.split_ascii_whitespace().next().unwrap_or_default()
+        };
+        if !destination.is_empty() {
+            let line = visible[..destination_start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            destinations.push((line, destination.to_string()));
+        }
+        offset = destination_start + close + 1;
+    }
+    destinations
+}
+
+fn is_external_destination(destination: &str) -> bool {
+    ["http://", "https://", "mailto:", "data:"]
+        .iter()
+        .any(|prefix| destination.starts_with(prefix))
+}
+
+fn validate_local_markdown_target(source: &str, destination: &str) -> Result<(), String> {
     let (relative, fragment) = destination
         .split_once('#')
         .map_or((destination, None), |(path, anchor)| (path, Some(anchor)));
     let source_path = repo_path(source);
-    let target_path = source_path
-        .parent()
-        .expect("Markdown source must have a parent")
-        .join(relative);
-    assert!(
-        target_path.is_file(),
-        "{source} links to missing local file {destination}"
-    );
+    let target_path = if relative.is_empty() {
+        source_path
+    } else {
+        source_path
+            .parent()
+            .expect("Markdown source must have a parent")
+            .join(relative)
+    };
+    if !target_path.exists() {
+        return Err(format!(
+            "{source} links to missing local target {destination}"
+        ));
+    }
 
     let Some(fragment) = fragment else {
-        return;
+        return Ok(());
     };
+    if !target_path.is_file()
+        || target_path.extension().and_then(|value| value.to_str()) != Some("md")
+    {
+        return Err(format!(
+            "{source} links to fragment #{fragment} on non-Markdown target {}",
+            target_path.display()
+        ));
+    }
     let target = fs::read_to_string(&target_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", target_path.display()));
-    let anchors = target
-        .lines()
-        .filter_map(|line| {
-            line.strip_prefix("## ")
-                .or_else(|| line.strip_prefix("### "))
-        })
-        .map(markdown_anchor)
-        .collect::<BTreeSet<_>>();
-    assert!(
-        anchors.contains(fragment),
-        "{source} links to missing fragment #{fragment} in {}",
-        target_path.display()
-    );
+    let anchors = github_anchors(&target);
+    if !anchors.contains(fragment) {
+        return Err(format!(
+            "{source} links to missing GitHub fragment #{fragment} in {}",
+            target_path.display()
+        ));
+    }
+    Ok(())
 }
 
 fn assert_local_markdown_links(source: &str) -> usize {
     let markdown = read_repo_file(source);
-    let mut remainder = markdown.as_str();
     let mut local_links = 0;
-    while let Some((_, after_open)) = remainder.split_once("](") {
-        let Some((destination, after_close)) = after_open.split_once(')') else {
-            break;
-        };
-        remainder = after_close;
-        if destination.starts_with("http://") || destination.starts_with("https://") {
+    for (_, destination) in markdown_destinations(&markdown) {
+        if is_external_destination(&destination) {
             continue;
         }
-        assert_local_markdown_target(source, destination);
+        validate_local_markdown_target(source, &destination)
+            .unwrap_or_else(|failure| panic!("{failure}"));
         local_links += 1;
     }
     local_links
+}
+
+fn collect_markdown_files(directory: &Path, files: &mut Vec<PathBuf>) {
+    let mut entries = fs::read_dir(directory)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", directory.display()))
+        .map(|entry| {
+            entry.unwrap_or_else(|err| panic!("failed to read {}: {err}", directory.display()))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|err| panic!("failed to inspect {}: {err}", path.display()));
+        if file_type.is_dir() {
+            if path != repo_path("docs/migration") {
+                collect_markdown_files(&path, files);
+            }
+        } else if file_type.is_file()
+            && path.extension().and_then(|extension| extension.to_str()) == Some("md")
+        {
+            files.push(path);
+        }
+    }
+}
+
+fn maintained_markdown_files() -> Vec<PathBuf> {
+    let mut files = ROOT_MARKDOWN_DOCS
+        .iter()
+        .map(|path| repo_path(path))
+        .collect::<Vec<_>>();
+    for directory in MARKDOWN_DOC_DIRECTORIES {
+        collect_markdown_files(&repo_path(directory), &mut files);
+    }
+    files.sort();
+    files
+}
+
+#[test]
+fn maintained_markdown_links_and_github_anchors_are_valid() {
+    let repository = repo_path("");
+    let mut failures = Vec::new();
+    let mut checked_links = 0;
+    for source_path in maintained_markdown_files() {
+        let source = source_path
+            .strip_prefix(&repository)
+            .expect("documentation path must be repository-relative")
+            .to_string_lossy()
+            .into_owned();
+        for (line, destination) in markdown_destinations(&read_repo_file(&source)) {
+            if is_external_destination(&destination) {
+                continue;
+            }
+            checked_links += 1;
+            if let Err(failure) = validate_local_markdown_target(&source, &destination) {
+                failures.push(format!("{source}:{line}: {failure}"));
+            }
+        }
+    }
+
+    assert!(
+        checked_links > 100,
+        "documentation link scan was unexpectedly small"
+    );
+    assert!(
+        failures.is_empty(),
+        "maintained documentation link/anchor drift detected ({} errors):\n- {}",
+        failures.len(),
+        failures.join("\n- ")
+    );
+}
+
+#[test]
+fn github_anchor_slugging_handles_punctuation_unicode_and_duplicates() {
+    let anchors =
+        github_anchors("# A B\n## A B\n### A B-1\n## 2. full の意味（最重要・不変条件）\n");
+    assert_eq!(
+        anchors,
+        string_set(&["2-full-の意味最重要不変条件", "a-b", "a-b-1", "a-b-1-1",])
+    );
 }
 
 #[test]
@@ -514,7 +749,71 @@ fn bilingual_readme_quickstarts_show_the_complete_repl_gate_one_flow() {
 }
 
 #[test]
-fn english_and_japanese_guides_have_matching_files_and_heading_counts() {
+fn bilingual_learning_path_is_ordered_and_within_three_clicks() {
+    let getting_started = read_repo_file("docs/user/getting-started-cli.md");
+    for (readme, tutorial, reference) in [
+        (
+            "README.md",
+            "docs/guide/en/tutorial.md",
+            "docs/guide/en/cli-reference.md",
+        ),
+        (
+            "README.ja.md",
+            "docs/guide/ja/tutorial.md",
+            "docs/guide/ja/cli-reference.md",
+        ),
+    ] {
+        let readme_markdown = read_repo_file(readme);
+        let quickstart = markdown_section(&readme_markdown, "## Quickstart", readme);
+        let entry = quickstart
+            .find("docs/user/getting-started-cli.md")
+            .unwrap_or_else(|| panic!("{readme} does not link the entry layer"));
+        let detail = quickstart
+            .find(tutorial)
+            .unwrap_or_else(|| panic!("{readme} does not link the detail layer"));
+        let reference_position = quickstart
+            .find(reference)
+            .unwrap_or_else(|| panic!("{readme} does not link the reference layer"));
+        assert!(
+            entry < detail && detail < reference_position,
+            "{readme} must order getting started, detailed tutorial, and reference"
+        );
+
+        let tutorial_from_entry = tutorial.strip_prefix("docs/").unwrap();
+        let reference_from_entry = reference.strip_prefix("docs/").unwrap();
+        assert!(
+            getting_started.contains(tutorial_from_entry)
+                && getting_started.contains(reference_from_entry),
+            "CLI entry page must link the next two layers for {readme}"
+        );
+        let tutorial_markdown = read_repo_file(tutorial);
+        assert!(
+            tutorial_markdown.contains("cli-reference.md"),
+            "{tutorial} must link its language-matched reference"
+        );
+    }
+}
+
+#[test]
+fn introductory_surfaces_share_the_runtime_sample_goal() {
+    for path in [
+        "README.md",
+        "README.ja.md",
+        "docs/user/getting-started-cli.md",
+        "docs/user/first-loop.md",
+        "docs/guide/en/tutorial.md",
+        "docs/guide/ja/tutorial.md",
+        "gui/hooks/use-trial-run.ts",
+    ] {
+        assert!(
+            read_repo_file(path).contains(CANONICAL_SAMPLE_GOAL),
+            "{path} does not use the canonical runtime sample goal"
+        );
+    }
+}
+
+#[test]
+fn english_and_japanese_guides_have_matching_files_headings_and_tables() {
     let en_directory = "docs/guide/en";
     let ja_directory = "docs/guide/ja";
     let en_files = guide_files(en_directory);
@@ -538,11 +837,18 @@ fn english_and_japanese_guides_have_matching_files_and_heading_counts() {
                 "{en_path} has H2/H3 counts {en_counts:?}; {ja_path} has {ja_counts:?}"
             ));
         }
+        let en_tables = table_row_counts(&read_repo_file(&en_path));
+        let ja_tables = table_row_counts(&read_repo_file(&ja_path));
+        if en_tables != ja_tables {
+            failures.push(format!(
+                "{en_path} has table row counts {en_tables:?}; {ja_path} has {ja_tables:?}"
+            ));
+        }
     }
 
     assert!(
         failures.is_empty(),
-        "EN/JA guide heading drift detected:\n- {}\nFix the named translation pair(s) under {en_directory} and {ja_directory}.",
+        "EN/JA guide structure drift detected:\n- {}\nFix the named translation pair(s) under {en_directory} and {ja_directory}.",
         failures.join("\n- ")
     );
 }

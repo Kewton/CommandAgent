@@ -17,7 +17,7 @@
 アクションおよび相互に排他です。複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-51 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+54 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -40,6 +40,8 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--plan-preset` | `<profile\|none>` | 通常は `none`。明示的な `data` の fix/investigate では `profile` | planner 層の UltraPlan preset 選択を上書きします。`data/fix` は F1–F3 ステップを合成でき、`nextjs/fix` は none 相当のままです。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--intent` | `<create\|fix\|investigate>` | ゴールから推論 | ゴールに基づく解決ではなく intent を固定します。 | [例](#例) |
+| `--workflow` | `<PATH>` | なし | 宣言的な workflow-circle 定義を実行します。`--intent` とは排他です。 | [例](#例) |
+| `--origin` | `<PATH>` | なし | `--workflow` に、既存の失敗した origin run のワークスペースを渡します。 | [例](#例) |
 | `--planner-model` | `<PLANNER_MODEL>` | プロバイダが同じなら実行モデル | planner モデル ID を設定します。planner と実行のプロバイダが異なる場合は必須です。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
 | `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
 | `--prompt` | `<PROMPT>` | なし | TUI に入らず、minimal loop のプロンプトを 1 件実行します。 | [例](#例) |
@@ -52,7 +54,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--setup-interaction-probe` | なし | オフ | 管理対象の Playwright interaction probe をインストールまたは検証します。 | [Probe 利用不可](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | なし | オフ | プロバイダクライアントを作らず、現在のワークスペースの最近の run を一覧表示します。 | [スラッシュ `/runs`](slash-commands.md#コマンド一覧) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
-| `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](../../model-probe.md) |
+| `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](../model-probe.md) |
 | `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--json` | なし | オフ | `--doctor` の出力を安定した機械可読 JSON として表示します。`--doctor` が必要です。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
@@ -69,7 +71,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--num-predict` | `<NUM_PREDICT>` 整数 | `8192` | プロバイダへ要求する最大出力トークン数を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--max-iterations` | `<MAX_ITERATIONS>` 整数 | `12` | minimal loop の反復予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama または LM Studio なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
-| `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-does-not-exist) |
+| `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-が存在しない) |
 | `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | executor と repair の表示ストリーミングを制御します。planner の機械形式出力は表示しません。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--state-dir` | `<STATE_DIR>` パス | `$XDG_STATE_HOME/anvilminimal`、なければ `~/.local/state/anvilminimal` | 保存セッションと REPL 履歴の格納先を上書きします。 | [パス](configuration.md#設定ファイルの探索パス) |
 | `--cwd` | `<CWD>` パス | 現在のディレクトリ | 設定探索と実行の前に、アクティブなワークスペースを設定して正規化します。 | [パス](configuration.md#設定ファイルの探索パス) |

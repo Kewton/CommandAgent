@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Make the documented PTY commands execute the ignored integration suite.
+- Repair maintained documentation links and GitHub-style heading anchors, and
+  bind bilingual table, flag, and slash-command counts to the implementation.
 - Keep `profiles/` out of legacy local-pack discovery when an extension root
   contains both draft profiles and `packs/`.
 - Let `--packs` skip malformed local candidates with warnings so valid local
@@ -27,4 +29,4 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 This changelog was introduced while the project was at version 0.1.0
 (2026-07). For changes made before this file began, consult the Git history and
-[`docs/mechanism-ledger.md`](docs/mechanism-ledger.md).
+[`docs/dev/mechanism-ledger.md`](docs/dev/mechanism-ledger.md).
