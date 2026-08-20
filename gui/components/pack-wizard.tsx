@@ -232,6 +232,22 @@ export function PackWizard() {
     }
   }
 
+  function startNextVersion() {
+    if (!immutable) return;
+    const nextVersion = incrementPatchVersion(version);
+    setVersion(nextVersion);
+    setFiles((current) => ({
+      ...current,
+      assist: replaceIdentity(current.assist, "version", nextVersion),
+      eval: replaceIdentity(current.eval, "version", nextVersion),
+    }));
+    setLifecycle("draft");
+    setReport(null);
+    setIssues([]);
+    setRetireAcknowledged(false);
+    moveTo(2);
+  }
+
   function focusEditorField(fieldId: string) {
     setStep(2);
     window.requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
@@ -534,6 +550,11 @@ export function PackWizard() {
               <p>編集、再 pin、unretire、Trial 選択はできません。変更は新しい version で作成してください。</p>
             </div>
           )}
+          {immutable && (
+            <button className="primary-action" data-testid="pack-wizard-new-version" disabled={busy} onClick={startNextVersion} type="button">
+              新しい version を作る
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -677,6 +698,12 @@ function filesFromMembers(members: Record<string, string>): PackWizardFiles {
 function replaceIdentity(document: string, field: "id" | "version", value: string): string {
   if (document === "") return document;
   return document.replace(new RegExp(`^(  ${field}: ).*$`, "m"), `$1${value}`);
+}
+
+function incrementPatchVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (match === null) return "1.0.0";
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
 }
 
 function cloneFiles(files: PackWizardFiles): PackWizardFiles {
