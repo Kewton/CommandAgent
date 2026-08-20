@@ -24,6 +24,16 @@ fn copy_pack(source: &Path, destination: &Path) {
     }
 }
 
+fn write_named_cli_pack(destination: &Path, id: &str) {
+    fs::create_dir_all(destination).unwrap();
+    let assist = fs::read_to_string(repository_root().join("packs/cli-assist/1.0.0/assist.yaml"))
+        .unwrap()
+        .replacen("id: cli-assist", &format!("id: {id}"), 1);
+    fs::write(destination.join("assist.yaml"), &assist).unwrap();
+    let hash = commandagent::planner::pack::exact_byte_hash(Some(assist.as_bytes()), None);
+    fs::write(destination.join("pack.sha256"), format!("{hash}\n")).unwrap();
+}
+
 #[test]
 fn packs_lists_two_admitted_entries_and_a_local_pack_with_sources() {
     let temp = tempfile::tempdir().unwrap();
@@ -61,6 +71,69 @@ fn packs_lists_two_admitted_entries_and_a_local_pack_with_sources() {
     );
     assert!(stdout.contains("cli-assist@1.0.0"));
     assert!(stdout.contains("cli-assist@1.1.0"));
+}
+
+#[test]
+fn co_located_profiles_and_packs_remain_independently_usable() {
+    let temp = tempfile::tempdir().unwrap();
+    let extension = temp.path().join("extensions");
+    let profile = extension.join("profiles/static-site");
+    fs::create_dir_all(&profile).unwrap();
+    fs::copy(
+        repository_root()
+            .join("tests/corpus/apps/issue117-draft-profile/extension-root/profiles/static-site/manifest.toml"),
+        profile.join("manifest.toml"),
+    )
+    .unwrap();
+    write_named_cli_pack(&extension.join("packs/my-cli-pack/1.0.0"), "my-cli-pack");
+
+    let listed = commandagent(&[
+        "--extension-root".as_ref(),
+        extension.as_os_str(),
+        "--profile".as_ref(),
+        "python-cli".as_ref(),
+        "--intent".as_ref(),
+        "create".as_ref(),
+        "--packs".as_ref(),
+    ]);
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .any(|line| line.starts_with("my-cli-pack@1.0.0\t") && line.ends_with("\tlocal"))
+    );
+
+    let profile_run = commandagent(&[
+        "--extension-root".as_ref(),
+        extension.as_os_str(),
+        "--profile".as_ref(),
+        "static-site".as_ref(),
+        "--runs".as_ref(),
+    ]);
+    assert!(
+        profile_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&profile_run.stderr)
+    );
+
+    let pack_run = commandagent(&[
+        "--extension-root".as_ref(),
+        extension.as_os_str(),
+        "--profile".as_ref(),
+        "python-cli".as_ref(),
+        "--pack".as_ref(),
+        "my-cli-pack@1.0.0".as_ref(),
+        "--runs".as_ref(),
+    ]);
+    assert!(
+        pack_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&pack_run.stderr)
+    );
 }
 
 #[test]
