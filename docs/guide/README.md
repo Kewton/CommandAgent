@@ -10,6 +10,8 @@ pages have matching structures and cover the same behavior.
 
 ## English
 
+- [Tutorial](en/tutorial.md) — a 20-minute walkthrough with real screens:
+  doctor, the first REPL request through Gate 1–4, and one GUI Trial
 - [CLI getting started](../user/getting-started-cli.md) — install, provider,
   configuration, doctor, first loop, and exact-pack A/B
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
@@ -33,6 +35,8 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 
 ## 日本語
 
+- [チュートリアル](ja/tutorial.md) — 実際の画面で追う 20 分のウォークスルー:
+  doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本
 - [CLI 入門](../user/getting-started-cli.md) — 導入、provider、設定、doctor、
   最初の 1 周、exact pack A/B
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
