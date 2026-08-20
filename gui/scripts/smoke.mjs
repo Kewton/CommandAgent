@@ -13,6 +13,7 @@ const arguments_ = process.argv.slice(2);
 const readOnly = arguments_.includes("--read-only");
 const overviewOnly = arguments_.includes("--overview-only");
 const wizardOnly = arguments_.includes("--wizard-only");
+const gateOneOnly = arguments_.includes("--gate-one-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
@@ -80,7 +81,7 @@ const helpMapEntries = [
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --gate-one-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -166,6 +167,8 @@ const report = {
       ? "read_only"
       : overviewOnly
         ? "overview_only"
+        : gateOneOnly
+          ? "gate_one_only"
         : feedbackOnly
           ? "feedback_only"
           : pollingOnly
@@ -600,6 +603,7 @@ async function runCase(smokeCase) {
     ].every((expected) => cardMarkdownText.includes(expected)) &&
       gateOneText.includes("時間と費用の目安") &&
       !gateOneText.includes("MEASURED PRICE TAG");
+    const gateOneHashLayoutDesktop = await probeGateOneHashLayout(page, 1440);
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -630,10 +634,48 @@ async function runCase(smokeCase) {
       path: join(outputDirectory, `${smokeCase.id}-gate-1.png`),
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    const gateOneHashLayoutMobile = await probeGateOneHashLayout(page, 390);
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-1-mobile.png`),
     });
+
+    if (gateOneOnly) {
+      const expectedNegativeConsoleErrors = consoleErrors.filter(
+        (entry) =>
+          entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)",
+      );
+      const unexpectedConsoleErrors = consoleErrors.filter(
+        (entry) => !expectedNegativeConsoleErrors.includes(entry),
+      );
+      return {
+        id: smokeCase.id,
+        base_path: smokeCase.buildBasePath,
+        gate_1: {
+          card_markdown_visible_text: cardMarkdownText,
+          copy_is_plain_japanese: gateOneCopyIsPlain,
+          hash_layout: {
+            desktop_1440: gateOneHashLayoutDesktop,
+            mobile_390: gateOneHashLayoutMobile,
+          },
+          visible_text: gateOneText,
+        },
+        elapsed_seconds: (Date.now() - startedAt) / 1000,
+        expected_negative_console_errors: expectedNegativeConsoleErrors,
+        unexpected_console_errors: unexpectedConsoleErrors,
+        ok:
+          trialResponse?.status() === 200 &&
+          trialTitle === "トライアル | CommandAgent" &&
+          launchDisabledBeforeConfirmation &&
+          gateOneCopyIsPlain &&
+          gateOneHashLayoutDesktop.ok &&
+          gateOneHashLayoutMobile.ok &&
+          gateOneLayout.ok &&
+          deniedWithoutConfirmation.status === 428 &&
+          expectedNegativeConsoleErrors.length === 1 &&
+          unexpectedConsoleErrors.length === 0,
+      };
+    }
 
     const injectedFailureMode = smokeCase.id === "proxy-commandagent" ? "access" : "network";
     await installPollFailure(page, injectedFailureMode);
@@ -943,6 +985,8 @@ async function runCase(smokeCase) {
       mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
       gateOneCopyIsPlain &&
+      gateOneHashLayoutDesktop.ok &&
+      gateOneHashLayoutMobile.ok &&
       gateTwoIdentityLocked &&
       !tokenFocusAtGateTwo.focused &&
       tokenFocusAtGateTwo.stage === "実行" &&
@@ -1035,6 +1079,10 @@ async function runCase(smokeCase) {
         control_alignment: {
           desktop_1440: desktopTrialAlignment,
           mobile_390: mobileTrialAlignment,
+        },
+        hash_layout: {
+          desktop_1440: gateOneHashLayoutDesktop,
+          mobile_390: gateOneHashLayoutMobile,
         },
         visible_text: gateOneText,
       },
@@ -1732,6 +1780,39 @@ async function trialControlAlignment(page) {
     right_delta_px: rightDelta,
     token: { left: token.x, right: token.x + token.width },
     viewport_width: page.viewportSize()?.width ?? 0,
+  };
+}
+
+async function probeGateOneHashLayout(page, expectedViewportWidth) {
+  const elements = await page
+    .locator("[data-testid='gate-one-card-markdown'], .confirmation-id .hash-line")
+    .evaluateAll((targets) =>
+      targets.map((target) => {
+        const hashes = target.textContent?.match(/sha256:[0-9a-f]+/g) ?? [];
+        return {
+          class_name: target.getAttribute("class") ?? "",
+          client_width: target.clientWidth,
+          hash_count: hashes.length,
+          scroll_width: target.scrollWidth,
+          scroll_width_within_client: target.scrollWidth <= target.clientWidth,
+          test_id: target.getAttribute("data-testid"),
+        };
+      }),
+    );
+  const viewportWidth = page.viewportSize()?.width ?? 0;
+  return {
+    elements,
+    expected_viewport_width: expectedViewportWidth,
+    ok:
+      viewportWidth === expectedViewportWidth &&
+      elements.length === 2 &&
+      elements.every(
+        (element) =>
+          element.client_width > 0 &&
+          element.hash_count > 0 &&
+          element.scroll_width_within_client,
+      ),
+    viewport_width: viewportWidth,
   };
 }
 

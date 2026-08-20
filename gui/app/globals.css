@@ -2216,6 +2216,11 @@ a.runtime-badge:focus-visible {
   margin-top: 0;
 }
 
+.gate-card-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .gate-card-markdown h3 {
   margin: 1.25rem 0 0.55rem;
   padding-top: 1rem;
