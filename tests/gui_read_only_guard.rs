@@ -917,6 +917,7 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "data-testid=\"pack-wizard-issues\"",
         "該当項目へ移動",
         "focusEditorField",
+        "fetchExtensionPack",
         "stageExtensionPack",
         "verifyExtensionPack",
         "pinExtensionPack",
@@ -960,6 +961,7 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "pack-wizard-issues",
         "pack-wizard-pinned",
         "pack-wizard-retired",
+        "pinnedBytesMatchDisplay",
         "selectedPack === selector",
     ] {
         assert!(
