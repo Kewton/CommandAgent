@@ -277,6 +277,15 @@ async fn band_price(
     })
 }
 
+pub(super) async fn average_duration_seconds(
+    repository_root: &Path,
+    identity: &ConfirmationIdentity,
+) -> Result<Option<f64>, SessionError> {
+    Ok(band_price(repository_root, identity)
+        .await?
+        .average_duration_seconds)
+}
+
 fn markdown_cells(line: &str) -> Vec<String> {
     line.trim()
         .trim_matches('|')

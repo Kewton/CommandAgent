@@ -89,8 +89,10 @@ into Gate 3.
 
 The launched session ID, never the token, is placed in `?session=<id>`. A
 same-tab reload restores a tab-scoped token and **Reconnect monitoring** calls
-only `GET api/sessions/{id}`. It cannot delegate another process. A workspace
-409 response supplies the same session link.
+only `GET api/sessions/{id}`. The elapsed clock resumes from the server-owned
+session start and the measured mean is restored from the confirmed band, so
+neither value resets after reload. Reconnect cannot delegate another process.
+A workspace 409 response supplies the same session link.
 
 Monitoring failures have explicit boundaries:
 

@@ -153,6 +153,7 @@ export type SessionProposal = {
 
 export type CreatedSession = {
   id: string;
+  started_epoch_seconds: number;
   gate: "gate_2";
   status: "starting";
   events_path: string;
@@ -193,6 +194,8 @@ export type PhaseStatus = {
 
 export type PolledSession = {
   id: string;
+  started_epoch_seconds: number;
+  average_duration_seconds: number | null;
   gate: "gate_2" | "gate_3" | "gate_4";
   status: string;
   verdict: string | null;

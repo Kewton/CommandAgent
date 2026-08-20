@@ -17,6 +17,10 @@ impl SessionPaths {
         self.run_root.join("state")
     }
 
+    pub(super) fn run_root(&self) -> &Path {
+        &self.run_root
+    }
+
     pub(super) fn confirmation_root(&self) -> PathBuf {
         self.state_root().join("boundary-confirmations")
     }

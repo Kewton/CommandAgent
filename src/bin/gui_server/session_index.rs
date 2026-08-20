@@ -11,7 +11,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::AppState;
-use super::sessions::{SessionError, internal, require_trial};
+use super::sessions::{SessionError, internal, require_trial, started_epoch_seconds};
 use super::workspace_policy::LeaseSnapshot;
 
 const MAX_SESSIONS: usize = 100;
@@ -177,39 +177,12 @@ async fn modified_epoch_seconds(run_root: &Path, events_path: &Path) -> u64 {
     modified
 }
 
-async fn started_epoch_seconds(id: &str, run_root: &Path, events_path: &Path) -> u64 {
-    let uuid_epoch = Uuid::parse_str(id)
-        .ok()
-        .filter(|id| id.get_version_num() == 7)
-        .and_then(|id| id.get_timestamp())
-        .map(|timestamp| timestamp.to_unix().0);
-    if let Some(epoch) = uuid_epoch {
-        return epoch;
-    }
-    let events_created = metadata_created(events_path).await;
-    if events_created > 0 {
-        events_created
-    } else {
-        metadata_created(run_root).await
-    }
-}
-
 async fn metadata_modified(path: &Path) -> u64 {
     tokio::fs::symlink_metadata(path)
         .await
         .ok()
         .and_then(|metadata| metadata.modified().ok())
         .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
-}
-
-async fn metadata_created(path: &Path) -> u64 {
-    tokio::fs::symlink_metadata(path)
-        .await
-        .ok()
-        .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()).ok())
-        .and_then(|created| created.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
 }
