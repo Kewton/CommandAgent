@@ -2,6 +2,10 @@ use std::fmt;
 
 use crate::eval_events::CompletionProjection;
 
+pub const FIRST_RUN_HELP_LINE: &str =
+    "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help";
+pub const GATE_ONE_REQUIRED_GUIDANCE: &str = "D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>.";
+
 #[derive(Debug)]
 pub struct RenderedCommandError {
     markdown: String,
@@ -98,6 +102,18 @@ fn sanitize_inline(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_run_guidance_copy_snapshot() {
+        assert_eq!(
+            FIRST_RUN_HELP_LINE,
+            "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help"
+        );
+        assert_eq!(
+            GATE_ONE_REQUIRED_GUIDANCE,
+            "D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>."
+        );
+    }
 
     #[test]
     fn typo_guidance_is_two_lines_and_suggests_help() {

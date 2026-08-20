@@ -10,6 +10,7 @@ use commandagent::tui::slash::{SLASH_COMMANDS, render_help};
 const CLI_DOC: &str = "docs/guide/en/cli-reference.md";
 const SLASH_DOC: &str = "docs/guide/en/slash-commands.md";
 const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
+const GUIDE_INDEX: &str = "docs/guide/README.md";
 const CONFIG_DOC: &str = "docs/guide/en/configuration.md";
 const READER_DOCS: &[&str] = &[
     "docs/user/getting-started-cli.md",
@@ -140,6 +141,46 @@ fn slash_commands_match_rendered_help_dispatch_and_english_reference() {
         "src/tui/slash.rs (render_help)",
         SLASH_DOC,
     );
+}
+
+#[test]
+fn slash_command_counts_match_registry_and_bilingual_guide_index() {
+    let primary_count = SLASH_COMMANDS.len();
+    let accepted_count = SLASH_COMMANDS
+        .iter()
+        .map(|command| 1 + command.aliases.len())
+        .sum::<usize>();
+    let english = read_repo_file(SLASH_DOC);
+    let japanese = read_repo_file(JA_SLASH_DOC);
+    let guide_index = read_repo_file(GUIDE_INDEX);
+
+    for marker in [
+        format!("contains {primary_count} primary entries"),
+        format!("giving {accepted_count} accepted names in total"),
+    ] {
+        assert!(
+            english.contains(&marker),
+            "{SLASH_DOC} is missing registry count {marker:?}"
+        );
+    }
+    for marker in [
+        format!("主コマンドが {primary_count} 件"),
+        format!("受け付ける名前は合計 {accepted_count} 件"),
+    ] {
+        assert!(
+            japanese.contains(&marker),
+            "{JA_SLASH_DOC} is missing registry count {marker:?}"
+        );
+    }
+    for marker in [
+        format!("all {accepted_count} accepted command names"),
+        format!("受け付ける全 {accepted_count} コマンド名"),
+    ] {
+        assert!(
+            guide_index.contains(&marker),
+            "{GUIDE_INDEX} is missing accepted-name count {marker:?}"
+        );
+    }
 }
 
 #[test]
@@ -443,6 +484,32 @@ fn bilingual_readme_quickstarts_reach_cli_gui_and_extensions() {
                 "{path} Quickstart does not link to required layer {target}"
             );
         }
+    }
+}
+
+#[test]
+fn bilingual_readme_quickstarts_show_the_complete_repl_gate_one_flow() {
+    for path in ["README.md", "README.ja.md"] {
+        let markdown = read_repo_file(path);
+        let quickstart = markdown_section(&markdown, "## Quickstart", path);
+        let repl = quickstart
+            .find("commandagent --provider ollama --model \"<your-model>\"")
+            .unwrap_or_else(|| panic!("{path} Quickstart does not start the REPL"));
+        let request = quickstart
+            .find("commandagent> ")
+            .unwrap_or_else(|| panic!("{path} Quickstart does not show a plain-text request"));
+        let confirm = quickstart
+            .find("commandagent> /confirm sha256:<card-hash>")
+            .unwrap_or_else(|| panic!("{path} Quickstart does not show Gate 1 confirmation"));
+
+        assert!(
+            repl < request && request < confirm,
+            "{path} Quickstart must order REPL start, request, and /confirm"
+        );
+        assert!(
+            !quickstart.contains("--prompt"),
+            "{path} Quickstart bypasses the REPL with --prompt"
+        );
     }
 }
 

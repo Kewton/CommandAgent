@@ -8,12 +8,13 @@ source of truth for the installed binary.
 
 ## Command reference
 
-The registry contains 17 primary entries. `/quit` is a separately accepted
-command name and an alias of `/exit`, giving 18 accepted names in total.
+The registry contains 18 primary entries. `/quit` is a separately accepted
+command name and an alias of `/exit`, giving 19 accepted names in total.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
 | `/help` | `/help` | Show the command list, footer hint, queued-input limits, multi-line continuation, and interrupt behavior. |
+| `/confirm` | `/confirm <hash>` | Persist the exact reviewed Gate 1 card and immediately execute its request. Use the hash printed on the card. |
 | `/status` | `/status` | Show effective configuration and provider readiness. |
 | `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
 | `/packs` | `/packs` | List compatible admitted and local packs with the same columns and ordering as `commandagent --packs` for the active profile and intent. |
@@ -34,9 +35,11 @@ command name and an alias of `/exit`, giving 18 accepted names in total.
 
 Unknown slash commands are treated as input errors: the REPL suggests the
 nearest command when useful and does not start a task or create a run summary.
-Plain text is not executed; the REPL points to `/ultra-plan-run <goal>` and
-`/plan-run <goal>`. Planning command failures are reported without leaving the
-REPL.
+Plain text creates a Gate 1 card but is not executed yet. Review the card, then
+enter `/confirm <hash>` with its exact printed hash to start the run. Direct
+execution commands such as `/ultra-plan-run <goal>` and `/plan-run <goal>`
+instead point back to this Gate 1 flow. Planning command failures are reported
+without leaving the REPL.
 
 ## Inline flags
 
