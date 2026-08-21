@@ -1296,6 +1296,10 @@ fn tui_help_lists_recovery_commands_without_emitting_events() {
         commandagent::tui::slash::handle_command("/help", &cfg, &mut planner, &mut execution, &ui)
             .unwrap();
 
+    assert!(
+        output.contains("/confirm <hash> - confirm and execute the reviewed Gate 1 card"),
+        "{output}"
+    );
     assert!(output.contains("/runs - list recent runs"), "{output}");
     assert!(
         output.contains("/resume [run-id|yaml-path] - resume from a recovery UltraPlan"),
