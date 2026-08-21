@@ -48,7 +48,7 @@ fixtures/python-cli-plan-run-full.json = [
   "\"final_acceptance_status\": \"full_success\"",
   "\"assurance_level\": \"full\"",
   "\"profile_behavior_probe_status\": \"pass\"",
-  "\"profile_behavior_probe_evidence_path\": \"evidence/cli-assurance.json\"",
+  "\"profile_behavior_probe_evidence_path\": \".anvil/evidence/python-cli-behavior.json\"",
   "\"assurance\": \"full\"",
   "\"verdict\": \"full\""
 ]

@@ -40,25 +40,28 @@ impl ChatClient for NoChatClient {
 }
 
 #[test]
-fn python_cli_plan_run_binds_full_probe_to_event_summary_and_headless_summary() {
+fn python_cli_src_package_plan_run_binds_full_probe_to_terminal_summaries() {
     let dir = tempfile::tempdir().unwrap();
-    write_cli_fixture(dir.path(), passing_cli());
+    write_src_cli_fixture(dir.path(), passing_src_cli());
     let cfg = cli_config(dir.path());
     let mut client = NoChatClient;
 
     let result = crate::planner::runner::run_step_plan(&mut client, &verify_plan(), &cfg).unwrap();
 
     assert_eq!(result, "plan-run complete: 1 steps");
-    let assurance: runtime::CliCheckSummary =
-        serde_json::from_slice(&std::fs::read(dir.path().join(runtime::EVIDENCE_PATH)).unwrap())
-            .unwrap();
-    assert_eq!(assurance.assurance, runtime::CliAssurance::Full);
+    assert!(!dir.path().join(runtime::EVIDENCE_PATH).exists());
+    let behavior: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join(".anvil/evidence/python-cli-behavior.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(behavior["status"], "pass");
+    assert_eq!(behavior["ok"], true);
+    assert_eq!(behavior["details"]["changed_by_input"], true);
     assert!(
-        assurance
-            .evidence
-            .checks
-            .values()
-            .all(|status| *status == runtime::CheckStatus::Pass)
+        behavior["details"]["entrypoint"]
+            .as_str()
+            .unwrap()
+            .ends_with("src/anvil_app/main.py")
     );
 
     let plan_final = latest_event(&cfg, "plan_final_contract");
@@ -92,6 +95,11 @@ fn python_cli_plan_run_binds_full_probe_to_event_summary_and_headless_summary() 
     );
     assert_eq!(projection.assurance_level, "full");
     assert_eq!(projection.final_acceptance, "full_success");
+    crate::emit_run_stop(&cfg, &Ok(()));
+    let run_stop = latest_event(&cfg, "run_stop");
+    assert_eq!(run_stop["assurance_level"], "full");
+    assert_eq!(run_stop["assurance_reason"], "");
+    assert_eq!(run_stop["final_acceptance_status"], "full_success");
     let summary = std::fs::read_to_string(dir.path().join("summary.md")).unwrap();
     assert!(summary.contains("Assurance: full"), "{summary}");
     assert!(!summary.contains("cli_probe_not_run"), "{summary}");
@@ -133,6 +141,7 @@ fn python_cli_plan_run_failed_probe_cannot_earn_full_assurance() {
 }
 
 fn write_cli_fixture(root: &Path, script: &str) {
+    scaffold_src_cli(root);
     std::fs::create_dir_all(root.join("cli")).unwrap();
     std::fs::write(root.join("cli/main.py"), script).unwrap();
     std::fs::write(
@@ -140,6 +149,14 @@ fn write_cli_fixture(root: &Path, script: &str) {
         "## Usage\n\n```console\n$ python3 cli/main.py sample.csv\nvalue=7\n```\n",
     )
     .unwrap();
+}
+
+fn write_src_cli_fixture(root: &Path, script: &str) {
+    scaffold_src_cli(root);
+    std::fs::write(root.join("src/anvil_app/main.py"), script).unwrap();
+}
+
+fn scaffold_src_cli(root: &Path) {
     python_cli::complete_scaffold(
         root,
         &["pyproject.toml".into(), "src/anvil_app/main.py".into()],
@@ -147,12 +164,8 @@ fn write_cli_fixture(root: &Path, script: &str) {
     .unwrap();
 }
 
-fn passing_cli() -> &'static str {
-    "import argparse\n\
-p = argparse.ArgumentParser()\n\
-p.add_argument('input', nargs='?')\n\
-p.parse_args()\n\
-print('value=7')\n"
+fn passing_src_cli() -> &'static str {
+    "value = input().strip()\nprint(f'Hello, {value}!')\n"
 }
 
 fn verify_plan() -> StepPlan {
@@ -166,10 +179,8 @@ fn verify_plan() -> StepPlan {
             expected_paths: vec![
                 "pyproject.toml".to_string(),
                 "src/anvil_app/main.py".to_string(),
-                "cli/main.py".to_string(),
-                "README.md".to_string(),
             ],
-            verify: vec!["python3 -m compileall -q src cli".to_string()],
+            verify: vec!["python3 -m compileall -q src".to_string()],
         }],
     }
 }

@@ -4,9 +4,9 @@
 
 ## Checks
 
-- `cargo test --lib planner::runner::acceptance::plan_final_probe::tests::`: `passed`
-- `cargo test --lib cli_final_acceptance_ -- --nocapture`: `passed`
-- `cargo test --lib completion_metadata::cli::tests`: `passed`
+- `cargo test --lib completion_metadata::cli::tests -- --nocapture`: `passed`
+- `cargo test --lib planner::runner::acceptance::plan_final_probe::tests:: -- --nocapture`: `passed`
+- `cargo test --lib planner::runner::acceptance::plan_final_probe::tests::python_cli_src_package_plan_run_binds_full_probe_to_terminal_summaries -- --exact --nocapture`: `passed`
 - `cargo test --test cli_profile_conformance`: `passed`
 - `cargo test --test corpus_regression generated_app_corpus_matches_detector_and_probe_expectations -- --exact --nocapture`: `passed`
 - `cargo test --test generality_guardrails`: `passed`
@@ -18,8 +18,17 @@
 
 ## Notes
 
-The full suite covers the updated corpus fixture and both runner growth and
+The exact focused UAT regression passed with one test and verifies the ordinary
+`src/anvil_app/main.py` layout end to end: canonical
+`evidence/cli-assurance.json` is absent; fallback
+`.anvil/evidence/python-cli-behavior.json` reports `status: pass`, `ok: true`,
+and `changed_by_input: true`; the plan-final corpus binds full assurance and
+the fallback path; and `tui_command_stop`, `run_stop`, `summary.md`, and
+headless summary remain full without `cli_probe_not_run`.
+
+The eight completion-metadata tests also passed the failed, missing, malformed,
+unexecuted, wrong-path, and failed-current-gate non-elevation matrix. The full
+suite covers the updated corpus fixture and both runner growth and
 protected-execution audits. Live provider and PTY-only ignored tests remained
-ignored by the repository's default `cargo test` contract. The post-merge #259
-GUI smoke was not run because this worker is not authorized to merge or
-dispatch external orchestration.
+ignored by the repository's default `cargo test` contract. No push, PR,
+merge, or external orchestration action was performed.

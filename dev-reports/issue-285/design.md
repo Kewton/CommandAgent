@@ -47,3 +47,22 @@ Run focused python-cli plan-final and completion-metadata tests, the CLI corpus
 regression, then `cargo fmt --all -- --check`,
 `cargo clippy --all-targets -- -D warnings`, and `cargo test` because shared
 plan-final event/acceptance code is touched.
+
+## UAT fallback-evidence addendum
+
+The exact PR-head UAT run used the ordinary `src/anvil_app/main.py` layout, so
+the profile runtime correctly selected the fallback behavior probe rather than
+the manifest-driven `cli/main.py` C1-C4 probe. The fallback persisted a passing
+`.anvil/evidence/python-cli-behavior.json`, and `plan_final_contract` earned full
+assurance, but terminal projection unconditionally reread the absent
+`evidence/cli-assurance.json` and replaced that result with static assurance.
+
+Keep the canonical C1-C4 artifact authoritative when it exists. When it is
+absent, terminal projection may preserve an already-earned full result only if
+all current plan-final gates pass and the fallback artifact is structurally
+compatible and bound to an existing `src/<package>/main.py`: profile and pass
+fields agree, reasons are empty, both executions exited zero, both stdout
+observations are non-empty and different, and `changed_by_input` is true. The
+fallback artifact alone never earns assurance. Failed gates or failed,
+missing, malformed, contradictory, stale, or unexecuted fallback evidence
+therefore remain non-elevated.
