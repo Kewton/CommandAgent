@@ -21,6 +21,7 @@
     "@types/node": "24.10.13",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "axe-core": "4.10.3",
     "typescript": "7.0.2"
   }
 }

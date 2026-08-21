@@ -404,7 +404,14 @@ fn extract_status(content: &str) -> ExtractedStatus {
                         .filter(|status| !status.text.is_empty())
                 })
         })
-        .unwrap_or_else(|| status_value("recorded"))
+        .unwrap_or_else(recorded_status)
+}
+
+fn recorded_status() -> ExtractedStatus {
+    ExtractedStatus {
+        state: RunState::Pending,
+        text: "recorded".to_string(),
+    }
 }
 
 fn status_value(value: &str) -> ExtractedStatus {
@@ -625,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_status_removes_code_markers_and_keeps_unknown_fallbacks_neutral() {
+    fn extract_status_removes_code_markers_and_distinguishes_available_evidence() {
         assert_eq!(
             extract_status("- Overall: `NOT RECORDED`\n"),
             ExtractedStatus {
@@ -636,7 +643,7 @@ mod tests {
         assert_eq!(
             extract_status("# Report without a status field\n"),
             ExtractedStatus {
-                state: RunState::Unknown,
+                state: RunState::Pending,
                 text: "recorded".to_string(),
             }
         );
