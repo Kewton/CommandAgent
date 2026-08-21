@@ -55,7 +55,7 @@ pub(crate) fn apply_terminal_projection(root: &Path, projection: &mut Completion
     apply_terminal_projection_runtime(root, projection);
 }
 
-fn completion_assurance(root: &Path) -> (CliAssurance, &'static str) {
+pub(crate) fn completion_assurance(root: &Path) -> (CliAssurance, &'static str) {
     let assurance = std::fs::read(root.join(EVIDENCE_PATH))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<CliCheckSummary>(&bytes).ok())

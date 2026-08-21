@@ -42,3 +42,13 @@ fixtures/python-cli-full-assurance.json = [
   "\"cli_output_claims\": \"pass\"",
   "\"cli_rerun_consistency\": \"pass\""
 ]
+fixtures/python-cli-plan-run-full.json = [
+  "\"profile\": \"python-cli\"",
+  "\"runtime_acceptance_status\": \"pass\"",
+  "\"final_acceptance_status\": \"full_success\"",
+  "\"assurance_level\": \"full\"",
+  "\"profile_behavior_probe_status\": \"pass\"",
+  "\"profile_behavior_probe_evidence_path\": \"evidence/cli-assurance.json\"",
+  "\"assurance\": \"full\"",
+  "\"verdict\": \"full\""
+]
