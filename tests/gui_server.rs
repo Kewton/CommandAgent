@@ -875,6 +875,12 @@ fn run_index_reports_total_before_limit_and_normalized_status_state() {
                 "# Acceptance\n\nStatus: **FULL 3/3 (2026-08-03)**\n",
             )
             .unwrap();
+        } else if index >= 20 {
+            std::fs::write(
+                run_root.join("uat-report.md"),
+                "# Recorded UAT report without an explicit verdict\n",
+            )
+            .unwrap();
         }
     }
     let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
@@ -909,6 +915,27 @@ fn run_index_reports_total_before_limit_and_normalized_status_state() {
     assert_eq!(
         summary["report_path"],
         "workspace/management/runs/run-100/uat-report.md"
+    );
+
+    let recorded = runs
+        .iter()
+        .find(|run| run["id"] == "run-020")
+        .unwrap_or_else(|| panic!("missing report-only fixture: {runs:?}"));
+    assert_eq!(recorded["status_text"], "recorded");
+    assert_eq!(recorded["state"], "pending");
+
+    let missing = runs
+        .iter()
+        .find(|run| run["id"] == "run-019")
+        .unwrap_or_else(|| panic!("missing no-report fixture: {runs:?}"));
+    assert_eq!(missing["status_text"], "not recorded");
+    assert_eq!(missing["state"], "unknown");
+
+    let unknown_count = runs.iter().filter(|run| run["state"] == "unknown").count();
+    assert!(
+        unknown_count * 5 <= runs.len(),
+        "unknown share exceeds 20 percent: {unknown_count}/{}",
+        runs.len()
     );
     server.stop();
 }

@@ -534,7 +534,7 @@ async function probeResourceRevalidation(browser, origin, basePath) {
 
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
-    const retainedRow = page.locator(`.runs-panel .run-row[href*='${retainedRun.id}']`);
+    const retainedRow = page.locator(`.runs-panel .run-row[data-run-id='${retainedRun.id}']`);
     await retainedRow.waitFor();
     const initialCalls = runsCalls;
 
@@ -549,7 +549,7 @@ async function probeResourceRevalidation(browser, origin, basePath) {
     const beforeFocus = runsCalls;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => runsCalls > beforeFocus, "focused resource revalidation");
-    await page.locator(`.runs-panel .run-row[href*='${refreshedRun.id}']`).waitFor();
+    await page.locator(`.runs-panel .run-row[data-run-id='${refreshedRun.id}']`).waitFor();
     const focusLoadedFreshData =
       (await page.locator(".runs-panel .run-row").count()) === 2 &&
       (await page.locator(".runs-panel [role='alert']").count()) === 0;

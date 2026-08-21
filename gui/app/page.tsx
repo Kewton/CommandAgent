@@ -5,13 +5,22 @@ import { GettingStarted } from "../components/getting-started";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
 import { dateTimeLabel } from "../lib/format";
-import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
+import type { DocumentRecord, RunIndex, RunState, RunSummary } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
 function statusTone(state: RunState): string {
   if (state === "pass") return "positive";
   if (state === "fail") return "negative";
   return "neutral";
+}
+
+function statusLabel(run: RunSummary): string {
+  if (run.state === "pass") return "成功";
+  if (run.state === "fail") return "失敗";
+  if (run.state === "pending") {
+    return run.status_text === "recorded" ? "記録あり" : "進行中";
+  }
+  return run.status_text === "not recorded" ? "未記録" : "判定不能";
 }
 
 function bandFact(document: DocumentRecord): string {
@@ -39,11 +48,21 @@ export default function DashboardPage() {
     >
       <GettingStarted />
 
-      <section className="metric-strip" aria-label="リポジトリ概要">
+      <section
+        className="metric-strip"
+        aria-label="リポジトリ概要"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(14rem, 1fr))" }}
+      >
         <div>
-          <span>表示件数 / 総数</span>
+          <span>最近の実行記録（一覧に表示中）</span>
           <strong data-testid="run-count">
-            {runs.data === null ? "—" : `${recentRuns.length} / ${runs.data.total}`}
+            {runs.data === null ? "—" : `${recentRuns.length} 件`}
+          </strong>
+        </div>
+        <div>
+          <span>保存済みの実行記録（総数）</span>
+          <strong data-testid="run-total-count">
+            {runs.data === null ? "—" : `${runs.data.total} 件`}
           </strong>
         </div>
       </section>
@@ -112,25 +131,39 @@ export default function DashboardPage() {
         {runs.error !== null && <ErrorState message={runs.error} />}
         {runs.data?.runs.length === 0 && <EmptyState message="実行ディレクトリが見つかりません。" />}
         {recentRuns.length > 0 && (
-          <div className="run-table">
-            <div className="run-table-head" aria-hidden="true">
-              <span>実行ID</span>
-              <span>観測状態</span>
-              <span>更新日時</span>
-              <span aria-hidden="true" />
+          <div className="run-table" role="table" aria-label="最近の実行記録">
+            <div role="rowgroup">
+              <div className="run-table-head" role="row">
+                <span role="columnheader">実行ID</span>
+                <span role="columnheader">観測状態</span>
+                <span role="columnheader">更新日時</span>
+                <span role="columnheader" aria-label="詳細" />
+              </div>
             </div>
-            {recentRuns.map((run) => (
-              <a
-                className="run-row"
-                href={withBasePath(routePath("run", run.id))}
-                key={run.id}
-              >
-                <strong>{run.id}</strong>
-                <span className={`status-badge ${statusTone(run.state)}`}>{run.status_text}</span>
-                <time>{dateTimeLabel(run.modified_epoch_seconds, "時刻未記録")}</time>
-                <span aria-hidden="true" className="row-arrow">↗</span>
-              </a>
-            ))}
+            <div role="rowgroup">
+              {recentRuns.map((run) => {
+                const href = withBasePath(routePath("run", run.id));
+                return (
+                  <div className="run-row" role="row" data-run-id={run.id} key={run.id}>
+                    <strong role="cell"><a href={href}>{run.id}</a></strong>
+                    <span role="cell">
+                      <span
+                        className={`status-badge ${statusTone(run.state)}`}
+                        title={`記録上の状態: ${run.status_text}`}
+                      >
+                        {statusLabel(run)}
+                      </span>
+                    </span>
+                    <time role="cell">
+                      {dateTimeLabel(run.modified_epoch_seconds, "時刻未記録")}
+                    </time>
+                    <span role="cell" className="row-arrow">
+                      <a href={href} aria-label={`${run.id} の詳細を開く`}>↗</a>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </section>

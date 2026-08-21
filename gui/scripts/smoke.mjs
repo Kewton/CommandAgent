@@ -113,6 +113,7 @@ const packageMetadata = JSON.parse(
 );
 const require = createRequire(import.meta.url);
 const { chromium } = require(managedPlaywrightPath);
+const axeSource = await readFile(join(guiRoot, "node_modules", "axe-core", "axe.min.js"), "utf8");
 const scratchRoot = await mkdtemp(join(tmpdir(), "commandagent-g1-gui-smoke-"));
 const providerProbeBin = providerOnly ? await createProviderProbeBinary() : null;
 
@@ -509,11 +510,17 @@ async function runCase(smokeCase) {
       return result.json();
     });
     const runCountText = await page.locator("[data-testid='run-count']").innerText();
-    const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} / ${runIndex.total}`;
+    const runTotalCountText = await page.locator("[data-testid='run-total-count']").innerText();
+    const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} 件`;
+    const expectedRunTotalCountText = `${runIndex.total} 件`;
+    const unknownStateCount = runIndex.runs.filter((run) => run.state === "unknown").length;
+    const unknownStateWithinTarget = unknownStateCount * 5 <= runIndex.runs.length;
     const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
     const statusBadgesArePlainText = statusBadgeTexts.every(
       (text) => !text.includes("**") && !text.includes("`"),
     );
+    const japaneseStatusLabels = new Set(["成功", "失敗", "進行中", "記録あり", "未記録", "判定不能"]);
+    const statusBadgesAreJapanese = statusBadgeTexts.every((text) => japaneseStatusLabels.has(text));
     const dashboard = {
       assets_link: assetsLink,
       primary_navigation: primaryNavigation,
@@ -522,8 +529,14 @@ async function runCase(smokeCase) {
       title: dashboardTitle,
       run_count: runCountText,
       expected_run_count: expectedRunCountText,
+      run_total_count: runTotalCountText,
+      expected_run_total_count: expectedRunTotalCountText,
+      indexed_state_count: runIndex.runs.length,
+      unknown_state_count: unknownStateCount,
+      unknown_state_within_20_percent: unknownStateWithinTarget,
       status_badges: statusBadgeTexts,
       status_badges_are_plain_text: statusBadgesArePlainText,
+      status_badges_are_japanese: statusBadgesAreJapanese,
     };
     const dashboardOk =
       response?.status() === 200 &&
@@ -543,21 +556,53 @@ async function runCase(smokeCase) {
         ]) &&
       assetsLink === `${expectedPrefix}assets/` &&
       runCountText === expectedRunCountText &&
-      statusBadgesArePlainText;
-    const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => ({
-      columnHeadingsHidden:
-        ledger.querySelector(".run-table-head")?.getAttribute("aria-hidden") === "true",
-      invalidTableRoleCount:
-        (ledger.matches('[role="table"], [role="row"]') ? 1 : 0) +
-        ledger.querySelectorAll('[role="table"], [role="row"]').length,
-      nativeLinkRows: [...ledger.querySelectorAll(".run-row")].every(
-        (row) => row.tagName === "A" && !row.hasAttribute("role"),
-      ),
-    }));
+      runTotalCountText === expectedRunTotalCountText &&
+      unknownStateWithinTarget &&
+      statusBadgesArePlainText &&
+      statusBadgesAreJapanese;
+    const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => {
+      const directChildrenWithRole = (element, role) =>
+        [...element.children].filter((child) => child.getAttribute("role") === role);
+      const rowGroups = directChildrenWithRole(ledger, "rowgroup");
+      const rows = rowGroups.flatMap((group) => directChildrenWithRole(group, "row"));
+      const headerRows = rowGroups[0] === undefined ? [] : directChildrenWithRole(rowGroups[0], "row");
+      const bodyRows = rowGroups
+        .slice(1)
+        .flatMap((group) => directChildrenWithRole(group, "row"));
+      const ariaRequiredChildrenViolationCount =
+        (ledger.getAttribute("role") === "table" && rowGroups.length > 0 ? 0 : 1) +
+        rowGroups.filter((group) => directChildrenWithRole(group, "row").length === 0).length +
+        headerRows.filter((row) => directChildrenWithRole(row, "columnheader").length === 0).length +
+        bodyRows.filter((row) => directChildrenWithRole(row, "cell").length === 0).length;
+      return {
+        tableRole: ledger.getAttribute("role") === "table",
+        rowGroupCount: rowGroups.length,
+        rowCount: rows.length,
+        ariaRequiredChildrenViolationCount,
+        linksKeepNativeSemantics: [...ledger.querySelectorAll("a[href]")].every(
+          (link) => !link.hasAttribute("role"),
+        ),
+      };
+    });
     const dashboardAccessible =
-      runLedgerAccessibility.columnHeadingsHidden &&
-      runLedgerAccessibility.invalidTableRoleCount === 0 &&
-      runLedgerAccessibility.nativeLinkRows;
+      runLedgerAccessibility.tableRole &&
+      runLedgerAccessibility.rowGroupCount === 2 &&
+      runLedgerAccessibility.rowCount === Math.min(runIndex.runs.length, 8) + 1 &&
+      runLedgerAccessibility.ariaRequiredChildrenViolationCount === 0 &&
+      runLedgerAccessibility.linksKeepNativeSemantics;
+    await page.addScriptTag({ content: axeSource });
+    const axeAriaRequiredChildren = await page.evaluate(async () => {
+      const result = await window.axe.run(document, {
+        runOnly: { type: "rule", values: ["aria-required-children"] },
+      });
+      return {
+        violationCount: result.violations.length,
+        targets: result.violations.flatMap((violation) =>
+          violation.nodes.flatMap((node) => node.target),
+        ),
+      };
+    });
+    const dashboardPassesAxe = axeAriaRequiredChildren.violationCount === 0;
 
     const gettingStarted = page.locator("[data-testid='getting-started']");
     await gettingStarted.waitFor();
@@ -621,9 +666,15 @@ async function runCase(smokeCase) {
         svg: map,
         links_use_base_path: linksUseBasePath,
         run_ledger_accessibility: runLedgerAccessibility,
+        axe_aria_required_children: axeAriaRequiredChildren,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
-        ok: dashboardOk && dashboardAccessible && gettingStartedOk && consoleErrors.length === 0,
+        ok:
+          dashboardOk &&
+          dashboardAccessible &&
+          dashboardPassesAxe &&
+          gettingStartedOk &&
+          consoleErrors.length === 0,
       };
     }
     const assets = await probePage(
@@ -647,6 +698,7 @@ async function runCase(smokeCase) {
     const readOnlyOk =
       dashboardOk &&
       dashboardAccessible &&
+      dashboardPassesAxe &&
       gettingStartedOk &&
       assets.status === 200 &&
       assets.headingMatches &&
@@ -664,6 +716,7 @@ async function runCase(smokeCase) {
         svg: map,
         links_use_base_path: linksUseBasePath,
         run_ledger_accessibility: runLedgerAccessibility,
+        axe_aria_required_children: axeAriaRequiredChildren,
         pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail },
         issue_75: readOnlyUi,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
@@ -1193,6 +1246,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       run_ledger_accessibility: runLedgerAccessibility,
+      axe_aria_required_children: axeAriaRequiredChildren,
       pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       issue_75: readOnlyUi,
       mobile,

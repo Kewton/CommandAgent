@@ -630,21 +630,47 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
-        "<div className=\"run-table\">",
-        "<div className=\"run-table-head\" aria-hidden=\"true\">",
+        "<div className=\"run-table\" role=\"table\" aria-label=\"最近の実行記録\">",
+        "<div role=\"rowgroup\">",
+        "<div className=\"run-table-head\" role=\"row\">",
+        "<span role=\"columnheader\">実行ID</span>",
+        "<div className=\"run-row\" role=\"row\" data-run-id={run.id}",
+        "<strong role=\"cell\"><a href={href}>{run.id}</a></strong>",
+        "<span role=\"cell\">",
         "useResource<RunIndex>(\"runs\")",
         "data-testid=\"run-count\"",
-        "${recentRuns.length} / ${runs.data.total}",
+        "data-testid=\"run-total-count\"",
+        "最近の実行記録（一覧に表示中）",
+        "保存済みの実行記録（総数）",
+        "${recentRuns.length} 件",
+        "${runs.data.total} 件",
         "statusTone(run.state)",
-        "{run.status_text}",
+        "{statusLabel(run)}",
+        "return \"成功\"",
+        "return \"失敗\"",
+        "? \"記録あり\" : \"進行中\"",
+        "? \"未記録\" : \"判定不能\"",
     ] {
         assert!(
             dashboard.contains(required),
             "Overview run contract is missing {required:?}"
         );
     }
-    assert!(!dashboard.contains("role=\"table\""));
-    assert!(!dashboard.contains("role=\"row\""));
+    assert!(!dashboard.contains("aria-hidden=\"true\""));
+
+    let package = std::fs::read_to_string("gui/package.json").unwrap();
+    assert!(package.contains("\"axe-core\": \"4.10.3\""));
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "values: [\"aria-required-children\"]",
+        "axeAriaRequiredChildren.violationCount === 0",
+        "axe_aria_required_children: axeAriaRequiredChildren",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Overview axe contract is missing {required:?}"
+        );
+    }
 
     let types = std::fs::read_to_string("gui/lib/types.ts").unwrap();
     for required in [
