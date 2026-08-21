@@ -1575,19 +1575,13 @@ fn scenario_planner_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
             AssistantReply::text(step_plan_json(
                 "Create Python CSV CLI",
                 "implement",
-                vec![
-                    "pyproject.toml".to_string(),
-                    "src/anvil_app/main.py".to_string(),
-                ],
+                vec!["pyproject.toml".to_string(), "src/app/main.py".to_string()],
                 vec!["python3 -m compileall -q src".to_string()],
             )),
             AssistantReply::text(step_plan_json(
                 "Refresh Python CSV CLI",
                 "implement",
-                vec![
-                    "pyproject.toml".to_string(),
-                    "src/anvil_app/main.py".to_string(),
-                ],
+                vec!["pyproject.toml".to_string(), "src/app/main.py".to_string()],
                 vec!["python3 -m compileall -q src".to_string()],
             )),
         ],
@@ -1657,7 +1651,7 @@ fn scenario_execution_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
                     ),
                     ToolCall::new(
                         "Write",
-                        json!({"path":"src/anvil_app/main.py","content":python_cli_main()}),
+                        json!({"path":"src/app/main.py","content":python_cli_main()}),
                     ),
                 ],
                 prompt_tokens: None,
@@ -1672,7 +1666,7 @@ fn scenario_execution_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
                     ),
                     ToolCall::new(
                         "Write",
-                        json!({"path":"src/anvil_app/main.py","content":python_cli_main()}),
+                        json!({"path":"src/app/main.py","content":python_cli_main()}),
                     ),
                 ],
                 prompt_tokens: None,
@@ -2049,11 +2043,11 @@ export default function Memo(){
 
 fn python_cli_pyproject() -> &'static str {
     r#"[project]
-name = "anvil-app"
+name = "app"
 version = "0.1.0"
 
 [project.scripts]
-csv-stats = "anvil_app.main:main"
+csv-stats = "app.main:main"
 "#
 }
 
