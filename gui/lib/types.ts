@@ -205,6 +205,7 @@ export type PolledSession = {
   acceptance_sheet: string | null;
   section5: string | null;
   events_path: string;
+  identity: ConfirmationIdentity;
 };
 
 export type DirectiveProposal = {

@@ -29,6 +29,20 @@ once rather than being re-appended after source classification.
 - Re-ran the GUI read-only capability guard, catalog API integration test, full
   GUI-server target, formatting, GUI-feature Clippy, and the full Rust suite.
 
+## CI follow-up
+
+- Cherry-picked only Issue 160 code commit `714017ca` as local commit
+  `0a947787`. The excluded Issue 160 report commit `1f28c021` and its report
+  changes are not present on this branch.
+- The follow-up boxes the existing Axum `Response` error at the session-file
+  handler boundary and unwraps the same response in `IntoResponse`. Status,
+  headers, coded JSON bytes, path validation, and symlink rejection remain
+  owned by the existing response and confinement paths.
+- Added no lint allowance and changed no Issue 161 catalog code. The exact
+  session-file source matches `714017ca`, the Rust 1.97.1 Clippy target passes,
+  both `trial_session_files_` tests pass, and the focused Issue 161 catalog unit
+  and integration regressions remain green.
+
 No corpus fixture, screenshot, documentation copy, event schema, or `.anvil/`
 runtime state changed because the defect and its observable output are fully
 owned by the server-side catalog projection.

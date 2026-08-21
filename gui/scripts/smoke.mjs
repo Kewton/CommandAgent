@@ -1362,6 +1362,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
+    const gateTwoIdentity = await readTrialRunIdentity(page);
     const zeroTotalHidden =
       (await page.locator("[data-testid='phase-progress']").count()) === 0;
 
@@ -1403,6 +1404,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
     );
     await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
+    const reconnectedIdentity = await readTrialRunIdentity(page);
     const reconnectedElapsed = page.locator("[data-testid='elapsed-time']");
     const elapsedAfterReconnect = Number(
       await reconnectedElapsed.getAttribute("data-elapsed-seconds"),
@@ -1417,6 +1419,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
     terminal = true;
     await page.clock.runFor(1_100);
     await page.locator("[data-testid='terminal-gate']").waitFor();
+    const terminalIdentity = await readTrialRunIdentity(page);
     await page.waitForFunction((title) => document.title !== title, runningTitle);
     const terminalTitle = await page.title();
     const elapsedChanged =
@@ -1441,6 +1444,9 @@ async function probeTrialFeedback(browser, origin, basePath) {
       mean_preserved_after_reconnect: meanPreservedAfterReconnect,
       mean_is_not_eta: meanLabel.includes("予測ではありません"),
       monitor_and_progress_separate: feedbackAfterMonitor === 1,
+      gate_2_identity: gateTwoIdentity,
+      reconnected_identity: reconnectedIdentity,
+      terminal_identity: terminalIdentity,
       running_title: runningTitle,
       terminal_title: terminalTitle,
       title_changed: titleChanged,
@@ -1453,6 +1459,9 @@ async function probeTrialFeedback(browser, origin, basePath) {
         meanText === "平均 10.2 分" &&
         meanLabel.includes("予測ではありません") &&
         feedbackAfterMonitor === 1 &&
+        syntheticFeedbackIdentityMatches(gateTwoIdentity) &&
+        syntheticFeedbackIdentityMatches(reconnectedIdentity) &&
+        syntheticFeedbackIdentityMatches(terminalIdentity) &&
         titleChanged,
     };
   } finally {
@@ -1592,6 +1601,7 @@ async function probeTenMinutePolling(browser, origin, basePath) {
           status: 202,
           body: JSON.stringify({
             id: sessionId,
+            started_epoch_seconds: Date.parse("2026-08-16T00:00:00Z") / 1_000,
             gate: "gate_2",
             status: "starting",
             events_path: `.anvil/runs/${sessionId}/events.jsonl`,
@@ -1611,6 +1621,8 @@ async function probeTenMinutePolling(browser, origin, basePath) {
             status: 200,
             body: JSON.stringify({
               id: sessionId,
+              started_epoch_seconds: Date.parse("2026-08-16T00:00:00Z") / 1_000,
+              average_duration_seconds: null,
               gate: "gate_2",
               status: "running",
               verdict: null,
@@ -1620,6 +1632,7 @@ async function probeTenMinutePolling(browser, origin, basePath) {
               acceptance_sheet: null,
               section5: null,
               events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+              identity: syntheticProposal().identity,
             }),
           });
         } else {
@@ -1682,6 +1695,14 @@ function syntheticFeedbackProposal() {
       contract_checks: ["elapsed and phase feedback"],
       band_measurement: "mocked PolledSession",
       full_meaning: "The feedback probe does not delegate a CLI process.",
+      pack: {
+        selection: "pinned",
+        id: "cli-assist",
+        version: "1.0.0",
+        hash: `sha256:${"9".repeat(64)}`,
+        point: "cli-validation",
+        source: "admitted",
+      },
     },
     price: {
       ...proposal.price,
@@ -1714,7 +1735,34 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
     acceptance_sheet: terminal ? "# Synthetic acceptance\\n\\nPASS" : null,
     section5: terminal ? "PASS" : null,
     events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+    identity: syntheticFeedbackProposal().identity,
   };
+}
+
+async function readTrialRunIdentity(page) {
+  const identity = page.locator("[data-testid='trial-run-identity']");
+  await identity.waitFor();
+  return {
+    goal: await identity.locator("[data-testid='trial-run-identity-goal']").innerText(),
+    profile: await identity.locator("[data-testid='trial-run-identity-profile']").innerText(),
+    pack: await identity.locator("[data-testid='trial-run-identity-pack']").innerText(),
+    executor_model: await identity
+      .locator("[data-testid='trial-run-identity-executor-model']")
+      .innerText(),
+    planner_model: await identity
+      .locator("[data-testid='trial-run-identity-planner-model']")
+      .innerText(),
+  };
+}
+
+function syntheticFeedbackIdentityMatches(identity) {
+  return (
+    identity.goal === "Synthetic Gate 2 feedback probe" &&
+    identity.profile === "python-cli" &&
+    identity.pack === "cli-assist@1.0.0" &&
+    identity.executor_model === "ollama / synthetic-model" &&
+    identity.planner_model === "ollama / synthetic-model"
+  );
 }
 
 async function trialControlAlignment(page) {
@@ -1848,6 +1896,7 @@ function syntheticProposal() {
         executor_model: "synthetic-model",
         preset: "profile",
       },
+      pack: { selection: "none" },
     },
     price: {
       duration_n: 0,
@@ -2014,9 +2063,40 @@ async function probePackWizard(page, browser, origin, basePath) {
   const success = page.locator("[data-testid='pack-verification-success']");
   await success.waitFor();
   const verifiedHash = await page.locator("[data-testid='pack-wizard-hash']").innerText();
+
+  await page.getByRole("button", { name: "編集に戻る" }).click();
+  const editedAssist = `${validAssist}# unsaved Issue 165 edit\n`;
+  await assist.fill(editedAssist);
+  await page.locator(".pack-wizard-steps li:nth-child(4) button").click();
+  await page.getByRole("button", { name: "保存済み bytes を再検証" }).click();
+  await success.waitFor();
+  const reverifiedHash = await page.locator("[data-testid='pack-wizard-hash']").innerText();
+  await page.getByRole("button", { name: "編集に戻る" }).click();
+  const displayedMembers = await readWizardMembers(page);
+  const displayedBytesReconciled =
+    displayedMembers["assist.yaml"] === validAssist &&
+    displayedMembers["assist.yaml"] !== editedAssist;
+  await page.locator(".pack-wizard-steps li:nth-child(4) button").click();
   await page.locator("[data-testid='pack-wizard-to-pin']").click();
   await page.locator("[data-testid='pack-wizard-pin-action']").click();
   await page.locator("[data-testid='pack-wizard-pinned']").waitFor();
+  const pinnedDetail = await page.evaluate(
+    async ({ packUrl, token }) => {
+      const response = await fetch(packUrl, {
+        headers: { "x-commandagent-trial-authorization": `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`pinned pack detail returned ${response.status}`);
+      return response.json();
+    },
+    {
+      packUrl: new URL(
+        `${prefix}api/extensions/packs/nextjs-acme/1.0.0`,
+        origin,
+      ).href,
+      token: trialCredential,
+    },
+  );
+  const pinnedBytesMatchDisplay = memberMapsEqual(pinnedDetail.files, displayedMembers);
   const trialLink = page.locator("[data-testid='pack-wizard-trial-link']");
   const trialHref = await trialLink.getAttribute("href");
   if (trialHref === null) throw new Error("pinned wizard has no Trial handoff");
@@ -2067,25 +2147,53 @@ async function probePackWizard(page, browser, origin, basePath) {
 
   return {
     active_after_failure: activeAfterFailure,
+    displayed_bytes_reconciled: displayedBytesReconciled,
     failure_focus_target: focusTarget,
     failure_text: issueText,
+    pinned_bytes_match_display: pinnedBytesMatchDisplay,
     pinned_editor_disabled: pinnedEditorDisabled,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
     selected_pack: selectedPack,
     selector,
+    reverified_hash: reverifiedHash,
     verified_hash: verifiedHash,
     ok:
       issueText.includes("assist.yaml") &&
       focusTarget === "pack-wizard-assist" &&
       activeAfterFailure === "pack-wizard-assist" &&
       verifiedHash === expectedNextjsAcmeHash &&
+      reverifiedHash === verifiedHash &&
+      displayedBytesReconciled &&
+      pinnedBytesMatchDisplay &&
+      pinnedDetail.report.hash === reverifiedHash &&
       pinnedEditorDisabled &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
       retiredHasNoTrialLink,
   };
+}
+
+async function readWizardMembers(page) {
+  const members = {};
+  const assist = await page.locator("[data-testid='pack-wizard-assist']").inputValue();
+  const evalDocument = await page.locator("[data-testid='pack-wizard-eval']").inputValue();
+  if (assist.trim() !== "") members["assist.yaml"] = assist;
+  if (evalDocument.trim() !== "") members["eval.yaml"] = evalDocument;
+  const materials = await page.locator("[data-testid='pack-wizard-material']").evaluateAll((rows) =>
+    rows.map((row) => ({
+      content: row.querySelector("textarea")?.value ?? "",
+      name: row.querySelector("input")?.value ?? "",
+    })),
+  );
+  for (const material of materials) members[`materials/${material.name}`] = material.content;
+  return members;
+}
+
+function memberMapsEqual(left, right) {
+  const entries = (members) => Object.entries(members).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
 }
 
 async function probeExtensionCatalog(page) {

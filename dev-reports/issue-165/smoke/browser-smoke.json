@@ -1,0 +1,145 @@
+{
+  "schema_version": "commandagent.gui-smoke/v2",
+  "generated_at": "2026-08-20T16:52:10.526Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "delegate": {
+    "mode": "pack_wizard",
+    "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-165-gui-bytes-pin-pin/target/debug/commandagent",
+    "provider": "ollama",
+    "model": "qwen3:8b",
+    "fixture": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-165-gui-bytes-pin-pin/tests/corpus/apps/test0725_cli_elev_003/fixtures",
+    "scratch_runtime": "removed_after_success"
+  },
+  "help_map": {
+    "checks": [
+      {
+        "copy": "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+        "owner": "getting-started-gui.md#はじめに",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Trial がファイルを変更できる、専用の作業ディレクトリです。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。",
+        "owner": "gui-trial.md#pack-selection-and-frozen-identity",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Gate 1 は CLI 実行前の確認です",
+        "owner": "gui-trial.md#gate-1-confirm-before-execution",
+        "source": "gui/components/trial-run.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "固定済みパックが見つかりません。",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Trial で使う",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "pack 作成ウィザードを開く",
+        "owner": "gui-extensions.md#pack-creation-wizard",
+        "source": "gui/components/pack-wizard.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "確認済み GUI Trial セッションはありません。",
+        "owner": "gui-history.md#session-rows-and-refresh",
+        "source": "gui/components/trial-session-index.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      }
+    ],
+    "path": "docs/user/gui-help-map.md",
+    "ok": true
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "pack_wizard": {
+        "active_after_failure": "pack-wizard-assist",
+        "displayed_bytes_reconciled": true,
+        "failure_focus_target": "pack-wizard-assist",
+        "failure_text": "1 件の項目を修正してください\nassist.yaml\nassist.yaml is invalid: unknown field `unexpected`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary` at line 20 column 1\n該当項目へ移動",
+        "pinned_bytes_match_display": true,
+        "pinned_editor_disabled": true,
+        "retired_editor_disabled": true,
+        "retired_has_no_trial_link": true,
+        "selected_pack": "nextjs-acme@1.0.0",
+        "selector": "nextjs-acme@1.0.0",
+        "reverified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "verified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "ok": true
+      },
+      "expected_verification_failure_console_errors": [
+        "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "pack_wizard": {
+        "active_after_failure": "pack-wizard-assist",
+        "displayed_bytes_reconciled": true,
+        "failure_focus_target": "pack-wizard-assist",
+        "failure_text": "1 件の項目を修正してください\nassist.yaml\nassist.yaml is invalid: unknown field `unexpected`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary` at line 20 column 1\n該当項目へ移動",
+        "pinned_bytes_match_display": true,
+        "pinned_editor_disabled": true,
+        "retired_editor_disabled": true,
+        "retired_has_no_trial_link": true,
+        "selected_pack": "nextjs-acme@1.0.0",
+        "selector": "nextjs-acme@1.0.0",
+        "reverified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "verified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "ok": true
+      },
+      "expected_verification_failure_console_errors": [
+        "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

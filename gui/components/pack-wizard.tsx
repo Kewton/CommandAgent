@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { routePath, withBasePath } from "../lib/base-path";
 import { describeError, GuiRequestError } from "../lib/errors";
 import {
+  fetchExtensionPack,
   pinExtensionPack,
   retireExtensionPack,
   stageExtensionPack,
@@ -185,6 +186,8 @@ export function PackWizard() {
     setIssues([]);
     try {
       const nextReport = await verifyExtensionPack(token, id, version);
+      const savedPack = await fetchExtensionPack(token, id, version);
+      setFiles(filesFromMembers(savedPack.files));
       setLifecycle("staged");
       setReport(nextReport);
     } catch (reason) {
@@ -468,7 +471,7 @@ export function PackWizard() {
       {step === 3 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-verification">
           <h3>4. 検証</h3>
-          <p>GUI ではなくサーバーが strict schema、closed vocabulary、contract floor、scrub、exact-byte hash を検証します。</p>
+          <p>GUI ではなくサーバーが strict schema、closed vocabulary、contract floor、scrub、exact-byte hash を検証します。保存済み bytes の再検証では、編集画面もサーバーの exact bytes に戻します。</p>
           <IssueList issues={issues} onFocus={focusEditorField} />
           {busy && <p className="pack-wizard-status" role="status">検証中…</p>}
           {report !== null && (
@@ -658,6 +661,17 @@ function memberMap(files: PackWizardFiles): Record<string, string> {
   if (files.eval.trim() !== "") members["eval.yaml"] = files.eval;
   for (const material of files.materials) members[`materials/${material.name}`] = material.content;
   return members;
+}
+
+function filesFromMembers(members: Record<string, string>): PackWizardFiles {
+  return {
+    assist: members["assist.yaml"] ?? "",
+    eval: members["eval.yaml"] ?? "",
+    materials: Object.entries(members)
+      .filter(([name]) => name.startsWith("materials/") && name.endsWith(".md"))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, content]) => ({ name: name.slice("materials/".length), content })),
+  };
 }
 
 function replaceIdentity(document: string, field: "id" | "version", value: string): string {
