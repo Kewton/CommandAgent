@@ -2459,6 +2459,54 @@ a.runtime-badge:focus-visible {
   margin-bottom: 1rem;
 }
 
+.trial-run-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+
+.execution-panel > .trial-run-identity {
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+.trial-run-identity > div {
+  min-width: 0;
+}
+
+.trial-run-identity > .trial-run-identity-goal {
+  grid-column: 1 / -1;
+}
+
+.trial-run-identity dt,
+.trial-run-identity dd {
+  margin: 0;
+}
+
+.trial-run-identity dt {
+  margin-bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 700;
+}
+
+.trial-run-identity dd {
+  overflow-wrap: anywhere;
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.trial-run-identity code {
+  font: 650 0.67rem/1.45 var(--mono);
+}
+
 .monitor-state {
   display: grid;
   gap: 0.45rem;
@@ -3285,6 +3333,14 @@ a.runtime-badge:focus-visible {
 
   .execution-feedback {
     grid-template-columns: 1fr;
+  }
+
+  .trial-run-identity {
+    grid-template-columns: 1fr;
+  }
+
+  .trial-run-identity > .trial-run-identity-goal {
+    grid-column: auto;
   }
 
   .execution-feedback > div {

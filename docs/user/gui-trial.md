@@ -57,7 +57,10 @@ GUI confirmation never lowers, replaces, or satisfies a required check.
 
 The server starts `commandagent` directly without a shell. Progress is rebuilt
 from the session JSONL. Launch identity fields remain read-only so an in-flight
-contract cannot be edited.
+contract cannot be edited. The Gate 2 screen keeps the confirmed goal, profile,
+exact executor/planner provider and model IDs, and exact `id@version` pack (or
+`選択なし`) visible above the progress. The same frozen identity is restored
+from the Gate 1 confirmation record after reconnecting.
 
 Execution state and monitoring health (`connected`, `degraded`, or `lost`) are
 separate. Transient monitoring failures use capped backoff while the delegated
@@ -73,7 +76,8 @@ is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
 At terminal state the inventory opens automatically. Read result, assurance
 level, and execution status as separate fields. If no final verdict exists,
 the page says so; an assurance identifier such as `static` is not substituted
-for the verdict.
+for the verdict. The result card repeats the run's confirmed goal, profile,
+model pins, and pack so the outcome remains bound to the execution it describes.
 
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
