@@ -116,7 +116,11 @@ pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<
                 config.chat_retries,
             )?
             .with_context_budget(config.context_budget)
-            .with_think(config.ollama_think),
+            .with_think(if planner {
+                config.planner_think
+            } else {
+                config.ollama_think
+            }),
         )),
         Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),
         Provider::Openai => Ok(Box::new(openai::OpenAiClient::from_env(config)?)),

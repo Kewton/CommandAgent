@@ -57,18 +57,16 @@ required to give the existing planner client its resolved planner setting.
 - Run the required four-profile create UAT parity check when the local provider
   and corpus harness are available, recording the exact result honestly.
 
-## Scope feasibility result
+## Scope authorization follow-up
 
-The corrected ownership excludes all downstream `Config` literal call sites.
-The resolved `planner_think`, `classifier_model`, and `classifier_provider`
-values must survive `Config::from_cli` and its clones, so they require new
-stored configuration state. Adding that state to `Config` makes existing
-initializers outside the owned files fail to compile. Nesting it in
-`ConfigFieldSources` has the same problem because that public structure also
-has an exhaustive literal outside the owned files.
+The user subsequently authorized mechanical default-field additions at every
+exhaustive `Config` initializer, the minimal role-aware constructor wiring in
+`src/providers/mod.rs`, focused tests, and the bilingual configuration rows
+required by the repository's documentation contract. This cleared the earlier
+scope blocker without authorizing unrelated downstream behavior.
 
-No safe state-free substitute exists: a process-global map would race between
-concurrent configurations, while re-reading configuration in
-`provider_call.rs` loses the selected preset and CLI precedence. The scoped
-draft was therefore reverted rather than retaining an incomplete or unsafe
-implementation.
+Before final verification, the committed Issue 208 branch was merged. Its only
+overlap with this design was the `Config` initializer in
+`src/planner/profiles/python_cli.rs` (plus the shared conformance initializer).
+The merge was clean, and the role defaults were reapplied as mechanical fields
+afterward; no Issue 208 behavior was rewritten.

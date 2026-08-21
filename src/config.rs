@@ -24,6 +24,9 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "tool_protocol",
     "planner_model",
     "planner_provider",
+    "planner_think",
+    "classifier_model",
+    "classifier_provider",
     "context_budget",
     "chat_timeout_secs",
     "profile",
@@ -356,6 +359,9 @@ pub struct Config {
     pub intent_override: Option<IntentId>,
     pub planner_model: String,
     pub planner_provider: Provider,
+    pub planner_think: Option<OllamaThink>,
+    pub classifier_model: String,
+    pub classifier_provider: Provider,
     pub ollama_host: String,
     pub ollama_think: Option<OllamaThink>,
     pub lm_studio_host: String,
@@ -383,6 +389,9 @@ pub struct ConfigFieldSources {
     pub provider: String,
     pub planner_model: String,
     pub planner_provider: String,
+    pub planner_think: String,
+    pub classifier_model: String,
+    pub classifier_provider: String,
     pub context_budget: String,
     pub chat_timeout_secs: String,
     pub prompt_layout: String,
@@ -400,6 +409,9 @@ impl Default for ConfigFieldSources {
             provider: "default".to_string(),
             planner_model: "default".to_string(),
             planner_provider: "default".to_string(),
+            planner_think: "default".to_string(),
+            classifier_model: "default".to_string(),
+            classifier_provider: "default".to_string(),
             context_budget: "default".to_string(),
             chat_timeout_secs: "default".to_string(),
             prompt_layout: "default".to_string(),
@@ -434,6 +446,9 @@ struct PresetConfig {
     tool_protocol: Option<Sourced<ToolProtocol>>,
     planner_model: Option<Sourced<String>>,
     planner_provider: Option<Sourced<Provider>>,
+    planner_think: Option<Sourced<OllamaThink>>,
+    classifier_model: Option<Sourced<String>>,
+    classifier_provider: Option<Sourced<Provider>>,
     context_budget: Option<Sourced<usize>>,
     chat_timeout_secs: Option<Sourced<u64>>,
     prompt_layout: Option<Sourced<PromptLayout>>,
@@ -605,6 +620,14 @@ impl Config {
             bail!("--planner-model is required when --planner-provider differs from --provider");
         };
         let ollama_think = cli.think.map(OllamaThink::from);
+        let planner_think = ollama_think
+            .map(|value| sourced(value, "flag"))
+            .or_else(|| {
+                preset
+                    .as_ref()
+                    .and_then(|preset| preset.planner_think.clone())
+            })
+            .unwrap_or_else(|| sourced(OllamaThink::False, "default"));
         if ollama_think.is_some()
             && provider.value != Provider::Ollama
             && planner_provider.value != Provider::Ollama
@@ -613,6 +636,27 @@ impl Config {
         }
         validate_openai_model(provider.value, &model.value, "executor")?;
         validate_openai_model(planner_provider.value, &planner_model.value, "planner")?;
+        let classifier_provider = preset
+            .as_ref()
+            .and_then(|preset| preset.classifier_provider.clone())
+            .unwrap_or_else(|| sourced(planner_provider.value, "default:planner"));
+        let classifier_model = preset
+            .as_ref()
+            .and_then(|preset| preset.classifier_model.clone())
+            .or_else(|| {
+                (classifier_provider.value == planner_provider.value)
+                    .then(|| sourced(planner_model.value.clone(), "default:planner"))
+            });
+        let Some(classifier_model) = classifier_model else {
+            bail!(
+                "classifier_model is required when classifier_provider differs from planner_provider"
+            );
+        };
+        validate_openai_model(
+            classifier_provider.value,
+            &classifier_model.value,
+            "classifier",
+        )?;
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -632,7 +676,12 @@ impl Config {
             });
         let (chat_timeout_secs, chat_timeout_source) = match chat_timeout {
             Some(value) => (value.value, value.source),
-            None => resolve_chat_timeout(None, provider.value, planner_provider.value),
+            None => resolve_chat_timeout(
+                None,
+                provider.value,
+                planner_provider.value,
+                classifier_provider.value,
+            ),
         };
         let prompt_layout = cli
             .prompt_layout
@@ -735,6 +784,9 @@ impl Config {
             provider: provider.source.clone(),
             planner_model: planner_model.source.clone(),
             planner_provider: planner_provider.source.clone(),
+            planner_think: planner_think.source.clone(),
+            classifier_model: classifier_model.source.clone(),
+            classifier_provider: classifier_provider.source.clone(),
             context_budget: context_budget.source.clone(),
             chat_timeout_secs: chat_timeout_source.clone(),
             prompt_layout: prompt_layout.source.clone(),
@@ -761,6 +813,9 @@ impl Config {
             intent_override: cli.intent.map(IntentId::from),
             planner_model: planner_model.value,
             planner_provider: planner_provider.value,
+            planner_think: Some(planner_think.value),
+            classifier_model: classifier_model.value,
+            classifier_provider: classifier_provider.value,
             ollama_host: cli.ollama_host,
             ollama_think,
             lm_studio_host: normalize_lm_studio_host(&cli.lm_studio_host)?,
@@ -946,6 +1001,9 @@ fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
     merge_preset_field(&mut target.tool_protocol, &source.tool_protocol);
     merge_preset_field(&mut target.planner_model, &source.planner_model);
     merge_preset_field(&mut target.planner_provider, &source.planner_provider);
+    merge_preset_field(&mut target.planner_think, &source.planner_think);
+    merge_preset_field(&mut target.classifier_model, &source.classifier_model);
+    merge_preset_field(&mut target.classifier_provider, &source.classifier_provider);
     merge_preset_field(&mut target.context_budget, &source.context_budget);
     merge_preset_field(&mut target.chat_timeout_secs, &source.chat_timeout_secs);
     merge_preset_field(&mut target.prompt_layout, &source.prompt_layout);
@@ -1323,6 +1381,24 @@ fn parse_preset_key(
                 source,
             ))
         }
+        "planner_think" => {
+            preset.planner_think = Some(sourced(
+                parse_ollama_think_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
+        "classifier_model" => {
+            preset.classifier_model = Some(sourced(
+                parse_string_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
+        "classifier_provider" => {
+            preset.classifier_provider = Some(sourced(
+                parse_provider_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "context_budget" => {
             preset.context_budget = Some(sourced(
                 parse_usize_value(path, line_no, &full_key, value)?,
@@ -1455,6 +1531,26 @@ fn parse_provider_value(
     }
 }
 
+fn parse_ollama_think_value(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> anyhow::Result<OllamaThink> {
+    match parse_string_value(path, line_no, key, value)?.as_str() {
+        "true" => Ok(OllamaThink::True),
+        "false" => Ok(OllamaThink::False),
+        "low" => Ok(OllamaThink::Low),
+        "medium" => Ok(OllamaThink::Medium),
+        "high" => Ok(OllamaThink::High),
+        _ => bail!(
+            "{}:{} {key} expects think true|false|low|medium|high",
+            path.display(),
+            line_no
+        ),
+    }
+}
+
 fn parse_narration_value(
     path: &Path,
     line_no: usize,
@@ -1570,11 +1666,12 @@ fn resolve_chat_timeout(
     override_secs: Option<u64>,
     provider: Provider,
     planner_provider: Provider,
+    classifier_provider: Provider,
 ) -> (u64, String) {
     if let Some(secs) = override_secs {
         return (secs, "override:cli".to_string());
     }
-    if provider.is_local() || planner_provider.is_local() {
+    if provider.is_local() || planner_provider.is_local() || classifier_provider.is_local() {
         (
             LOCAL_PROVIDER_CHAT_TIMEOUT_SECS,
             "default:local_provider".to_string(),
@@ -1832,6 +1929,12 @@ mod tests {
         let cli = Cli::parse_from(["commandagent", "--provider", "ollama", "--model", "m"]);
         let config = Config::from_cli(cli).unwrap();
         assert_eq!(config.planner_model, "m");
+        assert_eq!(config.planner_think, Some(OllamaThink::False));
+        assert_eq!(config.classifier_model, "m");
+        assert_eq!(config.classifier_provider, Provider::Ollama);
+        assert_eq!(config.field_sources.planner_think, "default");
+        assert_eq!(config.field_sources.classifier_model, "default:planner");
+        assert_eq!(config.field_sources.classifier_provider, "default:planner");
     }
 
     #[test]
@@ -1844,6 +1947,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(executor.ollama_think, Some(OllamaThink::High));
+        assert_eq!(executor.planner_think, Some(OllamaThink::High));
 
         let planner = Config::from_cli(Cli::parse_from([
             "commandagent",
@@ -1859,6 +1963,79 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(planner.ollama_think, Some(OllamaThink::False));
+        assert_eq!(planner.planner_think, Some(OllamaThink::False));
+    }
+
+    #[test]
+    fn preset_resolves_planner_think_and_independent_classifier_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            r#"
+[preset.fast]
+model = "executor"
+provider = "ollama"
+planner_model = "planner"
+planner_provider = "ollama"
+planner_think = "low"
+classifier_model = "gpt-5.6-luna"
+classifier_provider = "openai"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "fast",
+        ]))
+        .unwrap();
+
+        assert_eq!(config.ollama_think, None);
+        assert_eq!(config.planner_think, Some(OllamaThink::Low));
+        assert_eq!(config.classifier_model, "gpt-5.6-luna");
+        assert_eq!(config.classifier_provider, Provider::Openai);
+        assert_eq!(config.field_sources.planner_think, "preset:fast");
+        assert_eq!(config.field_sources.classifier_model, "preset:fast");
+        assert_eq!(config.field_sources.classifier_provider, "preset:fast");
+    }
+
+    #[test]
+    fn distinct_classifier_provider_requires_an_explicit_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            r#"
+[preset.invalid]
+model = "executor"
+provider = "ollama"
+planner_model = "planner"
+planner_provider = "ollama"
+classifier_provider = "gemini"
+"#,
+        )
+        .unwrap();
+
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "invalid",
+        ]))
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            "classifier_model is required when classifier_provider differs from planner_provider"
+        );
     }
 
     #[test]

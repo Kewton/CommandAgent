@@ -26,13 +26,16 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `api` | `--api` > preset > `chat_completions` (OpenAI and LM Studio) |
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
+| `planner_think` | explicit `--think` > preset > `false`; the CLI flag also remains the executor override |
+| `classifier_model`, `classifier_provider` | preset > planner role inheritance; a different provider requires a classifier model |
 | `profile` | CLI > preset > goal/workspace inference > `generic` |
 | `pack` | CLI `--pack` > selected preset; contradictory explicit values fail |
 | `extension_root` | CLI `--extension-root` > top-level key > repository-only search |
 | `ollama_host`, `think`, `lm_studio_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
 
-The timeout default is `600` seconds if either role uses Ollama or LM Studio
-and `180` seconds when both roles are remote. `context_budget` defaults to `65536`.
+The timeout default is `600` seconds if any executor, planner, or classifier
+role uses Ollama or LM Studio and `180` seconds when all roles are remote.
+`context_budget` defaults to `65536`.
 `plan_preset` is normally `none`; explicit `data` plus `fix` or `investigate`
 can compute `profile` before the planner-model default is applied.
 
@@ -57,7 +60,7 @@ or guide paths based only on the newer `.commandagent/` config namespace.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 15 current
+Select a preset with `--preset <name>`. A preset section accepts all 18 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
@@ -70,6 +73,9 @@ unquoted integers.
 | `tool_protocol` | `"native"` or `"text"` | provider capability default |
 | `planner_model` | model ID string | executor model when providers match; otherwise required |
 | `planner_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | executor provider |
+| `planner_think` | `"true"`, `"false"`, `"low"`, `"medium"`, or `"high"` | `"false"` |
+| `classifier_model` | model ID string | planner model when providers match; otherwise required |
+| `classifier_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | planner provider |
 | `context_budget` | non-negative platform-sized integer | `65536` |
 | `chat_timeout_secs` | non-negative 64-bit integer | provider-dependent `600` or `180` |
 | `profile` | profile string | inferred, then `"generic"` |
@@ -87,6 +93,9 @@ api = "chat_completions"
 tool_protocol = "text"
 planner_model = "qwen3.6:27b-coding-nvfp4"
 planner_provider = "ollama"
+planner_think = "false"
+classifier_model = "qwen3.5:4b"
+classifier_provider = "ollama"
 context_budget = 65536
 chat_timeout_secs = 600
 profile = "nextjs"
@@ -109,12 +118,14 @@ Preset merging stops early once these 11 fields are present: `model`,
 `chat_timeout_secs`, `plan_preset`, `profile`, `narration`, `footer`, and
 `stream`.
 
-`prompt_layout`, `api`, `tool_protocol`, and `pack` are accepted but are **not** part of that completeness test. If a
+`prompt_layout`, `api`, `tool_protocol`, `pack`, `planner_think`,
+`classifier_model`, and `classifier_provider` are accepted but are **not** part
+of that completeness test. If a
 higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 15 accepted keys are the same as
+lower layer to be visited. Do not assume the 18 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys

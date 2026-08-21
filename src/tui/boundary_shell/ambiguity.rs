@@ -80,7 +80,7 @@ pub fn propose_route(
             classify_closed_candidates(
                 request,
                 &deterministic.candidates,
-                model,
+                &config.classifier_model,
                 classifier,
                 config,
                 is_cancelled,
@@ -129,7 +129,7 @@ fn classify_closed_candidates(
         ),
         ConversationMessage::user(prompt),
     ];
-    let response = match provider_call::chat_with_cancel_and_response_limit(
+    let response = match provider_call::chat_with_cancel_and_response_limit_and_overrides(
         classifier,
         config,
         ProviderChatRequest {
@@ -141,6 +141,7 @@ fn classify_closed_candidates(
         },
         is_cancelled,
         CLASSIFIER_MAX_RESPONSE_BYTES,
+        provider_call::ProviderCallOverrides::classifier(config),
     )
     .result
     {
@@ -296,6 +297,9 @@ mod tests {
             intent_override: None,
             planner_model: "classifier".to_string(),
             planner_provider: crate::config::Provider::Ollama,
+            planner_think: Some(crate::config::OllamaThink::False),
+            classifier_model: "classifier".to_string(),
+            classifier_provider: crate::config::Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
