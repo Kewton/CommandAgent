@@ -42,6 +42,7 @@ use super::edit_anchor_recovery::{
 use super::evidence::{RuntimeAcceptanceReport, verify_runtime_acceptance};
 use super::execution_progress::{ExecutionProgress, ExecutionProgressTracker};
 use super::import_scan::{format_missing_import_feedback, scan_relative_imports};
+use super::post_write_completion::PostWriteCompletionTracker;
 use super::prompt::{ToolPromptMode, build_request_messages};
 use super::reachability::{
     RepairReachability, assess_repair_reachability_at_root, reachability_failure_kind,
@@ -464,6 +465,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     let mut write_required_state = WriteRequiredState::default();
     let mut recoverable_tool_error_state = RecoverableToolErrorState::default();
     let mut execution_progress_tracker = ExecutionProgressTracker::default();
+    let mut post_write_completion_tracker = PostWriteCompletionTracker::default();
     let mut edit_anchor_recovery_state = EditAnchorRecoveryState::default();
     let mut route_unbound_recovery_state =
         super::route_unbound_recovery::RouteUnboundRecoveryState::default();
@@ -1207,6 +1209,8 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_changed_paths = Vec::new();
         let mut batch_non_edit_tools = 0usize;
         let mut batch_all_read_only_tools = !tool_calls.is_empty();
+        let mut batch_all_read_tools = !tool_calls.is_empty();
+        let mut batch_read_paths = Vec::new();
         let mut batch_had_recoverable_tool_error = false;
         let mut batch_had_hidden_path_feedback = false;
         let mut batch_had_execution_progress = false;
@@ -1233,6 +1237,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             ) {
                 batch_had_recoverable_tool_error = true;
+                post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                 last_blocking_reason = Some(READ_ONLY_STAGNATION_REASON.to_string());
                 let feedback = rejection.feedback.clone();
                 let selected_targets = write_required_state.selected_targets().to_vec();
@@ -1269,6 +1274,17 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             );
             let call_is_edit = matches!(call.name.as_str(), "Write" | "Edit");
+            if call.name == "Read" {
+                if let Some(path) =
+                    normalized_tool_path_arg(&config.workspace_root, &call.arguments)
+                {
+                    batch_read_paths.push(path);
+                } else {
+                    batch_all_read_tools = false;
+                }
+            } else {
+                batch_all_read_tools = false;
+            }
             if !matches!(call.name.as_str(), "Read" | "Glob" | "Grep") {
                 batch_all_read_only_tools = false;
             }
@@ -1300,6 +1316,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 );
                 if decision.blocked {
                     batch_had_recoverable_tool_error = true;
+                    post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                     let policy_error =
                         anyhow::anyhow!("{}: {}", decision.policy_error_kind, decision.reason);
                     let repeats = recoverable_tool_error_state.record(&call.name, &policy_error);
@@ -1457,6 +1474,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                         if let Some(path) =
                             changed_path_from_call(&config.workspace_root, &call.arguments)
                         {
+                            post_write_completion_tracker.note_successful_write(&path);
                             stagnation_carryover::record_successful_write_path(
                                 escalation_carryover,
                                 &path,
@@ -1473,6 +1491,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }
                 Err(err) if recoverable_tool_error(&err) => {
                     batch_had_recoverable_tool_error = true;
+                    post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
@@ -1617,13 +1636,19 @@ pub(crate) fn run_session_with_outcome_with_options(
                     },
                 );
             }
-            if call.name == "Bash"
-                && !bash_policy_substituted
-                && execution_progress_tracker.observe_bash(
+            let execution_progress = (call.name == "Bash" && !bash_policy_substituted).then(|| {
+                execution_progress_tracker.observe_bash(
                     recovered_bash_command(&call.name, &call.arguments).as_deref(),
                     &result,
-                ) == ExecutionProgress::New
-            {
+                )
+            });
+            if let Some(execution_progress) = execution_progress {
+                post_write_completion_tracker.note_bash_result(
+                    execution_progress != ExecutionProgress::NotSuccessful,
+                    crate::tools::bash::formatted_environment_failure_kind(&result),
+                );
+            }
+            if execution_progress == Some(ExecutionProgress::New) {
                 batch_had_execution_progress = true;
                 pressure_inputs.read_only_streak = 0;
                 pressure_inputs.no_progress_streak = 0;
@@ -1675,6 +1700,43 @@ pub(crate) fn run_session_with_outcome_with_options(
             continue;
         }
         let missing_after_batch = missing_paths(&config.workspace_root, &required_paths);
+        if options.scope == RunSessionScope::MinimalLoop
+            && required_paths.is_empty()
+            && completion_contract.is_none()
+            && let Some(evidence) = post_write_completion_tracker.observe_batch(
+                batch_all_read_tools,
+                &batch_read_paths,
+                batch_had_recoverable_tool_error,
+            )
+        {
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "loop_stop",
+                    "reason": "post_write_read_confirmation_completed",
+                    "verification": "unverified",
+                    "confirmation_batches": evidence.confirmation_batches,
+                    "read_paths": evidence.read_paths,
+                    "changed_paths": changed_paths,
+                    "tool_calls": tool_call_count,
+                }),
+            );
+            return Ok(RunSessionOutcome {
+                final_text: "workspace changes confirmed by post-write reads (unverified)"
+                    .to_string(),
+                stop_reason: RunStopReason::AssistantFinal,
+                changed_paths,
+                iterations: iteration + 1,
+                tool_calls: tool_call_count,
+                missing_required_paths: Vec::new(),
+                missing_capabilities: Vec::new(),
+                missing_evidence: Vec::new(),
+                missing_obligations: Vec::new(),
+                verify_attempts,
+                last_blocking_reason,
+                last_provider_error,
+            });
+        }
         let batch_reduced_missing_paths = missing_after_batch.len() < missing_before_batch.len();
         if batch_reduced_missing_paths || batch_had_execution_progress {
             artifact_non_edit_streak = 0;
@@ -2057,6 +2119,9 @@ pub(crate) fn run_session_with_outcome_with_options(
         }
     }
     let mut missing = missing_paths(&config.workspace_root, &required_paths);
+    if last_blocking_reason.is_none() {
+        last_blocking_reason = post_write_completion_tracker.environment_failure_reason();
+    }
     if !missing.is_empty() {
         maybe_complete_setup_scaffold(
             config,

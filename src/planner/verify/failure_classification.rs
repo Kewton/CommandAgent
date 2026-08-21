@@ -1,12 +1,9 @@
 use std::path::Path;
 
 use crate::eval_events;
-use crate::tools::bash::{BashOutcome, BashOutcomeKind};
+use crate::tools::bash::{BashOutcome, BashOutcomeKind, environment_failure_kind};
 
-use super::{
-    NormalizedVerifyCommand, VerifyCommandRunResult, handle_verify_command_timeout,
-    outcome_exit_code,
-};
+use super::{NormalizedVerifyCommand, VerifyCommandRunResult, handle_verify_command_timeout};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn early(
@@ -37,29 +34,6 @@ pub(super) fn early(
             eval_events::body_snippet(formatted)
         ),
     })
-}
-
-fn environment_failure_kind(outcome: &BashOutcome) -> Option<&'static str> {
-    match outcome_exit_code(outcome) {
-        Some(127) => return Some("exit_127"),
-        Some(126) => return Some("command_not_executable"),
-        _ => {}
-    }
-    let stderr = outcome.stderr.to_ascii_lowercase();
-    if stderr.contains("permission denied")
-        || stderr.contains("operation not permitted")
-        || stderr.contains("access is denied")
-    {
-        return Some("permission_denied");
-    }
-    if stderr.contains("bad interpreter")
-        || stderr.contains("interpreter not found")
-        || (stderr.contains("/usr/bin/env:")
-            && (stderr.contains("no such file or directory") || stderr.contains("not found")))
-    {
-        return Some("interpreter_unavailable");
-    }
-    None
 }
 
 #[cfg(test)]

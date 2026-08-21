@@ -52,3 +52,10 @@ then use `artifacts_dir`, `acceptance_sheet_path`, and `events_path` as the
 machine-readable handoff. On failure they should retain those paths and route
 `stop_class` into the existing resume/fix policy rather than treating a nonzero
 exit code as permission to weaken acceptance.
+
+For a direct, contract-free `--prompt` run, CommandAgent also bounds a model's
+post-write confirmation loop. Consecutive successful reads of files written in
+the current run can close the command with exit `0` after the model has already
+made the requested changes. This result remains unverified (`static` assurance);
+reads without a prior write and reads after an unresolved command failure remain
+failures.

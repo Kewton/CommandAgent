@@ -16,6 +16,7 @@ pub mod import_scan;
 pub mod interaction_probe;
 pub mod loop_run;
 pub mod pipeline_probe;
+pub(crate) mod post_write_completion;
 pub mod probe_preflight;
 pub mod prompt;
 pub mod python_traceback;
