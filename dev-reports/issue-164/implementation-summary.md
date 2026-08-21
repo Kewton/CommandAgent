@@ -25,3 +25,17 @@ The shared `useResource` focus and visibility revalidation behavior is
 unchanged. No API, event, persistence, runtime-state, or document schema changed.
 No corpus fixture was required because this is a GUI-local selection-state
 regression covered by the production browser smoke.
+
+## CI Follow-up (2026-08-21)
+
+- Cherry-picked Issue #160 code commit `714017ca` as `d9cbf4a4`. The separate
+  Issue #160 report commit `1f28c021` and all Issue #160 report files remain
+  excluded.
+- The follow-up boxes the session-file handler error `Response` to satisfy Rust
+  1.97.1 Clippy without adding a lint allow. `IntoResponse` returns the boxed
+  response directly, so the existing status, headers, and JSON body bytes are
+  not reconstructed or changed.
+- No route, path-validation, or filesystem traversal logic changed. The focused
+  GUI server tests continue to cover authentication, response codes and JSON,
+  bounded reads, path confinement, file symlinks, aliased run roots, and a
+  symlinked `.anvil` runtime root.
