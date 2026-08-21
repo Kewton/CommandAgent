@@ -40,3 +40,18 @@ or existing tutorial screenshot was changed. Fresh browser evidence is stored
 under `/private/tmp`; repository history and prior run records remain unchanged.
 The earlier pre-integration, stale-binary, and pre-follow-up failures remain
 documented as diagnostics and are not used for the final verdict.
+
+## CI follow-up: Issue 160 Rust 1.98 compatibility
+
+- Cherry-picked only Issue 160 code commit `714017ca` as `b6eb6642`. The
+  separate Issue 160 report commit `1f28c021` and all Issue 160 report files
+  were intentionally excluded.
+- Added the commit's `SessionFileError` wrapper around the existing Axum
+  `Response`. The conversion boxes and later returns the same response object;
+  it does not rebuild status, headers, or JSON bodies.
+- Preserved the existing session-file authentication, path confinement,
+  payload bounds, event-tail bytes, and symlink rejection paths. No lint
+  allowance was added.
+- Re-ran Issue 158's additive Gate 1 smoke against the integrated GUI server.
+  Root and proxy cases still pass at 1440px and 390px with the same complete
+  hash counts and `scrollWidth == clientWidth` measurements.
