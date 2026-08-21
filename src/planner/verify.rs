@@ -10,13 +10,11 @@ use crate::minimal_loop::verifier_env;
 use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::tools::path_guard::{resolve_existing, validate_workspace_relative};
-use crate::{
-    eval_events,
-    tools::bash::{BashOutcome, BashOutcomeKind},
-};
+use crate::{eval_events, tools::bash::BashOutcome};
 
 mod cli_documented_input;
 mod dependency_classification;
+mod failure_classification;
 mod shell_control;
 mod shell_rewrite;
 
@@ -1057,16 +1055,16 @@ fn handle_failed_verify_command(
 ) -> VerifyCommandRunResult {
     let command_text = command.as_str();
     let formatted = verifier_env::format_verify_outcome(&outcome);
-    if outcome.kind == BashOutcomeKind::Timeout {
-        return handle_verify_command_timeout(
-            command,
-            root,
-            profile,
-            offline,
-            eval_events_path,
-            &formatted,
-            outcome.elapsed_ms,
-        );
+    if let Some(failure) = failure_classification::early(
+        command,
+        root,
+        profile,
+        offline,
+        eval_events_path,
+        &formatted,
+        &outcome,
+    ) {
+        return failure;
     }
     let traceback = crate::minimal_loop::python_traceback::extract_failed_command(
         command_text,
@@ -4644,7 +4642,7 @@ EOF\n\
         std::fs::create_dir_all(dir.path().join("src/anvil_app")).unwrap();
         std::fs::write(dir.path().join("src/anvil_app/main.py"), "print('ok')\n").unwrap();
         let timeout = BashOutcome {
-            kind: BashOutcomeKind::Timeout,
+            kind: crate::tools::bash::BashOutcomeKind::Timeout,
             status: None,
             stdout: String::new(),
             stderr: String::new(),
