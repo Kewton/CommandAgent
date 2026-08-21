@@ -34,3 +34,24 @@ React state or browser storage.
   namespace are unchanged.
 - Reconnect remains GET-only and cannot dispatch or mutate a Trial session.
 - No historical evidence was rewritten.
+
+## Follow-up: authentication retry
+
+- Reproduced the Issue 158 blocker with a freshly rebuilt release candidate.
+  Stack locations showed that the background session-index 401 cleared the
+  token before the first explicit reconnect click could dispatch; the failure
+  was a production interaction race rather than a Playwright fill race.
+- Deferred only automatic session-index revalidation while the compose screen
+  has a concrete reconnect target. The explicit reconnect now owns rejection,
+  clears the bad token, and leaves the form ready for a valid retry. Manual
+  history refresh and automatic refresh outside direct reconnect remain intact.
+- Extended the session-index smoke for both base paths with the exact wrong
+  token rejection, storage removal, valid-token retry-enabled, and GET-only
+  successful reconnect assertions.
+- Kept every full-smoke gate. Updated its stale editable-control cardinality
+  from six to seven so the existing assertion checks the added planner-model
+  control instead of reporting a false failure.
+
+The rebuilt candidate completed the full root and proxy Trial flows. Both
+recorded an explicit reconnect sequence of HTTP 401 followed by HTTP 200, and
+both preserved elapsed time and the measured mean across reconnect.
