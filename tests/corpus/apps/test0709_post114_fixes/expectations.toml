@@ -24,6 +24,8 @@ expect = "not_checked"
 [fixture_contains]
 fixtures/bash-path-confinement.jsonl = [
   "\"event\":\"bash_path_confinement_rejected\"",
+  "\"blocked\":true",
+  "\"reason\":\"absolute path",
   "\"path\":\"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0709_camp_003\"",
   "\"root\":\"/tmp/current/test0709_camp_003\"",
   "\"nearest_relative\":\"test0709_camp_003\""

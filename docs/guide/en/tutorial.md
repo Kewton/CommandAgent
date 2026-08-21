@@ -92,7 +92,7 @@ model=qwen3.6:27b-coding-nvfp4 (flag) provider=ollama (flag) planner=qwen3.6:27b
 mode=Act cwd=/private/tmp/commandagent-demo/cli-workspace-2
 context_budget=65536 (default) timeout=600s (default:local_provider) profile=python-cli (flag) ...
 run_log=/private/tmp/commandagent-demo/cli-workspace-2/.anvil/runs/<run-id>/events.jsonl
-help: /help for commands | /doctor for setup diagnostics
+start: plain-text request → review Gate 1 → /confirm <hash> | help: /help
 [act] provider:ollama model:qwen3.6:27b-coding-nvfp4 ctx:65536 tokens:n/a
 commandagent>
 ```
@@ -265,7 +265,7 @@ Both paths write to the workspace they ran in, never to the repository:
 | You see | What it means | What to do |
 | --- | --- | --- |
 | `Model ID does not exist` at startup | The ID is not in `ollama list` / the provider catalog. | Use the exact ID; see [troubleshooting](troubleshooting.md#model-id-does-not-exist). |
-| `D-3c Gate 1 confirmation is required before this REPL execution command.` | You typed `/ultra-plan-run` or `/plan-run` before confirming a card. | Type the request as a plain sentence, then `/confirm <hash>`. |
+| `D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>.` | You typed `/ultra-plan-run` or `/plan-run` instead of starting with a request. | Type the request as a plain sentence, review the card, then enter `/confirm <hash>`. |
 | Gate 4 with `Assurance: static` | The run stopped before its own verification could run. | Open `summary.md`, read `Stop reason`, then use the printed recovery command or a corrected request. |
 | GUI: `Recovery required` lease | A previous delegated run has no terminal event. | Follow the read-only [lease recovery](../../user/gui-trial.md#workspace-lease-inspection-and-recovery); do not delete `.anvil/`. |
 | GUI: `403 trial_origin_not_allowed` | You reached the server through a different origin than it allows. | Set `GUI_TRIAL_ALLOWED_ORIGINS` to the exact browser origin and restart. |

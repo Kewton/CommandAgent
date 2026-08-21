@@ -548,7 +548,7 @@ baseline前にcreate scaffoldが障害を消すことはない。dataだけは�
 |---|---|---|
 | Next.js | `profile_contract`、`profile_verify_1` (`npm run build`) | 既存final profile verifier＋bounded verify command |
 | data | `pipeline_probe`、`data_reconciliation`、`data_claims_binding`、`data_rerun_consistency`、`data_results_schema` | manifest解決済みruntime checks。inspection checkは現行契約どおりfinal-boundではない |
-| Python CLI | `profile_contract`、`profile_verify_1` (`python -m compileall -q src`) | 既存final profile verifier＋bounded verify command。現行はmanifest未admissionのためraw fullもterminal assuranceはstatic上限 |
+| Python CLI | `profile_contract`、`profile_verify_1` (`python3 -m compileall -q src`) | 既存final profile verifier＋bounded verify command。現行はmanifest未admissionのためraw fullもterminal assuranceはstatic上限 |
 | generic / 未登録 | `profile_contract` | no-op passとして数えず`unavailable`。F1 / F2成立時はpartial、未登録profileはさらにadmission capでstatic |
 
 profileはcheckの具体実装とbindingを供給するが、F1〜F3のtier式、lineage、epoch、

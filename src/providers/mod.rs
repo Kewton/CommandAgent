@@ -115,6 +115,7 @@ pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<
                 config.num_predict,
                 config.chat_retries,
             )?
+            .with_context_budget(config.context_budget)
             .with_think(config.ollama_think),
         )),
         Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),

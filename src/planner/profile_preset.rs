@@ -55,7 +55,7 @@ fn python_cli_instruction(goal: &str, paths: &[String]) -> String {
          Required files: {paths}. \
          Coherence requirements: pyproject.toml declares the package metadata; \
          src/<package>/main.py implements a CLI that reads stdin or argv and prints non-empty output that changes when input changes; \
-         keep dependency setup separate from verification and verify syntax with python -m compileall -q src.",
+         keep dependency setup separate from verification and verify syntax with python3 -m compileall -q src.",
         goal = compact_single_line(goal),
         paths = paths.join(", "),
     )

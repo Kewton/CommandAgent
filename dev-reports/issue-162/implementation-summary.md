@@ -55,3 +55,15 @@ React state or browser storage.
 The rebuilt candidate completed the full root and proxy Trial flows. Both
 recorded an explicit reconnect sequence of HTTP 401 followed by HTTP 200, and
 both preserved elapsed time and the measured mean across reconnect.
+
+## CI follow-up: Rust 1.97/1.98 session-file errors
+
+- Cherry-picked only Issue 160 code commit `714017ca` as `b4221a12`; the Issue
+  160 report commit and report files were not applied.
+- Boxed the session-file handler error response behind `SessionFileError` so
+  Rust 1.97.1 Clippy accepts the GUI server without a lint allowance.
+- The wrapper returns the original `Response` unchanged. Status, headers, JSON
+  bytes, path-confinement checks, bounded reads, and symlink rejection retain
+  their existing behavior.
+- No Issue 162 GUI timing or reconnect production code changed in this
+  follow-up.

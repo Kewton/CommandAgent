@@ -203,6 +203,49 @@ pub fn resolve_optional_existing(root: &Path, raw: &str) -> anyhow::Result<PathB
     }
 }
 
+pub(super) fn ensure_bash_write_target(root: &Path, raw: &str) -> anyhow::Result<()> {
+    if raw.starts_with('~') {
+        bail!("home-relative Bash write target is outside the workspace contract");
+    }
+    if raw.contains(['$', '`']) {
+        bail!("dynamic Bash write target cannot be proven to remain in the workspace");
+    }
+    let path = Path::new(raw);
+    if !path.is_absolute() {
+        validate_workspace_relative(raw)?;
+    } else {
+        reject_parent_components(path)?;
+    }
+
+    let root = root
+        .canonicalize()
+        .context("workspace root is not accessible")?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let resolved = match std::fs::symlink_metadata(&candidate) {
+        Ok(_) => candidate
+            .canonicalize()
+            .with_context(|| format!("Bash write target is not accessible: {raw}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = nearest_existing_parent_no_follow(&candidate)?;
+            parent.canonicalize().with_context(|| {
+                format!(
+                    "Bash write target parent is not accessible: {}",
+                    parent.display()
+                )
+            })?
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("Bash write target is not accessible: {raw}"));
+        }
+    };
+    ensure_inside(&root, &resolved)
+}
+
 pub fn relative_display(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -215,6 +258,23 @@ fn nearest_existing_parent(path: &Path) -> anyhow::Result<PathBuf> {
     loop {
         if current.exists() {
             return Ok(current);
+        }
+        if !current.pop() {
+            bail!("no existing parent for {}", path.display());
+        }
+    }
+}
+
+fn nearest_existing_parent_no_follow(path: &Path) -> anyhow::Result<PathBuf> {
+    let mut current = path.parent().unwrap_or(path).to_path_buf();
+    loop {
+        match std::fs::symlink_metadata(&current) {
+            Ok(_) => return Ok(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("path is not accessible: {}", current.display()));
+            }
         }
         if !current.pop() {
             bail!("no existing parent for {}", path.display());

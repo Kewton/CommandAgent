@@ -32,3 +32,13 @@ fixtures/conformance.jsonl = [
   "\"case\":\"bound_cases_replaced\"",
   "\"expected_assurance\":\"static\""
 ]
+fixtures/python-cli-full-assurance.json = [
+  "\"status\": \"full\"",
+  "\"assurance\": \"full\"",
+  "\"probe_attempted\": true",
+  "\"binding_intact\": true",
+  "\"cli_probe\": \"pass\"",
+  "\"help_binding\": \"pass\"",
+  "\"cli_output_claims\": \"pass\"",
+  "\"cli_rerun_consistency\": \"pass\""
+]

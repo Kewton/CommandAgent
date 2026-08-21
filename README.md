@@ -78,13 +78,29 @@ provider.
    cargo install --path .
    ```
 
-4. Move to a trusted project and run one prompt:
+4. Move to a trusted project and start the REPL:
 
    ```bash
    cd /path/to/your/project
-   commandagent --provider ollama --model "<your-model>" \
-     --prompt "Inspect this project and suggest one useful improvement."
+   commandagent --provider ollama --model "<your-model>"
    ```
+
+5. At `commandagent>`, type a request as plain text:
+
+   ```text
+   commandagent> Inspect this project and make one focused, tested improvement.
+   ```
+
+   CommandAgent shows a Gate 1 card but does not execute yet. Review the request,
+   write boundary, models, and required checks. Then copy the card's exact hash
+   into the command it shows:
+
+   ```text
+   commandagent> /confirm sha256:<card-hash>
+   ```
+
+   Replace `<card-hash>` with the value on your card. `/confirm` persists that
+   exact confirmation and starts the run.
 
 `<your-model>` is a placeholder, not a literal model ID. Replace it with a
 model that actually exists in your local `ollama list` output.
@@ -210,6 +226,7 @@ Inside the REPL, start with these slash commands:
 | Command | Purpose |
 | --- | --- |
 | `/help` | Show every available slash command |
+| `/confirm <hash>` | Confirm the reviewed Gate 1 card and start its run |
 | `/status` | Show effective configuration and readiness |
 | `/plan-run <goal>` | Generate and run a step plan |
 | `/ultra-plan-run <goal>` | Generate and run an UltraPlan |

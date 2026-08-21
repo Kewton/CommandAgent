@@ -32,6 +32,15 @@ fn tui_pty_smoke() {
         text.contains("local-first agent") || text.contains("commandagent"),
         "PTY output did not contain startup banner. output={text:?}"
     );
+    for expected in [
+        "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help",
+        "D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>.",
+    ] {
+        assert!(
+            text.contains(expected),
+            "PTY output did not contain stable first-run guidance {expected:?}. output={text:?}"
+        );
+    }
 }
 
 #[test]
@@ -1248,6 +1257,16 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn enter_first_run_guidance_command(child: &mut std::process::Child) -> std::io::Result<()> {
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_millis(1500));
+    stdin.write_all(b"/plan-run first request\n")?;
+    stdin.flush()?;
+    thread::sleep(Duration::from_millis(500));
+    stdin.write_all(b"/exit\n")?;
+    stdin.flush()
+}
+
 fn run_script_bsd(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::process::Output> {
     let mut child = std::process::Command::new("script")
         .arg("-q")
@@ -1264,7 +1283,7 @@ fn run_script_bsd(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::proc
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-    child.stdin.as_mut().unwrap().write_all(b"/exit\n")?;
+    enter_first_run_guidance_command(&mut child)?;
     child.wait_with_output()
 }
 
@@ -1282,6 +1301,6 @@ fn run_script_linux(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::pr
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-    child.stdin.as_mut().unwrap().write_all(b"/exit\n")?;
+    enter_first_run_guidance_command(&mut child)?;
     child.wait_with_output()
 }

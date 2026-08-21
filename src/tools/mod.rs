@@ -1,5 +1,6 @@
 pub mod args_recovery;
 pub mod bash;
+mod bash_write_guard;
 pub mod edit;
 pub mod glob;
 pub mod grep;

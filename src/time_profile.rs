@@ -56,6 +56,42 @@ impl ProviderDurationTotals {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderRoleTotals {
+    pub duration_ms: u64,
+    pub prompt_tokens: u64,
+    pub generation_tokens: u64,
+    pub thinking_tokens: u64,
+    pub prompt_tokens_observed: bool,
+    pub generation_tokens_observed: bool,
+    pub thinking_tokens_observed: bool,
+    pub durations: ProviderDurationTotals,
+}
+
+impl ProviderRoleTotals {
+    fn prefill_ratio(&self) -> Option<f64> {
+        let total = self.durations.provider_total_duration();
+        (self.durations.prompt_eval_observed && total > 0)
+            .then(|| self.durations.prompt_eval_duration as f64 / total as f64)
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "duration_ms": self.duration_ms,
+            "prompt_tokens": observed_value(self.prompt_tokens_observed, self.prompt_tokens),
+            "generation_tokens": observed_value(
+                self.generation_tokens_observed,
+                self.generation_tokens,
+            ),
+            "thinking_tokens": observed_value(
+                self.thinking_tokens_observed,
+                self.thinking_tokens,
+            ),
+            "prefill_ratio": self.prefill_ratio(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GenerationScopeTotals {
     pub eval_count: u64,
     pub eval_observed: bool,
@@ -166,6 +202,7 @@ impl PhaseTimeProfile {
 pub struct TimeProfile {
     pub provider: ProviderScopeTotals,
     pub provider_durations: ProviderDurationTotals,
+    pub provider_usage_by_role: BTreeMap<String, ProviderRoleTotals>,
     pub generation: GenerationProfileTotals,
     pub installs_ms: u64,
     pub builds_ms: u64,
@@ -214,6 +251,7 @@ impl TimeProfile {
             } else {
                 Value::Null
             },
+            "provider_usage_by_role": self.provider_usage_by_role_json(),
             "installs_ms": self.installs_ms,
             "builds_ms": self.builds_ms,
             "probe_ms": self.probe_ms,
@@ -230,6 +268,15 @@ impl TimeProfile {
                 Value::Null
             },
         })
+    }
+
+    pub fn provider_usage_by_role_json(&self) -> Value {
+        Value::Object(
+            self.provider_usage_by_role
+                .iter()
+                .map(|(role, totals)| (role.clone(), totals.to_json()))
+                .collect(),
+        )
     }
 
     pub fn summary_line(&self) -> String {
@@ -287,6 +334,30 @@ impl TimeProfile {
                 format_duration(phase.probe_ms),
                 format_duration(phase.other_ms),
             ));
+        }
+        lines.join("\n")
+    }
+
+    pub fn provider_usage_by_role_markdown(&self) -> String {
+        let mut lines = vec![
+            "Provider usage by role:".to_string(),
+            "| Role | Provider time | Prompt tokens | Generation tokens | Thinking tokens | Prefill ratio |".to_string(),
+            "| --- | ---: | ---: | ---: | ---: | ---: |".to_string(),
+        ];
+        if self.provider_usage_by_role.is_empty() {
+            lines.push("| none | 0s | n/a | n/a | n/a | n/a |".to_string());
+        } else {
+            for (role, totals) in &self.provider_usage_by_role {
+                lines.push(format!(
+                    "| {} | {} | {} | {} | {} | {} |",
+                    role,
+                    format_duration(totals.duration_ms),
+                    display_count(totals.prompt_tokens_observed, totals.prompt_tokens),
+                    display_count(totals.generation_tokens_observed, totals.generation_tokens,),
+                    display_count(totals.thinking_tokens_observed, totals.thinking_tokens),
+                    display_prefill_ratio(totals),
+                ));
+            }
         }
         lines.join("\n")
     }
@@ -402,6 +473,13 @@ pub fn aggregate_events(events: &[Value]) -> TimeProfile {
                     }
                 }
                 add_provider_duration_totals(&mut profile.provider_durations, event);
+                let role = generation_scope_label(scope, current_acceptance_repair);
+                let role_totals = profile
+                    .provider_usage_by_role
+                    .entry(role.to_string())
+                    .or_default();
+                role_totals.duration_ms = role_totals.duration_ms.saturating_add(duration);
+                add_provider_role_totals(role_totals, event);
                 let phase = phase_entry(&mut phases, &current_phase);
                 phase.provider_ms = phase.provider_ms.saturating_add(duration);
                 add_token_totals(&mut profile.tokens, event);
@@ -459,8 +537,9 @@ pub fn render_summary_sections(events: &[Value]) -> Option<String> {
     let profile = aggregate_events(events);
     (profile.total_ms() > 0).then(|| {
         format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}\n\n{}\n\n{}",
             profile.summary_line(),
+            profile.provider_usage_by_role_markdown(),
             profile.phase_table_markdown(),
             profile.generation_profile_markdown()
         )
@@ -618,11 +697,32 @@ fn finalize_generation_turn(generation: &mut GenerationProfileTotals, turn: Pend
     bucket.edit_bytes = bucket.edit_bytes.saturating_add(turn.edit_bytes);
 }
 
-fn display_eval_count(observed: bool, value: u64) -> String {
+fn display_count(observed: bool, value: u64) -> String {
     if observed {
         value.to_string()
     } else {
         "n/a".to_string()
+    }
+}
+
+fn display_eval_count(observed: bool, value: u64) -> String {
+    display_count(observed, value)
+}
+
+fn display_prefill_ratio(totals: &ProviderRoleTotals) -> String {
+    let total = totals.durations.provider_total_duration();
+    if totals.durations.prompt_eval_observed && total > 0 {
+        percent(totals.durations.prompt_eval_duration, total)
+    } else {
+        "n/a".to_string()
+    }
+}
+
+fn observed_value(observed: bool, value: u64) -> Value {
+    if observed {
+        Value::from(value)
+    } else {
+        Value::Null
     }
 }
 
@@ -667,6 +767,25 @@ fn add_token_totals(totals: &mut TokenTotals, event: &Value) {
     }
 }
 
+fn add_provider_role_totals(totals: &mut ProviderRoleTotals, event: &Value) {
+    if let Some(value) = event.get("prompt_eval_count").and_then(Value::as_u64) {
+        totals.prompt_tokens_observed = true;
+        totals.prompt_tokens = totals.prompt_tokens.saturating_add(value);
+    }
+    if let Some(value) = event.get("eval_count").and_then(Value::as_u64) {
+        totals.generation_tokens_observed = true;
+        totals.generation_tokens = totals.generation_tokens.saturating_add(value);
+    }
+    if let Some(value) = event
+        .get("provider_reasoning_tokens")
+        .and_then(Value::as_u64)
+    {
+        totals.thinking_tokens_observed = true;
+        totals.thinking_tokens = totals.thinking_tokens.saturating_add(value);
+    }
+    add_provider_duration_totals(&mut totals.durations, event);
+}
+
 fn phase_entry<'a>(
     phases: &'a mut BTreeMap<String, PhaseTimeProfile>,
     phase: &str,
@@ -692,7 +811,7 @@ mod tests {
     fn aggregates_time_profile_from_existing_event_stream() {
         let events = vec![
             json!({"event": "ultra_phase_start", "phase_id": "setup"}),
-            json!({"event": "provider_turn_duration", "caller_scope": "planner_ultra", "duration_ms": 10_000, "estimated_prompt_tokens_sent": 1000, "prompt_eval_count": 800, "eval_count": 100, "prompt_eval_duration": 4_000_000_000u64, "eval_duration": 5_000_000_000u64, "load_duration": 1_000_000_000u64, "total_duration": 10_000_000_000u64}),
+            json!({"event": "provider_turn_duration", "caller_scope": "planner_ultra", "duration_ms": 10_000, "estimated_prompt_tokens_sent": 1000, "prompt_eval_count": 800, "eval_count": 100, "provider_reasoning_tokens": 40, "prompt_eval_duration": 4_000_000_000u64, "eval_duration": 5_000_000_000u64, "load_duration": 1_000_000_000u64, "total_duration": 10_000_000_000u64}),
             json!({"event": "dependency_build_lifecycle", "setup_duration_ms": 20_000}),
             json!({"event": "ultra_phase_start", "phase_id": "play"}),
             json!({"event": "provider_turn_duration", "caller_scope": "executor", "duration_ms": 30_000, "estimated_prompt_tokens_sent": 2000, "prompt_eval_count": 1200, "eval_count": 200, "prompt_eval_duration": 6_000_000_000u64, "eval_duration": 20_000_000_000u64, "load_duration": 4_000_000_000u64, "total_duration": 30_000_000_000u64}),
@@ -715,6 +834,25 @@ mod tests {
         assert_eq!(profile.probe_ms, 12_000);
         assert_eq!(profile.tokens.prompt_eval_count, 2_000);
         assert_eq!(profile.tokens.eval_count, 300);
+        let role_json = profile.provider_usage_by_role_json();
+        assert_eq!(role_json["planner"]["duration_ms"], 10_000);
+        assert_eq!(role_json["planner"]["prompt_tokens"], 800);
+        assert_eq!(role_json["planner"]["generation_tokens"], 100);
+        assert_eq!(role_json["planner"]["thinking_tokens"], 40);
+        assert_eq!(role_json["planner"]["prefill_ratio"], 0.4);
+        assert_eq!(role_json["executor"]["duration_ms"], 30_000);
+        assert_eq!(role_json["executor"]["prompt_tokens"], 1_200);
+        assert!(role_json["executor"]["thinking_tokens"].is_null());
+        assert_eq!(role_json["executor"]["prefill_ratio"], 0.2);
+        let role_table = profile.provider_usage_by_role_markdown();
+        assert!(
+            role_table.contains("| planner | 10s | 800 | 100 | 40 | 40% |"),
+            "{role_table}"
+        );
+        assert!(
+            role_table.contains("| executor | 30s | 1200 | 200 | n/a | 20% |"),
+            "{role_table}"
+        );
         let summary = profile.summary_line();
         assert!(summary.contains("Time profile: provider 56%"));
         assert!(summary.contains("[prefill 25% · generation 63% · load 13%]"));
@@ -800,6 +938,11 @@ mod tests {
         assert_eq!(generation.scopes["repair"].turn_count, 1);
         assert_eq!(generation.scopes["acceptance-repair"].eval_count, 40);
         assert_eq!(generation.scopes["acceptance-repair"].turn_count, 1);
+        assert_eq!(profile.provider_usage_by_role["repair"].duration_ms, 3_000);
+        assert_eq!(
+            profile.provider_usage_by_role["acceptance-repair"].duration_ms,
+            4_000
+        );
 
         assert_eq!(generation.turn_types["prose-only"].turn_count, 1);
         assert_eq!(generation.turn_types["full-file Write"].turn_count, 1);
@@ -830,6 +973,17 @@ mod tests {
         assert_eq!(profile.total_ms(), 1_500);
         assert!(!profile.tokens.prompt_eval_observed);
         assert!(!profile.summary_line().contains("[prefill"));
+        let role_json = profile.provider_usage_by_role_json();
+        assert_eq!(role_json["repair"]["duration_ms"], 1_500);
+        assert!(role_json["repair"]["prompt_tokens"].is_null());
+        assert!(role_json["repair"]["generation_tokens"].is_null());
+        assert!(role_json["repair"]["thinking_tokens"].is_null());
+        assert!(role_json["repair"]["prefill_ratio"].is_null());
+        let role_block = profile.provider_usage_by_role_markdown();
+        assert!(
+            role_block.contains("| repair | 2s | n/a | n/a | n/a | n/a |"),
+            "{role_block}"
+        );
         let block = profile.generation_profile_markdown();
         assert!(block.contains("| repair | n/a | 2s | 1 |"), "{block}");
         assert!(

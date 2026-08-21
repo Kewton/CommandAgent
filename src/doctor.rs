@@ -356,6 +356,12 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         provider_label(config.planner_provider),
         &config.field_sources.planner_provider,
     );
+    checks.push(context_budget_check(
+        config.context_budget,
+        &config.field_sources.context_budget,
+        config.provider,
+        config.planner_provider,
+    ));
     add_setting_check(
         checks,
         "config.profile",
@@ -368,6 +374,45 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         config.planner_provider,
         config.ollama_think,
     ));
+}
+
+fn context_budget_check(
+    context_budget: usize,
+    source_detail: &str,
+    provider: Provider,
+    planner_provider: Provider,
+) -> DoctorCheck {
+    let source = source_class(source_detail);
+    let ollama_roles = [
+        (provider == Provider::Ollama).then_some("executor"),
+        (planner_provider == Provider::Ollama).then_some("planner"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let ollama_num_ctx = (!ollama_roles.is_empty()).then_some(context_budget);
+    let ollama_detail = ollama_num_ctx
+        .map(|num_ctx| format!("; Ollama num_ctx={num_ctx} for {}", ollama_roles.join(", ")))
+        .unwrap_or_default();
+
+    DoctorCheck::new(
+        "config.context_budget",
+        "configuration",
+        "Context budget",
+        CheckStatus::Pass,
+        format!(
+            "{} tokens (source={source}; detail={source_detail}{ollama_detail})",
+            context_budget
+        ),
+        None,
+        json!({
+            "value": context_budget,
+            "source": source.to_ascii_lowercase(),
+            "source_detail": source_detail,
+            "ollama_num_ctx": ollama_num_ctx,
+            "ollama_roles": ollama_roles,
+        }),
+    )
 }
 
 fn ollama_think_check(
@@ -1463,6 +1508,21 @@ mod tests {
         assert_eq!(explicit.details["effective_value"], "medium");
         assert_eq!(explicit.details["request_field_present"], true);
         assert_eq!(explicit.details["ollama_roles"], json!(["planner"]));
+    }
+
+    #[test]
+    fn context_budget_check_exposes_ollama_num_ctx_and_source() {
+        let check = context_budget_check(32_768, "flag", Provider::Ollama, Provider::Ollama);
+
+        assert_eq!(check.id, "config.context_budget");
+        assert_eq!(check.details["value"], 32_768);
+        assert_eq!(check.details["ollama_num_ctx"], 32_768);
+        assert_eq!(
+            check.details["ollama_roles"],
+            json!(["executor", "planner"])
+        );
+        assert!(check.message.contains("Ollama num_ctx=32768"));
+        assert!(check.message.contains("source=CLI"));
     }
 
     #[test]

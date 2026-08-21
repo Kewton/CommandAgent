@@ -292,6 +292,59 @@ fn gui_server_caches_hashed_next_assets_but_not_html() {
 
 #[cfg(unix)]
 #[test]
+fn gui_server_redirects_exported_routes_and_serves_the_404_page_at_both_base_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    std::fs::create_dir_all(static_root.join("try")).unwrap();
+    std::fs::write(
+        static_root.join("try/index.html"),
+        "<!doctype html><title>Try</title>",
+    )
+    .unwrap();
+    std::fs::write(
+        static_root.join("404.html"),
+        "<!doctype html><title>Not found</title>",
+    )
+    .unwrap();
+
+    for base_path in ["/", "/proxy/commandagent"] {
+        let prefix = base_path.trim_end_matches('/');
+        let mut server =
+            Server::start_dashboard_only_with_static_root_at_base_path(&static_root, base_path);
+
+        let redirect = server.request_without_access("GET", &format!("{prefix}/try"), None);
+        assert_eq!(redirect.status, 308, "{}", redirect.body);
+        assert_eq!(
+            redirect.header("location"),
+            Some(format!("{prefix}/try/").as_str())
+        );
+
+        let query_redirect =
+            server.request_without_access("GET", &format!("{prefix}/try?view=compact"), None);
+        assert_eq!(query_redirect.status, 308, "{}", query_redirect.body);
+        assert_eq!(
+            query_redirect.header("location"),
+            Some(format!("{prefix}/try/?view=compact").as_str())
+        );
+
+        let index = server.request_without_access("GET", &format!("{prefix}/try/"), None);
+        assert_eq!(index.status, 200, "{}", index.body);
+        assert!(index.body.contains("<title>Try</title>"));
+
+        let missing = server.request_without_access("GET", &format!("{prefix}/nope/"), None);
+        assert_eq!(missing.status, 404, "{}", missing.body);
+        assert_eq!(
+            missing.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(missing.header("cache-control"), Some("no-store"));
+        assert!(missing.body.contains("<title>Not found</title>"));
+        server.stop();
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn trial_options_match_admitted_profiles_without_trial_access() {
     let mut server = Server::start_dashboard_only();
     let response = server.request_without_access("GET", "/api/trial-options", None);
@@ -388,7 +441,7 @@ fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
         std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
         false,
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-        &static_root,
+        StaticExport::new(&static_root, "/"),
         Some(extension.path()),
         &[],
     );
@@ -1763,15 +1816,29 @@ struct Server {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy)]
+struct StaticExport<'a> {
+    root: &'a std::path::Path,
+    base_path: &'a str,
+}
+
+#[cfg(unix)]
+impl<'a> StaticExport<'a> {
+    fn new(root: &'a std::path::Path, base_path: &'a str) -> Self {
+        Self { root, base_path }
+    }
+}
+
+#[cfg(unix)]
 impl Server {
     fn start(workspace: &std::path::Path, cli: &std::path::Path) -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
-        Self::start_with_workspace(Some(workspace), cli, true, &static_root)
+        Self::start_with_workspace(Some(workspace), cli, true, &static_root, "/")
     }
 
     fn start_without_trial_token(workspace: &std::path::Path, cli: &std::path::Path) -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
-        Self::start_with_workspace(Some(workspace), cli, false, &static_root)
+        Self::start_with_workspace(Some(workspace), cli, false, &static_root, "/")
     }
 
     fn start_with_delegate_env(
@@ -1785,7 +1852,7 @@ impl Server {
             cli,
             true,
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-            &static_root,
+            StaticExport::new(&static_root, "/"),
             None,
             environment,
         )
@@ -1816,7 +1883,7 @@ impl Server {
             cli,
             authenticated,
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-            &static_root,
+            StaticExport::new(&static_root, "/"),
             Some(extension_root),
             &[],
         )
@@ -1828,11 +1895,19 @@ impl Server {
     }
 
     fn start_dashboard_only_with_static_root(static_root: &std::path::Path) -> Self {
+        Self::start_dashboard_only_with_static_root_at_base_path(static_root, "/")
+    }
+
+    fn start_dashboard_only_with_static_root_at_base_path(
+        static_root: &std::path::Path,
+        base_path: &str,
+    ) -> Self {
         Self::start_with_workspace(
             None,
             std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
             false,
             static_root,
+            base_path,
         )
     }
 
@@ -1844,6 +1919,7 @@ impl Server {
             false,
             repository_root,
             &static_root,
+            "/",
         )
     }
 
@@ -1854,7 +1930,7 @@ impl Server {
             std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
             false,
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-            &static_root,
+            StaticExport::new(&static_root, "/"),
             Some(extension_root),
             &[],
         )
@@ -1865,6 +1941,7 @@ impl Server {
         cli: &std::path::Path,
         authenticated: bool,
         static_root: &std::path::Path,
+        base_path: &str,
     ) -> Self {
         Self::start_with_repository_root(
             workspace,
@@ -1872,6 +1949,7 @@ impl Server {
             authenticated,
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
             static_root,
+            base_path,
         )
     }
 
@@ -1881,13 +1959,14 @@ impl Server {
         authenticated: bool,
         repository_root: &std::path::Path,
         static_root: &std::path::Path,
+        base_path: &str,
     ) -> Self {
         Self::start_with_repository_root_and_env(
             workspace,
             cli,
             authenticated,
             repository_root,
-            static_root,
+            StaticExport::new(static_root, base_path),
             None,
             &[],
         )
@@ -1898,17 +1977,18 @@ impl Server {
         cli: &std::path::Path,
         authenticated: bool,
         repository_root: &std::path::Path,
-        static_root: &std::path::Path,
+        static_export: StaticExport<'_>,
         extension_root: Option<&std::path::Path>,
         environment: &[(&str, &str)],
     ) -> Self {
+        let StaticExport { root, base_path } = static_export;
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
         command
-            .args(["--port", "0", "--base-path", "/"])
+            .args(["--port", "0", "--base-path", base_path])
             .arg("--repository-root")
             .arg(repository_root)
             .arg("--static-dir")
-            .arg(static_root)
+            .arg(root)
             .arg("--commandagent-bin")
             .arg(cli)
             .stdout(Stdio::piped())

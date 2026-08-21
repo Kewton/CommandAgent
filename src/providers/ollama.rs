@@ -2,7 +2,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::{OllamaThink, Provider};
+use crate::config::{DEFAULT_CONTEXT_BUDGET, OllamaThink, Provider};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
@@ -37,6 +37,7 @@ impl OllamaClient {
             base_url,
             http,
             request_options: json!({
+                "num_ctx": DEFAULT_CONTEXT_BUDGET,
                 "num_predict": max_predict,
             }),
             think: None,
@@ -48,6 +49,11 @@ impl OllamaClient {
 
     pub(crate) fn with_think(mut self, think: Option<OllamaThink>) -> Self {
         self.think = think;
+        self
+    }
+
+    pub fn with_context_budget(mut self, context_budget: usize) -> Self {
+        self.request_options["num_ctx"] = json!(context_budget);
         self
     }
 
@@ -472,7 +478,9 @@ mod tests {
 
     #[test]
     fn request_body_is_stable_and_keeps_alive() {
-        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0).unwrap();
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+            .unwrap()
+            .with_context_budget(4096);
         let messages = vec![ConversationMessage::user("hello")];
         let tools: Vec<ToolSpec> = Vec::new();
         let model = "qwen3.6:27b-coding-nvfp4";
@@ -481,6 +489,14 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.get("keep_alive").and_then(Value::as_str), Some("10m"));
+        assert_eq!(
+            first
+                .get("options")
+                .and_then(Value::as_object)
+                .and_then(|options| options.get("num_ctx"))
+                .and_then(Value::as_u64),
+            Some(4096)
+        );
         assert_eq!(
             first
                 .get("options")
@@ -503,6 +519,22 @@ mod tests {
     }
 
     #[test]
+    fn request_body_uses_default_context_budget_without_an_override() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0).unwrap();
+        let body = client.chat_request_body(
+            "qwen3.6:27b-coding-nvfp4",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+
+        assert_eq!(
+            body["options"]["num_ctx"],
+            json!(crate::config::DEFAULT_CONTEXT_BUDGET)
+        );
+    }
+
+    #[test]
     fn request_body_maps_think_to_the_top_level_with_the_correct_json_type() {
         let messages = vec![ConversationMessage::user("hello")];
         let tools: Vec<ToolSpec> = Vec::new();
@@ -516,6 +548,7 @@ mod tests {
         ] {
             let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
                 .unwrap()
+                .with_context_budget(4096)
                 .with_think(Some(think));
             let body = client.chat_request_body("m", &messages, &tools, false);
 
@@ -532,6 +565,7 @@ mod tests {
     fn request_body_medium_matches_explicit_fixture() {
         let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
             .unwrap()
+            .with_context_budget(4096)
             .with_think(Some(OllamaThink::Medium));
         let body = client.chat_request_body(
             "qwen3.8:27b-mlx",

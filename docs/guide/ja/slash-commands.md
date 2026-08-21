@@ -7,12 +7,13 @@
 
 ## コマンド一覧
 
-レジストリには主コマンドが 17 件あります。`/quit` は `/exit` の別名として独立して受け付ける
-コマンド名なので、受け付ける名前は合計 18 件です。
+レジストリには主コマンドが 18 件あります。`/quit` は `/exit` の別名として独立して受け付ける
+コマンド名なので、受け付ける名前は合計 19 件です。
 
 | コマンド名 | `/help` に表示される使用法 | 動作 |
 | --- | --- | --- |
 | `/help` | `/help` | コマンド一覧、footer のヒント、入力キュー上限、複数行の継続入力、interrupt 動作を表示します。 |
+| `/confirm` | `/confirm <hash>` | 確認した Gate 1 カードを正確に保存し、その依頼を直ちに実行します。カードに表示された hash を使います。 |
 | `/status` | `/status` | 実効設定とプロバイダの readiness を表示します。 |
 | `/doctor` | `/doctor` | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 |
 | `/packs` | `/packs` | 実効 profile と intent に対し、`commandagent --packs` と同じ列・順序で compatible な admitted/local pack を一覧表示します。 |
@@ -32,9 +33,11 @@
 | `/quit` | `/exit or /quit` | `/exit` の別名として TUI を終了します。 |
 
 未知のスラッシュコマンドは入力エラーとして扱われ、候補がある場合は最も近いコマンドを案内します。
-タスクの開始や run summary の生成は行いません。スラッシュなしの平文も実行せず、
-`/ultra-plan-run <goal>` と `/plan-run <goal>` を案内します。plan コマンドの失敗は REPL を
-終了せずに報告されます。
+タスクの開始や run summary の生成は行いません。スラッシュなしの平文は Gate 1 カードを
+作りますが、まだ実行しません。カードを確認し、表示された正確な hash で
+`/confirm <hash>` を入力すると実行が始まります。`/ultra-plan-run <goal>` や
+`/plan-run <goal>` などを直接入力した場合も、この Gate 1 フローへ戻る案内を表示します。
+plan コマンドの失敗は REPL を終了せずに報告されます。
 
 ## インラインフラグ
 
