@@ -325,8 +325,10 @@ def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
     assert updated.questions == ()
     assert updated.suspected_files == ("docs/dev/mechanism-ledger.md",)
     assert updated.acceptance_criteria == (
-        "Apply approved decision: Adopt Option A and update only "
-        "docs/dev/mechanism-ledger.md.",
+        (
+            "Apply approved decision: Adopt Option A and update only "
+            "docs/dev/mechanism-ledger.md."
+        ),
     )
     assert "## Approved Decision" in prompt
     assert "Adopt Option A and update only docs/dev/mechanism-ledger.md." in prompt
@@ -533,7 +535,7 @@ def test_dispatch_commandmate_sends_only_worker_task() -> None:
     assert calls[0][:3] == [
         "commandmatedev",
         "send",
-        "commandagent-feature-issue-1-add-worker-task",
+        "commandagent-issue-1-add-worker-task",
     ]
     assert calls[0][-5:] == ["--agent", "codex", "--auto-yes", "--duration", "3h"]
     assert "$codex-issue-worker" in calls[0][3]
@@ -602,12 +604,12 @@ def test_commandmate_ls_command_omits_empty_branch_prefix() -> None:
     ]
 
 
-def test_commandmate_worktree_id_uses_commandmate_branch_format() -> None:
+def test_commandmate_worktree_id_uses_commandmate_worktree_format() -> None:
     module = load_script()
 
     assert (
         module.commandmate_worktree_id("feature/issue-2-p0-m1-define-v1-sidecar-schema")
-        == "commandagent-feature-issue-2-p0-m1-define-v1-sidecar-schema"
+        == "commandagent-issue-2-p0-m1-define-v1-sidecar-schema"
     )
 
 
@@ -1462,6 +1464,7 @@ def test_load_uat_results_reads_evidence_contract(tmp_path: Path) -> None:
                         "status": "PASSED",
                         "actual": "Button visible",
                         "evidence": "screenshot.png",
+                        "candidate_head_sha": "A" * 40,
                     }
                 ]
             }
@@ -1472,7 +1475,9 @@ def test_load_uat_results_reads_evidence_contract(tmp_path: Path) -> None:
     results = module.load_uat_results(fixture)
 
     assert results == [
-        module.UatResult(4, 1, "passed", "Button visible", "screenshot.png")
+        module.UatResult(
+            4, 1, "passed", "Button visible", "screenshot.png", "a" * 40
+        )
     ]
 
 
@@ -1799,4 +1804,219 @@ def test_merge_pull_requests_blocks_after_ci_when_uat_did_not_pass() -> None:
     assert results[0].status == "blocked"
     assert "UAT gate is blocked" in results[0].message
     assert not any(call[:3] == ["gh", "pr", "ready"] for call in calls)
+    assert not any(call[:3] == ["gh", "pr", "merge"] for call in calls)
+
+
+def test_parser_requires_explicit_flags_for_uat_superset_and_issue_close() -> None:
+    module = load_script()
+
+    defaults = module.parse_args_from_list_for_test(["1"])
+    enabled = module.parse_args_from_list_for_test(
+        ["1", "--allow-uat-superset", "--close-issues"]
+    )
+
+    assert defaults.allow_uat_superset is False
+    assert defaults.close_issues is False
+    assert enabled.allow_uat_superset is True
+    assert enabled.close_issues is True
+
+
+def test_uat_gate_binds_evidence_to_current_pr_head() -> None:
+    module = load_script()
+    issue = module.Issue(
+        4, "GUI check", "## Acceptance Criteria\n- Button is visible\n"
+    )
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+    current_head = "a" * 40
+
+    missing = module.evaluate_uat_gate(
+        [analysis],
+        [module.UatResult(4, 1, "passed", "Visible", "screenshot.png")],
+        require_complete=True,
+        dry_run=False,
+        expected_head_by_issue={4: current_head},
+        require_head_binding=True,
+    )
+    stale = module.evaluate_uat_gate(
+        [analysis],
+        [
+            module.UatResult(
+                4, 1, "passed", "Visible", "screenshot.png", "b" * 40
+            )
+        ],
+        require_complete=True,
+        dry_run=False,
+        expected_head_by_issue={4: current_head},
+        require_head_binding=True,
+    )
+    passed = module.evaluate_uat_gate(
+        [analysis],
+        [
+            module.UatResult(
+                4, 1, "passed", "Visible", "screenshot.png", current_head
+            )
+        ],
+        require_complete=True,
+        dry_run=False,
+        expected_head_by_issue={4: current_head},
+        require_head_binding=True,
+    )
+
+    assert missing.status == "blocked"
+    assert "head SHA is empty" in missing.message
+    assert stale.status == "blocked"
+    assert "does not match" in stale.message
+    assert passed.status == "passed"
+
+
+def test_scope_uat_results_reuses_only_out_of_scope_superset_entries() -> None:
+    module = load_script()
+    results = [
+        module.UatResult(4, 1, "passed", "Visible", "shot.png"),
+        module.UatResult(5, 1, "passed", "Opened", "tty.txt"),
+    ]
+
+    strict, strict_ignored = module.scope_uat_results(
+        results, [4], allow_superset=False
+    )
+    scoped, ignored = module.scope_uat_results(results, [4], allow_superset=True)
+
+    assert strict == results
+    assert strict_ignored == 0
+    assert scoped == [results[0]]
+    assert ignored == 1
+
+
+def test_integration_checks_use_non_login_shell() -> None:
+    module = load_script()
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    result = module.run_integration_checks(["python3 -V"], runner=fake_runner)
+
+    assert result == "passed"
+    assert calls == [["sh", "-c", "python3 -V"]]
+
+
+def test_mergeability_blocker_includes_base_sync_recovery() -> None:
+    module = load_script()
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        return module.subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "baseRefName": "develop",
+                    "headRefName": "feature/issue-4",
+                    "isDraft": False,
+                    "mergeStateStatus": "DIRTY",
+                    "number": 42,
+                }
+            ),
+            "",
+        )
+
+    result = module.check_pr_mergeability(42, runner=fake_runner)
+    report = module.render_merge_recovery_report([result])
+
+    assert result.status == "blocked"
+    assert "feature/issue-4" in result.message
+    assert "origin/develop" in result.message
+    assert "No conflict was resolved automatically" in report
+
+
+def test_close_merged_issues_requires_authorization_and_audits_close() -> None:
+    module = load_script()
+    merge_results = [module.MergeResult(42, "merged", "merged")]
+
+    unauthorized = module.close_merged_issues(
+        {4: 42},
+        merge_results,
+        authorized=False,
+        dry_run=False,
+        runner=lambda args, **kwargs: pytest.fail("runner must not be called"),
+    )
+    calls: list[list[str]] = []
+    view_count = 0
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal view_count
+        calls.append(args)
+        if args[:3] == ["gh", "issue", "view"]:
+            view_count += 1
+            return module.subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps(
+                    {"number": 4, "state": "OPEN" if view_count == 1 else "CLOSED"}
+                ),
+                "",
+            )
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    closed = module.close_merged_issues(
+        {4: 42},
+        merge_results,
+        authorized=True,
+        dry_run=False,
+        runner=fake_runner,
+    )
+
+    assert unauthorized[0].status == "not-authorized"
+    assert closed[0].status == "closed"
+    assert [
+        "gh",
+        "issue",
+        "close",
+        "4",
+        "--reason",
+        "completed",
+        "--comment",
+        "Implemented and merged into develop via PR #42.",
+    ] in calls
+    assert calls[-1] == ["gh", "issue", "view", "4", "--json", "number,state"]
+
+
+def test_merge_blocks_when_pr_head_moves_after_uat() -> None:
+    module = load_script()
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "view"]:
+            if args[-1] == "headRefOid,number":
+                return module.subprocess.CompletedProcess(
+                    args,
+                    0,
+                    json.dumps({"headRefOid": "b" * 40, "number": 42}),
+                    "",
+                )
+            return module.subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps(
+                    {"isDraft": False, "mergeStateStatus": "CLEAN", "number": 42}
+                ),
+                "",
+            )
+        if args[:3] == ["gh", "pr", "checks"]:
+            return module.subprocess.CompletedProcess(args, 0, "checks passed\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    results = module.merge_pull_requests(
+        [42],
+        dry_run=False,
+        merge_method="merge",
+        integration_checks=[],
+        uat_gate=module.UatGateResult("passed", "head-bound evidence passed"),
+        expected_head_by_pr={42: "a" * 40},
+        runner=fake_runner,
+    )
+
+    assert results[0].status == "blocked"
+    assert "head changed after UAT" in results[0].message
     assert not any(call[:3] == ["gh", "pr", "merge"] for call in calls)

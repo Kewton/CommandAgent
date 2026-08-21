@@ -174,10 +174,19 @@ class UatResult:
     status: str
     actual: str
     evidence: str
+    candidate_head_sha: str = ""
 
 
 @dataclass(frozen=True)
 class UatGateResult:
+    status: str
+    message: str
+
+
+@dataclass(frozen=True)
+class IssueCloseResult:
+    issue_number: int
+    pr_number: int
     status: str
     message: str
 
@@ -196,6 +205,11 @@ def positive_int(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
     return parsed
+
+
+def emit_progress(message: str) -> None:
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    print(f"[{timestamp}] {message}", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -275,7 +289,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--pr-numbers", default="", help="Comma-separated PR numbers for merge phase"
     )
     parser.add_argument("--uat-results-json", type=Path)
+    parser.add_argument(
+        "--allow-uat-superset",
+        action="store_true",
+        help=(
+            "Ignore UAT results for Issues outside this invocation; unexpected "
+            "scenarios for requested Issues still block the gate."
+        ),
+    )
     parser.add_argument("--uat-failures-json", type=Path)
+    parser.add_argument(
+        "--close-issues",
+        action="store_true",
+        help="Close Issues whose mapped PRs were merged by this invocation.",
+    )
     parser.add_argument(
         "--photon-url", default="", help="Optional PHOTON sidecar base URL"
     )
@@ -383,7 +410,7 @@ def load_issues_from_fixture(numbers: list[int], fixture_path: Path) -> list[Iss
     raw = json.loads(fixture_path.read_text(encoding="utf-8"))
     items = raw["issues"] if isinstance(raw, dict) and "issues" in raw else raw
     if not isinstance(items, list):
-        raise ValueError(
+        raise TypeError(
             "--issue-json must contain a list or an object with an 'issues' list"
         )
 
@@ -638,9 +665,7 @@ def is_external_reference(candidate: str) -> bool:
         return True
     if first.lower().startswith("photon-"):
         return True
-    if re.search(r"(?:^|-)issue-\d+-", first, re.IGNORECASE):
-        return True
-    return False
+    return bool(re.search(r"(?:^|-)issue-\d+-", first, re.IGNORECASE))
 
 
 def repo_path_exists(candidate: str) -> bool:
@@ -849,9 +874,11 @@ def direct_dependencies(
             and "contract" in other_hints
             and "api" not in other_hints
         )
-        if storage_needs_sanitizer or storage_needs_contract:
-            dependencies.append(other)
-        elif "api" in hints and {"contract", "storage"} & other_hints:
+        if (
+            storage_needs_sanitizer
+            or storage_needs_contract
+            or ("api" in hints and bool({"contract", "storage"} & other_hints))
+        ):
             dependencies.append(other)
     return dependencies
 
@@ -1426,12 +1453,16 @@ def build_worker_prompt(
             "3. Implement the smallest coherent change that satisfies the Issue.",
             "4. Add or update focused tests where appropriate.",
             "5. Run focused verification, and broader checks if shared contracts are touched.",
-            "6. Write `dev-reports/issue-<number>/design.md`, "
-            "`implementation-summary.md`, and `verification.md`.",
-            '7. In `verification.md`, record the exact line "- Status: `passed`" only '
-            "when every required check passed, followed by one "
-            '"- `<command>`: `passed`" entry per check. Use `blocked` when any '
-            "required check fails or cannot run.",
+            (
+                "6. Write `dev-reports/issue-<number>/design.md`, "
+                "`implementation-summary.md`, and `verification.md`."
+            ),
+            (
+                '7. In `verification.md`, record the exact line "- Status: `passed`" '
+                "only when every required check passed, followed by one "
+                '"- `<command>`: `passed`" entry per check. Use `blocked` when any '
+                "required check fails or cannot run."
+            ),
             "8. Commit the work with a clear Issue-scoped commit message.",
             "9. Report blockers only if implementation cannot safely proceed.",
             "",
@@ -1447,8 +1478,10 @@ def build_worker_prompt(
             "## Approved Decision",
             "",
             approved_decision,
-            "The approved decision is authoritative when it narrows or contradicts "
-            "the original Issue narrative or inferred file scope.",
+            (
+                "The approved decision is authoritative when it narrows or "
+                "contradicts the original Issue narrative or inferred file scope."
+            ),
             "",
             "## Suspected Files",
             "",
@@ -1462,10 +1495,12 @@ def build_worker_prompt(
             "",
             dependency_lines,
             "",
-            "The scheduler dispatches this Issue only after every listed dependency or "
-            "file-conflict predecessor completed and passed verification. Inspect their "
-            "committed changes before editing; do not assume those branches are already "
-            "merged into this one.",
+            (
+                "The scheduler dispatches this Issue only after every listed dependency "
+                "or file-conflict predecessor completed and passed verification. Inspect "
+                "their committed changes before editing; do not assume those branches "
+                "are already merged into this one."
+            ),
             "",
             "## Orchestration Notes",
             "",
@@ -1502,7 +1537,8 @@ def build_commandmate_ls_command(
 
 
 def commandmate_worktree_id(branch_name: str) -> str:
-    return f"{commandmate_repository_name()}-{branch_name.replace('/', '-')}".lower()
+    branch_leaf = branch_name.rsplit("/", 1)[-1]
+    return f"{commandmate_repository_name()}-{branch_leaf}".lower()
 
 
 def commandmate_repository_name() -> str:
@@ -2540,6 +2576,7 @@ def merge_pull_requests(
     merge_method: str | None,
     integration_checks: list[str],
     uat_gate: UatGateResult,
+    expected_head_by_pr: dict[int, str] | None = None,
     runner: Runner = run_command,
 ) -> list[MergeResult]:
     if dry_run:
@@ -2548,8 +2585,10 @@ def merge_pull_requests(
             for pr_number in pr_numbers
         ]
 
+    emit_progress(f"merge preflight started for {len(pr_numbers)} pull request(s)")
     mergeability: dict[int, MergeResult] = {}
     for pr_number in pr_numbers:
+        emit_progress(f"PR #{pr_number}: checking initial mergeability")
         mergeable = check_pr_mergeability(pr_number, runner=runner)
         if mergeable.status not in {"mergeable", "draft"}:
             return [mergeable]
@@ -2592,6 +2631,7 @@ def merge_pull_requests(
 
     results: list[MergeResult] = []
     for pr_number in pr_numbers:
+        emit_progress(f"PR #{pr_number}: final checks before merge")
         checks = wait_for_pr_checks(pr_number, runner=runner)
         if checks.status != "passed":
             results.append(
@@ -2606,7 +2646,24 @@ def merge_pull_requests(
         if mergeable.status != "mergeable":
             results.append(mergeable)
             break
+        expected_head = (expected_head_by_pr or {}).get(pr_number, "").lower()
+        if expected_head:
+            try:
+                current_head = read_pr_head_oid(pr_number, runner=runner)
+            except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                results.append(MergeResult(pr_number, "blocked", str(exc)))
+                break
+            if current_head != expected_head:
+                results.append(
+                    MergeResult(
+                        pr_number,
+                        "blocked",
+                        "PR head changed after UAT; rerun CI and UAT for the current head",
+                    )
+                )
+                break
         resolved_merge_method = merge_method or DEFAULT_MERGE_METHOD
+        emit_progress(f"PR #{pr_number}: merging with {resolved_merge_method}")
         cmd = [
             "gh",
             "pr",
@@ -2625,6 +2682,7 @@ def merge_pull_requests(
         runner(
             ["git", "pull", "--ff-only", "origin", "develop"], cwd=REPO_ROOT, check=True
         )
+        emit_progress(f"PR #{pr_number}: develop updated; running integration checks")
         verification = run_integration_checks(integration_checks, runner=runner)
         if verification.startswith("failed:"):
             results.append(
@@ -2639,6 +2697,7 @@ def merge_pull_requests(
         results.append(
             MergeResult(pr_number, "merged", "merged and develop updated", verification)
         )
+        emit_progress(f"PR #{pr_number}: merge completed")
     return results
 
 
@@ -2656,16 +2715,20 @@ def mark_pr_ready(pr_number: int, *, runner: Runner = run_command) -> MergeResul
 
 
 def wait_for_pr_checks(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
+    emit_progress(f"PR #{pr_number}: waiting for GitHub checks")
+    kwargs = {"capture_output": False} if runner is run_command else {}
     checks = runner(
         ["gh", "pr", "checks", str(pr_number), "--watch", "--interval", "10"],
         cwd=REPO_ROOT,
+        **kwargs,
     )
     if checks.returncode != 0:
         return MergeResult(
             pr_number,
             "blocked",
-            checks.stderr.strip() or "CI checks failed or unavailable",
+            (checks.stderr or "").strip() or "CI checks failed or unavailable",
         )
+    emit_progress(f"PR #{pr_number}: GitHub checks passed")
     return MergeResult(pr_number, "passed", "CI checks passed")
 
 
@@ -2707,7 +2770,7 @@ def check_pr_mergeability(
             "view",
             str(pr_number),
             "--json",
-            "isDraft,mergeStateStatus,number",
+            "baseRefName,headRefName,headRefOid,isDraft,mergeStateStatus,number",
         ],
         cwd=REPO_ROOT,
     )
@@ -2718,17 +2781,43 @@ def check_pr_mergeability(
         return MergeResult(pr_number, "draft", "PR is draft")
     merge_state = str(raw.get("mergeStateStatus") or "UNKNOWN")
     if merge_state not in {"CLEAN", "HAS_HOOKS", "UNSTABLE", "UNKNOWN"}:
-        return MergeResult(pr_number, "blocked", f"mergeStateStatus={merge_state}")
+        head_ref = str(raw.get("headRefName") or f"PR #{pr_number} head branch")
+        base_ref = str(raw.get("baseRefName") or "base branch")
+        return MergeResult(
+            pr_number,
+            "blocked",
+            (
+                f"mergeStateStatus={merge_state}; synchronize `{head_ref}` with "
+                f"`origin/{base_ref}`, rerun verification, push, and resume"
+            ),
+        )
     return MergeResult(pr_number, "mergeable", f"mergeStateStatus={merge_state}")
+
+
+def read_pr_head_oid(pr_number: int, *, runner: Runner = run_command) -> str:
+    completed = runner(
+        ["gh", "pr", "view", str(pr_number), "--json", "headRefOid,number"],
+        cwd=REPO_ROOT,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"could not read head commit for PR #{pr_number}")
+    head_oid = str(json.loads(completed.stdout).get("headRefOid") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", head_oid):
+        raise ValueError(f"PR #{pr_number} returned an invalid head commit")
+    return head_oid
 
 
 def run_integration_checks(checks: list[str], *, runner: Runner = run_command) -> str:
     if not checks:
         return "not-configured"
-    for check in checks:
-        completed = runner(["sh", "-lc", check], cwd=REPO_ROOT)
+    for index, check in enumerate(checks, start=1):
+        emit_progress(f"integration check {index}/{len(checks)} started: {check}")
+        kwargs = {"capture_output": False} if runner is run_command else {}
+        completed = runner(["sh", "-c", check], cwd=REPO_ROOT, **kwargs)
         if completed.returncode != 0:
+            emit_progress(f"integration check {index}/{len(checks)} failed")
             return f"failed: {check}"
+        emit_progress(f"integration check {index}/{len(checks)} passed")
     return "passed"
 
 
@@ -2750,10 +2839,207 @@ def render_merge_report(results: list[MergeResult]) -> str:
     return "\n".join(lines)
 
 
+def render_merge_recovery_report(results: list[MergeResult]) -> str:
+    blocked = [result for result in results if result.status == "blocked"]
+    lines = ["# Merge Recovery Report", ""]
+    if not blocked:
+        return "# Merge Recovery Report\n\nNo recovery action is required.\n"
+    lines.extend(
+        [
+            "A merge gate blocked. No conflict was resolved automatically.",
+            "Follow the per-PR blocker below. For a base-sync blocker, synchronize the named head branch, rerun verification, push, and resume the same run.",
+            "",
+        ]
+    )
+    for result in blocked:
+        lines.extend(
+            [
+                f"- PR #{result.pr_number}: {result.message}",
+            ]
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def close_merged_issues(
+    issue_to_pr: dict[int, int],
+    merge_results: list[MergeResult],
+    *,
+    authorized: bool,
+    dry_run: bool,
+    runner: Runner = run_command,
+) -> list[IssueCloseResult]:
+    merged_prs = {
+        result.pr_number for result in merge_results if result.status == "merged"
+    }
+    results: list[IssueCloseResult] = []
+    for issue_number, pr_number in issue_to_pr.items():
+        if pr_number not in merged_prs:
+            continue
+        if dry_run:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "planned" if authorized else "not-authorized",
+                    "dry-run: Issue close skipped",
+                )
+            )
+            continue
+        if not authorized:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "not-authorized",
+                    "pass --close-issues to authorize closing this merged Issue",
+                )
+            )
+            continue
+        viewed = runner(
+            ["gh", "issue", "view", str(issue_number), "--json", "number,state"],
+            cwd=REPO_ROOT,
+        )
+        if viewed.returncode != 0:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    (viewed.stderr or "").strip() or "could not read Issue state",
+                )
+            )
+            continue
+        try:
+            state = str(json.loads(viewed.stdout).get("state") or "").upper()
+        except json.JSONDecodeError:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    "Issue state response was not valid JSON",
+                )
+            )
+            continue
+        if state == "CLOSED":
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "already-closed",
+                    "Issue was already closed",
+                )
+            )
+            continue
+        if state != "OPEN":
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    f"unexpected Issue state: {state or 'unset'}",
+                )
+            )
+            continue
+        emit_progress(f"Issue #{issue_number}: closing after PR #{pr_number} merged")
+        closed = runner(
+            [
+                "gh",
+                "issue",
+                "close",
+                str(issue_number),
+                "--reason",
+                "completed",
+                "--comment",
+                f"Implemented and merged into develop via PR #{pr_number}.",
+            ],
+            cwd=REPO_ROOT,
+        )
+        if closed.returncode != 0:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    (closed.stderr or "").strip() or "Issue close failed",
+                )
+            )
+            continue
+        verified = runner(
+            ["gh", "issue", "view", str(issue_number), "--json", "number,state"],
+            cwd=REPO_ROOT,
+        )
+        if verified.returncode != 0:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    (verified.stderr or "").strip()
+                    or "Issue close succeeded but state readback failed",
+                )
+            )
+            continue
+        try:
+            verified_state = str(
+                json.loads(verified.stdout).get("state") or ""
+            ).upper()
+        except json.JSONDecodeError:
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    "Issue close readback was not valid JSON",
+                )
+            )
+            continue
+        if verified_state != "CLOSED":
+            results.append(
+                IssueCloseResult(
+                    issue_number,
+                    pr_number,
+                    "blocked",
+                    f"Issue close was not confirmed; readback state={verified_state or 'unset'}",
+                )
+            )
+            continue
+        results.append(
+            IssueCloseResult(
+                issue_number,
+                pr_number,
+                "closed",
+                "Issue closed as completed after mapped PR merge",
+            )
+        )
+    return results
+
+
+def render_issue_close_report(results: list[IssueCloseResult]) -> str:
+    lines = ["# Issue Close Report", ""]
+    if not results:
+        return "# Issue Close Report\n\nNo merged Issues were eligible for closure.\n"
+    for result in results:
+        lines.extend(
+            [
+                f"## Issue #{result.issue_number}",
+                "",
+                f"- PR: `#{result.pr_number}`",
+                f"- Status: `{result.status}`",
+                f"- Message: {result.message}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def render_uat_report(
     analyses: list[IssueAnalysis],
     results: list[UatResult] | None = None,
     gate: UatGateResult | None = None,
+    *,
+    ignored_out_of_scope_results: int = 0,
 ) -> str:
     by_scenario = {
         (result.issue_number, result.scenario_index): result
@@ -2771,6 +3057,7 @@ def render_uat_report(
         "",
         "- Worker command evidence: see `worker-verification.md`.",
         "- Pull-request checks: see `ci-report.md`.",
+        f"- Ignored out-of-scope UAT results: {ignored_out_of_scope_results}.",
         "",
         "## Manual CLI / TTY / GUI / Real-device Checks",
         "",
@@ -2790,6 +3077,8 @@ def render_uat_report(
                     f"- 操作: `{criterion}` を確認できる画面または実機操作を行う。",
                     f"- 期待結果: {criterion}",
                     f"- Actual: {result.actual if result else 'unchecked'}",
+                    "- Candidate head SHA: "
+                    + (result.candidate_head_sha if result else "unchecked"),
                     "- Evidence: "
                     + (
                         result.evidence
@@ -2819,13 +3108,13 @@ def load_uat_results(path: Path | None) -> list[UatResult]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     items = raw["results"] if isinstance(raw, dict) and "results" in raw else raw
     if not isinstance(items, list):
-        raise ValueError(
+        raise TypeError(
             "UAT results JSON must be a list or an object with a 'results' list"
         )
     results: list[UatResult] = []
     for item in items:
         if not isinstance(item, dict):
-            raise ValueError("each UAT result must be an object")
+            raise TypeError("each UAT result must be an object")
         results.append(
             UatResult(
                 issue_number=int(item["issue_number"]),
@@ -2833,9 +3122,25 @@ def load_uat_results(path: Path | None) -> list[UatResult]:
                 status=str(item.get("status") or "").strip().lower(),
                 actual=str(item.get("actual") or "").strip(),
                 evidence=str(item.get("evidence") or "").strip(),
+                candidate_head_sha=str(item.get("candidate_head_sha") or "")
+                .strip()
+                .lower(),
             )
         )
     return results
+
+
+def scope_uat_results(
+    results: list[UatResult],
+    requested_issues: list[int],
+    *,
+    allow_superset: bool,
+) -> tuple[list[UatResult], int]:
+    if not allow_superset:
+        return results, 0
+    requested = set(requested_issues)
+    scoped = [result for result in results if result.issue_number in requested]
+    return scoped, len(results) - len(scoped)
 
 
 def evaluate_uat_gate(
@@ -2844,6 +3149,8 @@ def evaluate_uat_gate(
     *,
     require_complete: bool,
     dry_run: bool,
+    expected_head_by_issue: dict[int, str] | None = None,
+    require_head_binding: bool = False,
 ) -> UatGateResult:
     if dry_run:
         return UatGateResult("planned", "dry-run: UAT evidence not evaluated")
@@ -2894,6 +3201,29 @@ def evaluate_uat_gate(
                 "blocked",
                 f"UAT evidence is empty for Issue #{key[0]} scenario {key[1]}",
             )
+        expected_head = (expected_head_by_issue or {}).get(key[0], "").lower()
+        if require_head_binding and not result.candidate_head_sha:
+            return UatGateResult(
+                "blocked",
+                f"UAT candidate head SHA is empty for Issue #{key[0]} scenario {key[1]}",
+            )
+        if require_head_binding and not re.fullmatch(
+            r"[0-9a-f]{40}", result.candidate_head_sha
+        ):
+            return UatGateResult(
+                "blocked",
+                f"UAT candidate head SHA is invalid for Issue #{key[0]} scenario {key[1]}",
+            )
+        if require_head_binding and not expected_head:
+            return UatGateResult(
+                "blocked",
+                f"current PR head is unavailable for Issue #{key[0]}",
+            )
+        if require_head_binding and result.candidate_head_sha != expected_head:
+            return UatGateResult(
+                "blocked",
+                f"UAT candidate head does not match current PR head for Issue #{key[0]} scenario {key[1]}",
+            )
     return UatGateResult(
         "passed", f"all {len(expected)} UAT scenarios passed with evidence"
     )
@@ -2905,7 +3235,7 @@ def load_uat_failures(path: Path | None) -> list[UatFailure]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     items = raw["failures"] if isinstance(raw, dict) and "failures" in raw else raw
     if not isinstance(items, list):
-        raise ValueError(
+        raise TypeError(
             "UAT failures JSON must be a list or an object with a 'failures' list"
         )
     failures: list[UatFailure] = []
@@ -3309,6 +3639,7 @@ def main() -> int:
     )
     if dry_run and publish_requested and not pr_numbers:
         pr_numbers = issue_merge_order
+    issue_to_pr = dict(zip(issue_merge_order, pr_numbers))
 
     uat_gate = UatGateResult("not-requested", "UAT phase was not requested")
     uat_requested = (
@@ -3316,8 +3647,14 @@ def main() -> int:
         or merge_requested
         or (not dry_run and phase_at_least(args.phase, "uat"))
     )
+    expected_head_by_issue: dict[int, str] = {}
     if uat_requested:
-        uat_results = load_uat_results(args.uat_results_json)
+        loaded_uat_results = load_uat_results(args.uat_results_json)
+        uat_results, ignored_uat_results = scope_uat_results(
+            loaded_uat_results,
+            [analysis.issue.number for analysis in analyses],
+            allow_superset=args.allow_uat_superset,
+        )
         failures = load_uat_failures(args.uat_failures_json)
         ci_results = (
             wait_for_all_pr_checks(pr_numbers, dry_run=dry_run)
@@ -3331,13 +3668,27 @@ def main() -> int:
         ci_passed = bool(ci_results) and all(
             result.status in allowed_ci_statuses for result in ci_results
         )
+        head_lookup_error = ""
+        if ci_passed and merge_requested and not dry_run:
+            try:
+                expected_head_by_issue = {
+                    issue_number: read_pr_head_oid(pr_number)
+                    for issue_number, pr_number in issue_to_pr.items()
+                }
+            except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                head_lookup_error = str(exc)
         if ci_passed:
-            uat_gate = evaluate_uat_gate(
-                analyses,
-                uat_results,
-                require_complete=merge_requested,
-                dry_run=dry_run,
-            )
+            if head_lookup_error:
+                uat_gate = UatGateResult("blocked", head_lookup_error)
+            else:
+                uat_gate = evaluate_uat_gate(
+                    analyses,
+                    uat_results,
+                    require_complete=merge_requested,
+                    dry_run=dry_run,
+                    expected_head_by_issue=expected_head_by_issue,
+                    require_head_binding=merge_requested and not dry_run,
+                )
         else:
             uat_gate = UatGateResult(
                 "planned" if dry_run else "blocked",
@@ -3348,7 +3699,13 @@ def main() -> int:
                 "blocked", f"{len(failures)} explicit UAT failures recorded"
             )
         (run_dir / "uat-report.md").write_text(
-            render_uat_report(analyses, uat_results, uat_gate), encoding="utf-8"
+            render_uat_report(
+                analyses,
+                uat_results,
+                uat_gate,
+                ignored_out_of_scope_results=ignored_uat_results,
+            ),
+            encoding="utf-8",
         )
         (run_dir / "uat-fix-prompts.md").write_text(
             render_uat_fix_prompts(failures, analyses),
@@ -3393,6 +3750,7 @@ def main() -> int:
                 )
             )
 
+    merge_results: list[MergeResult] = []
     if merge_requested and can_publish:
         if not pr_numbers:
             raise ValueError("merge phase requires created/existing PR numbers")
@@ -3402,9 +3760,26 @@ def main() -> int:
             merge_method=args.merge_method,
             integration_checks=args.integration_check,
             uat_gate=uat_gate,
+            expected_head_by_pr={
+                pr_number: expected_head_by_issue[issue_number]
+                for issue_number, pr_number in issue_to_pr.items()
+                if issue_number in expected_head_by_issue
+            },
         )
         (run_dir / "merge-report.md").write_text(
             render_merge_report(merge_results), encoding="utf-8"
+        )
+        (run_dir / "merge-recovery-report.md").write_text(
+            render_merge_recovery_report(merge_results), encoding="utf-8"
+        )
+        issue_close_results = close_merged_issues(
+            issue_to_pr,
+            merge_results,
+            authorized=args.close_issues,
+            dry_run=dry_run,
+        )
+        (run_dir / "issue-close-report.md").write_text(
+            render_issue_close_report(issue_close_results), encoding="utf-8"
         )
         for result in merge_results:
             if result.status not in {"merged", "blocked"}:
@@ -3426,6 +3801,14 @@ def main() -> int:
     elif merge_requested:
         (run_dir / "merge-report.md").write_text(
             "# Merge Report\n\nSkipped because worker completion or verification did not pass.\n",
+            encoding="utf-8",
+        )
+        (run_dir / "merge-recovery-report.md").write_text(
+            "# Merge Recovery Report\n\nMerge did not start because an earlier gate blocked publication.\n",
+            encoding="utf-8",
+        )
+        (run_dir / "issue-close-report.md").write_text(
+            "# Issue Close Report\n\nNo Issue was closed because no PR was merged.\n",
             encoding="utf-8",
         )
 

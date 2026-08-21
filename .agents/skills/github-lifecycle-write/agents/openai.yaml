@@ -1,0 +1,6 @@
+interface:
+  display_name: "GitHub Lifecycle Write"
+  short_description: "Apply authorized Issue and PR state changes"
+  default_prompt: "Use $github-lifecycle-write to apply the exact authorized GitHub lifecycle change with read-before-write verification."
+policy:
+  allow_implicit_invocation: true

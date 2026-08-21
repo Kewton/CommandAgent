@@ -16,6 +16,7 @@ Plan issue work first, then continue through verified draft pull requests, CI, e
 - Treat existing files under `workspace/management/runs/` as frozen historical evidence.
 - Do not delete, reset, or overwrite existing worktrees without explicit approval.
 - Treat an invocation of `$orchestrate` with one or more Issues as authorization to create or reuse issue worktrees, dispatch CommandMate Codex workers, push issue branches, create or reuse draft pull requests targeting `develop`, run CI and UAT gates, mark passing drafts ready, and merge them in dependency order.
+- Treat Issue lifecycle mutation separately from merge authorization. Close a merged Issue only when the user explicitly requests it, apply `$github-lifecycle-write`, and pass `--close-issues`; otherwise record `not-authorized` in `issue-close-report.md`.
 - Apply that standing authorization only to the invoked orchestration run. A user instruction such as `plan only`, `stop after development`, `do not create PRs`, or `do not merge` narrows the run and takes precedence.
 - Create pull requests as drafts. Do not mark them ready until worker verification, CI, and UAT pass.
 - Never merge with failing or unavailable CI, incomplete UAT evidence, or a blocking UAT result.
@@ -38,12 +39,15 @@ Unless the user narrows the scope, advance through every phase below without req
 2. Develop: create issue worktrees, then dispatch and verify Codex workers one bounded dependency batch at a time. Stop before dispatching later batches when any earlier worker fails dispatch, wait, or verification.
 3. Verify: require each worktree's `dev-reports/issue-<number>/verification.md` to report `passed` with every recorded check passing. Stop on missing, failed, or ambiguous evidence.
 4. Pull request: push the issue branch and create or reuse a draft PR only after verification passes.
-5. CI and UAT: wait for all PR checks, then execute or collect every generated UAT scenario with evidence. Read [UAT result input](references/uat-results.md) before this phase.
-6. Merge: only after all PRs pass CI and every UAT scenario passes with evidence, mark drafts ready, recheck CI and mergeability, then map Issue dependency order to PR numbers and merge in that enforced order.
+5. CI and UAT: wait for all PR checks, resolve each PR's current `headRefOid`, then execute or collect every generated UAT scenario with evidence bound to that exact commit. Read [UAT result input](references/uat-results.md) before this phase.
+6. Merge: only after all PRs pass CI and every UAT scenario passes with evidence for the current PR heads, mark drafts ready, recheck CI and mergeability, then map Issue dependency order to PR numbers and merge in that enforced order. If base synchronization or conflicts block a PR, stop and use `merge-recovery-report.md`; do not resolve conflicts automatically.
+7. Issue lifecycle: when `--close-issues` was explicitly authorized, close only Issues mapped to PRs that this invocation recorded as `merged`. Read current Issue state before writing and retain `issue-close-report.md` as the audit.
 
 `--merge-method` defaults to `merge`. Always pass an explicit merge strategy to the non-interactive GitHub CLI; use `squash` or `rebase` only when the user requests it.
 
 `--phase uat` must not merge. `--phase merge` must require `--uat-results-json`; missing or incomplete evidence blocks merging. The default authorization includes pull-request creation and merging, but it does not authorize starting or stopping CommandMate or killing processes. If CommandMate is unavailable, report that blocker and request the specific external action needed.
+
+`--phase merge` also requires every UAT result to contain the exact current PR `candidate_head_sha`. A prior passing result becomes stale when the PR head moves. To reuse one aggregate result file for a smaller Issue subset, pass `--allow-uat-superset`; this ignores only entries for non-requested Issues. Duplicate or unexpected scenarios within the requested Issues still block the gate.
 
 ## First Action
 
@@ -82,6 +86,8 @@ The dispatched worker prompt invokes `$codex-issue-worker`. Keep that skill avai
 Treat worker completion as necessary but insufficient for publication. Inspect the worker verification gate before creating a draft PR. Treat CI success as necessary but insufficient for merging; UAT must also pass with complete evidence.
 
 For multi-Issue development, inspect `scheduler-report.md` and `commandmate-wait-report.md`. A completed batch must show every worker completed and passed verification. Do not manually bypass a blocked batch by dispatching its dependents. A later worker prompt lists required dependency or file-conflict predecessor branches and worktrees to inspect before editing; live dispatch reaches that prompt only after those predecessors pass, while dry-run output is only a plan. It does not claim those branches are already merged.
+
+Watch the timestamped progress emitted while GitHub checks, merge preflights, merges, and integration checks run. Integration commands execute with `sh -c` from the repository root so the caller's selected interpreter and `PATH` are preserved; do not wrap them in a login shell. After merge attempts, inspect `merge-report.md`, `merge-recovery-report.md`, and `issue-close-report.md` together.
 
 ## Verification
 
