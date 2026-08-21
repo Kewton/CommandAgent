@@ -39,7 +39,10 @@ existing local-precedence warning applies.
 A pinned editor is read-only. Retirement requires a separate irreversible
 acknowledgement, removes the Trial handoff, and enters a terminal read-only
 state. There is no edit-after-pin, pin overwrite, delete, or unretire control;
-create a new version for any byte change.
+create a new version for any byte change. After pin or retirement, choose
+**新しい version を作る** to copy the displayed members into an editable next
+patch version without reloading. The copy is only a local draft until
+**保存して検証** stages it through the same lifecycle API.
 
 ## Extensions catalog
 

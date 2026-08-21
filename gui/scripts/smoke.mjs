@@ -2272,6 +2272,45 @@ async function probePackWizard(page, browser, origin, basePath) {
     await trialPage.close();
   }
 
+  await page.locator("[data-testid='pack-wizard-new-version']").click();
+  await page.locator("[data-testid='pack-wizard-editor']").waitFor();
+  const pinnedNextVersion = await page.locator("[data-testid='pack-wizard-version']").inputValue();
+  const pinnedNextDraftEditable =
+    !(await page.locator("[data-testid='pack-wizard-id']").isDisabled()) &&
+    !(await page.locator("[data-testid='pack-wizard-version']").isDisabled()) &&
+    !(await page.locator("[data-testid='pack-wizard-assist']").isDisabled());
+  const pinnedNextMembers = await readWizardMembers(page);
+  const pinnedNextMembersCopied = memberMapsMatchNextVersion(
+    displayedMembers,
+    pinnedNextMembers,
+    "1.0.0",
+    pinnedNextVersion,
+  );
+  await page.getByRole("button", { name: "保存して検証" }).click();
+  await success.waitFor();
+  const stagedNextDetail = await page.evaluate(
+    async ({ packUrl, token }) => {
+      const response = await fetch(packUrl, {
+        headers: { "x-commandagent-trial-authorization": `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`next pack detail returned ${response.status}`);
+      return response.json();
+    },
+    {
+      packUrl: new URL(
+        `${prefix}api/extensions/packs/nextjs-acme/${pinnedNextVersion}`,
+        origin,
+      ).href,
+      token: trialCredential,
+    },
+  );
+  const pinnedNextVersionStaged =
+    (await page.locator("[data-testid='pack-wizard']").getAttribute("data-lifecycle")) === "staged" &&
+    stagedNextDetail.version === pinnedNextVersion &&
+    stagedNextDetail.report.status === "staged";
+  await page.locator("[data-testid='pack-wizard-to-pin']").click();
+  await page.locator("[data-testid='pack-wizard-pin-action']").click();
+  await page.locator("[data-testid='pack-wizard-pinned']").waitFor();
   await page.locator(".pack-retire-panel summary").click();
   await page.locator("[data-testid='pack-wizard-retire-confirm']").check();
   await page.locator("[data-testid='pack-wizard-retire-action']").click();
@@ -2279,6 +2318,20 @@ async function probePackWizard(page, browser, origin, basePath) {
   const retiredHasNoTrialLink = (await page.locator("[data-testid='pack-wizard-trial-link']").count()) === 0;
   await page.locator(".pack-wizard-steps li:nth-child(3) button").click();
   const retiredEditorDisabled = await page.locator("[data-testid='pack-wizard-assist']").isDisabled();
+  await page.locator(".pack-wizard-steps li:nth-child(5) button").click();
+  await page.locator("[data-testid='pack-wizard-new-version']").click();
+  await page.locator("[data-testid='pack-wizard-editor']").waitFor();
+  const retiredNextVersion = await page.locator("[data-testid='pack-wizard-version']").inputValue();
+  const retiredNextDraftEditable =
+    retiredNextVersion === "1.0.2" &&
+    !(await page.locator("[data-testid='pack-wizard-assist']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard']").getAttribute("data-lifecycle")) === "draft";
+  const retiredNextMembersCopied = memberMapsMatchNextVersion(
+    pinnedNextMembers,
+    await readWizardMembers(page),
+    pinnedNextVersion,
+    retiredNextVersion,
+  );
 
   return {
     active_after_failure: activeAfterFailure,
@@ -2287,8 +2340,15 @@ async function probePackWizard(page, browser, origin, basePath) {
     failure_text: issueText,
     pinned_bytes_match_display: pinnedBytesMatchDisplay,
     pinned_editor_disabled: pinnedEditorDisabled,
+    pinned_next_draft_editable: pinnedNextDraftEditable,
+    pinned_next_members_copied: pinnedNextMembersCopied,
+    pinned_next_version: pinnedNextVersion,
+    pinned_next_version_staged: pinnedNextVersionStaged,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
+    retired_next_draft_editable: retiredNextDraftEditable,
+    retired_next_members_copied: retiredNextMembersCopied,
+    retired_next_version: retiredNextVersion,
     selected_pack: selectedPack,
     selector,
     reverified_hash: reverifiedHash,
@@ -2303,10 +2363,16 @@ async function probePackWizard(page, browser, origin, basePath) {
       pinnedBytesMatchDisplay &&
       pinnedDetail.report.hash === reverifiedHash &&
       pinnedEditorDisabled &&
+      pinnedNextVersion === "1.0.1" &&
+      pinnedNextDraftEditable &&
+      pinnedNextMembersCopied &&
+      pinnedNextVersionStaged &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
-      retiredHasNoTrialLink,
+      retiredHasNoTrialLink &&
+      retiredNextDraftEditable &&
+      retiredNextMembersCopied,
   };
 }
 
@@ -2329,6 +2395,21 @@ async function readWizardMembers(page) {
 function memberMapsEqual(left, right) {
   const entries = (members) => Object.entries(members).sort(([a], [b]) => a.localeCompare(b));
   return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
+}
+
+function memberMapsMatchNextVersion(previous, next, previousVersion, nextVersion) {
+  const replaceVersion = (document) =>
+    document.replace(`  version: ${previousVersion}`, `  version: ${nextVersion}`);
+  const expected = {
+    ...previous,
+    ...(previous["assist.yaml"] === undefined
+      ? {}
+      : { "assist.yaml": replaceVersion(previous["assist.yaml"]) }),
+    ...(previous["eval.yaml"] === undefined
+      ? {}
+      : { "eval.yaml": replaceVersion(previous["eval.yaml"]) }),
+  };
+  return memberMapsEqual(expected, next);
 }
 
 async function probeExtensionCatalog(page) {

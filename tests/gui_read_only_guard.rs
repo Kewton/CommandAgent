@@ -923,10 +923,14 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "verifyExtensionPack",
         "pinExtensionPack",
         "retireExtensionPack",
+        "startNextVersion",
+        "incrementPatchVersion",
         "immutableLifecycleFromConflict",
         "immutable = lifecycle === \"pinned\" || lifecycle === \"retired\"",
         "disabled={immutable}",
         "data-testid=\"pack-wizard-trial-link\"",
+        "data-testid=\"pack-wizard-new-version\"",
+        "新しい version を作る",
         "ローカル（未承認・帯域未計測）",
         "retired — 終端状態",
     ] {
@@ -963,6 +967,8 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "pack-wizard-pinned",
         "pack-wizard-retired",
         "pinnedBytesMatchDisplay",
+        "pinnedNextVersionStaged",
+        "retiredNextDraftEditable",
         "selectedPack === selector",
     ] {
         assert!(
