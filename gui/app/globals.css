@@ -82,6 +82,7 @@ button {
   top: 0;
   grid-area: topbar;
   display: flex;
+  gap: 1rem;
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
@@ -92,14 +93,17 @@ button {
 
 .brand {
   display: flex;
+  min-width: 0;
   gap: 0.7rem;
   align-items: center;
+  white-space: nowrap;
 }
 
 .brand-mark {
   display: grid;
   width: 2rem;
   height: 2rem;
+  flex: 0 0 auto;
   place-items: center;
   border-radius: var(--radius);
   background: var(--accent);
@@ -138,10 +142,13 @@ button {
 }
 
 .runtime-summary {
+  flex: 0 0 auto;
   gap: 0.4rem;
+  white-space: nowrap;
 }
 
 .runtime-badge {
+  flex: 0 0 auto;
   gap: 0.4rem;
   padding: 0.4rem 0.65rem;
   border: 1px solid var(--line);
@@ -347,12 +354,14 @@ a.runtime-badge:focus-visible {
 }
 
 .getting-started-close {
+  flex: 0 0 auto;
   padding: 0.35rem 0.55rem;
   border: 1px solid var(--line-bright);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--muted-strong);
   font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .getting-started-body {
@@ -1936,10 +1945,17 @@ a.runtime-badge:focus-visible {
   text-underline-offset: 0.18em;
 }
 
+.session-index,
+.session-list li,
+.gate-one-grid,
+.execution-panel,
+.terminal-grid {
+  scroll-margin-top: 4.5rem;
+}
+
 .session-index {
   margin-bottom: 1rem;
   overflow: hidden;
-  scroll-margin-top: 1rem;
 }
 
 .session-index .panel-heading h2 {
@@ -2002,7 +2018,6 @@ a.runtime-badge:focus-visible {
   align-items: center;
   padding: 0.8rem 1.25rem;
   border-bottom: 1px solid var(--line);
-  scroll-margin-top: 1rem;
 }
 
 .session-list li.highlight {
@@ -2999,8 +3014,22 @@ a.runtime-badge:focus-visible {
   }
 
   .topbar {
+    gap: 0.5rem;
     min-height: 3.75rem;
     padding: 0 1rem;
+  }
+
+  .brand {
+    gap: 0.45rem;
+  }
+
+  .brand-mark {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .brand strong {
+    font-size: 0.78rem;
   }
 
   .brand small {
@@ -3319,12 +3348,6 @@ a.runtime-badge:focus-visible {
 
   .gate-one-actions .primary-action {
     margin-top: 0;
-  }
-
-  .gate-one-grid,
-  .execution-panel,
-  .terminal-grid {
-    scroll-margin-top: 4.5rem;
   }
 
   .reconnect-card > div {

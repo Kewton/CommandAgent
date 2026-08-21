@@ -654,8 +654,19 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
         ".trial-compose > textarea,\n  .trial-compose > input {\n    width: calc(100% - 2rem);"
     ));
     assert!(styles.contains(
-        ".gate-one-grid,\n  .execution-panel,\n  .terminal-grid {\n    scroll-margin-top: 4.5rem;"
+        ".session-index,\n.session-list li,\n.gate-one-grid,\n.execution-panel,\n.terminal-grid {\n  scroll-margin-top: 4.5rem;"
     ));
+    for required in [
+        ".runtime-summary {\n  flex: 0 0 auto;\n  gap: 0.4rem;\n  white-space: nowrap;",
+        ".runtime-badge {\n  flex: 0 0 auto;",
+        ".getting-started-close {\n  flex: 0 0 auto;",
+        "  .topbar {\n    gap: 0.5rem;",
+    ] {
+        assert!(
+            styles.contains(required),
+            "mobile single-line header contract is missing {required:?}"
+        );
+    }
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
@@ -691,6 +702,10 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "--overview-only",
+        "getting_started_close",
+        "running_header_mobile_390",
+        "runtimeHeaderLayout(page)",
+        "singleLineTextLayout(gettingStartedClose)",
         "statusBadgesArePlainText",
         "runCountText === expectedRunCountText",
     ] {

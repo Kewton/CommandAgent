@@ -842,6 +842,7 @@ async function runCase(smokeCase) {
     const connectedMonitorText = await connectedMonitor.innerText();
     await page.locator("[data-testid='runtime-status'][data-session-state='running']").waitFor({ timeout: 10_000 });
     const runningRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    const runningHeaderLayout = await runtimeHeaderLayout(page);
     const executionScroll = await mobileStageScroll(page, "[data-testid='session-progress']");
     await page.screenshot({
       fullPage: true,
@@ -1162,6 +1163,7 @@ async function runCase(smokeCase) {
       idleRuntimeText.includes("Trial 利用可") &&
       idleRuntimeText.includes("実行中なし") &&
       runningRuntimeText.includes(`実行中 ${sessionId.slice(0, 8)}`) &&
+      runningHeaderLayout.ok &&
       completedRuntimeText.includes("実行中なし") &&
       sessionIndexText.includes(sessionId) &&
       sessionIndexText.includes("開始:") &&
@@ -1271,6 +1273,7 @@ async function runCase(smokeCase) {
       runtime_status: {
         completed_visible_text: completedRuntimeText,
         idle_visible_text: idleRuntimeText,
+        running_header_mobile_390: runningHeaderLayout,
         running_visible_text: runningRuntimeText,
       },
       session_index: {
@@ -2174,6 +2177,70 @@ async function mobileStageScroll(page, selector) {
   });
 }
 
+async function runtimeHeaderLayout(page) {
+  return page.locator(".topbar").evaluate((topbar) => {
+    const brand = topbar.querySelector(".brand");
+    const summary = topbar.querySelector(".runtime-summary");
+    const badges = [...topbar.querySelectorAll(".runtime-badge")];
+    if (brand === null || summary === null || badges.length !== 2) {
+      throw new Error("Runtime header elements are missing");
+    }
+    const bounds = topbar.getBoundingClientRect();
+    const brandBounds = brand.getBoundingClientRect();
+    const summaryBounds = summary.getBoundingClientRect();
+    const badgeLayouts = badges.map((badge) => {
+      const badgeBounds = badge.getBoundingClientRect();
+      const textNode = [...badge.childNodes].find(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+      );
+      if (textNode === undefined) throw new Error("Runtime badge text is missing");
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      return {
+        height_px: badgeBounds.height,
+        line_count: range.getClientRects().length,
+        text: textNode.textContent?.trim() ?? "",
+      };
+    });
+    const fitsViewport = bounds.left >= 0 && bounds.right <= window.innerWidth;
+    const itemsSeparated = brandBounds.right <= summaryBounds.left;
+    const badgesStayOnOneLine = badgeLayouts.every((badge) => badge.line_count === 1);
+    return {
+      badges: badgeLayouts,
+      brand_summary_gap_px: summaryBounds.left - brandBounds.right,
+      fits_viewport: fitsViewport,
+      ok:
+        window.innerWidth === 390 &&
+        bounds.height <= 61 &&
+        fitsViewport &&
+        itemsSeparated &&
+        badgesStayOnOneLine,
+      topbar_height_px: bounds.height,
+      viewport_width: window.innerWidth,
+    };
+  });
+}
+
+async function singleLineTextLayout(locator) {
+  return locator.evaluate((element) => {
+    const textNode = [...element.childNodes].find(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+    );
+    if (textNode === undefined) throw new Error("Visible control text is missing");
+    const range = document.createRange();
+    range.selectNodeContents(textNode);
+    const bounds = element.getBoundingClientRect();
+    const lineCount = range.getClientRects().length;
+    return {
+      fits_viewport: bounds.left >= 0 && bounds.right <= window.innerWidth,
+      line_count: lineCount,
+      single_line: lineCount === 1,
+      text: textNode.textContent?.trim() ?? "",
+      white_space: getComputedStyle(element).whiteSpace,
+    };
+  });
+}
+
 async function allEnabled(locator, expectedCount) {
   return locator.evaluateAll(
     (controls, count) =>
@@ -2192,6 +2259,13 @@ async function probeMobile(browser, origin, basePath) {
     const dashboard = await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
     const dashboardHeading = await page.locator("h1").innerText();
     const dashboardIntroOneLine = await page.locator(".page-intro > p").isHidden();
+    const gettingStartedClose = page.locator("[data-testid='getting-started-close']");
+    await gettingStartedClose.waitFor();
+    const gettingStartedCloseLayout = await singleLineTextLayout(gettingStartedClose);
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${basePath === "/" ? "root" : "proxy-commandagent"}-getting-started-mobile.png`),
+    });
     const dashboardFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
@@ -2205,13 +2279,21 @@ async function probeMobile(browser, origin, basePath) {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
     return {
-      dashboard: { fits_viewport: dashboardFits, heading: dashboardHeading, intro_one_line: dashboardIntroOneLine, status: dashboard?.status() ?? 0 },
+      dashboard: {
+        fits_viewport: dashboardFits,
+        getting_started_close: gettingStartedCloseLayout,
+        heading: dashboardHeading,
+        intro_one_line: dashboardIntroOneLine,
+        status: dashboard?.status() ?? 0,
+      },
       trial: { fits_viewport: trialFits, heading: trialHeading, intro_one_line: trialIntroOneLine, status: trial?.status() ?? 0 },
       ok:
         dashboard?.status() === 200 &&
         dashboardHeading === "概要" &&
         dashboardIntroOneLine &&
         dashboardFits &&
+        gettingStartedCloseLayout.single_line &&
+        gettingStartedCloseLayout.white_space === "nowrap" &&
         trial?.status() === 200 &&
         trialHeading === "トライアル" &&
         trialIntroOneLine &&
