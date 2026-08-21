@@ -43,3 +43,13 @@ The verified predecessor tips for Issues 147, 160/161, and 245/246 were merged
 before implementation. This keeps the documentation and tests aligned with the
 19 accepted slash-command names, GUI behavior, and extension discovery rules
 that Issue 154 depends on.
+
+## CI follow-up
+
+The Issue 160 Rust 1.98 compatibility code commit `714017ca` was cherry-picked
+as `c08d24aa`. The follow-up changes only
+`src/bin/gui_server/session_files.rs`: it boxes the Axum `Response` error behind
+`SessionFileError` and delegates `IntoResponse` back to the original response.
+Consequently the response status, headers, JSON bytes, confined-path handling,
+and symlink rejection remain unchanged. No lint allowance or Issue 160 report
+file was imported.
