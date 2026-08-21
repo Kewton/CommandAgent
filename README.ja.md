@@ -78,13 +78,29 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
    cargo install --path .
    ```
 
-4. 信頼できるプロジェクトへ移動し、1つのプロンプトを実行します。
+4. 信頼できるプロジェクトへ移動し、REPL を起動します。
 
    ```bash
    cd /path/to/your/project
-   commandagent --provider ollama --model "<your-model>" \
-     --prompt "Inspect this project and suggest one useful improvement."
+   commandagent --provider ollama --model "<your-model>"
    ```
+
+5. `commandagent>` で、依頼をスラッシュなしの平文として入力します。
+
+   ```text
+   commandagent> このプロジェクトに、テスト付きの小さな改善を1つ加えてください。
+   ```
+
+   CommandAgent は Gate 1 カードを表示しますが、まだ実行しません。依頼、書き込み
+   範囲、モデル、必須チェックを確認し、カードに表示された正確なハッシュを次の
+   コマンドへコピーします。
+
+   ```text
+   commandagent> /confirm sha256:<card-hash>
+   ```
+
+   `<card-hash>` はカード上の値に置き換えてください。`/confirm` がその内容を正確に
+   確認済みとして保存し、実行を開始します。
 
 `<your-model>` はプレースホルダーであり、実際のモデル ID ではありません。
 手元の `ollama list` に実在するモデルへ必ず置き換えてください。
@@ -206,6 +222,7 @@ REPL では、まず次のスラッシュコマンドを利用できます。
 | コマンド | 用途 |
 | --- | --- |
 | `/help` | 利用できる全スラッシュコマンドを表示 |
+| `/confirm <hash>` | 確認した Gate 1 カードを確定して実行を開始 |
 | `/status` | 有効な設定と準備状況を表示 |
 | `/plan-run <goal>` | ステッププランを生成して実行 |
 | `/ultra-plan-run <goal>` | UltraPlan を生成して実行 |

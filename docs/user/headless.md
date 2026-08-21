@@ -27,7 +27,8 @@ jq -R 'fromjson? // empty' commandagent.log | tail -n 1
 
 The schema identifier is `commandagent.headless-summary/v1`. Existing scalar
 keys are always present; unavailable measurements are JSON `null`. The
-additive `pack` object is omitted when no pack was selected.
+additive `provider_usage_by_role` object is empty when the event stream has no
+provider turns. The additive `pack` object is omitted when no pack was selected.
 
 | Field | Source and meaning |
 | --- | --- |
@@ -41,6 +42,7 @@ additive `pack` object is omitted when no pack was selected.
 | `events_path` | Exact event-stream path used by the run. |
 | `duration_secs` | Existing terminal `time_profile_total_ms`, converted from milliseconds to seconds; not a new wall-clock estimate. |
 | `provider_cost_usd` | Persisted provider/run cost when one exists; CommandAgent does not invent prices from tokens. |
+| `provider_usage_by_role` | Provider wall time and provider-reported prompt, generation, thinking-token, and prefill-ratio measurements grouped as `planner`, `executor`, `repair`, and `acceptance-repair`. Missing provider-reported measurements are `null`; the ratio is a fraction from `0.0` to `1.0`. |
 | `stop_class` | Failed terminal event `failure_kind`; `null` for a successful terminal. |
 | `directive_round` | Latest persisted directive round, or `0` for an ordinary non-directive run. |
 | `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
