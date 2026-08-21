@@ -1407,6 +1407,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     fullPage: true,
     path: join(outputDirectory, `${caseId}-run-detail.png`),
   });
+  const requestOwnership = await probeRunSelectionOwnership(page, runSummaries);
 
   const fullSizeLinkPresent = fullSizeHref?.endsWith("/api/maps/score-time.svg") ?? false;
   const unselectedHasNoRecords = !unselectedText.includes("NO RECORDS");
@@ -1424,6 +1425,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       no_records_label_absent: unselectedHasNoRecords,
       no_match_label_visible: noMatchLabelVisible,
       options_include_dates_and_status: optionsIncludeDatesAndStatus,
+      request_ownership: requestOwnership,
     },
     source_link: {
       href: sourceHref,
@@ -1450,6 +1452,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       noMatchLabelVisible &&
       filterMatchesId &&
       optionsIncludeDatesAndStatus &&
+      requestOwnership.ok &&
       sourceLinkPresent &&
       wrapToggle.classes_switch &&
       initialPressed === "true" &&
@@ -1459,6 +1462,112 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       mobilePageFits &&
       fullSizeLinkPresent,
   };
+}
+
+async function probeRunSelectionOwnership(page, runSummaries) {
+  const runIds = runSummaries.slice(0, 3).map((run) => run.id);
+  if (runIds.length < 3) {
+    throw new Error("Run selection ownership probe requires at least three runs");
+  }
+  const [, supersededRunId, currentRunId] = runIds;
+  const supersededRelease = deferred();
+  const currentRelease = deferred();
+  const supersededStarted = deferred();
+  const currentStarted = deferred();
+  const releases = new Map([
+    [supersededRunId, supersededRelease],
+    [currentRunId, currentRelease],
+  ]);
+  const starts = new Map([
+    [supersededRunId, supersededStarted],
+    [currentRunId, currentStarted],
+  ]);
+  const routePattern = "**/api/runs/*";
+  const routeHandler = async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const marker = "/api/runs/";
+    const markerIndex = pathname.lastIndexOf(marker);
+    const encodedId = markerIndex === -1 ? "" : pathname.slice(markerIndex + marker.length);
+    if (encodedId.includes("/")) {
+      await route.continue();
+      return;
+    }
+    const id = decodeURIComponent(encodedId);
+    const release = releases.get(id);
+    if (release === undefined) {
+      await route.continue();
+      return;
+    }
+    starts.get(id)?.resolve();
+    await release.promise;
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        id,
+        acceptance_path: "acceptance.md",
+        acceptance: `# RUN SWITCH ${id}`,
+        evidence: [{ id: "evidence.log", path: "evidence.log", size_bytes: 1 }],
+      }),
+    }).catch(() => undefined);
+  };
+
+  await page.route(routePattern, routeHandler);
+  try {
+    await page.locator("#run-filter").fill("");
+    await page.locator("#run-select").selectOption(supersededRunId);
+    await supersededStarted.promise;
+    await page.locator("#run-select").selectOption(currentRunId);
+    await currentStarted.promise;
+    await page.waitForTimeout(50);
+
+    const pendingSelection = {
+      evidence_list_count: await page.locator(".evidence-list").count(),
+      loading_visible: await page.locator(".run-document [role='status']").isVisible(),
+      viewer_count: await page.locator(".run-document .document-viewer").count(),
+    };
+
+    currentRelease.resolve();
+    await page.waitForFunction(
+      (markerText) =>
+        document.querySelector("[data-testid='document-content']")?.textContent?.includes(markerText),
+      `RUN SWITCH ${currentRunId}`,
+    );
+    const currentContent = await page.locator("[data-testid='document-content']").innerText();
+
+    await page.locator("#run-select").selectOption("");
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll(".run-document .state-code")]
+          .some((node) => node.textContent === "実行未選択"),
+    );
+    const emptySelection = {
+      empty_selection_cleared:
+        (await page.locator(".evidence-list").count()) === 0 &&
+        (await page.locator(".run-document .document-viewer").count()) === 0,
+      evidence_list_count: await page.locator(".evidence-list").count(),
+      viewer_count: await page.locator(".run-document .document-viewer").count(),
+    };
+
+    const currentRunWon =
+      currentContent.includes(`RUN SWITCH ${currentRunId}`) &&
+      !currentContent.includes(`RUN SWITCH ${supersededRunId}`);
+    return {
+      current_run_won: currentRunWon,
+      empty_selection: emptySelection,
+      pending_selection: pendingSelection,
+      ok:
+        pendingSelection.loading_visible &&
+        pendingSelection.viewer_count === 0 &&
+        pendingSelection.evidence_list_count === 0 &&
+        currentRunWon &&
+        emptySelection.empty_selection_cleared,
+    };
+  } finally {
+    supersededRelease.resolve();
+    currentRelease.resolve();
+    await page.unroute(routePattern, routeHandler);
+  }
 }
 
 async function probeTrialFeedback(browser, origin, basePath) {
@@ -2575,6 +2684,14 @@ function displayBasePath(basePath) {
 
 function trialTokenStorageKey(basePath) {
   return `commandagent.gui.trial-token:${basePath}`;
+}
+
+function deferred() {
+  let resolvePromise;
+  const promise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }
 
 function valueArgument(arguments_, name) {

@@ -689,6 +689,21 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         );
     }
 
+    for required in [
+        "type RunOwned<T>",
+        "loadedDetail?.runId === runId",
+        "selectedEvidence?.runId === runId",
+        "requestVersion.current === version",
+        "evidenceController.current?.abort()",
+        "setLoadedDetail(null)",
+        "setSelectedEvidence(null)",
+    ] {
+        assert!(
+            run_page.contains(required),
+            "Run detail request ownership contract is missing {required:?}"
+        );
+    }
+
     let viewer = std::fs::read_to_string("gui/components/document-viewer.tsx").unwrap();
     for required in [
         "sourceHref?: string | null",
@@ -726,6 +741,8 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "options_include_dates_and_status",
         "filter_matches_id",
         "no_match_label_visible",
+        "request_ownership",
+        "empty_selection_cleared",
         "sourceLinkPresent",
         "mobileMap.horizontally_scrollable",
     ] {
