@@ -279,7 +279,7 @@ Final acceptance requires:
 
 - The dependency lifecycle completes, including venv creation and pip
   installation.
-- The Python compile oracle passes with `python -m compileall -q src`.
+- The Python compile oracle passes with `python3 -m compileall -q src`.
 - The profile behavior probe runs the CLI against generated fixture CSV input,
   passes the CSV path as an argument, observes exit 0, observes non-empty stdout,
   finds computed aggregate values in stdout, and confirms stdout changes when

@@ -1460,7 +1460,7 @@ fn verify_timeout_substitution(
     }
     root.join("src")
         .is_dir()
-        .then(|| normalize_verify_command("python -m compileall -q src").ok())
+        .then(|| normalize_verify_command("python3 -m compileall -q src").ok())
         .flatten()
 }
 
@@ -4667,7 +4667,7 @@ EOF\n\
         };
         let normalization = normalization.unwrap();
         assert_eq!(normalization.original, "python -m pytest");
-        assert_eq!(normalization.repaired, "python -m compileall -q src");
+        assert_eq!(normalization.repaired, "python3 -m compileall -q src");
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"event\":\"verify_command_timeout\""));
         assert!(event_text.contains("\"classification\":\"OracleError\""));

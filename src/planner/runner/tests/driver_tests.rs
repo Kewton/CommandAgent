@@ -1116,7 +1116,7 @@ Phase task: Set up the Python CLI package scaffold";
     );
     assert!(instruction.contains("pyproject.toml"), "{instruction}");
     assert!(
-        instruction.contains("python -m compileall -q src"),
+        instruction.contains("python3 -m compileall -q src"),
         "{instruction}"
     );
     assert!(
