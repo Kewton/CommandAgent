@@ -1281,6 +1281,29 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     "計測",
     "計測 | CommandAgent",
   );
+  const reportButtons = page.locator(".report-list button");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".report-list button").length > 1,
+  );
+  const selectedReportPath = await reportButtons.nth(1).locator("small").innerText();
+  await reportButtons.nth(1).click();
+  await page.waitForFunction(
+    (path) => document.querySelector(".report-list button.active small")?.textContent === path,
+    selectedReportPath,
+  );
+  const reportRevalidated = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname.endsWith("/api/reports");
+  });
+  await setDocumentVisibility(page, "hidden");
+  await setDocumentVisibility(page, "visible");
+  const reportResponse = await reportRevalidated;
+  await reportResponse.finished();
+  await page.waitForTimeout(100);
+  const retainedReportPath = await page
+    .locator(".report-list button.active small")
+    .innerText();
+  const selectionRetainedAfterVisibility = retainedReportPath === selectedReportPath;
   await page.setViewportSize({ width: 390, height: 844 });
   const mapFrame = page.locator("[data-testid='measurement-map-frame']");
   await mapFrame.waitFor();
@@ -1389,6 +1412,11 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
   const unselectedHasNoRecords = !unselectedText.includes("NO RECORDS");
   return {
     pages: { measurements, run_detail: runDetail },
+    measurement_selection: {
+      after_visibility: retainedReportPath,
+      before_visibility: selectedReportPath,
+      selection_retained_after_visibility: selectionRetainedAfterVisibility,
+    },
     run_selection: {
       displayed_options: displayedOptions.length,
       expected_options: expectedOptions.length,
@@ -1414,6 +1442,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       measurements.status === 200 &&
       measurements.headingMatches &&
       measurements.titleMatches &&
+      selectionRetainedAfterVisibility &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
       runDetail.titleMatches &&
@@ -2163,6 +2192,16 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading, 
     title,
     titleMatches: title === expectedTitle,
   };
+}
+
+async function setDocumentVisibility(page, visibilityState) {
+  await page.evaluate((state) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibilityState);
 }
 
 async function probePackWizard(page, browser, origin, basePath) {
