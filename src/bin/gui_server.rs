@@ -1,5 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use axum::Router;
@@ -70,8 +70,10 @@ struct Arguments {
     extension_root: Option<PathBuf>,
     #[arg(long, value_enum, default_value = "off")]
     trial_token_auth: TrialTokenAuthArg,
-    #[arg(long, default_value = "target/debug/commandagent")]
-    commandagent_bin: PathBuf,
+    #[arg(long)]
+    commandagent_bin: Option<PathBuf>,
+    #[arg(long, conflicts_with = "check")]
+    init: bool,
     #[arg(long)]
     check: bool,
     #[arg(long, requires = "check")]
@@ -92,8 +94,11 @@ impl TrialTokenAuthArg {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let arguments = Arguments::parse();
-    if arguments.check {
+    let mut arguments = Arguments::parse();
+    if arguments.init {
+        initialize_defaults(&mut arguments)?;
+    }
+    if arguments.check || arguments.init {
         let report = preflight::Report::run(&arguments);
         let passed = report.passed();
         if arguments.json {
@@ -104,7 +109,9 @@ async fn main() -> anyhow::Result<()> {
         if !passed {
             bail!("preflight checks failed");
         }
-        return Ok(());
+        if arguments.check {
+            return Ok(());
+        }
     }
     let base_path = normalize_base_path(&arguments.base_path)?;
     let repository_root = arguments.repository_root.canonicalize().with_context(|| {
@@ -142,11 +149,7 @@ async fn main() -> anyhow::Result<()> {
         trial_workspace.is_enabled(),
         arguments.trial_token_auth.is_enabled(),
     )?;
-    let commandagent_bin = if arguments.commandagent_bin.is_absolute() {
-        arguments.commandagent_bin
-    } else {
-        repository_root.join(arguments.commandagent_bin)
-    };
+    let commandagent_bin = resolve_commandagent_bin(&arguments, &repository_root);
     let execution_root_summary = trial_workspace
         .configured_path()
         .map_or_else(|| "-".to_string(), |path| path.display().to_string());
@@ -200,6 +203,108 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("serve dashboard")?;
     Ok(())
+}
+
+fn initialize_defaults(arguments: &mut Arguments) -> anyhow::Result<()> {
+    if arguments.execution_root.is_none() || arguments.extension_root.is_none() {
+        let data_root = gui_data_root()?;
+        if arguments.execution_root.is_none() {
+            let execution_root = data_root.join("trial-workspace");
+            prepare_private_root(&execution_root)?;
+            arguments.execution_root = Some(execution_root);
+        }
+        if arguments.extension_root.is_none() {
+            let extension_root = data_root.join("extensions");
+            prepare_private_root(&extension_root)?;
+            arguments.extension_root = Some(extension_root);
+        }
+    }
+    if arguments.commandagent_bin.is_none() {
+        let repository_root = arguments
+            .repository_root
+            .canonicalize()
+            .unwrap_or_else(|_| arguments.repository_root.clone());
+        arguments.commandagent_bin = discover_commandagent(&repository_root);
+    }
+    Ok(())
+}
+
+fn gui_data_root() -> anyhow::Result<PathBuf> {
+    if let Some(root) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(root).join("commandagent"));
+    }
+    let home = std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .context("HOME is unset; set HOME or XDG_DATA_HOME before using --init")?;
+    Ok(PathBuf::from(home)
+        .join(".local")
+        .join("share")
+        .join("commandagent"))
+}
+
+fn prepare_private_root(root: &Path) -> anyhow::Result<()> {
+    if std::fs::symlink_metadata(root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        bail!(
+            "refusing to initialize private GUI root through symlink {}",
+            root.display()
+        );
+    }
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("create private GUI root {}", root.display()))?;
+    if !root.is_dir() {
+        bail!("private GUI root is not a directory: {}", root.display());
+    }
+    set_private_permissions(root)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_permissions(root: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("set private permissions on {}", root.display()))
+}
+
+#[cfg(not(unix))]
+fn set_private_permissions(_: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+fn discover_commandagent(repository_root: &Path) -> Option<PathBuf> {
+    let executable = format!("commandagent{}", std::env::consts::EXE_SUFFIX);
+    let beside_server = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(&executable)));
+    let release = repository_root
+        .join("target")
+        .join("release")
+        .join(&executable);
+    beside_server
+        .into_iter()
+        .chain(std::iter::once(release))
+        .chain(
+            std::env::var_os("PATH")
+                .into_iter()
+                .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+                .map(|directory| directory.join(&executable)),
+        )
+        .find(|candidate| candidate.is_file())
+}
+
+fn resolve_commandagent_bin(arguments: &Arguments, repository_root: &Path) -> PathBuf {
+    let configured = arguments.commandagent_bin.as_deref().unwrap_or_else(|| {
+        if arguments.init {
+            Path::new("target/release/commandagent")
+        } else {
+            Path::new("target/debug/commandagent")
+        }
+    });
+    if configured.is_absolute() {
+        configured.to_path_buf()
+    } else {
+        repository_root.join(configured)
+    }
 }
 
 fn dashboard_router() -> Router<AppState> {

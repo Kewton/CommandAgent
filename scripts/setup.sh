@@ -838,11 +838,9 @@ setup_gui() {
     if [[ -n "$gui_token_file" && -f "$gui_token_file" ]]; then
         auth_mode="on"
     fi
-    printf '\nGUI preflight command:\n'
-    print_gui_command "$gui_server_bin" "$auth_mode" true
-    printf '\nGUI start command:\n'
-    print_gui_command "$gui_server_bin" "$auth_mode" false
-    add_summary "GUI" "ok" "built for base path $gui_base_path; preflight/start commands shown"
+    printf '\nGUI start command (initializes private roots and runs preflight):\n'
+    print_gui_command "$gui_server_bin" "$auth_mode"
+    add_summary "GUI" "ok" "built for base path $gui_base_path; --init startup command shown"
 
     current_step="CommandAgent doctor"
     if doctor_output="$(cd -- "$repo_root" && "$commandagent_bin" --doctor --json 2>&1)"; then
@@ -858,19 +856,15 @@ setup_gui() {
 print_gui_command() {
     local gui_server_bin=$1
     local auth_mode=$2
-    local include_check=$3
     if [[ "$auth_mode" == "on" ]]; then
         printf "GUI_TRIAL_TOKEN=\"\$(<%q)\" " "$gui_token_file"
     fi
-    printf '%q --base-path %q --static-dir %q --repository-root %q ' \
+    printf '%q --init --base-path %q --static-dir %q --repository-root %q ' \
         "$gui_server_bin" "$gui_base_path" "$repo_root/gui/out" "$repo_root"
     if [[ -n "$extension_root" ]]; then
         printf '%s %q ' "--extension-root" "$extension_root"
     fi
-    printf '%s %q --commandagent-bin %q' "--trial-token-auth" "$auth_mode" "$commandagent_bin"
-    if [[ "$include_check" == true ]]; then
-        printf ' --check'
-    fi
+    printf '%s %q' "--trial-token-auth" "$auth_mode"
     printf '\n'
 }
 
