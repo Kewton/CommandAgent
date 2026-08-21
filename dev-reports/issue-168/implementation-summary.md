@@ -23,3 +23,14 @@
   responses. The probe verifies superseded-request isolation, newest-run
   rendering, loading ownership, and the completely empty unselected state for
   both root and proxy base paths.
+
+## CI follow-up
+
+- Cherry-picked only Issue #160 code commit `714017ca` as `45daeddc`; its
+  report commit `1f28c021` and Issue #160 report files were not applied.
+- The compatibility change boxes the session-file handler error response and
+  unwraps that same `Response` in `IntoResponse`. It adds no lint allowance and
+  preserves the existing response status, headers, JSON bytes, path
+  confinement, and symlink rejection behavior.
+- Re-ran the Rust 1.97.1 GUI Clippy gate, focused session-file contract tests,
+  and Issue #168 source/type/browser regressions after the cherry-pick.
