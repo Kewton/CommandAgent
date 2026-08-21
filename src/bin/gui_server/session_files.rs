@@ -39,6 +39,21 @@ struct EventDocument {
 }
 
 #[derive(Debug)]
+pub struct SessionFileError(Box<Response>);
+
+impl From<Response> for SessionFileError {
+    fn from(response: Response) -> Self {
+        Self(Box::new(response))
+    }
+}
+
+impl IntoResponse for SessionFileError {
+    fn into_response(self) -> Response {
+        *self.0
+    }
+}
+
+#[derive(Debug)]
 struct TailError {
     status: StatusCode,
     message: String,
@@ -46,7 +61,7 @@ struct TailError {
 
 impl IntoResponse for TailError {
     fn into_response(self) -> Response {
-        json_error(self.status, self.message)
+        json_error(self.status, self.message).into_response()
     }
 }
 
@@ -55,7 +70,7 @@ pub async fn artifacts(
     Path(id): Path<String>,
     headers: HeaderMap,
     Query(query): Query<ArtifactQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, SessionFileError> {
     let run_root = session_run_root(&state, &id, &headers).await?;
     if let Some(path) = query.path {
         let path = checked_existing_path_without_symlinks(&run_root, FilePath::new(&path))
@@ -83,7 +98,7 @@ pub async fn events(
     Path(id): Path<String>,
     headers: HeaderMap,
     Query(query): Query<EventsQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, SessionFileError> {
     let run_root = session_run_root(&state, &id, &headers).await?;
     if !(1..=MAX_EVENT_TAIL_LINES).contains(&query.tail) {
         return Err(json_error(
@@ -116,7 +131,7 @@ async fn session_run_root(
     state: &AppState,
     id: &str,
     headers: &HeaderMap,
-) -> Result<PathBuf, Response> {
+) -> Result<PathBuf, SessionFileError> {
     let workspace = require_trial(state, headers, false).map_err(IntoResponse::into_response)?;
     require_session_id(id).map_err(IntoResponse::into_response)?;
     let anvil_root = workspace.join(".anvil");
@@ -256,12 +271,12 @@ fn tail_error(status: StatusCode, message: impl Into<String>) -> TailError {
     }
 }
 
-fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
+fn json_error(status: StatusCode, message: impl Into<String>) -> SessionFileError {
     let code = match status {
         StatusCode::NOT_FOUND => "trial_session_file_not_found",
         StatusCode::PAYLOAD_TOO_LARGE => "resource_too_large",
         StatusCode::UNPROCESSABLE_ENTITY => "trial_request_invalid",
         _ => "trial_session_file_read_failed",
     };
-    GuiError::new(status, code, message).into_response()
+    GuiError::new(status, code, message).into_response().into()
 }
