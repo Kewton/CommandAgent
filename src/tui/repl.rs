@@ -1,6 +1,7 @@
 use std::io::{self, IsTerminal};
+use std::path::Path;
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use rustyline::error::ReadlineError;
 
 use crate::config::Config;
@@ -12,6 +13,11 @@ use crate::tui::{InteractionUi, OutputRenderer, TerminalUi};
 pub fn run(config: Config) -> anyhow::Result<()> {
     let stdin_is_terminal = io::stdin().is_terminal();
     if !stdin_is_terminal {
+        if !config.fresh_session
+            && let Some(resume) = config.resume.as_deref()
+        {
+            validate_saved_session_resume(&config.state_dir, resume)?;
+        }
         bail!("stdin is not a TTY; pass --prompt or an action flag");
     }
 
@@ -84,6 +90,24 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 &renderer,
                 crate::pack_actions::render_list(profile, intent, extension_root.as_deref()),
             )?;
+            ui.reset_interrupt();
+            continue;
+        }
+        if line == "/runs" {
+            let listed = crate::tui::slash::handle_command(
+                line,
+                &config,
+                &mut *planner,
+                &mut *execution,
+                &ui,
+            )
+            .map(|_| {
+                crate::runs::render_runs_table_with_current(
+                    &config.workspace_root,
+                    config.eval_events_path.as_deref(),
+                )
+            });
+            render_command_result(&renderer, listed)?;
             ui.reset_interrupt();
             continue;
         }
@@ -335,6 +359,11 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             ui.reset_interrupt();
             continue;
         }
+        if let Some(error) = resume_preflight_error(&config.workspace_root, line) {
+            renderer.render_assistant(&format!("Resume unavailable: {error:#}"))?;
+            ui.reset_interrupt();
+            continue;
+        }
         if crate::tui::boundary_shell::execution_slash_requires_gate_one(line) {
             renderer.render_assistant(crate::tui::repl_output::GATE_ONE_REQUIRED_GUIDANCE)?;
             ui.reset_interrupt();
@@ -446,6 +475,22 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
     }
     let _ = editor.save_history(&history_path);
     Ok(())
+}
+
+fn validate_saved_session_resume(state_dir: &Path, resume: &str) -> anyhow::Result<()> {
+    crate::state::SessionStore::new(state_dir.to_path_buf())
+        .load(resume)
+        .map(|_| ())
+        .with_context(|| format!("no resumable saved session `{resume}` could be loaded"))
+}
+
+fn resume_preflight_error(root: &Path, line: &str) -> Option<anyhow::Error> {
+    let words = crate::tui::slash::parse_words(line);
+    if words.first().map(String::as_str) != Some("/resume") {
+        return None;
+    }
+    let target = words[1..].join(" ");
+    crate::runs::prepare_resume(root, &target).err()
 }
 
 fn apply_confirmed_identity(
@@ -625,6 +670,83 @@ mod tests {
     use crate::tui::boundary_shell::family_catalog::TaskFamilyId;
     use crate::tui::boundary_shell::route::{RouteBasis, RouteCandidate};
     use clap::Parser;
+
+    #[test]
+    fn missing_repl_resume_is_reported_before_gate_one() {
+        let root = tempfile::tempdir().unwrap();
+
+        let missing = resume_preflight_error(root.path(), "/resume").unwrap();
+        let named = resume_preflight_error(root.path(), "/resume missing-run").unwrap();
+
+        assert!(
+            missing.to_string().contains("no resumable run exists"),
+            "{missing:#}"
+        );
+        assert!(
+            named
+                .to_string()
+                .contains("no resumable run `missing-run` exists"),
+            "{named:#}"
+        );
+    }
+
+    #[test]
+    fn valid_repl_resume_continues_to_the_gate_one_check() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = root.path().join(".anvil/plans/recover.yaml");
+        let events = root
+            .path()
+            .join(".anvil/runs/018f3333-resumable/events.jsonl");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        std::fs::write(
+            &plan,
+            "goal: \"recover\"\nphases:\n  - id: \"repair\"\n    prompt: \"repair\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &events,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "event": "run_stop",
+                    "ok": false,
+                    "status": "failed",
+                    "recovery_ultra_plan_path": ".anvil/plans/recover.yaml"
+                })
+            ),
+        )
+        .unwrap();
+
+        assert!(
+            resume_preflight_error(root.path(), "/resume 018f3333").is_none(),
+            "a valid recovery must continue to the existing Gate 1 guard"
+        );
+    }
+
+    #[test]
+    fn non_tty_resume_explains_missing_saved_session() {
+        let state = tempfile::tempdir().unwrap();
+
+        let error = validate_saved_session_resume(state.path(), "missing-session").unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("no resumable saved session `missing-session` could be loaded"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn non_tty_resume_accepts_an_existing_saved_session_before_tty_check() {
+        let state = tempfile::tempdir().unwrap();
+        let store = crate::state::SessionStore::new(state.path().to_path_buf());
+        let session = crate::state::SessionSnapshot::new();
+        store.save(&session).unwrap();
+
+        validate_saved_session_resume(state.path(), &session.id).unwrap();
+    }
 
     fn python_cli_proposal() -> RouteProposal {
         RouteProposal {
