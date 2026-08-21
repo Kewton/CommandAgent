@@ -121,9 +121,11 @@ See [Configuration](configuration.md) for the exact per-field layers.
   both roles use another provider, startup fails instead of ignoring the flag.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over
   `--resume`. These session switches are not used by slash-command plan resume.
-- `--init-profile` requires `--extension-root`. This lane exposes the manifest
-  arguments only; manifest validation and generation become operational with
-  the Lane I backend.
+- `--init-profile` requires an existing `--extension-root`. It creates a
+  compact draft v2 manifest and refuses to overwrite an existing file.
+- `--validate-manifest` checks a v1/v2 profile manifest or v1 overlay without
+  registering or running it. Failures report one file, line, column, and
+  reason.
 
 ## Config template
 

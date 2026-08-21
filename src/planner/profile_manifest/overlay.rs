@@ -13,7 +13,8 @@ use serde::Deserialize;
 
 use super::source::{
     EXTENSION_OVERLAY_FILE, ExtensionManifestError, ManifestSource, exact_byte_hash,
-    profile_directories, read_optional, reject_fixture_vocabulary, reject_registered_identity,
+    fixture_vocabulary_violation, located_rejection, located_toml_error, profile_directories,
+    read_optional, reject_registered_identity,
 };
 use super::{
     ArtifactRequirements, CheckBinding, EvidenceTargetsReference, ManifestGuidance, ManifestStatus,
@@ -200,56 +201,78 @@ fn embedded_base(profile: &str) -> Option<(&'static str, &'static ManifestV1)> {
     Some((descriptor.canonical, manifest))
 }
 
-fn decode(
+pub(super) fn decode(
     directory: &Path,
     path: &Path,
     bytes: &[u8],
     source: ManifestSource,
 ) -> Result<LoadedOverlay, ExtensionManifestError> {
-    let invalid = |reason: String| ExtensionManifestError::Invalid {
-        path: path.to_path_buf(),
-        reason,
-    };
     let text = std::str::from_utf8(bytes).map_err(|_| ExtensionManifestError::NotUtf8 {
         path: path.to_path_buf(),
     })?;
+    let invalid = |needle: &str, reason: String| located_rejection(path, text, needle, reason);
     let overlay = toml::from_str::<OverlayV1>(text)
-        .map_err(|error| invalid(format!("overlay TOML is invalid: {error}")))?;
+        .map_err(|error| located_toml_error(path, text, error, "overlay"))?;
+    if overlay.metadata.schema_version != SchemaVersion::V1 {
+        return Err(invalid(
+            "schema_version",
+            "overlay metadata.schema_version must be exactly `v1`".to_string(),
+        ));
+    }
     if !source.is_external() {
         return Err(invalid(
+            "",
             "an overlay must be supplied by the repository or an extension root".to_string(),
         ));
     }
     if overlay.metadata.status != ManifestStatus::Draft {
         return Err(invalid(
+            "status",
             "metadata.status must be exactly `draft` for an overlay".to_string(),
         ));
     }
     if overlay.metadata.display_name.trim().is_empty() {
         return Err(invalid(
+            "display_name",
             "metadata.display_name must not be empty".to_string(),
         ));
     }
-    reject_registered_identity(&overlay.metadata.id).map_err(&invalid)?;
-    reject_fixture_vocabulary(text).map_err(&invalid)?;
+    reject_registered_identity(&overlay.metadata.id)
+        .map_err(|reason| invalid(&overlay.metadata.id, reason))?;
+    if let Some((section, token)) =
+        fixture_vocabulary_violation(text).map_err(|reason| invalid("", reason))?
+    {
+        return Err(invalid(
+            token,
+            format!(
+                "measured-fixture vocabulary {token:?} is not allowed in the `{section}` section"
+            ),
+        ));
+    }
 
     let directory_name = directory
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default();
     if directory_name != overlay.overlay.base_profile {
-        return Err(invalid(format!(
-            "directory `{directory_name}` must name the admitted base profile `{}`",
-            overlay.overlay.base_profile
-        )));
+        return Err(invalid(
+            &overlay.overlay.base_profile,
+            format!(
+                "directory `{directory_name}` must name the admitted base profile `{}`",
+                overlay.overlay.base_profile
+            ),
+        ));
     }
     let Some((base_profile, base)) = embedded_base(&overlay.overlay.base_profile) else {
-        return Err(invalid(format!(
-            "overlay.base_profile `{}` must be the canonical id of an admitted, manifest-backed embedded profile",
-            overlay.overlay.base_profile
-        )));
+        return Err(invalid(
+            &overlay.overlay.base_profile,
+            format!(
+                "overlay.base_profile `{}` must be the canonical id of an admitted, manifest-backed embedded profile",
+                overlay.overlay.base_profile
+            ),
+        ));
     };
-    validate_additions(&overlay, base).map_err(&invalid)?;
+    validate_additions(&overlay, base).map_err(|reason| invalid("", reason))?;
     Ok(LoadedOverlay {
         overlay,
         base,

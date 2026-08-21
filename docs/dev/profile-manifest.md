@@ -1,15 +1,22 @@
-# Profile manifest v1
+# Profile manifests v1 and v2
 
 `ManifestV1` is the settled profile format produced by the rule-of-two work.
 It captures the common declarative shape demonstrated by the Next.js and data
 profiles while keeping execution, evidence interpretation, and assurance
 decisions in shared Rust code. Both repository manifests were migrated in one
-change; the loader accepts `schema_version = "v1"` only and has no v0
-compatibility branch.
+change; their v1 parser accepts `schema_version = "v1"` only and has no v0
+compatibility branch. The external dispatcher additionally accepts compact v2.
 
 The embedded Next.js and data manifests are both `admitted`. Admission status
 controls only assurance projection: a draft profile may run and retain all
 evidence, but cannot declare assurance above `static`.
+
+External profiles may also use compact schema v2. V2 removes the inert
+profile-specific `step_templates`, fixed vocabulary reference, redundant
+`plan.profile`, and evidence-target boilerplate from the authored document;
+the loader supplies profile-neutral shared defaults before entering the same
+runtime and validation boundary. Embedded manifests and additive overlays stay
+on v1.
 
 ## Ownership model
 
@@ -64,11 +71,11 @@ change the identity.
 
 External manifests are always effective `draft` profiles. A declared
 `status = "admitted"` is loaded as draft with a doctor warning; filesystem
-supply can never grant admission. External manifests must use schema v1, make
-`plan.profile` match their directory/metadata id, declare one registered
-`metadata.task_family`, and bind only registered check capabilities. IDs that
-collide with a compiled descriptor or alias are rejected, as are scenario
-fixture terms in `plan`, `step_templates`, or `checks`.
+supply can never grant admission. External v1 manifests must make
+`plan.profile` match their directory/metadata id. Both versions declare one
+registered `metadata.task_family` and bind only registered check capabilities.
+IDs that collide with a compiled descriptor or alias are rejected, as are
+scenario fixture terms in `plan`, `step_templates`, or `checks`.
 
 The dynamic descriptor binds the manifest plan preset, artifacts, always-on
 guidance, evidence repair targets, and checks to the shared runtime adapter.
@@ -76,6 +83,43 @@ Shell checks enter the existing normalized verification boundary; the generic
 internal scaffold check is evaluated deterministically. A capability that
 needs a profile-specific adapter fails honestly until that adapter exists.
 The runner lifecycle and event schemas are unchanged.
+
+### Compact external manifest v2
+
+Schema v2 is an external-only authoring shape with the common `metadata`,
+`plan`, `artifacts`, `guidance`, and `checks` sections. `metadata.status` is
+optional and defaults to `draft`; external supply remains draft even when the
+field declares `admitted`. Plan profile identity, `{goal}`, neutral template
+defaults, shared vocabulary, and shared repair targets are loader-owned. V1
+continues to load unchanged.
+
+A complete static-site declaration is 16 lines:
+
+```toml
+[metadata]
+id = "static-site"
+display_name = "Static site"
+schema_version = "v2"
+task_family = "Quiz"
+[plan]
+intent = "create"
+phases = [{ id = "implementation", prompt = "Create the requested static site for {goal}." }]
+[artifacts]
+required = ["index.html"]
+[guidance.variants.static_site]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Keep the site self-contained and produce index.html." }
+[[checks.final]]
+id = "scaffold_files_present"
+params = { files = ["index.html"] }
+```
+
+`commandagent --validate-manifest <path>` performs decoding, identity,
+vocabulary, capability, and overlay-base validation without registering or
+running the profile. Rejections identify the file, one-based line and column,
+and one non-duplicated reason. `commandagent --init-profile <id>
+--extension-root <dir>` creates a neutral 16-line v2 draft with create-new
+semantics and refuses to overwrite an existing manifest.
 
 Gate 1 permits the intentionally unmeasured draft identity without inventing
 a capability band. It pins the manifest path/source/hash, displays
@@ -309,8 +353,8 @@ must not be smuggled into a manifest as a shell string.
 
 This remains the canonical B-2/B-4 format-gap list. B-4 reviewed every entry;
 none remains open. The allowed settlement states are `schema-v1-resolved`,
-`kept-in-code`, and `future-issue`. Rows are retained with their validating
-tests so the schema boundary remains auditable.
+`schema-v2-resolved`, `kept-in-code`, and `future-issue`. Rows are retained
+with their validating tests so the schema boundary remains auditable.
 
 | Gap id | B-2 requirement and source | Attempted v0 mapping | Missing semantic | Fixture/test | B-4 disposition |
 | --- | --- | --- | --- | --- | --- |
@@ -319,6 +363,7 @@ tests so the schema boundary remains auditable.
 | `FG-B2-003` | Contract §4 earned assurance hierarchy | Bind checks declaratively, then classify observed evidence in the data runtime adapter. | Assurance depends on execution history and cannot safely be manifest branching. | `data_assurance_is_earned_from_the_observed_profile_probe_level`; B-3 admission negatives | `kept-in-code`: assurance and check execution remain Layer 1, as documented above. |
 | `FG-B2-004` | DATA-10 inspection stagnation in `uat-test0714-m4-004` and `uat-test0714-m4-001` | Add optional `phases` to check bindings. | Checks needed an artifact-availability phase scope and a conservative final default. | `converted_inspection_and_final_steps_match_phase_scope_snapshot`; `omitted_scope_is_final_only_and_explicit_other_phases_stay_excluded` | `schema-v1-resolved`: phase binding is a validated formal v1 field. |
 | `FG-B2-005` | B-2f data inspection guidance | Store data repair text in `canvas_input_wiring_checklist`. | A data-specific variant name could not be declared because variant and message containers were fixed to Next.js names. | `inspection_literal_example_is_observation_bound_and_reaches_repair_prompt`; named-variant compatibility tests | `schema-v1-resolved`: data declares `inspection`; Next.js retains `canvas_game`, with unchanged values. |
+| `FG-EXT-001` | Issue #248 external profile authoring | Fill 91 lines of v1, including inert Next.js-era template keys, for a static site. | External authors needed a profile-neutral common schema and an offline validator/scaffold. | `issue248-manifest-v2`; `issue247_248_manifest_cli` | `schema-v2-resolved`: the equivalent external fixture is 16 lines, v1 remains readable, and validate/init are operational. |
 
 No row is classified `future-issue` at the v1 seal. New representational needs
 must append a stable row before schema expansion.

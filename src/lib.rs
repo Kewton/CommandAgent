@@ -74,6 +74,20 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         println!("created config template at {}", path.display());
         return Ok(());
     }
+    if let Some(path) = cli.validate_manifest.as_deref() {
+        planner::profile_manifest::commands::validate_file(path)?;
+        println!("valid external profile manifest: {}", path.display());
+        return Ok(());
+    }
+    if let Some(id) = cli.init_profile.as_deref() {
+        let extension_root = cli
+            .extension_root
+            .as_deref()
+            .context("--init-profile requires --extension-root")?;
+        let path = planner::profile_manifest::commands::init_profile(extension_root, id)?;
+        println!("created profile manifest at {}", path.display());
+        return Ok(());
+    }
     if cli.doctor {
         return doctor::run_cli(cli);
     }
