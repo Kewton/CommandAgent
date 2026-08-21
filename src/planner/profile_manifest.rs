@@ -90,8 +90,9 @@ impl fmt::Display for ManifestError {
 impl std::error::Error for ManifestError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Parse(err) => Some(err),
             Self::CheckBinding { source, .. } => Some(source.as_ref()),
-            Self::Parse(_) | Self::Invalid { .. } => None,
+            Self::Invalid { .. } => None,
         }
     }
 }

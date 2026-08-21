@@ -102,6 +102,28 @@ fn doctor_reports_one_toml_cause_with_file_line_and_column() {
 }
 
 #[test]
+fn external_located_error_is_terminal_and_renders_one_toml_cause() {
+    let extension = tempfile::tempdir().unwrap();
+    let profile = extension.path().join("profiles/broken");
+    fs::create_dir_all(&profile).unwrap();
+    let path = profile.join("manifest.toml");
+    fs::write(&path, "[metadata]\nid = \"broken\"\n[metadata]\n").unwrap();
+
+    let error =
+        commandagent::planner::profile_manifest::source::load_extension_manifests(extension.path())
+            .unwrap_err();
+    assert!(std::error::Error::source(&error).is_none());
+    let rendered = format!("{:#}", anyhow::Error::new(error));
+    assert_eq!(
+        rendered.matches("duplicate key `metadata`").count(),
+        1,
+        "{rendered}"
+    );
+    assert!(rendered.contains(&path.display().to_string()), "{rendered}");
+    assert!(rendered.contains(":3:1:"), "{rendered}");
+}
+
+#[test]
 fn validate_manifest_accepts_v2_and_rejects_one_located_toml_cause() {
     let valid = v2_extension_root().join("profiles/static-site/manifest.toml");
     let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))

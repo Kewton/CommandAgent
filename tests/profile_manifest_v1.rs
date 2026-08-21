@@ -40,6 +40,15 @@ fn manifest_v1_root_sections_match_golden() {
 }
 
 #[test]
+fn direct_v1_parse_error_exposes_the_toml_source() {
+    let error = ManifestV1::from_toml("[metadata]\n[metadata]\n").unwrap_err();
+    let source = std::error::Error::source(&error).expect("TOML parse source must be preserved");
+
+    assert!(source.downcast_ref::<toml::de::Error>().is_some());
+    assert!(source.to_string().contains("duplicate key `metadata`"));
+}
+
+#[test]
 fn v1_represents_both_artifact_group_cardinalities_and_rejects_v0() {
     let nextjs = nextjs_manifest();
     assert_eq!(

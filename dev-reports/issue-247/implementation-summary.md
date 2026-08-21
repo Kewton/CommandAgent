@@ -9,6 +9,9 @@ Implemented the Epic #260 Lane I combined manifest change for Issues #247 and
   at the filesystem boundary.
 - Diagnostics now render one `path:line:column: reason` occurrence and do not
   expose the same TOML parser cause through nested source chains.
+- Restored the pre-existing `ManifestError::Parse` source chain for direct and
+  embedded v1 callers. Only the external `ExtensionManifestError::Located`
+  boundary is terminal and non-chained.
 - Semantic manifest and measured-fixture vocabulary failures also receive a
   best matching source location; the doctor regression proves a duplicated
   table cause appears exactly once.
@@ -42,6 +45,9 @@ Implemented the Epic #260 Lane I combined manifest change for Issues #247 and
 - Added focused binary coverage for one-cause doctor output, exact file/line/
   column diagnostics, v1 compatibility, compact v2 doctor loading,
   validation, missing overlay bases, initialization, and overwrite refusal.
+- Added independent-review regressions proving a direct v1 parse error exposes
+  its concrete `toml::de::Error` source while an external located error has no
+  source and alternate-renders the TOML cause once.
 - Kept the existing Issue #117, manifest v1, doctor, documentation drift,
   corpus, and guardrail suites green.
 - Updated the English/Japanese CLI references and the manifest contract to

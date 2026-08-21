@@ -22,3 +22,8 @@ The first focused guardrail run reported that adding v2 grew
 closed schema-version enum was expressed with Serde's equivalent lowercase
 rename policy, reducing the file without raising a baseline. The guardrail,
 strict Clippy, and full suite all passed after that correction.
+
+After independent review, the shared `ManifestError::Parse` TOML source was
+restored and focused tests pinned both error-chain boundaries. The recorded
+formatting, Issue #247/#248 integration target, v1 manifest target, strict
+Clippy, and full suite commands were rerun and passed on the corrected tree.

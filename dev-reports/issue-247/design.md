@@ -50,3 +50,13 @@ Run the new integration target and manifest-focused existing targets first.
 Because shared Rust manifest loading and binary startup behavior change, then
 run `cargo fmt --all -- --check`,
 `cargo clippy --all-targets -- -D warnings`, and `cargo test`.
+
+## Independent review correction
+
+Independent review identified that suppressing `ManifestError::Parse` from
+the shared error source chain was broader than the external-diagnostic design.
+The external loader already converts every parse error to the terminal
+`ExtensionManifestError::Located` variant, so duplicate alternate rendering
+is prevented without changing the direct/embedded v1 API. Restore the original
+TOML source from `ManifestError::source`, keep `Located` non-chained, and pin
+both sides with focused regressions.
