@@ -24,3 +24,4 @@ expect = "not_checked"
 [fixture_contains]
 fixtures/request-unset.json = ["qwen3.6:27b-coding-nvfp4", "num_ctx", "num_predict"]
 fixtures/request-medium.json = ["qwen3.8:27b-mlx", "num_ctx", "\"think\":\"medium\""]
+fixtures/provider-turn-role-think.jsonl = ["provider_turn_duration", "planner_step", "\"think\":\"false\"", "executor", "\"think\":\"omitted\""]

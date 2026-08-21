@@ -1,0 +1,2 @@
+{"event":"provider_turn_duration","caller_scope":"planner_step","provider":"ollama","model":"planner","think":"false"}
+{"event":"provider_turn_duration","caller_scope":"executor","provider":"ollama","model":"executor","think":"omitted"}

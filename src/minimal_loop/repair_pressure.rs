@@ -551,10 +551,8 @@ mod anchor_tests {
 
     fn read_reply(path: &str) -> AssistantReply {
         AssistantReply {
-            content: String::new(),
             tool_calls: vec![ToolCall::new("Read", json!({"path": path}))],
-            prompt_tokens: None,
-            completion_tokens: None,
+            ..AssistantReply::text("")
         }
     }
 
@@ -574,6 +572,9 @@ mod anchor_tests {
             intent_override: None,
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
+            planner_think: Some(crate::config::OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

@@ -5,13 +5,14 @@ use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use serde_json::json;
 
-use crate::config::Config;
+use crate::config::{Config, OllamaThink, Provider};
 use crate::eval_events;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
 pub const PROVIDER_WAIT_SLICE: Duration = Duration::from_millis(250);
+pub const CLASSIFIER_NUM_PREDICT_CAP: usize = 64;
 const ABORTED_BY_USER_ERROR: &str = "aborted_by_user: interrupted by user";
 const CONTEXT_UNDERCUT_PERCENT: u64 = 70;
 const CONTEXT_UNDERCUT_PERSISTENCE: usize = 2;
@@ -78,12 +79,30 @@ pub struct ProviderChatRequest<'a> {
     pub native_tools_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderCallOverrides {
+    provider: Provider,
+    think: Option<OllamaThink>,
+    num_predict: usize,
+}
+
+impl ProviderCallOverrides {
+    pub fn classifier(config: &Config) -> Self {
+        Self {
+            provider: config.classifier_provider,
+            think: Some(OllamaThink::False),
+            num_predict: config.num_predict.min(CLASSIFIER_NUM_PREDICT_CAP),
+        }
+    }
+}
+
 struct ProviderTurnTelemetry<'a> {
     scope: ProviderCallScope,
     provider: &'a str,
     model: &'a str,
     tool_count: usize,
     native_tools_enabled: bool,
+    think: Option<OllamaThink>,
     estimated_prompt_tokens: u64,
     estimated_stable_prefix_chars: u64,
     prompt_eval_count: Option<u64>,
@@ -110,6 +129,7 @@ struct ProviderTurnTelemetryBase<'a> {
     model: &'a str,
     tool_count: usize,
     native_tools_enabled: bool,
+    think: Option<OllamaThink>,
     estimated_prompt_tokens: u64,
     estimated_stable_prefix_chars: u64,
     elapsed: Duration,
@@ -185,6 +205,29 @@ where
     )
 }
 
+pub fn chat_with_cancel_and_response_limit_and_overrides<F>(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    request: ProviderChatRequest<'_>,
+    is_cancelled: F,
+    max_response_bytes: usize,
+    overrides: ProviderCallOverrides,
+) -> ProviderCallOutcome
+where
+    F: Fn() -> bool,
+{
+    chat_with_cancel_inner_with_overrides(
+        client,
+        config,
+        request,
+        is_cancelled,
+        Some(max_response_bytes),
+        false,
+        None,
+        Some(overrides),
+    )
+}
+
 pub fn chat_with_cancel_and_stream<F>(
     client: &mut dyn ChatClient,
     config: &Config,
@@ -213,7 +256,33 @@ fn chat_with_cancel_inner<F>(
     is_cancelled: F,
     max_response_bytes: Option<usize>,
     stream_allowed: bool,
+    on_chunk: Option<&mut ProviderChunkCallback<'_>>,
+) -> ProviderCallOutcome
+where
+    F: Fn() -> bool,
+{
+    chat_with_cancel_inner_with_overrides(
+        client,
+        config,
+        request,
+        is_cancelled,
+        max_response_bytes,
+        stream_allowed,
+        on_chunk,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn chat_with_cancel_inner_with_overrides<F>(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    request: ProviderChatRequest<'_>,
+    is_cancelled: F,
+    max_response_bytes: Option<usize>,
+    stream_allowed: bool,
     mut on_chunk: Option<&mut ProviderChunkCallback<'_>>,
+    overrides: Option<ProviderCallOverrides>,
 ) -> ProviderCallOutcome
 where
     F: Fn() -> bool,
@@ -223,11 +292,34 @@ where
     let messages = request.messages;
     let tools = request.tools;
     let native_tools_enabled = request.native_tools_enabled;
-    let provider = client.label().to_string();
+    let mut worker_client = match worker_client_with_overrides(client, config, model, overrides) {
+        Ok(client) => client,
+        Err(error) => {
+            return ProviderCallOutcome {
+                result: Err(error),
+                elapsed: Duration::ZERO,
+                timed_out: false,
+                aborted_by_user: false,
+            };
+        }
+    };
+    let provider = worker_client.label().to_string();
+    let configured_think = overrides
+        .map(|overrides| overrides.think)
+        .unwrap_or_else(|| {
+            if scope.is_planner() {
+                config.planner_think
+            } else {
+                config.ollama_think
+            }
+        });
+    let think = (provider == Provider::Ollama.as_str())
+        .then_some(configured_think)
+        .flatten();
     let stream = stream_allowed
         && on_chunk.is_some()
         && config.stream
-        && client.supports_streaming_for_model(model);
+        && worker_client.supports_streaming_for_model(model);
     let render_stream_chunks = stream && scope.renders_stream_chunks();
     let timeout = Duration::from_secs(config.chat_timeout_secs);
     let estimated_prompt_tokens =
@@ -259,6 +351,7 @@ where
                 model,
                 tool_count: tools.len(),
                 native_tools_enabled,
+                think,
                 estimated_prompt_tokens,
                 estimated_stable_prefix_chars,
                 elapsed: started.elapsed(),
@@ -268,7 +361,6 @@ where
         );
     }
 
-    let mut worker_client = client.boxed_clone();
     let model = model.to_string();
     let tool_count = tools.len();
     let messages = messages.to_vec();
@@ -316,6 +408,7 @@ where
                     model: &model,
                     tool_count,
                     native_tools_enabled,
+                    think,
                     estimated_prompt_tokens,
                     estimated_stable_prefix_chars,
                     elapsed: started.elapsed(),
@@ -336,6 +429,7 @@ where
                     model: &model,
                     tool_count,
                     native_tools_enabled,
+                    think,
                     estimated_prompt_tokens,
                     estimated_stable_prefix_chars,
                     prompt_eval_count: None,
@@ -390,6 +484,7 @@ where
                                 model: &model,
                                 tool_count,
                                 native_tools_enabled,
+                                think,
                                 estimated_prompt_tokens,
                                 estimated_stable_prefix_chars,
                                 elapsed,
@@ -433,6 +528,7 @@ where
                             model: &model,
                             tool_count,
                             native_tools_enabled,
+                            think,
                             estimated_prompt_tokens,
                             estimated_stable_prefix_chars,
                             elapsed,
@@ -462,6 +558,7 @@ where
                         model: &model,
                         tool_count,
                         native_tools_enabled,
+                        think,
                         estimated_prompt_tokens,
                         estimated_stable_prefix_chars,
                         prompt_eval_count: None,
@@ -496,6 +593,7 @@ where
                         model: &model,
                         tool_count,
                         native_tools_enabled,
+                        think,
                         estimated_prompt_tokens,
                         estimated_stable_prefix_chars,
                         prompt_eval_count: None,
@@ -525,6 +623,27 @@ where
             }
         }
     }
+}
+
+fn worker_client_with_overrides(
+    client: &dyn ChatClient,
+    config: &Config,
+    model: &str,
+    overrides: Option<ProviderCallOverrides>,
+) -> anyhow::Result<Box<dyn ChatClient>> {
+    let Some(overrides) = overrides else {
+        return Ok(client.boxed_clone());
+    };
+    if client.label() != config.planner_provider.as_str() {
+        return Ok(client.boxed_clone());
+    }
+
+    let mut call_config = config.clone();
+    call_config.provider = overrides.provider;
+    call_config.model = model.to_string();
+    call_config.ollama_think = overrides.think;
+    call_config.num_predict = overrides.num_predict;
+    crate::providers::client_from_config(&call_config, false)
 }
 
 fn enforce_response_limit(
@@ -679,6 +798,7 @@ fn provider_aborted_by_user(
             model: base.model,
             tool_count: base.tool_count,
             native_tools_enabled: base.native_tools_enabled,
+            think: base.think,
             estimated_prompt_tokens: base.estimated_prompt_tokens,
             estimated_stable_prefix_chars: base.estimated_stable_prefix_chars,
             prompt_eval_count: None,
@@ -737,6 +857,7 @@ fn provider_turn_telemetry_from_result<'a>(
         model: base.model,
         tool_count: base.tool_count,
         native_tools_enabled: base.native_tools_enabled,
+        think: base.think,
         estimated_prompt_tokens: base.estimated_prompt_tokens,
         estimated_stable_prefix_chars: base.estimated_stable_prefix_chars,
         prompt_eval_count: reply.and_then(|reply| reply.prompt_tokens),
@@ -774,6 +895,7 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
         "caller_scope": telemetry.scope.as_str(),
         "provider": telemetry.provider,
         "model": eval_events::body_snippet(telemetry.model),
+        "think": telemetry.think.map(OllamaThink::as_str).unwrap_or("omitted"),
         "duration_ms": telemetry.elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
         "timeout_ms": Duration::from_secs(config.chat_timeout_secs).as_millis().min(u128::from(u64::MAX)) as u64,
         "timeout_secs": config.chat_timeout_secs,
@@ -1121,6 +1243,9 @@ mod tests {
             intent_override: None,
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
+            planner_think: Some(crate::config::OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
@@ -1143,6 +1268,136 @@ mod tests {
             style: "default".to_string(),
             action: Action::Repl,
         }
+    }
+
+    fn serve_ollama_chat_once(listener: TcpListener) -> std::thread::JoinHandle<serde_json::Value> {
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 16_384];
+            let read = stream.read(&mut request).expect("request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /api/chat "), "{request}");
+            let body = request
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .expect("HTTP request body");
+            let request_body = serde_json::from_str(body).expect("Ollama request JSON");
+            let response = r#"{"model":"fixture","message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":4,"eval_count":1}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .expect("response");
+            request_body
+        })
+    }
+
+    fn provider_turn(events_path: &std::path::Path) -> serde_json::Value {
+        std::fs::read_to_string(events_path)
+            .expect("events")
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|event| event["event"] == "provider_turn_duration")
+            .expect("provider turn duration")
+    }
+
+    #[test]
+    fn planner_ollama_call_uses_role_think_and_records_evidence() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = serve_ollama_chat_once(listener);
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.ollama_host = format!("http://{address}");
+        config.ollama_think = None;
+        config.planner_think = Some(OllamaThink::False);
+        let mut client = crate::providers::client_from_config(&config, true).expect("planner");
+
+        let outcome = chat(
+            client.as_mut(),
+            &config,
+            ProviderCallScope::PlannerStep,
+            &config.planner_model,
+            &[ConversationMessage::user("plan")],
+            &[],
+            false,
+        );
+
+        assert_eq!(outcome.result.expect("reply").content, "ok");
+        let request = server.join().expect("server");
+        assert_eq!(request["think"], false);
+        assert_eq!(provider_turn(&events_path)["think"], "false");
+    }
+
+    #[test]
+    fn executor_ollama_call_keeps_omitted_think_default() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = serve_ollama_chat_once(listener);
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.ollama_host = format!("http://{address}");
+        config.ollama_think = None;
+        let mut client = crate::providers::client_from_config(&config, false).expect("executor");
+
+        let outcome = chat(
+            client.as_mut(),
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("execute")],
+            &[],
+            false,
+        );
+
+        assert_eq!(outcome.result.expect("reply").content, "ok");
+        let request = server.join().expect("server");
+        assert!(request.get("think").is_none(), "{request}");
+        assert_eq!(provider_turn(&events_path)["think"], "omitted");
+    }
+
+    #[test]
+    fn classifier_ollama_call_forces_think_false_and_caps_num_predict() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = serve_ollama_chat_once(listener);
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.ollama_host = format!("http://{address}");
+        config.num_predict = 8_192;
+        config.planner_think = Some(OllamaThink::High);
+        config.classifier_model = "classifier".to_string();
+        let mut planner = crate::providers::client_from_config(&config, true).expect("planner");
+
+        let outcome = chat_with_cancel_and_response_limit_and_overrides(
+            planner.as_mut(),
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::PlannerStep,
+                model: &config.classifier_model,
+                messages: &[ConversationMessage::user("classify")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            512,
+            ProviderCallOverrides::classifier(&config),
+        );
+
+        assert_eq!(outcome.result.expect("reply").content, "ok");
+        let request = server.join().expect("server");
+        assert_eq!(request["model"], "classifier");
+        assert_eq!(request["think"], false);
+        assert_eq!(
+            request["options"]["num_predict"],
+            CLASSIFIER_NUM_PREDICT_CAP
+        );
+        assert_eq!(provider_turn(&events_path)["think"], "false");
     }
 
     #[test]
