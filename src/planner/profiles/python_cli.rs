@@ -28,7 +28,7 @@ pub mod manifest;
 pub(crate) mod readme_verify;
 pub mod runtime;
 
-const DEFAULT_PACKAGE: &str = "anvil_app";
+const DEFAULT_PACKAGE: &str = "app";
 const COMPILE_COMMAND: &str = "python3 -m compileall -q src";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -46,18 +46,17 @@ impl DomainProfile for PythonCliProfile {
         )
     }
 
-    fn expected_scaffold_paths(&self, root: &Path, _goal: &str) -> Vec<String> {
-        scaffold_paths(root)
+    fn expected_scaffold_paths(&self, root: &Path, goal: &str) -> Vec<String> {
+        scaffold_paths(root, Some(goal))
     }
 
     fn setup_scaffold_paths(&self, root: &Path) -> Vec<String> {
-        scaffold_paths(root)
+        scaffold_paths(root, None)
     }
 
     fn before_phase(&self, root: &Path) -> anyhow::Result<ProfileSnapshot> {
-        let scaffold_paths = scaffold_paths(root);
-        if !scaffold_paths.is_empty() {
-            let _ = complete_scaffold(root, &scaffold_paths)?;
+        if let Some(package) = first_src_package(root) {
+            let _ = write_absent(&root.join("pyproject.toml"), &canonical_pyproject(&package))?;
         }
         Ok(ProfileSnapshot::None)
     }
@@ -70,8 +69,8 @@ impl DomainProfile for PythonCliProfile {
         complete_scaffold(root, missing_paths)
     }
 
-    fn verify_final(&self, root: &Path, _goal: &str) -> VerificationReport {
-        let invariant = verify_invariant_contract(root);
+    fn verify_final(&self, root: &Path, goal: &str) -> VerificationReport {
+        let invariant = verify_invariant_contract(root, Some(goal));
         if !invariant.is_pass() {
             return invariant;
         }
@@ -81,17 +80,19 @@ impl DomainProfile for PythonCliProfile {
     fn verify_invariant(
         &self,
         root: &Path,
-        _goal: &str,
+        goal: &str,
         _snapshot: &ProfileSnapshot,
     ) -> VerificationReport {
-        verify_invariant_contract(root)
+        verify_invariant_contract(root, Some(goal))
     }
 
-    fn guidance(&self, _goal: &str) -> Option<String> {
-        Some(
-            "For the python-cli profile, create a small Python CLI package with pyproject.toml and src/<package>/main.py. Keep deterministic verification separate from dependency setup. The CLI must read stdin or args and print non-empty output that changes when input changes."
-                .to_string(),
-        )
+    fn guidance(&self, goal: &str) -> Option<String> {
+        let entrypoint = explicit_goal_package(goal)
+            .map(|package| format!("src/{package}/main.py"))
+            .unwrap_or_else(|| "src/<package>/main.py".to_string());
+        Some(format!(
+            "For the python-cli profile, create one small Python CLI package with pyproject.toml and {entrypoint}. Derive the package from an explicit requested .py filename; otherwise preserve the existing project identity or use app. Do not create a second default package. Keep deterministic verification separate from dependency setup. The CLI must read stdin or args and print non-empty output that changes when input changes.",
+        ))
     }
 
     fn runtime_contract(&self, _intent: &str, _goal: &str) -> String {
@@ -104,13 +105,13 @@ impl DomainProfile for PythonCliProfile {
 
     fn generation_rules(&self, _intent: &str) -> Option<&'static str> {
         Some(
-            "- Profile python-cli: create pyproject.toml plus src/<package>/main.py. Prefer stdlib-only code unless dependencies are explicitly required. Use python3 -m compileall -q src for verification. Do not put pip install in verify commands; dependency setup belongs in setup phases only. The CLI should read stdin or argv and print changed output for changed input.\n",
+            "- Profile python-cli: create pyproject.toml plus exactly one src/<package>/main.py. Derive <package> from an explicit requested .py filename; otherwise preserve the existing project identity or use app. Never create a second fallback package. Prefer stdlib-only code unless dependencies are explicitly required. Use python3 -m compileall -q src for verification. Do not put pip install in verify commands; dependency setup belongs in setup phases only. The CLI should read stdin or argv and print changed output for changed input.\n",
         )
     }
 
-    fn quality_expectations(&self, root: &Path, _goal: &str) -> ProfileQualityExpectations {
+    fn quality_expectations(&self, root: &Path, goal: &str) -> ProfileQualityExpectations {
         ProfileQualityExpectations {
-            required_artifacts: scaffold_paths(root),
+            required_artifacts: scaffold_paths(root, Some(goal)),
             preferred_verify: vec![COMPILE_COMMAND.to_string()],
             forbidden_verify: vec!["pip install".to_string(), "python -m venv".to_string()],
             dependency_order_hint: Some(
@@ -120,8 +121,8 @@ impl DomainProfile for PythonCliProfile {
         }
     }
 
-    fn post_step_repair(&self, root: &Path, _goal: &str) -> anyhow::Result<bool> {
-        make_entrypoint_executable(root)
+    fn post_step_repair(&self, root: &Path, goal: &str) -> anyhow::Result<bool> {
+        make_entrypoint_executable(root, Some(goal))
     }
 
     fn build_oracle(&self, command: &str) -> Option<ProfileBuildOracle> {
@@ -214,7 +215,7 @@ impl DomainProfile for PythonCliProfile {
                 None,
             );
         }
-        let Some(entrypoint) = entrypoint_path(root) else {
+        let Some(entrypoint) = entrypoint_path(root, Some(goal)) else {
             return write_behavior_report(
                 root,
                 "failed",
@@ -403,10 +404,10 @@ fn contains_any_aggregate_label(stdout: &str) -> bool {
         || stdout.contains("最小")
 }
 
-fn scaffold_paths(root: &Path) -> Vec<String> {
+fn scaffold_paths(root: &Path, goal: Option<&str>) -> Vec<String> {
     vec![
         "pyproject.toml".to_string(),
-        format!("src/{}/main.py", package_name(root)),
+        format!("src/{}/main.py", package_name(root, goal)),
     ]
 }
 
@@ -416,7 +417,7 @@ pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Resul
         .iter()
         .find(|path| python_entrypoint_rel(path))
         .cloned()
-        .unwrap_or_else(|| format!("src/{}/main.py", package_name(root)));
+        .unwrap_or_else(|| format!("src/{}/main.py", package_name(root, None)));
     let package = entrypoint_rel
         .strip_prefix("src/")
         .and_then(|tail| tail.strip_suffix("/main.py"))
@@ -430,8 +431,9 @@ pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Resul
             }
             continue;
         }
-        if python_entrypoint_rel(rel) && write_absent(&root.join(rel), canonical_main_py())? {
-            make_entrypoint_executable(root)?;
+        if python_entrypoint_rel(rel) && write_absent(&root.join(rel), &canonical_main_py(package))?
+        {
+            make_path_executable(&root.join(rel))?;
             created.push(rel.clone());
         }
     }
@@ -474,8 +476,9 @@ fn canonical_pyproject(package: &str) -> String {
     )
 }
 
-fn canonical_main_py() -> &'static str {
-    r#"#!/usr/bin/env python3
+fn canonical_main_py(package: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env python3
 import sys
 
 
@@ -483,23 +486,24 @@ def main() -> int:
     data = " ".join(sys.argv[1:]).strip() or sys.stdin.read().strip()
     if not data:
         data = "ready"
-    print(f"anvil_app: {data}")
+    print(f"{package}: {{data}}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
 "#
+    )
 }
 
-fn verify_invariant_contract(root: &Path) -> VerificationReport {
+fn verify_invariant_contract(root: &Path, goal: Option<&str>) -> VerificationReport {
     if !root.join("pyproject.toml").is_file() {
         return profile_failure("pyproject.toml missing");
     }
-    let Some(entrypoint) = entrypoint_path(root) else {
+    let Some(entrypoint) = entrypoint_path(root, goal) else {
         return profile_failure(format!(
             "Python CLI entrypoint missing: expected {}",
-            scaffold_paths(root)
+            scaffold_paths(root, goal)
                 .get(1)
                 .cloned()
                 .unwrap_or_else(|| "src/<package>/main.py".to_string())
@@ -545,35 +549,81 @@ fn compile_report(root: &Path) -> VerificationReport {
     }
 }
 
-fn make_entrypoint_executable(root: &Path) -> anyhow::Result<bool> {
-    let Some(entrypoint) = entrypoint_path(root) else {
+fn make_entrypoint_executable(root: &Path, goal: Option<&str>) -> anyhow::Result<bool> {
+    let Some(entrypoint) = entrypoint_path(root, goal) else {
         return Ok(false);
     };
+    make_path_executable(&entrypoint)
+}
+
+fn make_path_executable(path: &Path) -> anyhow::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let metadata = std::fs::metadata(&entrypoint)?;
+        let metadata = std::fs::metadata(path)?;
         let mut permissions = metadata.permissions();
         let mode = permissions.mode();
         if mode & 0o111 != 0 {
             return Ok(false);
         }
         permissions.set_mode(mode | 0o755);
-        std::fs::set_permissions(entrypoint, permissions)?;
+        std::fs::set_permissions(path, permissions)?;
         Ok(true)
     }
     #[cfg(not(unix))]
     {
-        let _ = entrypoint;
+        let _ = path;
         Ok(false)
     }
 }
 
-fn package_name(root: &Path) -> String {
+fn package_name(root: &Path, goal: Option<&str>) -> String {
+    goal.and_then(explicit_goal_package)
+        .or_else(|| workspace_package_name(root))
+        .unwrap_or_else(|| DEFAULT_PACKAGE.to_string())
+}
+
+fn workspace_package_name(root: &Path) -> Option<String> {
     pyproject_name(root)
         .map(|name| python_package_from_project_name(&name))
         .or_else(|| first_src_package(root))
-        .unwrap_or_else(|| DEFAULT_PACKAGE.to_string())
+}
+
+fn explicit_goal_package(goal: &str) -> Option<String> {
+    goal.split(|ch: char| {
+        !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '\\'))
+    })
+    .find_map(package_from_python_path)
+}
+
+fn package_from_python_path(token: &str) -> Option<String> {
+    let token = token.trim_matches('.');
+    if token.is_empty()
+        || token.contains(['<', '>'])
+        || !token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '\\'))
+    {
+        return None;
+    }
+    let normalized = token.replace('\\', "/");
+    let path = Path::new(&normalized);
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("py"))
+    {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    let candidate = if stem.eq_ignore_ascii_case("main") {
+        let parent = path.parent()?.file_name()?.to_str()?;
+        (!parent.eq_ignore_ascii_case("src")).then_some(parent)?
+    } else {
+        stem
+    };
+    let package = python_package_from_project_name(candidate);
+    safe_python_package_name(&package).then_some(package)
 }
 
 fn pyproject_name(root: &Path) -> Option<String> {
@@ -630,10 +680,17 @@ fn first_src_package(root: &Path) -> Option<String> {
     packages.into_iter().next()
 }
 
-fn entrypoint_path(root: &Path) -> Option<PathBuf> {
-    let expected = root.join("src").join(package_name(root)).join("main.py");
+fn entrypoint_path(root: &Path, goal: Option<&str>) -> Option<PathBuf> {
+    let goal_names_entrypoint = goal.and_then(explicit_goal_package).is_some();
+    let expected = root
+        .join("src")
+        .join(package_name(root, goal))
+        .join("main.py");
     if expected.is_file() {
         return Some(expected);
+    }
+    if goal_names_entrypoint {
+        return None;
     }
     let package = first_src_package(root)?;
     Some(root.join("src").join(package).join("main.py"))
@@ -891,6 +948,84 @@ SyntaxError: invalid syntax
     }
 
     #[test]
+    fn explicit_python_filenames_bind_goal_named_packages() {
+        let dir = tempfile::tempdir().unwrap();
+
+        for (goal, expected) in [
+            (
+                "Create a small CLI greet.py that prints a greeting",
+                "src/greet/main.py",
+            ),
+            ("Create a CLI wc.py that counts stdin", "src/wc/main.py"),
+            ("greet.pyを作ってください。", "src/greet/main.py"),
+            ("Create wc.py.", "src/wc/main.py"),
+            (
+                "Implement the entrypoint at src/csv_stats/main.py",
+                "src/csv_stats/main.py",
+            ),
+        ] {
+            assert_eq!(
+                PythonCliProfile.expected_scaffold_paths(dir.path(), goal),
+                vec!["pyproject.toml".to_string(), expected.to_string()]
+            );
+        }
+    }
+
+    #[test]
+    fn package_identity_prefers_explicit_goal_then_existing_project_then_app() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            PythonCliProfile.setup_scaffold_paths(dir.path()),
+            vec!["pyproject.toml", "src/app/main.py"]
+        );
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"existing-tool\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            PythonCliProfile.expected_scaffold_paths(dir.path(), "Build a Python CLI"),
+            vec!["pyproject.toml", "src/existing_tool/main.py"]
+        );
+        assert_eq!(
+            PythonCliProfile.expected_scaffold_paths(dir.path(), "Build greet.py"),
+            vec!["pyproject.toml", "src/greet/main.py"]
+        );
+    }
+
+    #[test]
+    fn goal_named_scaffold_never_creates_the_legacy_default_package() {
+        for goal in ["Create greet.py", "Create wc.py"] {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = PythonCliProfile.expected_scaffold_paths(dir.path(), goal);
+
+            complete_scaffold(dir.path(), &paths).unwrap();
+
+            assert!(dir.path().join(&paths[1]).is_file(), "{goal}: {paths:?}");
+            assert!(!dir.path().join("src/anvil_app").exists(), "{goal}");
+        }
+    }
+
+    #[test]
+    fn goal_named_invariant_does_not_accept_an_unrelated_existing_package() {
+        let dir = tempfile::tempdir().unwrap();
+        complete_scaffold(
+            dir.path(),
+            &[
+                "pyproject.toml".to_string(),
+                "src/legacy_app/main.py".to_string(),
+            ],
+        )
+        .unwrap();
+
+        let report = verify_invariant_contract(dir.path(), Some("Create greet.py"));
+
+        assert!(!report.is_pass(), "{report:?}");
+        assert!(!dir.path().join("src/greet/main.py").exists());
+    }
+
+    #[test]
     fn python_interpreter_keeps_existing_venv_precedence() {
         let dir = tempfile::tempdir().unwrap();
         let venv = dependency_setup::python_cli_venv_python(dir.path());
@@ -949,12 +1084,9 @@ SyntaxError: invalid syntax
         let root = std::env::var_os("COMMANDAGENT_TEST_PYTHON3_ONLY_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| fallback_root.path().to_path_buf());
-        let paths = vec![
-            "pyproject.toml".to_string(),
-            "src/anvil_app/main.py".to_string(),
-        ];
+        let paths = vec!["pyproject.toml".to_string(), "src/app/main.py".to_string()];
         complete_scaffold(&root, &paths).unwrap();
-        let invariant = verify_invariant_contract(&root);
+        let invariant = verify_invariant_contract(&root, None);
         assert!(invariant.is_pass(), "{invariant:?}");
         let compile = compile_report(&root);
         assert!(compile.is_pass(), "{compile:?}");
@@ -1004,33 +1136,83 @@ SyntaxError: invalid syntax
         );
         let main = std::fs::read_to_string(dir.path().join("src/csv_stats/main.py")).unwrap();
         assert!(main.contains("def main()"), "{main}");
-        assert!(verify_invariant_contract(dir.path()).is_pass());
+        assert!(main.contains("csv_stats: {data}"), "{main}");
+        assert!(!main.contains("anvil_app"), "{main}");
+        assert!(verify_invariant_contract(dir.path(), None).is_pass());
     }
 
     #[test]
-    fn before_phase_pre_provisions_python_cli_scaffold() {
+    fn before_phase_does_not_pre_provision_an_identityless_workspace() {
         let dir = tempfile::tempdir().unwrap();
 
         crate::planner::profile::profile_before_phase(dir.path(), "python-cli").unwrap();
 
-        assert!(dir.path().join("pyproject.toml").is_file());
-        assert!(dir.path().join("src/anvil_app/main.py").is_file());
+        assert!(!dir.path().join("pyproject.toml").exists());
+        assert!(!dir.path().join("src").exists());
+        assert!(!dir.path().join("src/anvil_app").exists());
+    }
+
+    #[test]
+    fn before_phase_does_not_materialize_a_pyproject_only_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"greet-cli\"\n",
+        )
+        .unwrap();
+
+        crate::planner::profile::profile_before_phase(dir.path(), "python-cli").unwrap();
+
+        assert!(!dir.path().join("src").exists());
+        assert!(!dir.path().join("src/anvil_app").exists());
+    }
+
+    #[test]
+    fn before_phase_completes_metadata_for_an_existing_source_package() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/greet")).unwrap();
+        std::fs::write(dir.path().join("src/greet/main.py"), "print('hello')\n").unwrap();
+
+        crate::planner::profile::profile_before_phase(dir.path(), "python-cli").unwrap();
+
+        let pyproject = std::fs::read_to_string(dir.path().join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("name = \"greet\""), "{pyproject}");
+        assert!(!dir.path().join("src/app").exists());
+        assert!(!dir.path().join("src/anvil_app").exists());
+    }
+
+    #[test]
+    fn before_phase_never_materializes_a_second_metadata_named_package() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"anvil-app\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src/wc")).unwrap();
+        std::fs::write(dir.path().join("src/wc/main.py"), "print('wc')\n").unwrap();
+
+        crate::planner::profile::profile_before_phase(dir.path(), "python-cli").unwrap();
+
+        assert!(dir.path().join("src/wc/main.py").is_file());
+        assert!(!dir.path().join("src/anvil_app").exists());
+        assert!(!dir.path().join("src/app").exists());
     }
 
     #[test]
     fn complete_scaffold_never_overwrites_python_cli_files() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("src/anvil_app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/custom_app")).unwrap();
         let pyproject = "[project]\nname = \"custom-app\"\nversion = \"9.9.9\"\n";
         let main = "print('custom')\n";
         std::fs::write(dir.path().join("pyproject.toml"), pyproject).unwrap();
-        std::fs::write(dir.path().join("src/anvil_app/main.py"), main).unwrap();
+        std::fs::write(dir.path().join("src/custom_app/main.py"), main).unwrap();
 
         let created = complete_scaffold(
             dir.path(),
             &[
                 "pyproject.toml".to_string(),
-                "src/anvil_app/main.py".to_string(),
+                "src/custom_app/main.py".to_string(),
             ],
         )
         .unwrap();
@@ -1041,7 +1223,7 @@ SyntaxError: invalid syntax
             pyproject
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("src/anvil_app/main.py")).unwrap(),
+            std::fs::read_to_string(dir.path().join("src/custom_app/main.py")).unwrap(),
             main
         );
     }
