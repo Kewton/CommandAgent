@@ -12,6 +12,9 @@
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets --features gui -- -D warnings`: `passed`
 - `cargo test`: `passed`
+- `git diff --exit-code 714017ca 0a947787 -- src/bin/gui_server/session_files.rs`: `passed`
+- `cargo +1.97.1 clippy --features gui --bin gui_server -- -D warnings`: `passed`
+- `cargo test --features gui --test gui_server trial_session_files_`: `passed`
 
 ## Notes
 
@@ -25,3 +28,8 @@ The fixture now uses `DirBuilder`, the focused guard passed, and the final full
 suite passed. One focused integration attempt also encountered the sandbox's
 localhost bind restriction; the same command passed with the repository test
 permission used for the final GUI target.
+
+The authorized CI follow-up cherry-picked only Issue 160 code commit
+`714017ca` as `0a947787`; report commit `1f28c021` was not applied. The
+source-equivalence check and final Rust 1.97.1/GUI checks above all passed, so
+the overall status remains `passed`.
