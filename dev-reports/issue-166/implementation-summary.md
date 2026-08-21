@@ -41,3 +41,19 @@ all displayed members, and confirmed the server reported it as `staged` without
 a page reload. After pinning and retiring `1.0.1`, each case created editable
 `1.0.2` with the same member-copy contract. The predecessor's exact-byte
 reconciliation and pinned-byte equality assertions remained green.
+
+## Rust 1.98 CI follow-up
+
+Cherry-picked only Issue 160 code commit `714017ca` as `14a720fe`; the separate
+Issue 160 report commit `1f28c021` and its report files were not applied. The
+code commit replaces the inline Axum `Response` error representation in the
+session-file handlers with `SessionFileError`, a one-pointer wrapper around
+`Box<Response>`, without adding a lint allowance.
+
+The existing response is constructed before boxing and moved out unchanged by
+`IntoResponse`. This preserves its status, headers, coded JSON bytes, and the
+existing handler boundary. Session ID validation, path confinement, size and
+tail limits, and symlink metadata decisions are unchanged. The focused tests
+for authenticated/confined/bounded session files and symlinked runtime-root
+rejection passed, as did Rust 1.97.1 Clippy for the GUI server and the complete
+Issue 166 wizard smoke at both base paths.
