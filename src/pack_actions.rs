@@ -68,13 +68,16 @@ pub(crate) fn render_list(
     }
     if let Some(extension_root) = extension_root {
         for directory in local_pack_directories(extension_root)? {
-            let report =
-                crate::planner::pack::conform_directory(&directory).with_context(|| {
-                    format!(
-                        "local pack conformance failed for `{}`",
+            let report = match crate::planner::pack::conform_directory(&directory) {
+                Ok(report) => report,
+                Err(error) => {
+                    eprintln!(
+                        "warning: skipping invalid local pack `{}`: {error:#}",
                         directory.display()
-                    )
-                })?;
+                    );
+                    continue;
+                }
+            };
             if report.profile == profile.as_str() && report.intent == intent.as_str() {
                 // A retired pack stays listed for audit but is never selectable,
                 // so the source cell says so instead of reading as available.
