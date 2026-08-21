@@ -17,15 +17,17 @@ pub struct ManifestMetadata {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SchemaVersion {
-    #[serde(rename = "v1")]
     V1,
+    V2,
 }
 
 impl SchemaVersion {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::V1 => "v1",
+            Self::V2 => "v2",
         }
     }
 }

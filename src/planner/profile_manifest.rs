@@ -7,8 +7,10 @@ use serde::Deserialize;
 use crate::planner::capability_catalog::{self, CatalogError, ResolvedCapability};
 
 pub(crate) mod check_phase_scope;
+pub mod commands;
 pub mod overlay;
 mod schema_v1;
+mod schema_v2;
 pub mod source;
 mod v1_validation;
 mod validation;
@@ -98,6 +100,12 @@ impl std::error::Error for ManifestError {
 impl ManifestV1 {
     pub fn from_toml(input: &str) -> Result<Self, ManifestError> {
         let manifest = toml::from_str::<Self>(input).map_err(ManifestError::Parse)?;
+        if manifest.metadata.schema_version != SchemaVersion::V1 {
+            return Err(ManifestError::Invalid {
+                field: "metadata.schema_version",
+                reason: "ManifestV1 accepts only `v1`".to_string(),
+            });
+        }
         manifest.resolve()?;
         Ok(manifest)
     }
@@ -132,6 +140,10 @@ impl ManifestV1 {
         validation::validate(self)?;
         v1_validation::validate(self)
     }
+}
+
+pub(crate) fn external_manifest_from_toml(input: &str) -> Result<ManifestV1, ManifestError> {
+    schema_v2::from_external_toml(input)
 }
 
 pub fn nextjs_manifest() -> &'static ManifestV1 {

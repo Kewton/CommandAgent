@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use crate::planner::adjudication::contract::IntentId;
 use crate::tui::boundary_shell::family_catalog::TaskFamilyId;
 
-use super::{ManifestError, ManifestStatus, ManifestV1};
+use super::{ManifestError, ManifestStatus, ManifestV1, external_manifest_from_toml};
 
 /// Extension-root layout fixed by Issue #103.
 pub const EXTENSION_PROFILES_DIRECTORY: &str = "profiles";
@@ -164,6 +164,12 @@ pub enum ExtensionManifestError {
         path: PathBuf,
         source: Box<ManifestError>,
     },
+    Located {
+        path: PathBuf,
+        line: usize,
+        column: usize,
+        reason: String,
+    },
     Invalid {
         path: PathBuf,
         reason: String,
@@ -205,6 +211,16 @@ impl fmt::Display for ExtensionManifestError {
                     path.display()
                 )
             }
+            Self::Located {
+                path,
+                line,
+                column,
+                reason,
+            } => write!(
+                f,
+                "external manifest {}:{line}:{column}: {reason}",
+                path.display()
+            ),
             Self::Invalid { path, reason } => {
                 write!(
                     f,
@@ -340,7 +356,7 @@ pub(super) fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, ExtensionMan
         })
 }
 
-fn decode(
+pub(super) fn decode(
     directory: &Path,
     path: &Path,
     bytes: &[u8],
@@ -348,29 +364,46 @@ fn decode(
     let text = std::str::from_utf8(bytes).map_err(|_| ExtensionManifestError::NotUtf8 {
         path: path.to_path_buf(),
     })?;
-    let mut manifest =
-        ManifestV1::from_toml(text).map_err(|source| ExtensionManifestError::Manifest {
-            path: path.to_path_buf(),
-            source: Box::new(source),
-        })?;
-    let invalid = |reason: String| ExtensionManifestError::Invalid {
-        path: path.to_path_buf(),
-        reason,
-    };
+    let mut manifest = external_manifest_from_toml(text)
+        .map_err(|error| located_manifest_error(path, text, error))?;
+    let invalid = |needle: &str, reason: String| located_rejection(path, text, needle, reason);
     let expected = directory
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default();
     if manifest.metadata.id != expected {
-        return Err(invalid(format!(
-            "metadata.id `{}` must match the directory name `{expected}`",
-            manifest.metadata.id
-        )));
+        return Err(invalid(
+            &manifest.metadata.id,
+            format!(
+                "metadata.id `{}` must match the directory name `{expected}`",
+                manifest.metadata.id
+            ),
+        ));
     }
-    reject_registered_identity(&manifest.metadata.id).map_err(&invalid)?;
-    let task_family = required_task_family(&manifest).map_err(&invalid)?;
-    let intent = required_intent(&manifest).map_err(&invalid)?;
-    reject_fixture_vocabulary(text).map_err(&invalid)?;
+    reject_registered_identity(&manifest.metadata.id)
+        .map_err(|reason| invalid(&manifest.metadata.id, reason))?;
+    let task_family = required_task_family(&manifest).map_err(|reason| {
+        invalid(
+            manifest
+                .metadata
+                .task_family
+                .as_deref()
+                .unwrap_or("task_family"),
+            reason,
+        )
+    })?;
+    let intent =
+        required_intent(&manifest).map_err(|reason| invalid(&manifest.plan.intent, reason))?;
+    if let Some((section, token)) =
+        fixture_vocabulary_violation(text).map_err(|reason| invalid("", reason))?
+    {
+        return Err(invalid(
+            token,
+            format!(
+                "measured-fixture vocabulary {token:?} is not allowed in the `{section}` section"
+            ),
+        ));
+    }
 
     let mut warnings = Vec::new();
     if manifest.metadata.status == ManifestStatus::Admitted {
@@ -390,6 +423,105 @@ fn decode(
         intent,
         warnings,
     })
+}
+
+pub(super) fn located_manifest_error(
+    path: &Path,
+    text: &str,
+    error: ManifestError,
+) -> ExtensionManifestError {
+    let (line, column) = match &error {
+        ManifestError::Parse(error) => error
+            .span()
+            .map(|span| line_column(text, span.start))
+            .unwrap_or((1, 1)),
+        ManifestError::Invalid { field, .. } => locate_field(text, field),
+        ManifestError::CheckBinding { id, .. } => locate_needle(text, id),
+    };
+    let reason = match error {
+        ManifestError::Parse(error) => {
+            format!("TOML parse error: {}", single_line(error.message()))
+        }
+        other => other.to_string(),
+    };
+    ExtensionManifestError::Located {
+        path: path.to_path_buf(),
+        line,
+        column,
+        reason,
+    }
+}
+
+pub(super) fn located_toml_error(
+    path: &Path,
+    text: &str,
+    error: toml::de::Error,
+    document: &str,
+) -> ExtensionManifestError {
+    let (line, column) = error
+        .span()
+        .map(|span| line_column(text, span.start))
+        .unwrap_or((1, 1));
+    ExtensionManifestError::Located {
+        path: path.to_path_buf(),
+        line,
+        column,
+        reason: format!(
+            "{document} TOML parse error: {}",
+            single_line(error.message())
+        ),
+    }
+}
+
+pub(super) fn located_rejection(
+    path: &Path,
+    text: &str,
+    needle: &str,
+    reason: String,
+) -> ExtensionManifestError {
+    let (line, column) = locate_needle(text, needle);
+    ExtensionManifestError::Located {
+        path: path.to_path_buf(),
+        line,
+        column,
+        reason,
+    }
+}
+
+fn locate_field(text: &str, field: &str) -> (usize, usize) {
+    let needle = field
+        .rsplit('.')
+        .find_map(|part| {
+            let name = part.trim_end_matches("[]");
+            (!name.is_empty() && !name.starts_with('<')).then_some(name)
+        })
+        .unwrap_or(field);
+    locate_needle(text, needle)
+}
+
+fn locate_needle(text: &str, needle: &str) -> (usize, usize) {
+    let offset = (!needle.is_empty())
+        .then(|| text.find(needle))
+        .flatten()
+        .unwrap_or(0);
+    line_column(text, offset)
+}
+
+fn line_column(text: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(text.len());
+    let prefix = &text[..offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, current)| current)
+        .chars()
+        .count()
+        + 1;
+    (line, column)
+}
+
+fn single_line(reason: &str) -> String {
+    reason.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Externally supplied ids may never shadow a compiled-in profile identity.
@@ -466,7 +598,19 @@ fn required_task_family(manifest: &ManifestV1) -> Result<TaskFamilyId, String> {
 
 /// The repository tripwire from `tests/generality_guardrails.rs`, executed at
 /// load time so an external manifest cannot bypass it.
-pub(super) fn reject_fixture_vocabulary(text: &str) -> Result<(), String> {
+#[cfg(test)]
+fn reject_fixture_vocabulary(text: &str) -> Result<(), String> {
+    if let Some((section, token)) = fixture_vocabulary_violation(text)? {
+        return Err(format!(
+            "measured-fixture vocabulary {token:?} is not allowed in the `{section}` section"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn fixture_vocabulary_violation(
+    text: &str,
+) -> Result<Option<(&'static str, &'static str)>, String> {
     let document = text
         .parse::<toml::Value>()
         .map_err(|error| format!("manifest TOML is invalid: {error}"))?;
@@ -476,13 +620,11 @@ pub(super) fn reject_fixture_vocabulary(text: &str) -> Result<(), String> {
         };
         for token in FIXTURE_VOCABULARY {
             if toml_value_contains(value, token) {
-                return Err(format!(
-                    "measured-fixture vocabulary {token:?} is not allowed in the `{section}` section"
-                ));
+                return Ok(Some((section, token)));
             }
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 fn toml_value_contains(value: &toml::Value, needle: &str) -> bool {

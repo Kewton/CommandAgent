@@ -115,8 +115,10 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   両方が別プロバイダの場合、フラグを無視せず起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。
   これらのセッションスイッチはスラッシュコマンドによる plan 再開には使われません。
-- `--init-profile` には `--extension-root` が必要です。この lane では manifest 引数だけを公開し、
-  manifest の検証と生成は Lane I backend の統合後に動作します。
+- `--init-profile` には既存の `--extension-root` が必要です。短い draft v2 manifest を作成し、
+  既存ファイルは上書きしません。
+- `--validate-manifest` は profile を登録・実行せず、v1/v2 profile manifest または v1 overlay を
+  検証します。失敗時はファイル、行、列、理由を 1 回だけ表示します。
 
 ## 設定雛形
 
