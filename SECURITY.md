@@ -10,14 +10,20 @@ execute hostile projects or hostile instructions safely.
   scripts, package hooks, or source tree you would not run manually.
 - The requested goal is trusted. A malicious prompt can still ask the agent to
   run dangerous commands or edit sensitive files.
-- Bash commands are policy-checked before execution, but Bash is not a sandbox.
-  Shell commands still run as the current OS user.
+- Bash commands are policy-checked before execution. Recognized filesystem
+  write destinations (common mutating commands and output redirects) must stay
+  under the canonical workspace root, including through existing symlinks;
+  newly created workspace symlinks may not target paths outside that root.
+  Bash is not a complete sandbox: shell commands and invoked programs still run
+  as the current OS user, and static inspection cannot prove every indirect
+  effect of an arbitrary program.
 
 ## `--yes`
 
-`--yes` skips interactive approval for mutating tools. Use it only in a trusted
-workspace after checking the goal and current branch. It does not make command
-execution safer and does not auto-kill unrelated local processes.
+`--yes` skips interactive approval for mutating tools. It does not bypass the
+recognized Bash write-destination guard. Use it only in a trusted workspace
+after checking the goal and current branch: it does not turn Bash into an OS
+sandbox and does not auto-kill unrelated local processes.
 
 ## Child Process Environment
 

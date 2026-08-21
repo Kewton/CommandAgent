@@ -75,7 +75,11 @@ pub enum IntentArg {
         .multiple(false)
 ))]
 pub struct Cli {
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Auto-approve mutating tools; recognized Bash writes remain workspace-confined"
+    )]
     pub yes: bool,
     #[arg(long)]
     pub preset: Option<String>,
@@ -323,6 +327,12 @@ mod tests {
     fn help_does_not_include_engine() {
         let help = Cli::command().render_long_help().to_string();
         assert!(!help.contains("--engine"));
+    }
+
+    #[test]
+    fn yes_help_preserves_workspace_confinement_warning() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("recognized Bash writes remain workspace-confined"));
     }
 
     #[test]
