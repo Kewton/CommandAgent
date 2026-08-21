@@ -27,3 +27,23 @@ API routing and coded JSON error responses are unchanged because registered API
 routes continue to resolve before the static fallback. No event schema,
 runtime-state namespace, corpus fixture, or production filesystem-write
 contract changed.
+
+## Rust 1.98 CI compatibility follow-up
+
+PR #271's GUI Dashboard job exposed `clippy::result_large_err` on the
+`Result` signatures for session-file artifacts, events, and run-root lookup.
+The compatibility change is isolated to `src/bin/gui_server/session_files.rs`
+in code commit `714017ca`.
+
+- Added `SessionFileError`, a one-pointer wrapper around `Box<Response>`.
+- Converted the three affected `Result` error types from `Response` to the
+  wrapper, removing the large inline `Err` representation without suppressing
+  Clippy.
+- Kept all existing error construction in place and implemented `IntoResponse`
+  by moving the already-built response out of the box. Status codes, headers,
+  JSON bytes, and handler routing are therefore unchanged.
+- Left session ID validation, path confinement, size limits, event-tail logic,
+  and every symlink metadata check unchanged.
+- Added no test-only compatibility shim or lint allow. Existing focused
+  process tests cover authentication, success responses, traversal, limits,
+  invalid/aliased IDs, and symlinked runtime roots.
