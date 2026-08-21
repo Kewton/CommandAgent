@@ -80,7 +80,9 @@ export default function MeasurementsPage() {
       <section className="measurement-workbench">
         <aside className="report-index panel">
           <header>
-            <span>レポート一覧</span>
+            <h2 style={{ margin: 0 }}>
+              <span>レポート一覧</span>
+            </h2>
             <strong>{reports.data?.length ?? "—"}</strong>
           </header>
           {reports.loading && <LoadingState label="計測レポートを索引化しています" />}
@@ -107,6 +109,7 @@ export default function MeasurementsPage() {
             <DocumentViewer
               document={selected}
               empty="一覧からレポートを選択してください。"
+              headingLevel={3}
               sourceHref={
                 selected === null
                   ? null

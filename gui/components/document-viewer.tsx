@@ -7,12 +7,19 @@ import type { DocumentRecord } from "../lib/types";
 type DocumentViewerProps = {
   document: DocumentRecord | null;
   empty: string;
+  headingLevel?: 2 | 3;
   sourceHref?: string | null;
 };
 
-export function DocumentViewer({ document, empty, sourceHref = null }: DocumentViewerProps) {
+export function DocumentViewer({
+  document,
+  empty,
+  headingLevel = 2,
+  sourceHref = null,
+}: DocumentViewerProps) {
   const [wrapLines, setWrapLines] = useState(true);
   const contentId = useId();
+  const Heading = headingLevel === 2 ? "h2" : "h3";
 
   if (document === null) {
     return <div className="document-empty" data-testid="document-empty">{empty}</div>;
@@ -22,7 +29,9 @@ export function DocumentViewer({ document, empty, sourceHref = null }: DocumentV
       <header>
         <div>
           <span>読み取り専用文書</span>
-          <h2>{document.id}</h2>
+          <Heading style={{ margin: "0.3rem 0 0", fontSize: "1rem", fontWeight: 650 }}>
+            {document.id}
+          </Heading>
         </div>
         <div className="document-viewer-actions">
           <code>{document.path}</code>

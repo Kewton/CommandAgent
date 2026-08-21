@@ -677,6 +677,12 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
     let run_page = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
     for required in [
         "id=\"run-filter\"",
+        "data-testid=\"run-direct-open\"",
+        "data-testid=\"run-index-count\"",
+        "`表示件数 ${runs.data.runs.length} / 総数 ${runs.data.total}`",
+        "selectedRunIsOutsideFilter",
+        "data-testid=\"run-selected-id\"",
+        "overflowWrap: \"anywhere\"",
         "run.status_text",
         "filteredRuns.map",
         "label=\"実行未選択\"",
@@ -707,6 +713,8 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
     let viewer = std::fs::read_to_string("gui/components/document-viewer.tsx").unwrap();
     for required in [
         "sourceHref?: string | null",
+        "headingLevel?: 2 | 3",
+        "const Heading = headingLevel === 2 ? \"h2\" : \"h3\"",
         "data-testid=\"document-source-link\"",
         "target=\"_blank\"",
         "data-testid=\"document-wrap-toggle\"",
@@ -727,6 +735,9 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "data-testid=\"measurement-map-frame\"",
         "className=\"map-source-link\"",
         "原寸 SVG を開く",
+        "<h2 style={{ margin: 0 }}>",
+        "<span>レポート一覧</span>",
+        "headingLevel={3}",
         "apiPath(\"reports/view\"",
     ] {
         assert!(
@@ -740,6 +751,10 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "--read-only",
         "options_include_dates_and_status",
         "filter_matches_id",
+        "count_matches_index_total",
+        "direct_lookup",
+        "heading_order_valid",
+        "mobile_id_fits",
         "no_match_label_visible",
         "request_ownership",
         "empty_selection_cleared",
