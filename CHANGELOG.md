@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Make the documented PTY commands execute the ignored integration suite.
+- Keep `profiles/` out of legacy local-pack discovery when an extension root
+  contains both draft profiles and `packs/`.
 
 ## Historical note
 

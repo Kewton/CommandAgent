@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 
 use crate::cli::{Cli, IntentArg};
-use crate::planner::pack::{PackIntent, PackProfile};
+use crate::planner::pack::{PACKS_DIRECTORY, PackIntent, PackProfile};
+use crate::planner::profile_manifest::source::EXTENSION_PROFILES_DIRECTORY;
 
 const PACK_PIN_FILE: &str = "pack.sha256";
 
@@ -101,7 +102,7 @@ fn local_pack_directories(extension_root: &Path) -> anyhow::Result<Vec<PathBuf>>
     }
     let mut directories = BTreeSet::new();
     collect_pack_directories(extension_root, true, &mut directories)?;
-    let compatibility_root = extension_root.join("packs");
+    let compatibility_root = extension_root.join(PACKS_DIRECTORY);
     if compatibility_root.is_dir() {
         collect_pack_directories(&compatibility_root, false, &mut directories)?;
     }
@@ -110,11 +111,14 @@ fn local_pack_directories(extension_root: &Path) -> anyhow::Result<Vec<PathBuf>>
 
 fn collect_pack_directories(
     root: &Path,
-    skip_packs_directory: bool,
+    skip_extension_namespaces: bool,
     directories: &mut BTreeSet<PathBuf>,
 ) -> anyhow::Result<()> {
     for id_entry in sorted_directories(root)? {
-        if skip_packs_directory && id_entry.file_name() == "packs" {
+        if skip_extension_namespaces
+            && (id_entry.file_name() == PACKS_DIRECTORY
+                || id_entry.file_name() == EXTENSION_PROFILES_DIRECTORY)
+        {
             continue;
         }
         for version_entry in sorted_directories(&id_entry.path())? {
