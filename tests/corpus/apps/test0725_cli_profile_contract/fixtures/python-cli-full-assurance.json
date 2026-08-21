@@ -1,0 +1,15 @@
+{
+  "status": "full",
+  "assurance": "full",
+  "evidence": {
+    "probe_attempted": true,
+    "binding_intact": true,
+    "checks": {
+      "cli_output_claims": "pass",
+      "cli_probe": "pass",
+      "cli_rerun_consistency": "pass",
+      "help_binding": "pass"
+    }
+  },
+  "reasons": []
+}

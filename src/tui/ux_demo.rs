@@ -317,7 +317,7 @@ mod tests {
 
         for needle in [
             "commandagent",
-            "help: /help for commands | /doctor for setup diagnostics",
+            "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help",
             "### Plan",
             "── Phase 1/2: scaffold ──",
             "#### Phase: scaffold",

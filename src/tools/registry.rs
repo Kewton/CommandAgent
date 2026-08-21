@@ -426,6 +426,10 @@ fn emit_bash_path_confinement_rejected(
         context.eval_events_path.as_deref(),
         json!({
             "event": "bash_path_confinement_rejected",
+            "schema_version": "1",
+            "blocked": true,
+            "reason": rejection.reason,
+            "operation": rejection.operation,
             "command": eval_events::body_snippet(command),
             "path": rejection.path,
             "root": rejection.root,

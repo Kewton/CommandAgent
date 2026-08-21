@@ -59,4 +59,5 @@ fn requested_summary_is_the_final_stdout_line_even_on_failure() {
     assert_eq!(summary["verdict"], "reduced");
     assert_eq!(summary["assurance"], "reduced");
     assert_eq!(summary["stop_class"], "direct_cli_command_failed");
+    assert_eq!(summary["provider_usage_by_role"], serde_json::json!({}));
 }

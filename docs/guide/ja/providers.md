@@ -111,8 +111,11 @@ tool は既定で有効です。構造化 tool call が安定しないモデル�
 ## Ollama のホストとモデル
 
 Ollama には実行中の HTTP サーバーとローカルで利用可能なモデルが必要です。既定アドレスへの
-ローカル API アクセスには API キーが不要です。CommandAgent は `num_predict` を渡し、モデルを
-10 分間ロードしたままにし、設定した host に API route を追加します。
+ローカル API アクセスには API キーが不要です。CommandAgent は解決後の `context_budget` を
+Ollama の `options.num_ctx` として渡し、`num_predict` も渡します。また、モデルを 10 分間ロードした
+ままにし、設定した host に API route を追加します。`commandagent --doctor` には context budget と
+一致する Ollama の `num_ctx` が表示されます。最初の provider turn でモデルをロードした後、
+`ollama ps` の `CONTEXT` 列にも同じ値が表示されます。
 
 ### Ollama thinking
 

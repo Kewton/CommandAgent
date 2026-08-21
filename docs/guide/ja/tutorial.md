@@ -89,7 +89,7 @@ model=qwen3.6:27b-coding-nvfp4 (flag) provider=ollama (flag) planner=qwen3.6:27b
 mode=Act cwd=/private/tmp/commandagent-demo/cli-workspace-2
 context_budget=65536 (default) timeout=600s (default:local_provider) profile=python-cli (flag) ...
 run_log=/private/tmp/commandagent-demo/cli-workspace-2/.anvil/runs/<run-id>/events.jsonl
-help: /help for commands | /doctor for setup diagnostics
+start: plain-text request → review Gate 1 → /confirm <hash> | help: /help
 [act] provider:ollama model:qwen3.6:27b-coding-nvfp4 ctx:65536 tokens:n/a
 commandagent>
 ```
@@ -258,7 +258,7 @@ pin と再接続リンク付きで一覧されます。
 | 表示 | 意味 | 対処 |
 | --- | --- | --- |
 | 起動時に `Model ID does not exist` | その ID が `ollama list` / プロバイダーのカタログに無い。 | 正確な ID を使う。[トラブルシューティング](troubleshooting.md#model-id-が存在しない)参照。 |
-| `D-3c Gate 1 confirmation is required before this REPL execution command.` | カードを確認する前に `/ultra-plan-run` や `/plan-run` を打った。 | 依頼を普通の文で入力し、`/confirm <hash>` を打つ。 |
+| `D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>.` | 依頼ではなく `/ultra-plan-run` や `/plan-run` を直接入力した。 | 依頼を普通の文で入力してカードを確認し、`/confirm <hash>` を入力する。 |
 | `Assurance: static` の Gate 4 | 実行が自前の検証に到達する前に止まった。 | `summary.md` の `Stop reason` を読み、提示された復旧コマンドか修正した依頼を使う。 |
 | GUI: `Recovery required` のリース | 以前の委譲実行に終端イベントが無い。 | 読み取り専用の[リース復旧手順](../../user/gui-trial.md#workspace-lease-inspection-and-recovery)に従う。`.anvil/` を消さない。 |
 | GUI: `403 trial_origin_not_allowed` | サーバーが許可していないオリジンから到達した。 | `GUI_TRIAL_ALLOWED_ORIGINS` にブラウザの正確なオリジンを設定して再起動。 |

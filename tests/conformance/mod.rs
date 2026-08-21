@@ -1579,7 +1579,7 @@ fn scenario_planner_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
                     "pyproject.toml".to_string(),
                     "src/anvil_app/main.py".to_string(),
                 ],
-                vec!["python -m compileall -q src".to_string()],
+                vec!["python3 -m compileall -q src".to_string()],
             )),
             AssistantReply::text(step_plan_json(
                 "Refresh Python CSV CLI",
@@ -1588,7 +1588,7 @@ fn scenario_planner_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
                     "pyproject.toml".to_string(),
                     "src/anvil_app/main.py".to_string(),
                 ],
-                vec!["python -m compileall -q src".to_string()],
+                vec!["python3 -m compileall -q src".to_string()],
             )),
         ],
         MatrixScenario::GenericStatic => vec![

@@ -29,7 +29,7 @@ pub(crate) mod readme_verify;
 pub mod runtime;
 
 const DEFAULT_PACKAGE: &str = "anvil_app";
-const COMPILE_COMMAND: &str = "python -m compileall -q src";
+const COMPILE_COMMAND: &str = "python3 -m compileall -q src";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct PythonCliProfile;
@@ -97,14 +97,14 @@ impl DomainProfile for PythonCliProfile {
     fn runtime_contract(&self, _intent: &str, _goal: &str) -> String {
         "- Preserve pyproject.toml and src/<package>/main.py.\n\
 - Keep dependency setup separate from deterministic verification.\n\
-- Verify syntax with python -m compileall -q src.\n\
+- Verify syntax with python3 -m compileall -q src.\n\
 - The CLI must exit 0 and print non-empty output that changes when stdin or args change."
             .to_string()
     }
 
     fn generation_rules(&self, _intent: &str) -> Option<&'static str> {
         Some(
-            "- Profile python-cli: create pyproject.toml plus src/<package>/main.py. Prefer stdlib-only code unless dependencies are explicitly required. Use python -m compileall -q src for verification. Do not put pip install in verify commands; dependency setup belongs in setup phases only. The CLI should read stdin or argv and print changed output for changed input.\n",
+            "- Profile python-cli: create pyproject.toml plus src/<package>/main.py. Prefer stdlib-only code unless dependencies are explicitly required. Use python3 -m compileall -q src for verification. Do not put pip install in verify commands; dependency setup belongs in setup phases only. The CLI should read stdin or argv and print changed output for changed input.\n",
         )
     }
 
@@ -114,7 +114,7 @@ impl DomainProfile for PythonCliProfile {
             preferred_verify: vec![COMPILE_COMMAND.to_string()],
             forbidden_verify: vec!["pip install".to_string(), "python -m venv".to_string()],
             dependency_order_hint: Some(
-                "Create pyproject.toml and src/<package>/main.py before python -m compileall -q src"
+                "Create pyproject.toml and src/<package>/main.py before python3 -m compileall -q src"
                     .to_string(),
             ),
         }
@@ -788,7 +788,7 @@ fn python_interpreter(root: &Path) -> PathBuf {
     if venv.is_file() {
         venv
     } else {
-        PathBuf::from("python")
+        PathBuf::from("python3")
     }
 }
 
@@ -836,6 +836,37 @@ fn display_path(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{
+        Action, Config, NarrationMode, OpenAiApi, PlanPreset, PromptLayout, Provider,
+    };
+    use crate::planner::runner::run_step_plan;
+    use crate::planner::step_plan::{PlanStep, StepPlan};
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::ConversationMessage;
+    use crate::tools::registry::ToolSpec;
+
+    #[derive(Clone)]
+    struct TestClient;
+
+    impl ChatClient for TestClient {
+        fn label(&self) -> &str {
+            "unused"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            Ok(AssistantReply::text("verification ready"))
+        }
+    }
 
     #[test]
     fn python_compile_parser_extracts_syntax_error() {
@@ -857,6 +888,92 @@ SyntaxError: invalid syntax
     fn package_name_normalizes_project_name() {
         assert_eq!(python_package_from_project_name("hello-cli"), "hello_cli");
         assert_eq!(python_package_from_project_name("7-tool"), "_7_tool");
+    }
+
+    #[test]
+    fn python_interpreter_keeps_existing_venv_precedence() {
+        let dir = tempfile::tempdir().unwrap();
+        let venv = dependency_setup::python_cli_venv_python(dir.path());
+        std::fs::create_dir_all(venv.parent().unwrap()).unwrap();
+        std::fs::write(&venv, b"venv-python").unwrap();
+
+        assert_eq!(python_interpreter(dir.path()), venv);
+    }
+
+    #[test]
+    fn python_cli_expectations_use_python3() {
+        let dir = tempfile::tempdir().unwrap();
+        let expectations = PythonCliProfile.quality_expectations(dir.path(), "build a CLI");
+
+        assert_eq!(expectations.preferred_verify, vec![COMPILE_COMMAND]);
+        assert_eq!(python_interpreter(dir.path()), PathBuf::from("python3"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn python_cli_plan_run_passes_with_python3_only_path() {
+        use std::os::unix::fs::symlink;
+
+        let python3 = active_python3_executable().expect("python3 must be available for tests");
+        let bin_dir = tempfile::tempdir().unwrap();
+        symlink(&python3, bin_dir.path().join("python3")).unwrap();
+        symlink("/bin/sh", bin_dir.path().join("sh")).unwrap();
+        symlink("/bin/bash", bin_dir.path().join("bash")).unwrap();
+        assert!(!bin_dir.path().join("python").exists());
+
+        let workspace = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "planner::profiles::python_cli::tests::python_cli_plan_run_python3_only_path_child",
+            ])
+            .env("PATH", bin_dir.path())
+            .env("COMMANDAGENT_TEST_PYTHON3_ONLY_ROOT", workspace.path())
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "child plan-run failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[ignore = "spawned by python_cli_plan_run_passes_with_python3_only_path"]
+    #[cfg(unix)]
+    fn python_cli_plan_run_python3_only_path_child() {
+        let fallback_root = tempfile::tempdir().unwrap();
+        let root = std::env::var_os("COMMANDAGENT_TEST_PYTHON3_ONLY_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| fallback_root.path().to_path_buf());
+        let paths = vec![
+            "pyproject.toml".to_string(),
+            "src/anvil_app/main.py".to_string(),
+        ];
+        complete_scaffold(&root, &paths).unwrap();
+        let invariant = verify_invariant_contract(&root);
+        assert!(invariant.is_pass(), "{invariant:?}");
+        let compile = compile_report(&root);
+        assert!(compile.is_pass(), "{compile:?}");
+        let plan = StepPlan {
+            goal: "Build a small Python CLI".to_string(),
+            steps: vec![PlanStep {
+                id: "verify-python-cli".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Verify the Python CLI syntax".to_string(),
+                expected_paths: paths,
+                verify: vec![COMPILE_COMMAND.to_string()],
+            }],
+        };
+        let mut client = TestClient;
+
+        let result = run_step_plan(&mut client, &plan, &test_config(root)).unwrap();
+
+        assert_eq!(result, "plan-run complete: 1 steps");
     }
 
     #[test]
@@ -927,5 +1044,59 @@ SyntaxError: invalid syntax
             std::fs::read_to_string(dir.path().join("src/anvil_app/main.py")).unwrap(),
             main
         );
+    }
+
+    #[cfg(unix)]
+    fn active_python3_executable() -> Option<PathBuf> {
+        let output = std::process::Command::new("python3")
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let path = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
+        path.is_file().then_some(path)
+    }
+
+    fn test_config(root: PathBuf) -> Config {
+        let eval_events_path = Some(root.join("events.jsonl"));
+        Config {
+            workspace_root: root,
+            state_dir: PathBuf::from("state"),
+            eval_events_path,
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 1000,
+            model: "test".to_string(),
+            provider: Provider::Ollama,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "test".to_string(),
+            planner_provider: Provider::Ollama,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: "http://localhost:1234".to_string(),
+            num_predict: 100,
+            max_iterations: 1,
+            chat_timeout_secs: 1,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: crate::config::ConfigFieldSources::default(),
+            chat_retries: 0,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: true,
+            narration: NarrationMode::Normal,
+            profile: "python-cli".to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
     }
 }

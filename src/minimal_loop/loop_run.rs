@@ -62,6 +62,7 @@ mod error;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
+mod runtime_bash_workspace_policy;
 #[path = "loop_run/state.rs"]
 mod state;
 use super::repair_target::{
@@ -306,8 +307,10 @@ fn runtime_bash_policy_decision(
     let recovered = recover_tool_arguments(tool_name, arguments.clone());
     let command = recovered.arguments.get("command").and_then(Value::as_str)?;
     let step_kind = options.step_kind.unwrap_or(RunSessionStepKind::Unknown);
-    Some(RuntimeBashPolicyDecision::for_step(
-        step_kind, command, root,
+    Some(runtime_bash_workspace_policy::apply(
+        RuntimeBashPolicyDecision::for_step(step_kind, command, root),
+        command,
+        root,
     ))
 }
 
