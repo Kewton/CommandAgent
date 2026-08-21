@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
@@ -90,6 +90,10 @@ export default function RunDetailPage() {
         .includes(query),
     );
   }, [filter, runs.data]);
+  const selectedRunIsOutsideFilter =
+    runId !== "" && !filteredRuns.some((run) => run.id === runId);
+  const selectedRunIsOutsideIndex =
+    runId !== "" && !(runs.data?.runs ?? []).some((run) => run.id === runId);
 
   const documentSourceHref = useMemo(() => {
     if (runId === "" || acceptance === null) return null;
@@ -110,6 +114,12 @@ export default function RunDetailPage() {
     setLoading(id !== "");
     setRunId(id);
     window.history.replaceState(null, "", withBasePath(routePath("run", id)));
+  }
+
+  function openRunId(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const id = filter.trim();
+    if (id !== "") chooseRun(id);
   }
 
   function showAcceptance() {
@@ -162,25 +172,56 @@ export default function RunDetailPage() {
       </section>
       <section className="run-workbench">
         <aside className="run-picker panel">
-          <div className="run-filter">
-            <label htmlFor="run-filter">実行を絞り込む</label>
+          <form className="run-filter" onSubmit={openRunId}>
+            <label htmlFor="run-filter">実行を絞り込む・IDで開く</label>
             <input
+              aria-describedby="run-filter-help"
               id="run-filter"
               onChange={(event) => setFilter(event.target.value)}
               placeholder="ID・日付・状態で検索"
               type="search"
               value={filter}
             />
-          </div>
+            <p className="source-note" id="run-filter-help">
+              表示中の一覧を絞り込みます。完全な ID を入力すると一覧外の実行も開けます。
+            </p>
+            <button
+              className="secondary-action"
+              data-testid="run-direct-open"
+              disabled={filter.trim() === ""}
+              type="submit"
+            >
+              入力した ID を開く
+            </button>
+          </form>
+          <p aria-live="polite" className="source-note" data-testid="run-index-count">
+            {runs.data === null
+              ? "表示件数 — / 総数 —"
+              : `表示件数 ${runs.data.runs.length} / 総数 ${runs.data.total}`}
+          </p>
           <label htmlFor="run-select">実行ID・日付・状態</label>
           <select id="run-select" value={runId} onChange={(event) => chooseRun(event.target.value)}>
             <option value="">実行を選択…</option>
+            {selectedRunIsOutsideFilter && (
+              <option value={runId}>{runId} — IDで直接指定</option>
+            )}
             {filteredRuns.map((run) => (
               <option key={run.id} value={run.id}>
                 {dateTimeLabel(run.modified_epoch_seconds, "時刻不明")} — {run.status_text} — {run.id}
               </option>
             ))}
           </select>
+          {runId !== "" && (
+            <output
+              aria-live="polite"
+              className="source-note"
+              data-testid="run-selected-id"
+              htmlFor="run-select"
+              style={{ display: "block", overflowWrap: "anywhere" }}
+            >
+              選択中の実行 ID: <code>{runId}</code>
+            </output>
+          )}
           {runs.loading && <LoadingState label="実行一覧を読み込んでいます" />}
           {runs.error !== null && <ErrorState message={runs.error} />}
           {runs.data?.runs.length === 0 && (
@@ -189,9 +230,12 @@ export default function RunDetailPage() {
               message="workspace/management/runs にリポジトリ実行記録がありません。"
             />
           )}
-          {runs.data !== null && runs.data.runs.length > 0 && filteredRuns.length === 0 && (
-            <EmptyState label="該当なし" message="条件に一致する実行がありません。" />
-          )}
+          {runs.data !== null &&
+            runs.data.runs.length > 0 &&
+            filteredRuns.length === 0 &&
+            !selectedRunIsOutsideIndex && (
+              <EmptyState label="該当なし" message="条件に一致する実行がありません。" />
+            )}
           {detail !== null && (
             <>
               <div className="picker-heading">

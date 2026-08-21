@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -690,7 +690,7 @@ async function runCase(smokeCase) {
       page,
       server.origin,
       smokeCase.serverBasePath,
-      runIndex.runs,
+      runIndex,
       smokeCase.id,
     );
     const measurements = readOnlyUi.pages.measurements;
@@ -1377,7 +1377,8 @@ async function runCase(smokeCase) {
   }
 }
 
-async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
+async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
+  const runSummaries = runIndex.runs;
   const measurements = await probePage(
     page,
     origin,
@@ -1409,6 +1410,15 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     .locator(".report-list button.active small")
     .innerText();
   const selectionRetainedAfterVisibility = retainedReportPath === selectedReportPath;
+  const measurementHeadings = await page.locator("main h1, main h2, main h3").evaluateAll(
+    (headings) => headings.map((heading) => ({
+      level: Number(heading.tagName.slice(1)),
+      text: heading.textContent ?? "",
+    })),
+  );
+  const measurementHeadingOrderValid = measurementHeadings.every(
+    (heading, index) => index === 0 || heading.level <= measurementHeadings[index - 1].level + 1,
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   const mapFrame = page.locator("[data-testid='measurement-map-frame']");
   await mapFrame.waitFor();
@@ -1456,6 +1466,21 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
   }, runSummaries);
   const optionsIncludeDatesAndStatus =
     JSON.stringify(displayedOptions) === JSON.stringify(expectedOptions);
+  const indexCountText = await page.locator("[data-testid='run-index-count']").innerText();
+  const expectedIndexCountText = `表示件数 ${runSummaries.length} / 総数 ${runIndex.total}`;
+  const indexedRunIds = new Set(runSummaries.map((run) => run.id));
+  const repositoryRunEntries = await readdir(
+    join(repositoryRoot, "workspace", "management", "runs"),
+    { withFileTypes: true },
+  );
+  const omittedRunId = repositoryRunEntries
+    .filter((entry) => entry.isDirectory() && !indexedRunIds.has(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .at(0);
+  if (runIndex.total > runSummaries.length && omittedRunId === undefined) {
+    throw new Error("Run index reports omitted runs but no omitted run directory was found");
+  }
   const firstRunId = runSummaries[0]?.id ?? "";
   if (firstRunId === "") throw new Error("Run detail probe requires at least one run");
   const filterInput = page.locator("#run-filter");
@@ -1508,6 +1533,48 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     toggled_class: toggledClass,
     toggled_pressed: toggledPressed,
   };
+  let directLookup = {
+    available: false,
+    id: null,
+    mobile_id_fits: true,
+    opened: true,
+    selected_id_visible: true,
+  };
+  if (omittedRunId !== undefined) {
+    await filterInput.fill(omittedRunId);
+    const directResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "GET" &&
+        url.pathname.endsWith(`/api/runs/${encodeURIComponent(omittedRunId)}`);
+    });
+    await page.locator("[data-testid='run-direct-open']").click();
+    await directResponse;
+    await page.locator(".run-document .document-viewer").waitFor();
+    const selectedId = page.locator("[data-testid='run-selected-id']");
+    const selectedIdText = await selectedId.innerText();
+    const selectedOptionValue = await page.locator("#run-select").inputValue();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileId = await selectedId.evaluate((output) => ({
+      client_width: output.clientWidth,
+      fits: output.scrollWidth <= output.clientWidth,
+      scroll_width: output.scrollWidth,
+    }));
+    const mobileRunPageFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    directLookup = {
+      available: true,
+      id: omittedRunId,
+      mobile_id_fits: mobileId.fits && mobileRunPageFits,
+      opened: selectedOptionValue === omittedRunId,
+      selected_id_visible: selectedIdText.includes(omittedRunId),
+    };
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${caseId}-run-detail-mobile-id.png`),
+    });
+    await page.setViewportSize({ width: 1440, height: 1050 });
+  }
   await page.screenshot({
     fullPage: true,
     path: join(outputDirectory, `${caseId}-run-detail.png`),
@@ -1521,9 +1588,14 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     measurement_selection: {
       after_visibility: retainedReportPath,
       before_visibility: selectedReportPath,
+      heading_order_valid: measurementHeadingOrderValid,
+      headings: measurementHeadings,
       selection_retained_after_visibility: selectionRetainedAfterVisibility,
     },
     run_selection: {
+      count: indexCountText,
+      count_matches_index_total: indexCountText === expectedIndexCountText,
+      direct_lookup: directLookup,
       displayed_options: displayedOptions.length,
       expected_options: expectedOptions.length,
       filter_matches_id: filterMatchesId,
@@ -1550,12 +1622,17 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       measurements.headingMatches &&
       measurements.titleMatches &&
       selectionRetainedAfterVisibility &&
+      measurementHeadingOrderValid &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
       runDetail.titleMatches &&
       unselectedHasNoRecords &&
       noMatchLabelVisible &&
       filterMatchesId &&
+      indexCountText === expectedIndexCountText &&
+      directLookup.opened &&
+      directLookup.selected_id_visible &&
+      directLookup.mobile_id_fits &&
       optionsIncludeDatesAndStatus &&
       requestOwnership.ok &&
       sourceLinkPresent &&
