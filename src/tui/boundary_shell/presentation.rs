@@ -228,10 +228,122 @@ pub fn render_gate_four(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let summary = gate_four_summary(identity, terminal, actions).join("\n");
     Ok(format!(
-        "# Gate 4 — Failure and next action\n\nConfirmed Full meaning: {}\n\n{}\n\n## Section 5\n\n{}\n\n## Typed next actions\n\n{}",
-        identity.full_meaning, terminal.acceptance_sheet, section5, action_lines
+        "# Gate 4 — Failure and next action\n\n{}\n\nConfirmed Full meaning: {}\n\n{}\n\n## Section 5\n\n{}\n\n## Typed next actions\n\n{}",
+        summary, identity.full_meaning, terminal.acceptance_sheet, section5, action_lines
     ))
+}
+
+fn gate_four_summary(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    actions: &[(NextAction, bool, &str)],
+) -> [String; 3] {
+    let passed = [
+        (
+            "コマンド",
+            sheet_value(&terminal.acceptance_sheet, "Command succeeded") == Some("true"),
+        ),
+        (
+            "実行時受入",
+            sheet_value(&terminal.acceptance_sheet, "Runtime acceptance") == Some("pass"),
+        ),
+        (
+            "最終受入",
+            sheet_value(&terminal.acceptance_sheet, "Final acceptance")
+                .is_some_and(|value| matches!(value, "full" | "full_success" | "completed")),
+        ),
+        (
+            "リリースゲート",
+            sheet_value(&terminal.acceptance_sheet, "Release gate") == Some("pass"),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(label, passed)| passed.then_some(label))
+    .collect::<Vec<_>>();
+    let passed = if passed.is_empty() {
+        "なし（失敗内容は Section 5）".to_string()
+    } else {
+        passed.join("、")
+    };
+
+    let assurance = sheet_value(&terminal.acceptance_sheet, "Assurance").unwrap_or("unknown");
+    let assurance_level = assurance
+        .split_once(" (")
+        .map(|(level, _)| level)
+        .unwrap_or(assurance);
+    let not_run = if assurance_level == "static" {
+        if matches!(identity.profile.as_str(), "python-cli" | "cli") {
+            "CLI 動作プローブ C1–C4（未実行のため保証は static）".to_string()
+        } else {
+            "動作検証（未実行のため保証は static）".to_string()
+        }
+    } else {
+        let not_run = [
+            ("実行時受入", "Runtime acceptance"),
+            ("最終受入", "Final acceptance"),
+            ("リリースゲート", "Release gate"),
+        ]
+        .into_iter()
+        .filter_map(|(label, field)| {
+            sheet_value(&terminal.acceptance_sheet, field)
+                .is_some_and(|value| matches!(value, "not_checked" | "not_recorded"))
+                .then_some(label)
+        })
+        .collect::<Vec<_>>();
+        if not_run.is_empty() {
+            "なし（失敗内容は Section 5）".to_string()
+        } else {
+            not_run.join("、")
+        }
+    };
+    let next_action = recommended_gate_four_action(actions, assurance_level);
+
+    [
+        format!("- 通過: {passed}"),
+        format!("- 未実行: {not_run}"),
+        format!(
+            "- 次の一手: `{}` — {}",
+            next_action.as_str(),
+            next_action_guidance(next_action)
+        ),
+    ]
+}
+
+fn sheet_value<'a>(sheet: &'a str, label: &str) -> Option<&'a str> {
+    let prefix = format!("- {label}: ");
+    sheet
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix))
+}
+
+fn recommended_gate_four_action(
+    actions: &[(NextAction, bool, &str)],
+    assurance_level: &str,
+) -> NextAction {
+    if assurance_level == "static"
+        && actions
+            .iter()
+            .any(|(action, enabled, _)| *action == NextAction::ElevatedModel && *enabled)
+    {
+        return NextAction::ElevatedModel;
+    }
+    actions
+        .iter()
+        .find_map(|(action, enabled, _)| enabled.then_some(*action))
+        .unwrap_or(NextAction::Close)
+}
+
+fn next_action_guidance(action: NextAction) -> &'static str {
+    match action {
+        NextAction::Retry => "同じ構成で再実行し、Gate 1 で再確認",
+        NextAction::RecoveryCircle => "失敗証拠を引き継ぐ回復フローを Gate 1 で再確認",
+        NextAction::ElevatedModel => "上位モデルで再実行し、Gate 1 で再確認",
+        NextAction::PackChange => "互換 pack を選び、Gate 1 で再確認",
+        NextAction::HumanDirective => "追加指示を保存し、継続前に再確認",
+        NextAction::Close => "証拠を保存したまま終了",
+    }
 }
 
 fn render_pack(
@@ -475,5 +587,82 @@ mod tests {
         let other =
             TerminalPresentation::new("sha256:other".to_string(), sheet, true, None).unwrap();
         assert!(render_gate_three(&identity, &other).is_err());
+    }
+
+    #[test]
+    fn static_gate_four_leads_with_three_lines_explaining_the_result() {
+        let identity = identity(PackSelection::None);
+        let sheet = "# Acceptance sheet\n\n\
+- Command succeeded: true\n\
+- Status: completed\n\
+- Assurance: static (cli_probe_not_run)\n\
+- Runtime acceptance: pass\n\
+- Final acceptance: full_success\n\
+- Release gate: pass"
+            .to_string();
+        let terminal = TerminalPresentation::new(
+            identity.card_hash().unwrap(),
+            sheet.clone(),
+            false,
+            Some("cli_probe_not_run".to_string()),
+        )
+        .unwrap();
+        let actions = [
+            (NextAction::Retry, true, "human confirmation required"),
+            (
+                NextAction::ElevatedModel,
+                true,
+                "returns to Gate 1 with a new model pin",
+            ),
+            (NextAction::Close, true, "records no further action"),
+        ];
+
+        let rendered = render_gate_four(&identity, &terminal, &actions).unwrap();
+        let summary = rendered
+            .split_once("\n\nConfirmed Full meaning:")
+            .unwrap()
+            .0;
+        let summary_lines = summary
+            .lines()
+            .skip(1)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            summary_lines,
+            vec![
+                "- 通過: コマンド、実行時受入、最終受入、リリースゲート",
+                "- 未実行: CLI 動作プローブ C1–C4（未実行のため保証は static）",
+                "- 次の一手: `elevated_model` — 上位モデルで再実行し、Gate 1 で再確認",
+            ]
+        );
+        assert!(rendered.contains(&sheet));
+        assert!(rendered.contains("## Section 5\n\ncli_probe_not_run"));
+        assert!(rendered.contains("## Typed next actions"));
+    }
+
+    #[test]
+    fn failed_gate_four_summary_does_not_claim_unearned_passes() {
+        let identity = identity(PackSelection::None);
+        let terminal = TerminalPresentation::new(
+            identity.card_hash().unwrap(),
+            "# Acceptance sheet\n\n\
+- Command succeeded: false\n\
+- Assurance: failed (cli_assurance_failed)\n\
+- Runtime acceptance: failed\n\
+- Final acceptance: failed\n\
+- Release gate: failed"
+                .to_string(),
+            false,
+            Some("C1 polarity violation".to_string()),
+        )
+        .unwrap();
+        let actions = [(NextAction::Retry, true, "human confirmation required")];
+
+        let rendered = render_gate_four(&identity, &terminal, &actions).unwrap();
+
+        assert!(rendered.contains("- 通過: なし（失敗内容は Section 5）"));
+        assert!(rendered.contains("- 未実行: なし（失敗内容は Section 5）"));
+        assert!(rendered.contains("- 次の一手: `retry` — 同じ構成で再実行し、Gate 1 で再確認"));
     }
 }
