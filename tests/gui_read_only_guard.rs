@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 const DELEGATE_MODULE: &str = "src/bin/gui_server/delegate.rs";
 const DIRECTIVES_MODULE: &str = "src/bin/gui_server/directives.rs";
 const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
+const SERVER_ROOT_MODULE: &str = "src/bin/gui_server.rs";
 
 #[test]
-fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
-    let mut sources = vec![PathBuf::from("src/bin/gui_server.rs")];
+fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
+    let mut sources = vec![PathBuf::from(SERVER_ROOT_MODULE)];
     collect_rust_files(Path::new("src/bin/gui_server"), &mut sources);
     assert!(
         sources.len() >= 3,
@@ -22,7 +23,6 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         "reqwest",
         "tokio::process",
         "fs::write",
-        "fs::create_dir",
         "OpenOptions",
         "File::create",
         ".write_all(",
@@ -42,6 +42,15 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
                 path.display()
             );
         }
+        if path != Path::new(SERVER_ROOT_MODULE) {
+            for token in ["fs::create_dir", "fs::set_permissions"] {
+                assert!(
+                    !source.contains(token),
+                    "{} can mutate startup roots outside gui_server --init: {token:?}",
+                    path.display()
+                );
+            }
+        }
         if path != Path::new(DELEGATE_MODULE) {
             for token in ["std::process", "Command::new", ".spawn("] {
                 assert!(
@@ -52,6 +61,24 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
             }
         }
     }
+
+    let server_root = std::fs::read_to_string(SERVER_ROOT_MODULE).unwrap();
+    for required in [
+        "#[arg(long, conflicts_with = \"check\")]",
+        "if arguments.init {\n        initialize_defaults(&mut arguments)?;\n    }",
+        "if arguments.execution_root.is_none()",
+        "if arguments.extension_root.is_none()",
+        "refusing to initialize private GUI root through symlink",
+        "std::fs::create_dir_all(root)",
+        "std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))",
+    ] {
+        assert!(
+            server_root.contains(required),
+            "GUI startup mutation guard is missing {required:?}"
+        );
+    }
+    assert_eq!(server_root.matches("std::fs::create_dir_all").count(), 1);
+    assert_eq!(server_root.matches("std::fs::set_permissions").count(), 1);
 
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     for required in [

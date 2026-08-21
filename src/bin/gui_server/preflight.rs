@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use super::{Arguments, delegate, normalize_base_path, trial_access, workspace_policy};
+use super::{
+    Arguments, delegate, normalize_base_path, resolve_commandagent_bin, trial_access,
+    workspace_policy,
+};
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -15,7 +18,7 @@ struct Check {
     id: &'static str,
     status: &'static str,
     detail: String,
-    remediation: Option<&'static str>,
+    remediation: Option<String>,
 }
 
 impl Report {
@@ -41,7 +44,7 @@ impl Report {
     pub fn print_human(&self) {
         for check in &self.checks {
             println!("{}: {}: {}", check.status, check.id, check.detail);
-            if let Some(remediation) = check.remediation {
+            if let Some(remediation) = &check.remediation {
                 println!("  fix: {remediation}");
             }
         }
@@ -63,12 +66,12 @@ fn pass(id: &'static str, detail: impl Into<String>) -> Check {
     }
 }
 
-fn fail(id: &'static str, detail: impl Into<String>, remediation: &'static str) -> Check {
+fn fail(id: &'static str, detail: impl Into<String>, remediation: impl Into<String>) -> Check {
     Check {
         id,
         status: "ng",
         detail: detail.into(),
-        remediation: Some(remediation),
+        remediation: Some(remediation.into()),
     }
 }
 
@@ -79,7 +82,10 @@ fn check_static_export(arguments: &Arguments) -> Check {
             return fail(
                 "static.base_path",
                 error.to_string(),
-                "use '/' or an absolute path without a trailing slash",
+                format!(
+                    "replace --base-path {:?} with '/' or an absolute path without a trailing slash",
+                    arguments.base_path
+                ),
             );
         }
     };
@@ -87,10 +93,29 @@ fn check_static_export(arguments: &Arguments) -> Check {
     let text = match std::fs::read_to_string(&index) {
         Ok(text) => text,
         Err(error) => {
+            let remediation = match error.kind() {
+                std::io::ErrorKind::NotFound => format!(
+                    "create the missing export with `cd gui && GUI_BASE_PATH={} npm run build`, or pass the directory containing index.html with --static-dir",
+                    base_path
+                ),
+                std::io::ErrorKind::PermissionDenied => format!(
+                    "grant the current user read access to {}, or pass a readable export with --static-dir",
+                    index.display()
+                ),
+                std::io::ErrorKind::InvalidData => format!(
+                    "rebuild {} as a UTF-8 GUI export with `cd gui && GUI_BASE_PATH={} npm run build`",
+                    index.display(),
+                    base_path
+                ),
+                _ => format!(
+                    "resolve the reported I/O error for {}, then rerun --check",
+                    index.display()
+                ),
+            };
             return fail(
                 "static.base_path",
                 format!("cannot read {}: {error}", index.display()),
-                "build the GUI export with the same GUI_BASE_PATH",
+                remediation,
             );
         }
     };
@@ -115,7 +140,10 @@ fn check_static_export(arguments: &Arguments) -> Check {
                 index.display(),
                 base_path
             ),
-            "rebuild with GUI_BASE_PATH matching --base-path",
+            format!(
+                "rebuild the export with `cd gui && GUI_BASE_PATH={} npm run build` so it matches --base-path",
+                base_path
+            ),
         )
     }
 }
@@ -162,7 +190,7 @@ fn checked_roots(arguments: &Arguments) -> CheckedRoots {
         Some(detail) => fail(
             "roots.disjoint",
             detail,
-            "choose repository, execution, and extension roots with no overlap",
+            "move one of the named roots so repository, execution, and extension roots are pairwise disjoint",
         ),
         None => pass("roots.disjoint", "configured roots are pairwise disjoint"),
     });
@@ -181,18 +209,17 @@ fn canonical_directory(
         checks.push(fail(
             id,
             format!("{} is a symlink", path.display()),
-            "provide a private non-symlink extension directory",
+            format!(
+                "replace --extension-root {} with a private directory that is not a symlink",
+                path.display()
+            ),
         ));
         return None;
     }
     match path.canonicalize() {
         Ok(canonical) if canonical.is_dir() => {
-            if let Some(detail) = permission_error(&canonical, private) {
-                checks.push(fail(
-                    id,
-                    detail,
-                    "grant the owner rwx access and keep extension roots private (0700)",
-                ));
+            if let Some(failure) = permission_failure(&canonical, private) {
+                checks.push(fail(id, failure.detail, failure.remediation));
                 None
             } else {
                 checks.push(pass(id, canonical.display().to_string()));
@@ -203,23 +230,41 @@ fn canonical_directory(
             checks.push(fail(
                 id,
                 format!("{} is not a directory", canonical.display()),
-                "provide an existing accessible directory",
+                format!("replace {} with an existing directory path", path.display()),
             ));
             None
         }
         Err(error) => {
+            let remediation = match error.kind() {
+                std::io::ErrorKind::NotFound => {
+                    format!("create the missing directory {}", path.display())
+                }
+                std::io::ErrorKind::PermissionDenied => format!(
+                    "grant the current user search access to {} and its parent directories",
+                    path.display()
+                ),
+                _ => format!(
+                    "resolve the reported path error for {}, then rerun --check",
+                    path.display()
+                ),
+            };
             checks.push(fail(
                 id,
                 format!("{}: {error}", path.display()),
-                "create the directory and verify its permissions",
+                remediation,
             ));
             None
         }
     }
 }
 
+struct PermissionFailure {
+    detail: String,
+    remediation: String,
+}
+
 #[cfg(unix)]
-fn permission_error(path: &Path, private: bool) -> Option<String> {
+fn permission_failure(path: &Path, private: bool) -> Option<PermissionFailure> {
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::fs::PermissionsExt;
 
@@ -227,52 +272,81 @@ fn permission_error(path: &Path, private: bool) -> Option<String> {
     // SAFETY: `geteuid` has no preconditions and does not dereference memory.
     let effective_uid = unsafe { libc::geteuid() };
     if private && metadata.uid() != effective_uid {
-        return Some(format!(
-            "{} owner uid is {}, expected effective uid {effective_uid}",
-            path.display(),
-            metadata.uid()
-        ));
+        return Some(PermissionFailure {
+            detail: format!(
+                "{} owner uid is {}, expected effective uid {effective_uid}",
+                path.display(),
+                metadata.uid()
+            ),
+            remediation: format!(
+                "use an extension directory owned by effective uid {effective_uid}, then set it to mode 700"
+            ),
+        });
     }
     let mode = metadata.permissions().mode() & 0o777;
-    if mode & 0o700 != 0o700 {
-        return Some(format!(
-            "{} owner permissions are {:03o}, expected rwx",
-            path.display(),
-            mode
-        ));
-    }
     if private && mode & 0o077 != 0 {
-        return Some(format!(
-            "{} permissions are {:03o}, expected private 700",
-            path.display(),
-            mode
-        ));
+        return Some(PermissionFailure {
+            detail: format!(
+                "{} permissions are {:03o}; group/other permissions must be removed",
+                path.display(),
+                mode
+            ),
+            remediation: format!(
+                "remove group/other access with `chmod 700 {}`",
+                path.display()
+            ),
+        });
+    }
+    if mode & 0o700 != 0o700 {
+        let remediation = if private {
+            format!(
+                "grant only the owner rwx access with `chmod 700 {}`",
+                path.display()
+            )
+        } else {
+            format!(
+                "grant the owner rwx access with `chmod u+rwx {}`",
+                path.display()
+            )
+        };
+        return Some(PermissionFailure {
+            detail: format!(
+                "{} owner permissions are {:03o}, expected rwx",
+                path.display(),
+                mode
+            ),
+            remediation,
+        });
     }
     None
 }
 
 #[cfg(not(unix))]
-fn permission_error(path: &Path, _: bool) -> Option<String> {
+fn permission_failure(path: &Path, _: bool) -> Option<PermissionFailure> {
     std::fs::metadata(path)
         .ok()
         .filter(|metadata| metadata.permissions().readonly())
-        .map(|_| format!("{} is read-only", path.display()))
+        .map(|_| PermissionFailure {
+            detail: format!("{} is read-only", path.display()),
+            remediation: format!(
+                "clear the read-only attribute for {} so the owner can write to it",
+                path.display()
+            ),
+        })
 }
 
 fn check_binary(arguments: &Arguments, repository: Option<&Path>) -> Check {
-    let path = if arguments.commandagent_bin.is_absolute() {
-        arguments.commandagent_bin.clone()
-    } else if let Some(repository) = repository {
-        repository.join(&arguments.commandagent_bin)
-    } else {
-        arguments.commandagent_bin.clone()
-    };
+    let repository = repository.unwrap_or(&arguments.repository_root);
+    let path = resolve_commandagent_bin(arguments, repository);
     match delegate::check_binary(&path) {
         Ok(version) => pass("binary.version", version),
         Err(error) => fail(
             "binary.version",
             error.to_string(),
-            "build commandagent and pass its executable path with --commandagent-bin",
+            format!(
+                "build an executable commandagent at {}, or pass its exact path with --commandagent-bin",
+                path.display()
+            ),
         ),
     }
 }
@@ -280,11 +354,15 @@ fn check_binary(arguments: &Arguments, repository: Option<&Path>) -> Check {
 fn check_trial_access(arguments: &Arguments) -> Check {
     match trial_access::TrialAccess::validate_environment(arguments.trial_token_auth.is_enabled()) {
         Ok(()) => pass("trial.access", "token and allowed origins are valid"),
-        Err(error) => fail(
-            "trial.access",
-            error.to_string(),
-            "set a valid GUI_TRIAL_TOKEN and GUI_TRIAL_ALLOWED_ORIGINS",
-        ),
+        Err(error) => {
+            let detail = error.to_string();
+            let remediation = if detail.contains("GUI_TRIAL_TOKEN") {
+                "set GUI_TRIAL_TOKEN to 32..=4096 non-whitespace characters"
+            } else {
+                "set GUI_TRIAL_ALLOWED_ORIGINS to comma-separated http/https origins with hosts and no paths or queries"
+            };
+            fail("trial.access", detail, remediation)
+        }
     }
 }
 

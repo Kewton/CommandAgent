@@ -314,7 +314,7 @@ fn check_only_rejects_outdated_rust_with_remediation() {
 }
 
 #[test]
-fn gui_mode_builds_private_scaffolding_and_prints_a_passing_check_command() {
+fn gui_mode_builds_private_scaffolding_and_prints_the_init_start_command() {
     let fixture = SetupFixture::new("1.94.0");
     fixture.mark_current_binary();
     let extension = fixture._temp.path().join("extensions");
@@ -357,9 +357,14 @@ fn gui_mode_builds_private_scaffolding_and_prints_a_passing_check_command() {
         extension.canonicalize().unwrap().display()
     )));
     assert!(config.contains("[preset.nextjs_acme_cagentpack]"));
-    assert!(text.contains("GUI preflight command:"), "{text}");
+    assert!(
+        text.contains("GUI start command (initializes private roots and runs preflight):"),
+        "{text}"
+    );
     assert!(text.contains("--base-path /proxy/commandagent"), "{text}");
-    assert!(text.contains("--check"), "{text}");
+    assert!(text.contains("--init"), "{text}");
+    assert!(!text.contains("GUI preflight command:"), "{text}");
+    assert!(!text.contains(" --check"), "{text}");
     assert!(!text.contains("0123456789abcdef0123456789abcdef"), "{text}");
     let log = fixture.log_text();
     assert!(log.contains("npm|ci --include=dev"), "{log}");

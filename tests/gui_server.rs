@@ -26,6 +26,7 @@ fn gui_server_help_exposes_only_serving_inputs() {
         "--extension-root",
         "--trial-token-auth",
         "--commandagent-bin",
+        "--init",
         "--check",
         "--json",
     ] {
@@ -50,6 +51,23 @@ fn gui_server_rejects_noncanonical_base_paths() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+#[test]
+fn gui_server_rejects_init_with_read_only_check_before_mutation() {
+    let data_home = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--init", "--check"])
+        .env("XDG_DATA_HOME", data_home.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cannot be used with '--check'"),
+        "{}",
+        combined_output(&output)
+    );
+    assert!(!data_home.path().join("commandagent").exists());
 }
 
 #[cfg(unix)]
@@ -117,6 +135,12 @@ fn gui_server_check_reports_base_path_mismatch() {
     assert_eq!(output.status.code(), Some(1));
     let text = combined_output(&output);
     assert!(text.contains("ng: static.base_path"), "{text}");
+    assert!(
+        text.contains(
+            "fix: rebuild the export with `cd gui && GUI_BASE_PATH=/configured/path npm run build` so it matches --base-path"
+        ),
+        "{text}"
+    );
 }
 
 #[test]
@@ -137,6 +161,12 @@ fn gui_server_check_reports_overlapping_roots() {
     assert_eq!(output.status.code(), Some(1));
     let text = combined_output(&output);
     assert!(text.contains("ng: roots.disjoint"), "{text}");
+    assert!(
+        text.contains(
+            "fix: move one of the named roots so repository, execution, and extension roots are pairwise disjoint"
+        ),
+        "{text}"
+    );
 }
 
 #[test]
@@ -149,6 +179,10 @@ fn gui_server_check_reports_missing_binary() {
     assert_eq!(output.status.code(), Some(1));
     let text = combined_output(&output);
     assert!(text.contains("ng: binary.version"), "{text}");
+    assert!(
+        text.contains("or pass its exact path with --commandagent-bin"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -167,6 +201,141 @@ fn gui_server_check_reports_invalid_token() {
     assert_eq!(output.status.code(), Some(1));
     let text = combined_output(&output);
     assert!(text.contains("ng: trial.access"), "{text}");
+    assert!(
+        text.contains("fix: set GUI_TRIAL_TOKEN to 32..=4096 non-whitespace characters"),
+        "{text}"
+    );
+}
+
+#[test]
+fn gui_server_check_reports_a_missing_static_export_with_its_build_command() {
+    let repository = tempfile::tempdir().unwrap();
+    let missing = repository.path().join("gui/out");
+    let output = base_check_command(
+        repository.path(),
+        &missing,
+        Some(std::path::Path::new(env!("CARGO_BIN_EXE_commandagent"))),
+    )
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(
+        text.contains(
+            "fix: create the missing export with `cd gui && GUI_BASE_PATH=/ npm run build`"
+        ),
+        "{text}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_init_creates_private_default_roots_and_runs_preflight_before_listening() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repository = tempfile::tempdir().unwrap();
+    let data_home = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--init", "--port", "0"])
+        .arg("--repository-root")
+        .arg(repository.path())
+        .arg("--static-dir")
+        .arg(&static_root)
+        .env("XDG_DATA_HOME", data_home.path())
+        .env_remove("GUI_TRIAL_TOKEN")
+        .env_remove("GUI_TRIAL_ALLOWED_ORIGINS")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut startup = String::new();
+    for _ in 0..20 {
+        let mut line = String::new();
+        if stdout.read_line(&mut line).unwrap() == 0 {
+            let mut error = String::new();
+            child
+                .stderr
+                .take()
+                .unwrap()
+                .read_to_string(&mut error)
+                .unwrap();
+            panic!("gui_server exited before listening: {startup}{error}");
+        }
+        startup.push_str(&line);
+        if line.contains("gui_server listening on") {
+            break;
+        }
+    }
+    assert!(startup.contains("preflight: ok"), "{startup}");
+    assert!(startup.contains("gui_server listening on"), "{startup}");
+    assert!(startup.find("preflight: ok") < startup.find("gui_server listening on"));
+    assert!(startup.contains("ok: binary.version"), "{startup}");
+
+    let data_root = data_home.path().join("commandagent");
+    for root in [
+        data_root.join("trial-workspace"),
+        data_root.join("extensions"),
+    ] {
+        assert!(root.is_dir(), "missing {}", root.display());
+        assert_eq!(
+            std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700,
+            "{}",
+            root.display()
+        );
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_init_does_not_chmod_an_explicit_extension_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repository = tempfile::tempdir().unwrap();
+    let data_home = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .arg("--init")
+        .arg("--repository-root")
+        .arg(repository.path())
+        .arg("--static-dir")
+        .arg(&static_root)
+        .arg("--extension-root")
+        .arg(extension.path())
+        .arg("--commandagent-bin")
+        .arg(env!("CARGO_BIN_EXE_commandagent"))
+        .env("XDG_DATA_HOME", data_home.path())
+        .env_remove("GUI_TRIAL_TOKEN")
+        .env_remove("GUI_TRIAL_ALLOWED_ORIGINS")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        std::fs::metadata(extension.path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    let text = combined_output(&output);
+    assert!(
+        text.contains("permissions are 755; group/other permissions must be removed"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "fix: remove group/other access with `chmod 700 {}`",
+            extension.path().canonicalize().unwrap().display()
+        )),
+        "{text}"
+    );
 }
 
 fn base_check_command(
