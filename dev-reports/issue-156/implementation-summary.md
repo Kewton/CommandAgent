@@ -56,3 +56,18 @@ server's source for the confirmed planner pin.
 
 No acceptance gate, timeout, base-path case, or assertion was weakened,
 skipped, forced, or extended during propagation.
+
+## CI follow-up: GUI session-file error size
+
+- Cherry-picked only Issue #160 code commit `714017ca` as `f5c60bbb`; Issue
+  #160 report commit `1f28c021` and all Issue #160 report files remain absent
+  from this branch.
+- Wrapped the session-file handler's error `Response` in `Box<Response>` and
+  returned that same response from `IntoResponse`. The conversion does not
+  rebuild the response, so its status, headers, and JSON body bytes remain
+  unchanged while satisfying the Rust 1.98 result-size lint without an allow.
+- Left authentication, request routing, path confinement, artifact/event read
+  limits, and all symlink rejection logic unchanged.
+- Re-ran the Issue #156 provider source guard and root/proxy browser smoke to
+  confirm the CI-only server change did not alter provider/planner propagation
+  or independent executor/planner model IDs.

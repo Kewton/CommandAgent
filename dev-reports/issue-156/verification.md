@@ -94,3 +94,31 @@
 The first follow-up session-index smoke attempt was denied loopback access by
 the sandbox before exercising the application. The approved rerun shown above
 passed without changing the smoke, its assertions, or the application.
+
+## Rust 1.98 CI follow-up checks
+
+- `git cherry HEAD 714017ca`: `passed`
+- `git merge-base --is-ancestor 1f28c021 HEAD; test $? -eq 1`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo +1.97.1 clippy --features gui --bin gui_server -- -D warnings`: `passed`
+- `cargo test --features gui --test gui_server trial_session_files_`: `passed`
+- `cargo test --test gui_read_only_guard trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface`: `passed`
+- `cd gui && npm run smoke:provider -- --output /private/tmp/commandagent-issue156-ci-followup-provider`: `passed`
+- `git diff --check`: `passed`
+
+## Rust 1.98 CI follow-up evidence
+
+- `git cherry HEAD 714017ca` marks `714017ca` with `-`, confirming the code
+  patch is present patch-equivalently as `f5c60bbb`.
+- The focused session-file integration tests passed both authenticated,
+  confined, bounded reads and rejection of a symlinked runtime root. Their
+  existing assertions retain 401/404/413/422 statuses, error codes, successful
+  artifact/event JSON, traversal rejection, and symlink rejection.
+- The Rust 1.97.1 GUI-server clippy check passed with `-D warnings`; no lint
+  allow was added.
+- `/private/tmp/commandagent-issue156-ci-followup-provider/browser-smoke.json`
+  reports top-level, root, and `/proxy/commandagent/` `ok: true`. OpenAI and
+  Gemini retain equal request/CLI executor and planner providers and distinct
+  executor/planner model IDs in both base-path cases.
+- The cherry-picked code commit changes only
+  `src/bin/gui_server/session_files.rs`; no Issue #160 report file was copied.
