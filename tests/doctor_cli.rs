@@ -166,6 +166,8 @@ fn doctor_lists_external_draft_profile_hash_and_cli_requires_its_extension_root(
             "doctor-fixture",
             "--planner-model",
             "doctor-fixture",
+            "--context-budget",
+            "32768",
             "--ollama-host",
         ])
         .arg(format!("http://{address}"))
@@ -186,6 +188,18 @@ fn doctor_lists_external_draft_profile_hash_and_cli_requires_its_extension_root(
         String::from_utf8_lossy(&output.stderr)
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let context_budget = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "config.context_budget")
+        .unwrap();
+    assert_eq!(context_budget["details"]["value"], 32_768);
+    assert_eq!(context_budget["details"]["ollama_num_ctx"], 32_768);
+    assert_eq!(
+        context_budget["details"]["ollama_roles"],
+        serde_json::json!(["executor", "planner"])
+    );
     let profiles = report["checks"]
         .as_array()
         .unwrap()

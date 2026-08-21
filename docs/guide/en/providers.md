@@ -122,8 +122,11 @@ after each provider turn completes.
 
 Ollama requires a running HTTP server and a locally available model. Local API
 access at the default address does not require an API key. CommandAgent passes
-`num_predict`, keeps a model loaded for 10 minutes, and appends API routes to the
-configured host.
+the resolved `context_budget` as Ollama `options.num_ctx`, passes `num_predict`,
+keeps a model loaded for 10 minutes, and appends API routes to the configured
+host. `commandagent --doctor` displays both the context budget and the matching
+Ollama `num_ctx` value. After the first provider turn loads the model, `ollama
+ps` reports that value in its `CONTEXT` column.
 
 ### Ollama thinking
 
