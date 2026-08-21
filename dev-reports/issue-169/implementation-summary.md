@@ -34,3 +34,15 @@ production edits. The combined scripts retain #162's wrong-token/retry checks,
 #162's elapsed and measured-mean checks, and #169's exact goal, profile, pack,
 executor-model, and planner-model assertions at Gate 2, reconnect, and terminal
 states for both root and proxy base paths.
+
+## Issue #160 CI follow-up
+
+Cherry-picked only Issue #160 code commit `714017ca` as `5925b8ec`; report
+commit `1f28c021` and all Issue #160 report files were excluded. The change
+boxes the existing GUI session-file error response so `gui_server` remains
+compatible with Rust 1.97.1 without a lint allow.
+
+The wrapper returns the original response unchanged. Focused and full GUI
+server tests confirm the existing status, headers, coded JSON body, path
+confinement, bounded reads, and symlink rejection, while the full server target
+also retains #169's confirmed-session identity response assertions.

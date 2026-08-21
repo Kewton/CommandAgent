@@ -4,6 +4,7 @@
 
 ## Checks
 
+- `git range-diff 7b0d47ca4dae2db2bab50034a3b5a6026990d07a..714017cacef2728ac9276e920b561612e2609464 7275b7fb..5925b8ec`: `passed`
 - `git range-diff 551fa209..ea8f8fbdc0d0a7fc9e23cdff38fa30b874e95e6d 0ca9c5cb..a37495fd`: `passed`
 - `cargo build --release --bin commandagent`: `passed`
 - `cd gui && node --check scripts/smoke.mjs`: `passed`
@@ -15,6 +16,10 @@
 - `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue169-followup-feedback --feedback-only --commandagent-bin ../target/debug/commandagent`: `passed`
 - `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue169-followup-full --commandagent-bin ../target/release/commandagent --model qwen3:8b`: `passed`
 - `cargo fmt --all -- --check`: `passed`
+- `cargo +1.97.1 clippy --features gui --bin gui_server -- -D warnings`: `passed`
+- `cargo test --features gui --test gui_server trial_session_files_`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo test --test gui_read_only_guard trial_status_polling_revalidates_with_durable_timing_metadata`: `passed`
 - `cargo test --features gui --test gui_read_only_guard --test gui_server`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo clippy --all-targets --features gui -- -D warnings`: `passed`
@@ -24,6 +29,17 @@
 
 ## Evidence
 
+- `git range-diff` reports
+  `714017ca = 5925b8ec Box GUI session file errors`, proving exact code-patch
+  equality after cherry-pick. The Issue #160 report-path diff from `7275b7fb`
+  through `5925b8ec` is empty, so report commit `1f28c021` and Issue #160 report
+  files were not propagated.
+- Rust 1.97.1 Clippy passes with `-D warnings` and no lint allow. The two
+  `trial_session_files_` regressions preserve authentication, response status,
+  headers and coded JSON bytes, bounded path confinement, and symlink
+  rejection. The complete 26-test `gui_server` target also passes, including
+  `confirmed_session_delegates_with_cli_event_bytes_unchanged`, which retains
+  #169's exact goal, profile, model-pin, and pack response assertions.
 - `git range-diff` reports
   `ea8f8fbd = a37495fd Fix GUI Trial auth retry race for Issue 162`, proving
   patch equality after cherry-pick.
