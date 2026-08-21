@@ -13,18 +13,20 @@
 アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
 `--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、`--doctor` です。
-オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin` も、これらの
-アクションおよび相互に排他です。複数のアクション選択フラグを組み合わせると拒否されます。
+オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
+`--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
+アクションの `--validate-manifest` と `--init-profile` も、help の
+`Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-54 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+57 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
 
 | フラグ | 引数 | 省略時の既定値 | 説明 | 関連項目 |
 | --- | --- | --- | --- | --- |
-| `--yes` | なし | オフ | 変更ツールと再開確認を自動承認します。使用中ポートの所有プロセスを自動終了することはありません。信頼できるワークスペースでのみ使ってください。 | [使用中ポート](troubleshooting.md#preflight-port-n-is-busy) |
+| `--yes` | なし | オフ | 変更ツールと再開確認を自動承認します。認識された Bash 書き込みは引き続き workspace 内に制限されます。使用中ポートの所有プロセスを自動終了することはありません。信頼できるワークスペースでのみ使ってください。 | [使用中ポート](troubleshooting.md#preflight-port-n-is-busy) |
 | `--preset` | `<PRESET>` | なし | 設定ファイルから組み立てた名前付き `[preset.<name>]` を選びます。 | [Preset](configuration.md#preset) |
 | `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
@@ -59,6 +61,9 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--json` | なし | オフ | `--doctor` の出力を安定した機械可読 JSON として表示します。`--doctor` が必要です。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
+| `--init-config` | なし | オフ | 既存ファイルを上書きせず、雛形から `.commandagent/config.toml` を作成します。 | [設定雛形](#設定雛形) |
+| `--validate-manifest` | `<PATH>` | なし | 外部 profile manifest を実行せずに検証します。 | [Manifest v2](../../dev/profile-manifest.md) |
+| `--init-profile` | `<ID>` | なし | `--extension-root` 配下に draft profile manifest を初期化します。 | [Manifest v2](../../dev/profile-manifest.md) |
 | `--profile` | `<PROFILE>` | 推論後に `generic` | 組み込み profile または外部 draft ID を明示します。外部 ID には `profiles/<id>/manifest.toml` を宣言する extension root が必要です。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
@@ -110,12 +115,28 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   両方が別プロバイダの場合、フラグを無視せず起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。
   これらのセッションスイッチはスラッシュコマンドによる plan 再開には使われません。
+- `--init-profile` には `--extension-root` が必要です。この lane では manifest 引数だけを公開し、
+  manifest の検証と生成は Lane I backend の統合後に動作します。
+
+## 設定雛形
+
+`--init-config` はアクティブな workspace（現在の directory、または `--cwd`）に
+`.commandagent/config.toml` を作成します。雛形の `local` preset には provider、model、planner、
+classifier、budget、profile、表示設定が明示されています。`--preset local` で選ぶ前に値を確認してください。
+既存の config は変更しません。
+
+```bash
+commandagent --init-config
+commandagent --preset local
+```
 
 ## シェル補完と man ページ
 
 どちらの機能も現在の Clap コマンド定義から生成するため、新しいフラグは自動的に反映されます。
-出力先は stdout だけです。ユーザー所有の導入先へリダイレクトし、CommandAgent の更新後には
-再生成してください。
+補完登録は各補完要求をインストール済み binary へ委譲します。`--model` と
+`--planner-model` では、既定の Ollama `/api/tags` と LM Studio `/v1/models` を短時間だけ問い合わせ、
+model ID を統合します。どちらかが到達不能でも警告は出しません。生成物の出力先は stdout だけです。
+ユーザー所有の導入先へリダイレクトし、CommandAgent の更新後には再生成してください。
 
 `scripts/setup.sh` は検出した Bash、Zsh、Fish 用の補完を導入するか確認します。
 手動で導入する場合は、利用するシェルに対応するコマンドを実行します。

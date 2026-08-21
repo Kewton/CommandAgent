@@ -13,6 +13,8 @@ pub mod bounded_process;
 pub mod build_info;
 pub mod cli;
 mod cli_artifacts;
+mod cli_completion;
+mod cli_config_template;
 mod cli_pack;
 mod cli_panic_boundary;
 mod completion_metadata;
@@ -66,6 +68,11 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         let stdout = std::io::stdout();
         return cli_artifacts::write_man_page(&mut stdout.lock())
             .context("failed to write commandagent man page");
+    }
+    if cli.init_config {
+        let path = cli_config_template::create(&cli)?;
+        println!("created config template at {}", path.display());
+        return Ok(());
     }
     if cli.doctor {
         return doctor::run_cli(cli);

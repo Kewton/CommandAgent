@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -52,6 +52,19 @@ fn first_cell_entries(markdown: &str, prefix: &str) -> BTreeSet<String> {
         .filter_map(|line| {
             let cell = line.strip_prefix("| `")?.split_once('`')?.0;
             cell.starts_with(prefix).then(|| cell.to_string())
+        })
+        .collect()
+}
+
+fn cli_flag_descriptions(markdown: &str) -> BTreeMap<String, String> {
+    markdown
+        .lines()
+        .filter_map(|line| {
+            let row = line.strip_prefix("| ")?.strip_suffix(" |")?;
+            let cells = row.split(" | ").collect::<Vec<_>>();
+            let flag = cells.first()?.strip_prefix('`')?.strip_suffix('`')?;
+            flag.starts_with("--")
+                .then(|| (flag.to_string(), cells.get(3).unwrap_or(&"").to_string()))
         })
         .collect()
 }
@@ -126,6 +139,27 @@ fn public_cli_flags_match_bilingual_references_and_advertised_counts() {
         assert!(
             read_repo_file(path).contains(&marker),
             "{path} is missing implementation-derived flag count {marker:?}"
+        );
+    }
+}
+
+#[test]
+fn public_cli_help_matches_english_reference_descriptions() {
+    let documented = cli_flag_descriptions(&read_repo_file(CLI_DOC));
+    for argument in Cli::command()
+        .get_arguments()
+        .filter(|argument| !argument.is_hide_set())
+        .filter(|argument| argument.get_long().is_some())
+    {
+        let flag = format!("--{}", argument.get_long().unwrap());
+        let help = argument
+            .get_help()
+            .unwrap_or_else(|| panic!("{flag} has no Clap help description"))
+            .to_string();
+        assert_eq!(
+            documented.get(&flag),
+            Some(&help),
+            "{flag} help differs between src/cli.rs and {CLI_DOC}"
         );
     }
 }

@@ -14,18 +14,21 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 `--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
 `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
 `--doctor`. The offline pack actions `--packs`, `--pack-verify`, and
-`--pack-pin` are also mutually exclusive with those actions and with one
-another. CommandAgent rejects a call that combines action selectors.
+`--pack-pin`, generated-artifact actions `--completions` and `--generate-man`,
+config action `--init-config`, and delegated manifest actions
+`--validate-manifest` and `--init-profile` are displayed in the same
+`Actions (use one)` help group. CommandAgent rejects combinations whose action
+contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-54 application flags below. The hidden `--completion-contract-json <PATH>` is an
+57 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
 
 | Flag | Argument | Default when omitted | Description | Related |
 | --- | --- | --- | --- | --- |
-| `--yes` | none | off | Auto-approve mutating tools and resume confirmation. It never auto-kills a busy-port owner. Use only in a trusted workspace. | [Busy ports](troubleshooting.md#preflight-port-n-is-busy) |
+| `--yes` | none | off | Auto-approve mutating tools and resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace. | [Busy ports](troubleshooting.md#preflight-port-n-is-busy) |
 | `--preset` | `<PRESET>` | none | Select a named `[preset.<name>]` assembled from configuration files. | [Presets](configuration.md#presets) |
 | `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
 | `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
@@ -60,6 +63,9 @@ internal integration surface and is intentionally not a public user flag.
 | `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
+| `--init-config` | none | off | Create `.commandagent/config.toml` from a starter template without overwriting an existing file. | [Config template](#config-template) |
+| `--validate-manifest` | `<PATH>` | none | Validate an external profile manifest without running it. | [Manifest v2](../../dev/profile-manifest.md) |
+| `--init-profile` | `<ID>` | none | Initialize a draft profile manifest under `--extension-root`. | [Manifest v2](../../dev/profile-manifest.md) |
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
@@ -115,13 +121,33 @@ See [Configuration](configuration.md) for the exact per-field layers.
   both roles use another provider, startup fails instead of ignoring the flag.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over
   `--resume`. These session switches are not used by slash-command plan resume.
+- `--init-profile` requires `--extension-root`. This lane exposes the manifest
+  arguments only; manifest validation and generation become operational with
+  the Lane I backend.
+
+## Config template
+
+`--init-config` creates `.commandagent/config.toml` in the active workspace
+(the current directory, or `--cwd`). The starter contains a complete `local`
+preset with explicit provider, model, planner, classifier, budget, profile, and
+display settings. Review the values before selecting it with `--preset local`.
+An existing config is never changed:
+
+```bash
+commandagent --init-config
+commandagent --preset local
+```
 
 ## Shell completions and man page
 
 Both interfaces generate from the current Clap command definition, so newly
-added flags are included automatically. They write only to stdout; redirect the
-output to a user-owned installation path. Regenerate the files after updating
-CommandAgent.
+added flags are included automatically. The completion registration delegates
+each completion request to the installed binary. For `--model` and
+`--planner-model`, that binary briefly queries the default Ollama `/api/tags`
+and LM Studio `/v1/models` endpoints, merges their model IDs, and produces no
+warning when either endpoint is unavailable. Generated artifacts write only to
+stdout; redirect the output to a user-owned installation path and regenerate
+it after updating CommandAgent.
 
 `scripts/setup.sh` offers to install a completion for the detected Bash, Zsh,
 or Fish shell. For manual installation, use the appropriate command below.
