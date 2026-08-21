@@ -31,23 +31,15 @@ fn help_lists_completion_shells_and_man_generation() {
 
 #[test]
 fn completion_scripts_are_generated_to_stdout_for_supported_shells() {
-    let cases = [
-        ("bash", "_commandagent()"),
-        ("zsh", "#compdef commandagent"),
-        ("fish", "complete -c commandagent"),
-        ("powershell", "Register-ArgumentCompleter"),
-        ("elvish", "set edit:completion:arg-completer[commandagent]"),
-    ];
-
-    for (shell, marker) in cases {
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
         let output = commandagent(&["--completions", shell]);
         let generated = stdout(&output);
         let error = stderr(&output);
         assert!(output.status.success(), "{shell}: {error}");
         assert!(error.is_empty(), "{shell}: {error}");
-        assert!(generated.contains(marker), "{shell}: {generated}");
+        assert!(generated.contains("COMPLETE"), "{shell}: {generated}");
+        assert!(generated.contains(shell), "{shell}: {generated}");
         assert!(generated.contains("commandagent"), "{shell}: {generated}");
-        assert!(generated.contains("generate-man"), "{shell}: {generated}");
     }
 }
 
@@ -98,4 +90,29 @@ fn artifact_generation_does_not_write_to_the_working_directory() {
             "generation created a file for {args:?}"
         );
     }
+}
+
+#[test]
+fn init_config_creates_a_template_once_without_overwriting() {
+    let directory = tempfile::tempdir().unwrap();
+    let first = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--init-config")
+        .current_dir(directory.path())
+        .output()
+        .unwrap();
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(stderr(&first).is_empty(), "{}", stderr(&first));
+
+    let path = directory.path().join(".commandagent/config.toml");
+    let original = fs::read_to_string(&path).unwrap();
+    assert!(original.contains("[preset.local]"), "{original}");
+
+    let second = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--init-config")
+        .current_dir(directory.path())
+        .output()
+        .unwrap();
+    assert_eq!(second.status.code(), Some(1), "{}", stderr(&second));
+    assert!(stderr(&second).contains("refusing to overwrite"));
+    assert_eq!(fs::read_to_string(path).unwrap(), original);
 }

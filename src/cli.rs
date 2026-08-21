@@ -65,9 +65,21 @@ pub enum IntentArg {
     Investigate,
 }
 
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|error| format!("invalid positive integer `{value}`: {error}"))?;
+    if parsed == 0 {
+        return Err("value must be at least 1".to_string());
+    }
+    Ok(parsed)
+}
+
 #[derive(Debug, Clone, Parser)]
 #[command(name = "commandagent")]
-#[command(about = "Minimal loop + YAML plan runner MVP")]
+#[command(
+    about = "Local-first coding agent with verified minimal-loop and structured-plan workflows"
+)]
 #[command(version = crate::build_info::VERSION)]
 #[command(group(
     ArgGroup::new("pack_direct_action")
@@ -78,28 +90,36 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Auto-approve mutating tools; recognized Bash writes remain workspace-confined"
+        help_heading = "Workspace and State",
+        help = "Auto-approve mutating tools and resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace."
     )]
     pub yes: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Planning and Verification",
+        help = "Select a named `[preset.<name>]` assembled from configuration files."
+    )]
     pub preset: Option<String>,
     #[arg(
         long,
         value_name = "ID@VERSION",
-        help = "Activate an exact-version assist/eval pack"
+        help_heading = "Planning and Verification",
+        help = "Activate an exact-version pack. A conflicting preset pack is rejected before the run."
     )]
     pub pack: Option<String>,
     #[arg(
         long,
         value_name = "SHA256",
         requires = "pack",
-        help = "Require the selected pack's exact-byte hash"
+        help_heading = "Planning and Verification",
+        help = "Require the selected pack's exact-byte hash. Requires `--pack`."
     )]
     pub pack_hash: Option<String>,
     #[arg(
         long,
         value_name = "DIR",
-        help = "Search this extension root before repository packs"
+        help_heading = "Planning and Verification",
+        help = "Load local packs and `profiles/<id>/manifest.toml` draft profiles. External profiles are forced to draft and pinned by exact-byte hash."
     )]
     pub extension_root: Option<PathBuf>,
     #[arg(
@@ -111,7 +131,8 @@ pub struct Cli {
             "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe", "runs",
             "ux_demo", "model_probe", "doctor", "completions", "generate_man"
         ],
-        help = "List compatible admitted and local packs"
+        help_heading = "Actions (use one)",
+        help = "List compatible admitted packs and conformant packs found under `--extension-root`, including each source. Requires `--profile` and `--intent`."
     )]
     pub packs: bool,
     #[arg(
@@ -122,7 +143,8 @@ pub struct Cli {
             "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
             "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
         ],
-        help = "Verify strict conformance for a pack directory"
+        help_heading = "Actions (use one)",
+        help = "Run strict conformance for one pack directory and print the same JSON report as `pack_conformance`."
     )]
     pub pack_verify: Option<PathBuf>,
     #[arg(
@@ -133,95 +155,185 @@ pub struct Cli {
             "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
             "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
         ],
-        help = "Create or validate a pack.sha256 pin"
+        help_heading = "Actions (use one)",
+        help = "Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin."
     )]
     pub pack_pin: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Models and Providers",
+        help = "Set the approximate conversation compaction budget."
+    )]
     pub context_budget: Option<usize>,
-    #[arg(long)]
+    #[arg(
+        long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_model_ids),
+        help_heading = "Models and Providers",
+        help = "Set the executor model ID."
+    )]
     pub model: Option<String>,
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help_heading = "Models and Providers",
+        help = "Select the executor provider."
+    )]
     pub provider: Option<ProviderArg>,
     #[arg(
         long = "api",
         value_enum,
         value_name = "chat-completions|responses",
-        help = "Declare the OpenAI-compatible API surface; omitted keeps chat-completions"
+        help_heading = "Models and Providers",
+        help = "Explicitly select the OpenAI-compatible API surface; model names never select it implicitly."
     )]
     pub openai_api: Option<OpenAiApiArg>,
     #[arg(
         long,
         value_enum,
         value_name = "native|text",
-        help = "Declare the executor tool protocol; omitted delegates to the provider default"
+        help_heading = "Models and Providers",
+        help = "Explicitly select native function tools or the established text/XML tool protocol."
     )]
     pub tool_protocol: Option<ToolProtocolArg>,
     #[arg(
         long,
         value_enum,
         value_name = "stable|legacy",
-        help = "Choose prompt section order for A/B measurement"
+        help_heading = "Planning and Verification",
+        help = "Choose prompt section order for A/B measurement."
     )]
     pub prompt_layout: Option<PromptLayoutArg>,
     #[arg(
         long,
         value_enum,
         value_name = "profile|none",
-        help = "Override planner-tier UltraPlan preset selection; data/fix synthesizes F1-F3 steps, while nextjs/fix remains none-equivalent"
+        help_heading = "Planning and Verification",
+        help = "Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent."
     )]
     pub plan_preset: Option<PlanPresetArg>,
     #[arg(
         long,
         value_enum,
         value_name = "create|fix|investigate",
-        help = "Select create, fix, or investigate intent explicitly; omitted keeps goal-based resolution"
+        help_heading = "Planning and Verification",
+        help = "Force intent instead of goal-based resolution."
     )]
     pub intent: Option<IntentArg>,
-    #[arg(long, conflicts_with = "intent")]
+    #[arg(
+        long,
+        conflicts_with = "intent",
+        help_heading = "Actions (use one)",
+        help = "Run a declarative workflow-circle definition. Mutually exclusive with `--intent`."
+    )]
     pub workflow: Option<PathBuf>,
-    #[arg(long, requires = "workflow")]
+    #[arg(
+        long,
+        requires = "workflow",
+        help_heading = "Planning and Verification",
+        help = "Supply the existing failed origin run workspace for `--workflow`."
+    )]
     pub origin: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(
+        long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_model_ids),
+        help_heading = "Models and Providers",
+        help = "Set the planner model ID. Required when planner and executor providers differ."
+    )]
     pub planner_model: Option<String>,
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help_heading = "Models and Providers",
+        help = "Select the planner provider."
+    )]
     pub planner_provider: Option<ProviderArg>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run one minimal-loop prompt instead of entering the TUI."
+    )]
     pub prompt: Option<String>,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and save a step plan for the trailing goal."
+    )]
     pub plan_steps: bool,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and run a step plan for the trailing goal."
+    )]
     pub plan_run: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run an existing step-plan YAML file."
+    )]
     pub run_plan: Option<PathBuf>,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and save an UltraPlan for the trailing goal."
+    )]
     pub ultra_plan: bool,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and run an UltraPlan for the trailing goal."
+    )]
     pub ultra_plan_run: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run an existing UltraPlan YAML file."
+    )]
     pub run_ultra_plan: Option<PathBuf>,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Install or validate the managed Playwright interaction probe."
+    )]
     pub setup_interaction_probe: bool,
-    #[arg(long, action = ArgAction::SetTrue, help = "List recent runs for the current workspace")]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "List recent runs for the current workspace without creating provider clients."
+    )]
     pub runs: bool,
-    #[arg(long, action = ArgAction::SetTrue, help = "Run the offline presentation UX demo")]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Run the offline presentation UX demo."
+    )]
     pub ux_demo: bool,
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Run the bounded model behavior probe battery"
+        help_heading = "Actions (use one)",
+        help = "Run the bounded model behavior probe battery."
     )]
     pub model_probe: bool,
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Diagnose configuration, providers, probes, and local environment"
+        help_heading = "Actions (use one)",
+        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests."
     )]
     pub doctor: bool,
     #[arg(
         long,
         action = ArgAction::SetTrue,
         requires = "doctor",
-        help = "Render doctor output as stable machine-readable JSON"
+        help_heading = "Display",
+        help = "Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`."
     )]
     pub json: bool,
     #[arg(
@@ -229,33 +341,104 @@ pub struct Cli {
         value_enum,
         value_name = "SHELL",
         conflicts_with = "generate_man",
-        help = "Generate shell completions to stdout"
+        help_heading = "Actions (use one)",
+        help = "Generate a completion script from the current Clap definition and write it to stdout."
     )]
     pub completions: Option<Shell>,
     #[arg(
         long,
         action = ArgAction::SetTrue,
         conflicts_with = "completions",
-        help = "Generate a commandagent(1) man page to stdout"
+        help_heading = "Actions (use one)",
+        help = "Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout."
     )]
     pub generate_man: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "validate_manifest", "init_profile"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Create `.commandagent/config.toml` from a starter template without overwriting an existing file."
+    )]
+    pub init_config: bool,
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "init_profile"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Validate an external profile manifest without running it."
+    )]
+    pub validate_manifest: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "ID",
+        requires = "extension_root",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "validate_manifest"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Initialize a draft profile manifest under `--extension-root`."
+    )]
+    pub init_profile: Option<String>,
+    #[arg(
+        long,
+        help_heading = "Planning and Verification",
+        help = "Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`."
+    )]
     pub profile: Option<String>,
-    #[arg(long, default_value = "default")]
+    #[arg(
+        long,
+        default_value = "default",
+        help_heading = "Planning and Verification",
+        help = "Pass the plan presentation/generation style."
+    )]
     pub style: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Load the named saved minimal-loop session for a direct `--prompt` run."
+    )]
     pub resume: Option<String>,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider."
+    )]
     pub offline: bool,
-    #[arg(long, action = ArgAction::SetTrue, help = "Keep presentation narration quiet")]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Display",
+        help = "Suppress presentation narration."
+    )]
     pub quiet: bool,
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Print one machine-readable run summary JSON object as the final stdout line"
+        help_heading = "Display",
+        help = "Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes."
     )]
     pub summary_json: bool,
-    #[arg(long, default_value = "http://localhost:11434")]
+    #[arg(
+        long,
+        default_value = "http://localhost:11434",
+        help_heading = "Models and Providers",
+        help = "Set the Ollama server base URL used by CommandAgent."
+    )]
     pub ollama_host: String,
     #[arg(
         long,
@@ -264,49 +447,95 @@ pub struct Cli {
         num_args = 0..=1,
         default_missing_value = "true",
         require_equals = true,
-        help = "Enable Ollama thinking for every Ollama provider role; bare --think means true"
+        help_heading = "Models and Providers",
+        help = "Enable Ollama thinking for every Ollama provider role. A bare flag means `true`; explicit values require `=`, for example `--think=high`."
     )]
     pub think: Option<OllamaThinkArg>,
-    #[arg(long, default_value = "http://localhost:1234")]
+    #[arg(
+        long,
+        default_value = "http://localhost:1234",
+        help_heading = "Models and Providers",
+        help = "Set the LM Studio base URL; an optional trailing `/v1` is normalized."
+    )]
     pub lm_studio_host: String,
-    #[arg(long, default_value_t = 8_192)]
+    #[arg(
+        long,
+        default_value_t = 8_192,
+        help_heading = "Models and Providers",
+        help = "Set the maximum provider output-token request."
+    )]
     pub num_predict: usize,
-    #[arg(long, default_value_t = 12)]
+    #[arg(
+        long,
+        default_value_t = 12,
+        value_parser = parse_positive_usize,
+        help_heading = "Models and Providers",
+        help = "Set the minimal-loop iteration budget."
+    )]
     pub max_iterations: usize,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help_heading = "Models and Providers",
+        help = "Set connect and whole-request timeouts for provider calls."
+    )]
     pub chat_timeout_secs: Option<u64>,
-    #[arg(long, default_value_t = 1)]
+    #[arg(
+        long,
+        default_value_t = 1,
+        help_heading = "Models and Providers",
+        help = "Set retries after the initial provider attempt."
+    )]
     pub chat_retries: usize,
     #[arg(
         long,
         value_enum,
         value_name = "on|off",
-        help = "Stream assistant output in an interactive TTY REPL"
+        help_heading = "Display",
+        help = "Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY."
     )]
     pub stream: Option<StreamArg>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Override saved session and REPL history storage."
+    )]
     pub state_dir: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Set and canonicalize the active workspace before config discovery and execution."
+    )]
     pub cwd: Option<PathBuf>,
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Ignore `--resume` and create a session for a direct `--prompt` run."
+    )]
     pub fresh_session: bool,
     #[arg(
         long,
         value_enum,
         value_name = "on|off",
-        help = "Control the fixed TUI footer; off keeps scrollback breadcrumbs only"
+        help_heading = "Display",
+        help = "Control the fixed TUI footer; off keeps scrollback breadcrumbs."
     )]
     pub footer: Option<FooterArg>,
     #[arg(
         long,
         action = ArgAction::SetTrue,
         conflicts_with = "footer",
-        help = "Disable the fixed TUI footer"
+        help_heading = "Display",
+        help = "Disable the fixed TUI footer. Equivalent in effect to `--footer off`."
     )]
     pub no_footer: bool,
     #[arg(long, hide = true)]
     pub completion_contract_json: Option<PathBuf>,
-    #[arg(trailing_var_arg = true)]
+    #[arg(
+        trailing_var_arg = true,
+        help = "Describe the goal for plan actions; multiple trailing words are joined."
+    )]
     pub goal: Vec<String>,
 }
 
@@ -330,9 +559,10 @@ mod tests {
     }
 
     #[test]
-    fn yes_help_preserves_workspace_confinement_warning() {
+    fn yes_help_preserves_trusted_workspace_warning() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("recognized Bash writes remain workspace-confined"));
+        assert!(help.contains("Use only in a trusted workspace"));
     }
 
     #[test]
@@ -391,7 +621,7 @@ mod tests {
     fn help_includes_think_values() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--think[=<true|false|low|medium|high>]"));
-        assert!(help.contains("bare --think means true"));
+        assert!(help.contains("A bare flag means `true`"));
     }
 
     #[test]
@@ -407,8 +637,8 @@ mod tests {
         assert!(help.contains("--plan-preset"));
         assert!(help.contains("profile|none"));
         assert!(help.contains("Override planner-tier UltraPlan preset selection"));
-        assert!(help.contains("data/fix synthesizes F1-F3 steps"));
-        assert!(help.contains("nextjs/fix remains none-equivalent"));
+        assert!(help.contains("`data/fix` can synthesize F1–F3 steps"));
+        assert!(help.contains("`nextjs/fix` remains none-equivalent"));
     }
 
     #[test]
@@ -416,7 +646,7 @@ mod tests {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--intent"));
         assert!(help.contains("create|fix|investigate"));
-        assert!(help.contains("omitted keeps goal-based resolution"));
+        assert!(help.contains("Force intent instead of goal-based resolution"));
     }
 
     #[test]
@@ -564,6 +794,65 @@ mod tests {
         assert!(help.contains("fish"));
         assert!(help.contains("powershell"));
         assert!(help.contains("--generate-man"));
+    }
+
+    #[test]
+    fn help_groups_public_flags_by_user_task() {
+        let help = Cli::command().render_long_help().to_string();
+        for heading in [
+            "Actions (use one):",
+            "Models and Providers:",
+            "Planning and Verification:",
+            "Workspace and State:",
+            "Display:",
+        ] {
+            assert!(
+                help.contains(heading),
+                "missing {heading} from help:\n{help}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_iteration_and_timeout_values_are_rejected_by_clap() {
+        for arguments in [
+            ["commandagent", "--max-iterations", "0"],
+            ["commandagent", "--chat-timeout-secs", "0"],
+        ] {
+            let error = Cli::try_parse_from(arguments).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+        }
+    }
+
+    #[test]
+    fn manifest_lane_arguments_parse_without_backend_behavior() {
+        let validate = Cli::try_parse_from([
+            "commandagent",
+            "--validate-manifest",
+            "profiles/static-site/manifest.toml",
+        ])
+        .unwrap();
+        assert_eq!(
+            validate.validate_manifest.as_deref(),
+            Some(std::path::Path::new("profiles/static-site/manifest.toml"))
+        );
+
+        let init = Cli::try_parse_from([
+            "commandagent",
+            "--extension-root",
+            "extensions",
+            "--init-profile",
+            "static-site",
+        ])
+        .unwrap();
+        assert_eq!(init.init_profile.as_deref(), Some("static-site"));
+
+        let error =
+            Cli::try_parse_from(["commandagent", "--init-profile", "static-site"]).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]
