@@ -43,5 +43,19 @@ base paths.
 `gui/scripts/smoke.mjs` was updated to follow the moved source while retaining
 the same copy and document owner.
 
-No Rust, Python, API schema, event schema, corpus fixture, or live `.anvil/`
-runtime code was changed.
+The original refactor changed no Rust, Python, API schema, event schema,
+corpus fixture, or live `.anvil/` runtime code.
+
+## PR #293 CI follow-up
+
+PR #293 CI run `32512103334` found that two `tests/doc_drift.rs`
+expectations still attributed moved Trial content to the pre-split files. The
+Gate 1 primer owner now points to `gui/components/trial-compose.tsx`, and the
+canonical sample goal owner now points to `gui/hooks/use-trial-compose.ts`.
+
+The required full Rust test run then found the same stale source-ownership
+assumptions in `tests/gui_read_only_guard.rs`. Its Trial source aggregation and
+direct owner checks now cover the extracted hook/component files, while the
+existing assertions continue to pin the same token rejection, launch,
+reconnect, stage, highlighting, date-time, and read-only behavior. No
+production code or user-facing behavior changed in this follow-up.

@@ -18,5 +18,22 @@
 The smoke suites used temporary evidence directories outside the repository;
 no raw runtime logs or generated smoke artifacts are included in the change.
 The full smoke exercised real Trial runs on `/` and `/proxy/commandagent`.
-Rust source was not changed, so Rust formatting, clippy, and test suites were
-not required beyond building the release delegate used by the live smoke.
+
+## PR #293 CI follow-up
+
+CI run `32512103334` failed because `tests/doc_drift.rs` still checked the two
+pre-split Trial owners. The requested ownership updates were applied without
+changing the expected Gate 1 copy or canonical sample goal. A full local test
+run additionally exposed related stale ownership assumptions in
+`tests/gui_read_only_guard.rs`; those assertions now follow the extracted
+files while preserving their behavioral checks.
+
+- `cargo test --test doc_drift`: `passed` (20 passed)
+- `cargo test --test gui_read_only_guard`: `passed` (24 passed)
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`
+- `git diff --check`: `passed`
+
+No Rust production source changed. The full Rust checks above were run for the
+PR remediation and all completed successfully.
