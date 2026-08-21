@@ -3,6 +3,7 @@ use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, bail};
 use serde_json::Value;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::planner::ultra_plan::{UltraPlan, parse_ultra_plan};
 
@@ -69,23 +70,34 @@ pub fn recent_runs(root: &Path, cap: usize) -> Vec<RunInventoryItem> {
 }
 
 pub fn render_runs_table(root: &Path) -> String {
+    render_runs_table_with_current(root, None)
+}
+
+pub fn render_runs_table_with_current(root: &Path, current_events_path: Option<&Path>) -> String {
     let runs = recent_runs(root, 10);
     if runs.is_empty() {
         return "No runs found for this workspace.".to_string();
     }
-    let mut lines = vec![format!(
-        "{:<10} {:<16} {:<24} {:<8} {:<9} {}",
-        "RUN", "STARTED", "STATUS/ASSURANCE", "PHASES", "RECOVERY", "STOP"
+    let mut lines = vec![render_run_row(
+        "RUN",
+        "SESSION",
+        "STARTED",
+        "STATUS/ASSURANCE",
+        "PHASES",
+        "RECOVERY",
+        "STOP",
     )];
     for run in runs {
-        lines.push(format!(
-            "{:<10} {:<16} {:<24} {:<8} {:<9} {}",
-            run.short_id,
-            run.started_at,
-            format!("{}/{}", run.status, run.assurance),
-            phase_display(run.completed_phases, run.total_phases),
-            run.recovery,
-            fit_one_line(&run.stop_reason, 96),
+        let current = current_events_path
+            .is_some_and(|current| paths_refer_to_same_file(current, &run.events_path));
+        lines.push(render_run_row(
+            &run.short_id,
+            if current { "(current)" } else { "-" },
+            &run.started_at,
+            &format!("{}/{}", run.status, run.assurance),
+            &phase_display(run.completed_phases, run.total_phases),
+            &run.recovery,
+            &concise_stop_reason(&run.stop_reason),
         ));
     }
     lines.join("\n")
@@ -110,19 +122,22 @@ pub fn find_run(root: &Path, id_or_prefix: &str) -> Option<RunInventoryItem> {
 pub fn prepare_resume(root: &Path, target: &str) -> anyhow::Result<ResumePlan> {
     let target = target.trim();
     let source = if target.is_empty() {
-        let run = newest_run_with_recovery(root)
-            .ok_or_else(|| anyhow::anyhow!("no recovery UltraPlan found; run /runs"))?;
+        let run = newest_run_with_recovery(root).ok_or_else(|| {
+            anyhow::anyhow!("no resumable run exists: no recovery UltraPlan was found; run /runs")
+        })?;
         ResumeSource::Run(Box::new(run))
     } else if resume_target_looks_like_path(target) {
         ResumeSource::Yaml(
             resolve_resume_yaml_path(root, Path::new(target)).with_context(|| {
-                format!("failed to resolve recovery UltraPlan path `{target}`; run /runs")
+                format!(
+                    "no resumable recovery UltraPlan could be loaded from `{target}`; run /runs"
+                )
             })?,
         )
     } else if let Some(run) = find_run(root, target) {
         ResumeSource::Run(Box::new(run))
     } else {
-        bail!("run `{target}` not found; run /runs");
+        bail!("no resumable run `{target}` exists; run /runs");
     };
     resume_plan_from_source(root, source)
 }
@@ -485,7 +500,7 @@ fn phase_display(completed: Option<usize>, total: Option<usize>) -> String {
         (Some(done), Some(total)) => format!("{done}/{total}"),
         (Some(done), None) => format!("{done}/?"),
         (None, Some(total)) => format!("?/{total}"),
-        (None, None) => "?/?".to_string(),
+        (None, None) => "-".to_string(),
     }
 }
 
@@ -546,8 +561,35 @@ fn started_at_display(path: &Path) -> String {
     if secs == 0 {
         "unknown".to_string()
     } else {
-        format!("unix:{secs}")
+        local_datetime(secs).unwrap_or_else(|| "unknown".to_string())
     }
+}
+
+#[cfg(unix)]
+fn local_datetime(epoch_secs: u64) -> Option<String> {
+    let seconds = libc::time_t::try_from(epoch_secs).ok()?;
+    let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: `seconds` and `local` are valid pointers for the duration of the
+    // call. A non-null result guarantees that `local` was initialized.
+    let converted = unsafe { libc::localtime_r(&seconds, local.as_mut_ptr()) };
+    if converted.is_null() {
+        return None;
+    }
+    // SAFETY: `localtime_r` returned non-null, so it initialized `local`.
+    let local = unsafe { local.assume_init() };
+    Some(format!(
+        "{:04}/{:02}/{:02} {:02}:{:02}",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+    ))
+}
+
+#[cfg(not(unix))]
+fn local_datetime(_epoch_secs: u64) -> Option<String> {
+    None
 }
 
 fn run_sort_key(path: &Path) -> u64 {
@@ -559,9 +601,84 @@ fn run_sort_key(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-fn fit_one_line(value: &str, max: usize) -> String {
+fn render_run_row(
+    run: &str,
+    session: &str,
+    started: &str,
+    status: &str,
+    phases: &str,
+    recovery: &str,
+    stop: &str,
+) -> String {
+    format!(
+        "{} {} {} {} {} {} {}",
+        fixed_width_cell(run, 8),
+        fixed_width_cell(session, 9),
+        fixed_width_cell(started, 16),
+        fixed_width_cell(status, 20),
+        fixed_width_cell(phases, 6),
+        fixed_width_cell(recovery, 12),
+        fit_columns(stop, 23),
+    )
+}
+
+fn fixed_width_cell(value: &str, width: usize) -> String {
+    let value = fit_columns(value, width);
+    let padding = width.saturating_sub(UnicodeWidthStr::width(value.as_str()));
+    format!("{value}{}", " ".repeat(padding))
+}
+
+fn fit_columns(value: &str, max_width: usize) -> String {
     let one_line = value.replace(['\n', '\r'], " ");
-    crate::util::excerpt_with_marker(&one_line, max, "...")
+    if UnicodeWidthStr::width(one_line.as_str()) <= max_width {
+        return one_line;
+    }
+    let marker = "...";
+    let content_width = max_width.saturating_sub(UnicodeWidthStr::width(marker));
+    let mut used = 0;
+    let mut truncated = String::new();
+    for ch in one_line.chars() {
+        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + width > content_width {
+            break;
+        }
+        truncated.push(ch);
+        used += width;
+    }
+    truncated.push_str(marker);
+    truncated
+}
+
+fn concise_stop_reason(value: &str) -> String {
+    let first_line = value.lines().next().unwrap_or_default().trim();
+    if first_line.is_empty() || first_line == "unknown" {
+        return "-".to_string();
+    }
+    if let Some((category, _)) = first_line.split_once(':') {
+        let category = category.trim();
+        if !category.is_empty()
+            && category
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+        {
+            return category.to_string();
+        }
+    }
+    first_line
+        .split_whitespace()
+        .next()
+        .unwrap_or(first_line)
+        .trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '-')
+        .to_string()
+}
+
+fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
+    left == right
+        || left
+            .canonicalize()
+            .ok()
+            .zip(right.canonicalize().ok())
+            .is_some_and(|(left, right)| left == right)
 }
 
 fn parse_recovery_metadata(text: &str) -> RecoveryMetadata {
@@ -695,11 +812,14 @@ mod tests {
         assert!(rendered.contains("interrupted/partial"), "{rendered}");
         assert!(rendered.contains("1/3"), "{rendered}");
         assert!(rendered.contains("yaml"), "{rendered}");
-        assert!(rendered.contains("日本語"), "{rendered}");
-        assert_eq!(
-            newest_run_with_recovery(dir.path()).unwrap().short_id,
-            "018f1111"
-        );
+        assert!(!rendered.contains("日本語 path"), "{rendered}");
+        let newest = newest_run_with_recovery(dir.path()).unwrap();
+        assert_eq!(newest.short_id, "018f1111");
+        assert_eq!(newest.started_at.len(), 16, "{}", newest.started_at);
+        assert_eq!(&newest.started_at[4..5], "/");
+        assert_eq!(&newest.started_at[7..8], "/");
+        assert_eq!(&newest.started_at[13..14], ":");
+        assert!(!newest.started_at.starts_with("unix:"));
     }
 
     #[test]
@@ -709,6 +829,59 @@ mod tests {
             render_runs_table(dir.path()),
             "No runs found for this workspace."
         );
+    }
+
+    #[test]
+    fn runs_table_marks_current_and_bounds_concise_rows_to_100_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let events_path = dir.path().join(".anvil/runs/018f2222-current/events.jsonl");
+        std::fs::create_dir_all(events_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &events_path,
+            format!(
+                "{}\n",
+                json!({
+                    "event": "run_stop",
+                    "ok": false,
+                    "status": "failed",
+                    "assurance_level": "partial",
+                    "stop_reason": "model_stagnation:no_progress_recorded: objective: README.md に長い使い方を書き続ける"
+                })
+            ),
+        )
+        .unwrap();
+
+        let rendered = render_runs_table_with_current(dir.path(), Some(&events_path));
+
+        assert!(rendered.contains("(current)"), "{rendered}");
+        assert!(rendered.contains("model_stagnation"), "{rendered}");
+        assert!(!rendered.contains("no_progress_recorded"), "{rendered}");
+        assert_eq!(phase_display(None, None), "-");
+        for line in rendered.lines() {
+            assert!(
+                UnicodeWidthStr::width(line) <= 100,
+                "{} columns: {line}",
+                UnicodeWidthStr::width(line)
+            );
+        }
+    }
+
+    #[test]
+    fn missing_resume_targets_explain_that_no_resumable_run_exists() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let newest = prepare_resume(dir.path(), "").unwrap_err().to_string();
+        let named = prepare_resume(dir.path(), "not-there")
+            .unwrap_err()
+            .to_string();
+
+        assert!(newest.contains("no resumable run exists"), "{newest}");
+        assert!(newest.contains("/runs"), "{newest}");
+        assert!(
+            named.contains("no resumable run `not-there` exists"),
+            "{named}"
+        );
+        assert!(named.contains("/runs"), "{named}");
     }
 
     #[test]
