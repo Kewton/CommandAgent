@@ -987,7 +987,7 @@ fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupt
 }
 
 #[test]
-fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() {
+fn trial_status_polling_revalidates_with_durable_timing_metadata() {
     let page = trial_ui_sources();
     for required in [
         "headers[\"if-none-match\"] = etag",
@@ -1024,6 +1024,8 @@ fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() 
         .unwrap();
     for field in [
         "id:",
+        "started_epoch_seconds:",
+        "average_duration_seconds:",
         "gate:",
         "status:",
         "verdict:",
@@ -1036,7 +1038,7 @@ fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() 
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 10);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 12);
 
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
@@ -1083,6 +1085,8 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
         "フェーズ 2 / 5",
         "平均 10.2 分",
         "elapsed_changed",
+        "elapsed_preserved_after_reconnect",
+        "mean_preserved_after_reconnect",
         "zero_total_hidden",
         "monitor_and_progress_separate",
         "title_changed",
@@ -1390,7 +1394,6 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "has_confirmation_record",
         ".lease_snapshot()",
         "started_epoch_seconds",
-        "id.get_version_num() == 7",
         "gate: Option<&'static str>",
         "full_terminal_without_sheet",
         "let right_is_active = active_session == Some(right.id.as_str())",
@@ -1401,6 +1404,17 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         assert!(
             index.contains(required),
             "Trial session index is missing {required:?}"
+        );
+    }
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    for required in [
+        "pub(super) async fn started_epoch_seconds",
+        "id.get_version_num() == 7",
+        "metadata_created(events_path).await",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "shared Trial session timing is missing {required:?}"
         );
     }
 

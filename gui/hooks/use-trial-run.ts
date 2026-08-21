@@ -248,6 +248,8 @@ export function useTrialRun(
         unchangedResponses = 0;
         const value = result.value;
         setSession(value);
+        const startedAt = epochMilliseconds(value.started_epoch_seconds);
+        if (startedAt !== null) setGateTwoStartedAt(startedAt);
         if (value.gate === "gate_3" || value.gate === "gate_4") {
           setSessionIndexRevision((current) => current + 1);
           setStage("terminal");
@@ -286,7 +288,7 @@ export function useTrialRun(
   useEffect(() => {
     if (gateTwoStartedAt === null || stage !== "gate_2") return;
     const tick = () => {
-      setElapsedSeconds(Math.floor((Date.now() - gateTwoStartedAt) / 1_000));
+      setElapsedSeconds(elapsedSince(gateTwoStartedAt));
     };
     tick();
     const timer = window.setInterval(tick, 1_000);
@@ -324,11 +326,11 @@ export function useTrialRun(
   }, [stage]);
 
   const priceDuration = useMemo(() => {
-    const seconds = proposal?.price.average_duration_seconds;
+    const seconds = session?.average_duration_seconds ?? proposal?.price.average_duration_seconds;
     return seconds === null || seconds === undefined
       ? "未記録"
       : `平均 ${(seconds / 60).toFixed(1)} 分`;
-  }, [proposal]);
+  }, [proposal, session]);
   const priceCost = useMemo(() => {
     const cost = proposal?.price.average_cost_usd;
     return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
@@ -439,8 +441,9 @@ export function useTrialRun(
       replaceSessionQuery(value.id);
       setSession(null);
       setMonitor(initialMonitor);
-      setGateTwoStartedAt(Date.now());
-      setElapsedSeconds(0);
+      const startedAt = epochMilliseconds(value.started_epoch_seconds) ?? Date.now();
+      setGateTwoStartedAt(startedAt);
+      setElapsedSeconds(elapsedSince(startedAt));
       setArtifacts([]);
       setEvidenceDocument(null);
       setEvidenceOpen(false);
@@ -474,7 +477,13 @@ export function useTrialRun(
       const value = await fetchSession(id, trialToken);
       const lastSuccessAt = new Date().toISOString();
       setSession(value);
-      setCreated({ id: value.id, gate: "gate_2", status: "starting", events_path: value.events_path });
+      setCreated({
+        id: value.id,
+        started_epoch_seconds: value.started_epoch_seconds,
+        gate: "gate_2",
+        status: "starting",
+        events_path: value.events_path,
+      });
       setReconnectSessionId(value.id);
       setErrorReconnectSessionId(null);
       replaceSessionQuery(value.id);
@@ -486,8 +495,9 @@ export function useTrialRun(
         status: "connected",
         summary: null,
       });
-      setGateTwoStartedAt(Date.now());
-      setElapsedSeconds(0);
+      const startedAt = epochMilliseconds(value.started_epoch_seconds) ?? Date.now();
+      setGateTwoStartedAt(startedAt);
+      setElapsedSeconds(elapsedSince(startedAt));
       setSessionIndexRevision((current) => current + 1);
       setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
     } catch (reason) {
@@ -646,6 +656,14 @@ function replaceSessionQuery(id: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("session", id);
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function epochMilliseconds(epochSeconds: number): number | null {
+  return Number.isFinite(epochSeconds) && epochSeconds > 0 ? epochSeconds * 1_000 : null;
+}
+
+function elapsedSince(startedAt: number): number {
+  return Math.max(0, Math.floor((Date.now() - startedAt) / 1_000));
 }
 
 function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | null {
