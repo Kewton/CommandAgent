@@ -31,5 +31,8 @@ fixtures/python-cli-setup-fallback.txt = [
   "phase kind: setup",
   "StepPlan lint exhausted",
   "fallback-setup",
+  "src/app/main.py",
+  "src/greet/main.py",
+  "src/wc/main.py",
   "test -f pyproject.toml"
 ]
