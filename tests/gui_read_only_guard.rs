@@ -316,6 +316,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
+        "planner_provider: value as string",
         "data-testid=\"trial-pack\"",
         "option.source_label",
         "data-testid=\"trial-profile-description\"",
@@ -688,6 +689,21 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         );
     }
 
+    for required in [
+        "type RunOwned<T>",
+        "loadedDetail?.runId === runId",
+        "selectedEvidence?.runId === runId",
+        "requestVersion.current === version",
+        "evidenceController.current?.abort()",
+        "setLoadedDetail(null)",
+        "setSelectedEvidence(null)",
+    ] {
+        assert!(
+            run_page.contains(required),
+            "Run detail request ownership contract is missing {required:?}"
+        );
+    }
+
     let viewer = std::fs::read_to_string("gui/components/document-viewer.tsx").unwrap();
     for required in [
         "sourceHref?: string | null",
@@ -725,6 +741,8 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "options_include_dates_and_status",
         "filter_matches_id",
         "no_match_label_visible",
+        "request_ownership",
+        "empty_selection_cleared",
         "sourceLinkPresent",
         "mobileMap.horizontally_scrollable",
     ] {
@@ -922,10 +940,14 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "verifyExtensionPack",
         "pinExtensionPack",
         "retireExtensionPack",
+        "startNextVersion",
+        "incrementPatchVersion",
         "immutableLifecycleFromConflict",
         "immutable = lifecycle === \"pinned\" || lifecycle === \"retired\"",
         "disabled={immutable}",
         "data-testid=\"pack-wizard-trial-link\"",
+        "data-testid=\"pack-wizard-new-version\"",
+        "新しい version を作る",
         "ローカル（未承認・帯域未計測）",
         "retired — 終端状態",
     ] {
@@ -962,6 +984,8 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "pack-wizard-pinned",
         "pack-wizard-retired",
         "pinnedBytesMatchDisplay",
+        "pinnedNextVersionStaged",
+        "retiredNextDraftEditable",
         "selectedPack === selector",
     ] {
         assert!(
@@ -1614,6 +1638,21 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
         assert!(
             resource.contains(required),
             "resource revalidation contract is missing {required:?}"
+        );
+    }
+
+    let measurements = std::fs::read_to_string("gui/app/measurements/page.tsx").unwrap();
+    assert!(measurements.contains("report.path === selectedPath"));
+    assert!(measurements.contains("[reports.data, selectedPath]"));
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "setDocumentVisibility(page, \"hidden\")",
+        "setDocumentVisibility(page, \"visible\")",
+        "selection_retained_after_visibility",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "measurement visibility smoke is missing {required:?}"
         );
     }
 

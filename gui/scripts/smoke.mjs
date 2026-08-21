@@ -16,6 +16,7 @@ const wizardOnly = arguments_.includes("--wizard-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
+const providerOnly = arguments_.includes("--provider-only");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
 );
@@ -80,7 +81,7 @@ const helpMapEntries = [
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --wizard-only | --feedback-only | --polling-only | --provider-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -112,6 +113,7 @@ const packageMetadata = JSON.parse(
 const require = createRequire(import.meta.url);
 const { chromium } = require(managedPlaywrightPath);
 const scratchRoot = await mkdtemp(join(tmpdir(), "commandagent-g1-gui-smoke-"));
+const providerProbeBin = providerOnly ? await createProviderProbeBinary() : null;
 
 const cases = [
   { id: "root", buildBasePath: "/", serverBasePath: "/" },
@@ -127,7 +129,9 @@ try {
   for (const smokeCase of cases) {
     try {
       results.push(
-        await (wizardOnly
+        await (providerOnly
+          ? runProviderCase(smokeCase, providerProbeBin)
+          : wizardOnly
           ? runWizardCase(smokeCase)
           : feedbackOnly
           ? runFeedbackCase(smokeCase)
@@ -160,19 +164,21 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: wizardOnly
-      ? "pack_wizard"
-      : readOnly
-      ? "read_only"
-      : overviewOnly
-        ? "overview_only"
-        : feedbackOnly
-          ? "feedback_only"
-          : pollingOnly
-            ? "polling_only"
-            : "full_trial",
-    commandagent_bin: commandagentBin,
-    provider: "ollama",
+    mode: providerOnly
+      ? "provider_propagation"
+      : wizardOnly
+        ? "pack_wizard"
+        : readOnly
+          ? "read_only"
+          : overviewOnly
+            ? "overview_only"
+            : feedbackOnly
+              ? "feedback_only"
+              : pollingOnly
+                ? "polling_only"
+                : "full_trial",
+    commandagent_bin: providerProbeBin ?? commandagentBin,
+    provider: providerOnly ? "openai+gemini" : "ollama",
     model,
     fixture: fixtureRoot,
     scratch_runtime:
@@ -191,6 +197,135 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function createProviderProbeBinary() {
+  const path = join(scratchRoot, "provider-probe-commandagent");
+  const terminalEvents = await readFile(
+    join(repositoryRoot, "tests/fixtures/gui_cli_events.jsonl"),
+    "utf8",
+  );
+  const script = [
+    "#!/bin/sh",
+    'if [ "${1-}" = "--version" ]; then',
+    "  printf 'commandagent 0.1.0 provider-probe\\n'",
+    "  exit 0",
+    "fi",
+    'run_directory=${COMMANDAGENT_EVAL_EVENTS%/*}',
+    'printf \'%s\\n\' "$@" > "$run_directory/delegated-args.txt"',
+    `printf '%s' '${terminalEvents.replaceAll("'", "'\\''")}' > "$COMMANDAGENT_EVAL_EVENTS"`,
+    "",
+  ].join("\n");
+  await writeFile(path, script, { mode: 0o700 });
+  await chmod(path, 0o700);
+  return path;
+}
+
+async function runProviderCase(smokeCase, probeBinary) {
+  const executionRoot = join(scratchRoot, `${smokeCase.id}-provider-execution`);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot, probeBinary);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const consoleErrors = [];
+  page.on("console", (entry) => {
+    if (entry.type() === "error") consoleErrors.push(entry.text());
+  });
+  try {
+    const prefix = displayBasePath(smokeCase.serverBasePath);
+    const trialUrl = new URL(`${prefix}try/`, server.origin).href;
+    const response = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await page
+      .locator("[data-testid='trial-provider'] option[value='gemini']")
+      .waitFor({ state: "attached" });
+    const providers = [];
+    for (const provider of ["openai", "gemini"]) {
+      const executorModel = `${provider}-executor-model`;
+      const plannerModel = `${provider}-planner-model`;
+      await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+      await page.locator("[data-testid='trial-token']").fill(trialCredential);
+      await page.locator("[data-testid='trial-provider']").selectOption(provider);
+      await page.locator("[data-testid='trial-executor-model']").fill(executorModel);
+      await page.locator("[data-testid='trial-planner-model']").fill(plannerModel);
+      await page.locator("[data-testid='check-contract']").click();
+      await page.locator("[data-testid='gate-one-card']").waitFor();
+      await page.locator("[data-testid='gate-one-confirm']").check();
+      const createRequestPromise = page.waitForRequest((candidate) => {
+        const url = new URL(candidate.url());
+        return candidate.method() === "POST" && url.pathname.endsWith("/api/sessions");
+      });
+      const createResponsePromise = page.waitForResponse((candidate) => {
+        const url = new URL(candidate.url());
+        return candidate.request().method() === "POST" && url.pathname.endsWith("/api/sessions");
+      });
+      await page.locator("[data-testid='launch-session']").click();
+      const [createRequest, createResponse] = await Promise.all([
+        createRequestPromise,
+        createResponsePromise,
+      ]);
+      const createBody = createRequest.postDataJSON();
+      const created = await createResponse.json();
+      const delegatedArgs = (
+        await readEventually(
+          join(executionRoot, ".anvil", "runs", created.id, "delegated-args.txt"),
+        )
+      ).trim().split("\n");
+      await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: 10_000 });
+      const identityText = await page.locator("[data-testid='trial-run-identity']").innerText();
+      const result = {
+        provider,
+        request_provider: createBody.provider,
+        request_planner_provider: createBody.planner_provider,
+        cli_provider: cliArgumentValue(delegatedArgs, "--provider"),
+        cli_planner_provider: cliArgumentValue(delegatedArgs, "--planner-provider"),
+        cli_model: cliArgumentValue(delegatedArgs, "--model"),
+        cli_planner_model: cliArgumentValue(delegatedArgs, "--planner-model"),
+        identity_text: identityText,
+      };
+      result.ok =
+        createResponse.status() === 202 &&
+        result.request_provider === provider &&
+        result.request_planner_provider === provider &&
+        result.cli_provider === provider &&
+        result.cli_planner_provider === provider &&
+        result.cli_model === executorModel &&
+        result.cli_planner_model === plannerModel &&
+        identityText.includes(provider) &&
+        identityText.includes(executorModel) &&
+        identityText.includes(plannerModel);
+      providers.push(result);
+      await page
+        .locator("[data-testid='runtime-status'][data-session-state='idle']")
+        .waitFor({ timeout: 10_000 });
+      if (provider !== "gemini") {
+        await page.locator("[data-testid='close-session']").click();
+        await page.locator("[data-testid='start-new-run']").click();
+      }
+    }
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-provider-propagation.png`),
+    });
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      status: response?.status() ?? 0,
+      providers,
+      unexpected_console_errors: consoleErrors,
+      ok:
+        response?.status() === 200 &&
+        providers.length === 2 &&
+        providers.every((provider) => provider.ok) &&
+        consoleErrors.length === 0,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runWizardCase(smokeCase) {
   const executionRoot = join(scratchRoot, `${smokeCase.id}-wizard-execution`);
@@ -1146,6 +1281,29 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     "計測",
     "計測 | CommandAgent",
   );
+  const reportButtons = page.locator(".report-list button");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".report-list button").length > 1,
+  );
+  const selectedReportPath = await reportButtons.nth(1).locator("small").innerText();
+  await reportButtons.nth(1).click();
+  await page.waitForFunction(
+    (path) => document.querySelector(".report-list button.active small")?.textContent === path,
+    selectedReportPath,
+  );
+  const reportRevalidated = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname.endsWith("/api/reports");
+  });
+  await setDocumentVisibility(page, "hidden");
+  await setDocumentVisibility(page, "visible");
+  const reportResponse = await reportRevalidated;
+  await reportResponse.finished();
+  await page.waitForTimeout(100);
+  const retainedReportPath = await page
+    .locator(".report-list button.active small")
+    .innerText();
+  const selectionRetainedAfterVisibility = retainedReportPath === selectedReportPath;
   await page.setViewportSize({ width: 390, height: 844 });
   const mapFrame = page.locator("[data-testid='measurement-map-frame']");
   await mapFrame.waitFor();
@@ -1249,11 +1407,17 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     fullPage: true,
     path: join(outputDirectory, `${caseId}-run-detail.png`),
   });
+  const requestOwnership = await probeRunSelectionOwnership(page, runSummaries);
 
   const fullSizeLinkPresent = fullSizeHref?.endsWith("/api/maps/score-time.svg") ?? false;
   const unselectedHasNoRecords = !unselectedText.includes("NO RECORDS");
   return {
     pages: { measurements, run_detail: runDetail },
+    measurement_selection: {
+      after_visibility: retainedReportPath,
+      before_visibility: selectedReportPath,
+      selection_retained_after_visibility: selectionRetainedAfterVisibility,
+    },
     run_selection: {
       displayed_options: displayedOptions.length,
       expected_options: expectedOptions.length,
@@ -1261,6 +1425,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       no_records_label_absent: unselectedHasNoRecords,
       no_match_label_visible: noMatchLabelVisible,
       options_include_dates_and_status: optionsIncludeDatesAndStatus,
+      request_ownership: requestOwnership,
     },
     source_link: {
       href: sourceHref,
@@ -1279,6 +1444,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       measurements.status === 200 &&
       measurements.headingMatches &&
       measurements.titleMatches &&
+      selectionRetainedAfterVisibility &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
       runDetail.titleMatches &&
@@ -1286,6 +1452,7 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       noMatchLabelVisible &&
       filterMatchesId &&
       optionsIncludeDatesAndStatus &&
+      requestOwnership.ok &&
       sourceLinkPresent &&
       wrapToggle.classes_switch &&
       initialPressed === "true" &&
@@ -1295,6 +1462,112 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
       mobilePageFits &&
       fullSizeLinkPresent,
   };
+}
+
+async function probeRunSelectionOwnership(page, runSummaries) {
+  const runIds = runSummaries.slice(0, 3).map((run) => run.id);
+  if (runIds.length < 3) {
+    throw new Error("Run selection ownership probe requires at least three runs");
+  }
+  const [, supersededRunId, currentRunId] = runIds;
+  const supersededRelease = deferred();
+  const currentRelease = deferred();
+  const supersededStarted = deferred();
+  const currentStarted = deferred();
+  const releases = new Map([
+    [supersededRunId, supersededRelease],
+    [currentRunId, currentRelease],
+  ]);
+  const starts = new Map([
+    [supersededRunId, supersededStarted],
+    [currentRunId, currentStarted],
+  ]);
+  const routePattern = "**/api/runs/*";
+  const routeHandler = async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const marker = "/api/runs/";
+    const markerIndex = pathname.lastIndexOf(marker);
+    const encodedId = markerIndex === -1 ? "" : pathname.slice(markerIndex + marker.length);
+    if (encodedId.includes("/")) {
+      await route.continue();
+      return;
+    }
+    const id = decodeURIComponent(encodedId);
+    const release = releases.get(id);
+    if (release === undefined) {
+      await route.continue();
+      return;
+    }
+    starts.get(id)?.resolve();
+    await release.promise;
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        id,
+        acceptance_path: "acceptance.md",
+        acceptance: `# RUN SWITCH ${id}`,
+        evidence: [{ id: "evidence.log", path: "evidence.log", size_bytes: 1 }],
+      }),
+    }).catch(() => undefined);
+  };
+
+  await page.route(routePattern, routeHandler);
+  try {
+    await page.locator("#run-filter").fill("");
+    await page.locator("#run-select").selectOption(supersededRunId);
+    await supersededStarted.promise;
+    await page.locator("#run-select").selectOption(currentRunId);
+    await currentStarted.promise;
+    await page.waitForTimeout(50);
+
+    const pendingSelection = {
+      evidence_list_count: await page.locator(".evidence-list").count(),
+      loading_visible: await page.locator(".run-document [role='status']").isVisible(),
+      viewer_count: await page.locator(".run-document .document-viewer").count(),
+    };
+
+    currentRelease.resolve();
+    await page.waitForFunction(
+      (markerText) =>
+        document.querySelector("[data-testid='document-content']")?.textContent?.includes(markerText),
+      `RUN SWITCH ${currentRunId}`,
+    );
+    const currentContent = await page.locator("[data-testid='document-content']").innerText();
+
+    await page.locator("#run-select").selectOption("");
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll(".run-document .state-code")]
+          .some((node) => node.textContent === "実行未選択"),
+    );
+    const emptySelection = {
+      empty_selection_cleared:
+        (await page.locator(".evidence-list").count()) === 0 &&
+        (await page.locator(".run-document .document-viewer").count()) === 0,
+      evidence_list_count: await page.locator(".evidence-list").count(),
+      viewer_count: await page.locator(".run-document .document-viewer").count(),
+    };
+
+    const currentRunWon =
+      currentContent.includes(`RUN SWITCH ${currentRunId}`) &&
+      !currentContent.includes(`RUN SWITCH ${supersededRunId}`);
+    return {
+      current_run_won: currentRunWon,
+      empty_selection: emptySelection,
+      pending_selection: pendingSelection,
+      ok:
+        pendingSelection.loading_visible &&
+        pendingSelection.viewer_count === 0 &&
+        pendingSelection.evidence_list_count === 0 &&
+        currentRunWon &&
+        emptySelection.empty_selection_cleared,
+    };
+  } finally {
+    supersededRelease.resolve();
+    currentRelease.resolve();
+    await page.unroute(routePattern, routeHandler);
+  }
 }
 
 async function probeTrialFeedback(browser, origin, basePath) {
@@ -2030,6 +2303,16 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading, 
   };
 }
 
+async function setDocumentVisibility(page, visibilityState) {
+  await page.evaluate((state) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibilityState);
+}
+
 async function probePackWizard(page, browser, origin, basePath) {
   const prefix = displayBasePath(basePath);
   const assetsUrl = new URL(`${prefix}assets/`, origin).href;
@@ -2137,6 +2420,45 @@ async function probePackWizard(page, browser, origin, basePath) {
     await trialPage.close();
   }
 
+  await page.locator("[data-testid='pack-wizard-new-version']").click();
+  await page.locator("[data-testid='pack-wizard-editor']").waitFor();
+  const pinnedNextVersion = await page.locator("[data-testid='pack-wizard-version']").inputValue();
+  const pinnedNextDraftEditable =
+    !(await page.locator("[data-testid='pack-wizard-id']").isDisabled()) &&
+    !(await page.locator("[data-testid='pack-wizard-version']").isDisabled()) &&
+    !(await page.locator("[data-testid='pack-wizard-assist']").isDisabled());
+  const pinnedNextMembers = await readWizardMembers(page);
+  const pinnedNextMembersCopied = memberMapsMatchNextVersion(
+    displayedMembers,
+    pinnedNextMembers,
+    "1.0.0",
+    pinnedNextVersion,
+  );
+  await page.getByRole("button", { name: "保存して検証" }).click();
+  await success.waitFor();
+  const stagedNextDetail = await page.evaluate(
+    async ({ packUrl, token }) => {
+      const response = await fetch(packUrl, {
+        headers: { "x-commandagent-trial-authorization": `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`next pack detail returned ${response.status}`);
+      return response.json();
+    },
+    {
+      packUrl: new URL(
+        `${prefix}api/extensions/packs/nextjs-acme/${pinnedNextVersion}`,
+        origin,
+      ).href,
+      token: trialCredential,
+    },
+  );
+  const pinnedNextVersionStaged =
+    (await page.locator("[data-testid='pack-wizard']").getAttribute("data-lifecycle")) === "staged" &&
+    stagedNextDetail.version === pinnedNextVersion &&
+    stagedNextDetail.report.status === "staged";
+  await page.locator("[data-testid='pack-wizard-to-pin']").click();
+  await page.locator("[data-testid='pack-wizard-pin-action']").click();
+  await page.locator("[data-testid='pack-wizard-pinned']").waitFor();
   await page.locator(".pack-retire-panel summary").click();
   await page.locator("[data-testid='pack-wizard-retire-confirm']").check();
   await page.locator("[data-testid='pack-wizard-retire-action']").click();
@@ -2144,6 +2466,20 @@ async function probePackWizard(page, browser, origin, basePath) {
   const retiredHasNoTrialLink = (await page.locator("[data-testid='pack-wizard-trial-link']").count()) === 0;
   await page.locator(".pack-wizard-steps li:nth-child(3) button").click();
   const retiredEditorDisabled = await page.locator("[data-testid='pack-wizard-assist']").isDisabled();
+  await page.locator(".pack-wizard-steps li:nth-child(5) button").click();
+  await page.locator("[data-testid='pack-wizard-new-version']").click();
+  await page.locator("[data-testid='pack-wizard-editor']").waitFor();
+  const retiredNextVersion = await page.locator("[data-testid='pack-wizard-version']").inputValue();
+  const retiredNextDraftEditable =
+    retiredNextVersion === "1.0.2" &&
+    !(await page.locator("[data-testid='pack-wizard-assist']").isDisabled()) &&
+    (await page.locator("[data-testid='pack-wizard']").getAttribute("data-lifecycle")) === "draft";
+  const retiredNextMembersCopied = memberMapsMatchNextVersion(
+    pinnedNextMembers,
+    await readWizardMembers(page),
+    pinnedNextVersion,
+    retiredNextVersion,
+  );
 
   return {
     active_after_failure: activeAfterFailure,
@@ -2152,8 +2488,15 @@ async function probePackWizard(page, browser, origin, basePath) {
     failure_text: issueText,
     pinned_bytes_match_display: pinnedBytesMatchDisplay,
     pinned_editor_disabled: pinnedEditorDisabled,
+    pinned_next_draft_editable: pinnedNextDraftEditable,
+    pinned_next_members_copied: pinnedNextMembersCopied,
+    pinned_next_version: pinnedNextVersion,
+    pinned_next_version_staged: pinnedNextVersionStaged,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
+    retired_next_draft_editable: retiredNextDraftEditable,
+    retired_next_members_copied: retiredNextMembersCopied,
+    retired_next_version: retiredNextVersion,
     selected_pack: selectedPack,
     selector,
     reverified_hash: reverifiedHash,
@@ -2168,10 +2511,16 @@ async function probePackWizard(page, browser, origin, basePath) {
       pinnedBytesMatchDisplay &&
       pinnedDetail.report.hash === reverifiedHash &&
       pinnedEditorDisabled &&
+      pinnedNextVersion === "1.0.1" &&
+      pinnedNextDraftEditable &&
+      pinnedNextMembersCopied &&
+      pinnedNextVersionStaged &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
-      retiredHasNoTrialLink,
+      retiredHasNoTrialLink &&
+      retiredNextDraftEditable &&
+      retiredNextMembersCopied,
   };
 }
 
@@ -2194,6 +2543,21 @@ async function readWizardMembers(page) {
 function memberMapsEqual(left, right) {
   const entries = (members) => Object.entries(members).sort(([a], [b]) => a.localeCompare(b));
   return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
+}
+
+function memberMapsMatchNextVersion(previous, next, previousVersion, nextVersion) {
+  const replaceVersion = (document) =>
+    document.replace(`  version: ${previousVersion}`, `  version: ${nextVersion}`);
+  const expected = {
+    ...previous,
+    ...(previous["assist.yaml"] === undefined
+      ? {}
+      : { "assist.yaml": replaceVersion(previous["assist.yaml"]) }),
+    ...(previous["eval.yaml"] === undefined
+      ? {}
+      : { "eval.yaml": replaceVersion(previous["eval.yaml"]) }),
+  };
+  return memberMapsEqual(expected, next);
 }
 
 async function probeExtensionCatalog(page) {
@@ -2224,7 +2588,7 @@ async function probeExtensionCatalog(page) {
   };
 }
 
-async function startServer(basePath, executionRoot) {
+async function startServer(basePath, executionRoot, delegateBin = commandagentBin) {
   const extensionRoot = `${executionRoot}-extensions`;
   await mkdir(extensionRoot, { recursive: true, mode: 0o700 });
   await chmod(extensionRoot, 0o700);
@@ -2252,7 +2616,7 @@ async function startServer(basePath, executionRoot) {
       "--trial-token-auth",
       "on",
       "--commandagent-bin",
-      commandagentBin,
+      delegateBin,
     ],
     {
       cwd: repositoryRoot,
@@ -2296,12 +2660,38 @@ async function runChecked(command, arguments_, cwd, env) {
   });
 }
 
+async function readEventually(path) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (reason) {
+      if (reason?.code !== "ENOENT") throw reason;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+function cliArgumentValue(arguments_, name) {
+  const index = arguments_.indexOf(name);
+  return index === -1 ? null : arguments_[index + 1] ?? null;
+}
+
 function displayBasePath(basePath) {
   return basePath === "/" ? "/" : `${basePath}/`;
 }
 
 function trialTokenStorageKey(basePath) {
   return `commandagent.gui.trial-token:${basePath}`;
+}
+
+function deferred() {
+  let resolvePromise;
+  const promise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }
 
 function valueArgument(arguments_, name) {

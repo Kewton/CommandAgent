@@ -7,6 +7,7 @@
     "lint": "node scripts/lint-internal-paths.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:errors": "node scripts/error-smoke.mjs",
+    "smoke:provider": "node scripts/smoke.mjs --provider-only",
     "smoke:session-index": "node scripts/session-index-smoke.mjs",
     "smoke:storage": "node scripts/storage-smoke.mjs",
     "typecheck": "tsc --noEmit"
