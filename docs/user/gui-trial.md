@@ -18,8 +18,9 @@ The browser obtains profiles/providers from `GET api/trial-options` and
 admitted plus conformant pinned local packs from `GET api/pack-options`.
 External profile rows are labeled **下書き**, show their exact-byte manifest
 hash and `保証上限 static`, and fix the pack selector to **選択なし**. An
-additive overlay also names its admitted base. Changing a provider never
-rewrites either model pin.
+additive overlay also names its admitted base. The single provider selection
+applies to both the executor and planner CLI pins. Changing it never rewrites
+either model ID; enter the exact executor and planner model IDs independently.
 
 The compact indicator is **依頼 → 確認 → 実行 → 結果**. Only the current
 workflow state is shown; a completed form is not left stacked above the next
