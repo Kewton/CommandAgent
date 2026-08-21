@@ -88,7 +88,7 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
 5. `commandagent>` で、依頼をスラッシュなしの平文として入力します。
 
    ```text
-   commandagent> このプロジェクトに、テスト付きの小さな改善を1つ加えてください。
+   commandagent> Create a CLI --pattern filter command
    ```
 
    CommandAgent は Gate 1 カードを表示しますが、まだ実行しません。依頼、書き込み
@@ -105,12 +105,17 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
 `<your-model>` はプレースホルダーであり、実際のモデル ID ではありません。
 手元の `ollama list` に実在するモデルへ必ず置き換えてください。
 
-目的のレイヤから続けてください。
+CLI は次の順路で進めてください。各レイヤから次のレイヤへリンクしています。
 
-- [チュートリアル](docs/guide/ja/tutorial.md) — 実際の画面で追う 20 分の
-  ウォークスルー: doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本
-- [CLI 入門](docs/user/getting-started-cli.md) — provider、config、オフライン
-  doctor、最初の 1 周、exact pack の A/B
+1. [CLI 入門](docs/user/getting-started-cli.md) — provider、config、オフライン
+   doctor、最初の Gate 1 確認
+2. [詳細チュートリアル](docs/guide/ja/tutorial.md) — 実際の画面で追う 20 分の
+   ウォークスルー: 最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本
+3. [CLI リファレンス](docs/guide/ja/cli-reference.md) — 全公開フラグ、既定値、
+   排他関係
+
+ほかの入口:
+
 - [GUI 入門](docs/user/getting-started-gui.md) — セットアップ状態、サンプル
   Trial、Gate 1、結果の読み方
 - [拡張](docs/user/gui-extensions.md) — pack/profile の供給、ライフサイクル、
