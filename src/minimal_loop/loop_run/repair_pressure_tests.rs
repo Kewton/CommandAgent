@@ -514,6 +514,103 @@ mod moved {
     }
 
     #[test]
+    fn direct_prompt_write_then_confirming_reads_completes_unverified() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Example\n").unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.max_iterations = 8;
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"hello.py","content":"print('hello')\n"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Edit",
+                    json!({
+                        "path":"README.md",
+                        "old_string":"# Example\n",
+                        "new_string":"# Example\n\n## 使い方\n\n`python3 hello.py`\n"
+                    }),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Bash",
+                    json!({"command":"python3 hello.py"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(read_reply("README.md")),
+            Ok(read_reply("hello.py")),
+        ]);
+        let mut session = SessionSnapshot::new();
+
+        let outcome = run_session_with_outcome_with_ui(
+            &mut fake,
+            &mut session,
+            "README.md に使い方の節を追加し、python3 hello.py の実行例を書いてください。hello.py は print('hello') だけの新規ファイルとして作成してください。",
+            &[],
+            &cfg,
+            &NOOP_UI,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
+        assert_eq!(outcome.tool_calls, 5);
+        assert!(outcome.final_text.contains("unverified"));
+        assert!(outcome.changed_paths.contains(&"README.md".to_string()));
+        assert!(outcome.changed_paths.contains(&"hello.py".to_string()));
+        let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains("\"reason\":\"post_write_read_confirmation_completed\""));
+        assert!(!event_text.contains("model_stagnation:no_progress_recorded"));
+    }
+
+    #[test]
+    fn direct_prompt_reads_without_write_remain_no_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Example\n").unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.max_iterations = 1;
+        let mut fake = Fake::new(
+            (0..4)
+                .map(|_| Ok(read_reply("README.md")))
+                .collect(),
+        );
+        let mut session = SessionSnapshot::new();
+
+        let err = run_session_with_outcome_with_ui(
+            &mut fake,
+            &mut session,
+            "README.md を確認してください。",
+            &[],
+            &cfg,
+            &NOOP_UI,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("model_stagnation:no_progress_recorded"), "{err}");
+        let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains("model_stagnation:no_progress_recorded"));
+        assert!(!event_text.contains("post_write_read_confirmation_completed"));
+    }
+
+    #[test]
     fn artifact_recovery_exhausts_after_repeated_non_edit_tools() {
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");

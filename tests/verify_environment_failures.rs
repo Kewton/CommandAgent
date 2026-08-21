@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use commandagent::config::{
-    Action, Config, ConfigFieldSources, NarrationMode, OpenAiApi, PlanPreset, PromptLayout,
-    Provider,
+    Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+    PromptLayout, Provider,
 };
 use commandagent::planner::runner::run_step_plan;
 use commandagent::planner::step_plan::{PlanStep, StepPlan};
@@ -144,6 +144,9 @@ fn config(root: &Path, events: &Path) -> Config {
         intent_override: None,
         planner_model: "test".to_string(),
         planner_provider: Provider::Ollama,
+        planner_think: Some(OllamaThink::False),
+        classifier_model: "test".to_string(),
+        classifier_provider: Provider::Ollama,
         ollama_host: "http://localhost:11434".to_string(),
         ollama_think: None,
         lm_studio_host: "http://localhost:1234".to_string(),

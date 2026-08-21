@@ -240,6 +240,54 @@ pub fn format_outcome(outcome: &BashOutcome) -> String {
     )
 }
 
+pub(crate) fn environment_failure_kind(outcome: &BashOutcome) -> Option<&'static str> {
+    deterministic_environment_failure_kind(
+        outcome_exit_code(outcome.status.as_deref()),
+        &outcome.stderr,
+    )
+}
+
+pub(crate) fn formatted_environment_failure_kind(formatted: &str) -> Option<&'static str> {
+    let status = formatted
+        .lines()
+        .find_map(|line| line.strip_prefix("status: "));
+    let stderr = formatted
+        .split_once("\nstderr:\n")
+        .map(|(_, stderr)| stderr)
+        .unwrap_or_default();
+    deterministic_environment_failure_kind(outcome_exit_code(status), stderr)
+}
+
+fn outcome_exit_code(status: Option<&str>) -> Option<i32> {
+    status?.split_whitespace().next_back()?.parse().ok()
+}
+
+fn deterministic_environment_failure_kind(
+    exit_code: Option<i32>,
+    stderr: &str,
+) -> Option<&'static str> {
+    match exit_code {
+        Some(127) => return Some("exit_127"),
+        Some(126) => return Some("command_not_executable"),
+        _ => {}
+    }
+    let stderr = stderr.to_ascii_lowercase();
+    if stderr.contains("permission denied")
+        || stderr.contains("operation not permitted")
+        || stderr.contains("access is denied")
+    {
+        return Some("permission_denied");
+    }
+    if stderr.contains("bad interpreter")
+        || stderr.contains("interpreter not found")
+        || (stderr.contains("/usr/bin/env:")
+            && (stderr.contains("no such file or directory") || stderr.contains("not found")))
+    {
+        return Some("interpreter_unavailable");
+    }
+    None
+}
+
 pub fn normalize_inspect_command(
     command: &str,
     root: &Path,
@@ -862,6 +910,24 @@ mod tests {
     fn run_checked_rejects_nonzero_for_verify() {
         let dir = tempfile::tempdir().unwrap();
         assert!(run_checked("false", dir.path(), false).is_err());
+    }
+
+    #[test]
+    fn structured_and_formatted_environment_classification_match() {
+        let outcome = BashOutcome {
+            kind: BashOutcomeKind::CommandFailed,
+            status: Some("exit status: 127".to_string()),
+            stdout: String::new(),
+            stderr: "sh: missing-tool: command not found".to_string(),
+            elapsed_ms: 1,
+            summary: String::new(),
+        };
+
+        assert_eq!(environment_failure_kind(&outcome), Some("exit_127"));
+        assert_eq!(
+            formatted_environment_failure_kind(&format_outcome(&outcome)),
+            Some("exit_127")
+        );
     }
 
     #[test]
