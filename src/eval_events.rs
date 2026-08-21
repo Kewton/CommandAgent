@@ -224,6 +224,8 @@ pub struct CompletionSnapshot {
     pub runtime_acceptance_status: String,
     pub final_acceptance_status: String,
     pub release_gate_status: String,
+    pub profile_behavior_probe_status: String,
+    pub profile_behavior_probe_evidence_path: String,
     pub completion_contract_verification_enabled: bool,
     pub completion_contract_path_merge_enabled: bool,
     pub completion_contract_path: String,
@@ -290,6 +292,8 @@ impl CompletionSnapshot {
             runtime_acceptance_status: "not_checked".to_string(),
             final_acceptance_status: "not_checked".to_string(),
             release_gate_status: "not_applicable".to_string(),
+            profile_behavior_probe_status: String::new(),
+            profile_behavior_probe_evidence_path: String::new(),
             completion_contract_verification_enabled: false,
             completion_contract_path_merge_enabled: false,
             completion_contract_path: String::new(),
@@ -368,6 +372,8 @@ pub struct CompletionProjection {
     pub runtime_acceptance: String,
     pub final_acceptance: String,
     pub release_gate: String,
+    pub profile_behavior_probe_status: String,
+    pub profile_behavior_probe_evidence_path: String,
     pub completion_contract_verification_enabled: bool,
     pub completion_contract_path_merge_enabled: bool,
     pub completion_contract_path: String,
@@ -457,6 +463,7 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
     let diagnostics = planner_diagnostics_from_events(&events);
     let recovery_fields = latest_recovery_fields(&events);
     let persistence_fields = latest_persistence_fields(&events);
+    let profile_behavior_binding = latest_profile_behavior_binding(&events);
     let probe_preflight =
         crate::minimal_loop::probe_preflight::latest_interaction_probe_preflight(&events);
     let mut snapshot = CompletionSnapshot::empty();
@@ -503,6 +510,10 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
     snapshot.probe_preflight_message = probe_preflight.message;
     recovery_fields.apply_to(&mut snapshot);
     persistence_fields.apply_to(&mut snapshot);
+    if let Some((status, evidence_path)) = profile_behavior_binding {
+        snapshot.profile_behavior_probe_status = status;
+        snapshot.profile_behavior_probe_evidence_path = evidence_path;
+    }
     snapshot
 }
 
@@ -790,6 +801,8 @@ pub fn project_completion(ok: bool, snapshot: &CompletionSnapshot) -> Completion
         runtime_acceptance,
         final_acceptance,
         release_gate,
+        profile_behavior_probe_status: snapshot.profile_behavior_probe_status.clone(),
+        profile_behavior_probe_evidence_path: snapshot.profile_behavior_probe_evidence_path.clone(),
         completion_contract_verification_enabled: snapshot.completion_contract_verification_enabled,
         completion_contract_path_merge_enabled: snapshot.completion_contract_path_merge_enabled,
         completion_contract_path: snapshot.completion_contract_path.clone(),
@@ -2043,6 +2056,16 @@ fn snapshot_from_completion_event(event: &Value) -> Option<CompletionSnapshot> {
             .and_then(Value::as_str)
             .unwrap_or("not_applicable")
             .to_string(),
+        profile_behavior_probe_status: event
+            .get("profile_behavior_probe_status")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        profile_behavior_probe_evidence_path: event
+            .get("profile_behavior_probe_evidence_path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         completion_contract_verification_enabled: event
             .get("completion_contract_verification_enabled")
             .and_then(Value::as_bool)
@@ -2224,6 +2247,24 @@ fn snapshot_from_completion_event(event: &Value) -> Option<CompletionSnapshot> {
         context_truncation_warning_count: 0,
         compile_rollback_summaries: Vec::new(),
     })
+}
+
+fn latest_profile_behavior_binding(events: &[Value]) -> Option<(String, String)> {
+    let event = events.iter().rev().find(|event| {
+        matches!(
+            event.get("event").and_then(Value::as_str),
+            Some("plan_final_contract" | "ultra_final_acceptance")
+        )
+    })?;
+    let status = event
+        .get("profile_behavior_probe_status")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let evidence_path = event
+        .get("profile_behavior_probe_evidence_path")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    Some((status.to_string(), evidence_path.to_string()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

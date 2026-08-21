@@ -710,6 +710,10 @@ impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
         ProfileId::PythonCli
     }
 
+    fn plan_final_behavior_probe_required(&self, _profile_id: &ProfileId) -> bool {
+        true
+    }
+
     fn run_behavior_probe(
         &self,
         _profile_id: &ProfileId,
@@ -1048,6 +1052,10 @@ impl ProfileRuntime for GenericProfile {
             });
         }
         self.behavior_probe(root, goal, required_capabilities, offline)
+    }
+
+    fn plan_final_behavior_probe_required(&self, profile_id: &ProfileId) -> bool {
+        profile_id == &ProfileId::Cli
     }
 }
 

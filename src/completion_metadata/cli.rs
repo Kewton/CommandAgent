@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use serde::Deserialize;
+
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
 use crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN;
 #[cfg(test)]
@@ -11,9 +13,37 @@ use crate::planner::profiles::python_cli::runtime::{
 const CLI_PROBE_NOT_RUN: &str = "cli_probe_not_run";
 const CLI_CLAIMS_ABSENT: &str = "cli_claims_absent";
 const CLI_ASSURANCE_FAILED: &str = "cli_assurance_failed";
+const FALLBACK_BEHAVIOR_EVIDENCE_PATH: &str = ".anvil/evidence/python-cli-behavior.json";
+
+#[derive(Deserialize)]
+struct FallbackBehaviorEvidence {
+    profile: String,
+    status: String,
+    ok: bool,
+    reasons: Vec<String>,
+    details: FallbackBehaviorDetails,
+}
+
+#[derive(Deserialize)]
+struct FallbackBehaviorDetails {
+    entrypoint: String,
+    first_exit_code: Option<i32>,
+    second_exit_code: Option<i32>,
+    first_stdout: String,
+    second_stdout: String,
+    changed_by_input: bool,
+}
 
 pub(crate) fn apply_snapshot_runtime(root: &Path, snapshot: &mut CompletionSnapshot) {
-    let (assurance, reason) = completion_assurance(root);
+    let (assurance, reason) = terminal_completion_assurance(
+        root,
+        &snapshot.assurance_level,
+        &snapshot.runtime_acceptance_status,
+        &snapshot.final_acceptance_status,
+        &snapshot.release_gate_status,
+        &snapshot.profile_behavior_probe_status,
+        &snapshot.profile_behavior_probe_evidence_path,
+    );
     snapshot.assurance_level = assurance.as_str().to_string();
     snapshot.assurance_reason = reason.to_string();
 }
@@ -25,7 +55,15 @@ pub(crate) fn apply_terminal_projection_runtime(
     if projection.contract_origin == FIX_CONTRACT_ORIGIN {
         return;
     }
-    let (assurance, reason) = completion_assurance(root);
+    let (assurance, reason) = terminal_completion_assurance(
+        root,
+        &projection.assurance_level,
+        &projection.runtime_acceptance,
+        &projection.final_acceptance,
+        &projection.release_gate,
+        &projection.profile_behavior_probe_status,
+        &projection.profile_behavior_probe_evidence_path,
+    );
     projection.assurance_level = assurance.as_str().to_string();
     projection.assurance_reason = reason.to_string();
 }
@@ -55,19 +93,89 @@ pub(crate) fn apply_terminal_projection(root: &Path, projection: &mut Completion
     apply_terminal_projection_runtime(root, projection);
 }
 
-fn completion_assurance(root: &Path) -> (CliAssurance, &'static str) {
+pub(crate) fn completion_assurance(root: &Path) -> (CliAssurance, &'static str) {
     let assurance = std::fs::read(root.join(EVIDENCE_PATH))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<CliCheckSummary>(&bytes).ok())
         .map(|summary| classify(&summary.evidence))
         .unwrap_or(CliAssurance::Static);
-    let reason = match assurance {
+    (assurance, assurance_reason(assurance))
+}
+
+fn terminal_completion_assurance(
+    root: &Path,
+    assurance_level: &str,
+    runtime_acceptance: &str,
+    final_acceptance: &str,
+    release_gate: &str,
+    profile_behavior_probe_status: &str,
+    profile_behavior_probe_evidence_path: &str,
+) -> (CliAssurance, &'static str) {
+    let canonical_path = root.join(EVIDENCE_PATH);
+    let (canonical, reason) = completion_assurance(root);
+    if canonical == CliAssurance::Static
+        && !canonical_path.exists()
+        && assurance_level == "full"
+        && runtime_acceptance == "pass"
+        && final_acceptance == "full_success"
+        && release_gate == "pass"
+        && profile_behavior_probe_status == "pass"
+        && profile_behavior_probe_evidence_path == FALLBACK_BEHAVIOR_EVIDENCE_PATH
+        && passing_fallback_behavior_evidence(root)
+    {
+        return (CliAssurance::Full, "");
+    }
+    (canonical, reason)
+}
+
+fn passing_fallback_behavior_evidence(root: &Path) -> bool {
+    let evidence = std::fs::read(root.join(FALLBACK_BEHAVIOR_EVIDENCE_PATH))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<FallbackBehaviorEvidence>(&bytes).ok());
+    let Some(evidence) = evidence else {
+        return false;
+    };
+    evidence.profile == "python-cli"
+        && evidence.status == "pass"
+        && evidence.ok
+        && evidence.reasons.is_empty()
+        && evidence.details.first_exit_code == Some(0)
+        && evidence.details.second_exit_code == Some(0)
+        && !evidence.details.first_stdout.trim().is_empty()
+        && !evidence.details.second_stdout.trim().is_empty()
+        && evidence.details.first_stdout != evidence.details.second_stdout
+        && evidence.details.changed_by_input
+        && fallback_entrypoint_is_bound(root, &evidence.details.entrypoint)
+}
+
+fn fallback_entrypoint_is_bound(root: &Path, entrypoint: &str) -> bool {
+    let entrypoint = Path::new(entrypoint);
+    let entrypoint = if entrypoint.is_absolute() {
+        entrypoint.to_path_buf()
+    } else {
+        root.join(entrypoint)
+    };
+    let Ok(relative) = entrypoint.strip_prefix(root) else {
+        return false;
+    };
+    let parts = relative
+        .iter()
+        .filter_map(|part| part.to_str())
+        .collect::<Vec<_>>();
+    entrypoint.is_file()
+        && parts.len() == 3
+        && parts[0] == "src"
+        && !parts[1].is_empty()
+        && parts[2] == "main.py"
+}
+
+fn assurance_reason(assurance: CliAssurance) -> &'static str {
+    match assurance {
         CliAssurance::Full => "",
         CliAssurance::Partial => CLI_CLAIMS_ABSENT,
         CliAssurance::Static => CLI_PROBE_NOT_RUN,
         CliAssurance::Failed => CLI_ASSURANCE_FAILED,
-    };
-    (assurance, reason)
+    }
 }
 
 #[cfg(test)]
@@ -82,7 +190,7 @@ mod tests {
         C1, C2, C3, C4, CheckStatus, EvidenceState,
     };
     use clap::Parser;
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
     const FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -180,6 +288,101 @@ mod tests {
 
             assert_eq!(projection.assurance_level, expected_level, "{name}");
             assert_eq!(projection.assurance_reason, expected_reason, "{name}");
+        }
+    }
+
+    #[test]
+    fn passing_src_package_behavior_evidence_preserves_earned_full_assurance() {
+        let root = tempfile::tempdir().unwrap();
+        write_src_entrypoint(root.path());
+        write_fallback_behavior(root.path(), passing_fallback_behavior(root.path()));
+        let mut snapshot = cli_snapshot();
+
+        apply_snapshot(root.path(), &mut snapshot);
+
+        assert_eq!(snapshot.assurance_level, "full");
+        assert_eq!(snapshot.assurance_reason, "");
+        let mut projection = project_completion(true, &snapshot);
+        apply_terminal_projection(root.path(), &mut projection);
+        assert_eq!(projection.assurance_level, "full");
+        assert_eq!(projection.assurance_reason, "");
+    }
+
+    #[test]
+    fn nonpassing_fallback_behavior_evidence_never_elevates_assurance() {
+        for name in ["missing", "failed", "malformed", "unexecuted"] {
+            let root = tempfile::tempdir().unwrap();
+            write_src_entrypoint(root.path());
+            match name {
+                "missing" => {}
+                "failed" => {
+                    let mut evidence = passing_fallback_behavior(root.path());
+                    evidence["status"] = json!("failed");
+                    evidence["ok"] = json!(false);
+                    evidence["reasons"] = json!(["python_cli_behavior_probe_failed"]);
+                    write_fallback_behavior(root.path(), evidence);
+                }
+                "malformed" => {
+                    let path = root.path().join(FALLBACK_BEHAVIOR_EVIDENCE_PATH);
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(path, b"{not-json").unwrap();
+                }
+                "unexecuted" => {
+                    let mut evidence = passing_fallback_behavior(root.path());
+                    evidence["details"]["first_exit_code"] = Value::Null;
+                    evidence["details"]["first_stdout"] = json!("");
+                    evidence["details"]["changed_by_input"] = json!(false);
+                    write_fallback_behavior(root.path(), evidence);
+                }
+                _ => unreachable!(),
+            }
+            let mut snapshot = cli_snapshot();
+
+            apply_snapshot(root.path(), &mut snapshot);
+
+            assert_eq!(snapshot.assurance_level, "static", "{name}");
+            assert_eq!(snapshot.assurance_reason, CLI_PROBE_NOT_RUN, "{name}");
+            let mut projection = project_completion(true, &snapshot);
+            apply_terminal_projection(root.path(), &mut projection);
+            assert_eq!(projection.assurance_level, "static", "{name}");
+            assert_eq!(projection.assurance_reason, CLI_PROBE_NOT_RUN, "{name}");
+        }
+    }
+
+    #[test]
+    fn passing_fallback_evidence_cannot_override_failed_current_gates() {
+        let root = tempfile::tempdir().unwrap();
+        write_src_entrypoint(root.path());
+        write_fallback_behavior(root.path(), passing_fallback_behavior(root.path()));
+        let mut snapshot = cli_snapshot();
+        snapshot.runtime_acceptance_status = "failed".into();
+        snapshot.final_acceptance_status = "incomplete".into();
+        snapshot.release_gate_status = "failed".into();
+
+        apply_snapshot(root.path(), &mut snapshot);
+
+        assert_eq!(snapshot.assurance_level, "static");
+        assert_eq!(snapshot.assurance_reason, CLI_PROBE_NOT_RUN);
+    }
+
+    #[test]
+    fn passing_fallback_evidence_requires_current_probe_binding() {
+        for (name, status, evidence_path) in [
+            ("unexecuted", "not_applicable", ""),
+            ("failed", "failed", FALLBACK_BEHAVIOR_EVIDENCE_PATH),
+            ("wrong-path", "pass", "evidence/other.json"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            write_src_entrypoint(root.path());
+            write_fallback_behavior(root.path(), passing_fallback_behavior(root.path()));
+            let mut snapshot = cli_snapshot();
+            snapshot.profile_behavior_probe_status = status.into();
+            snapshot.profile_behavior_probe_evidence_path = evidence_path.into();
+
+            apply_snapshot(root.path(), &mut snapshot);
+
+            assert_eq!(snapshot.assurance_level, "static", "{name}");
+            assert_eq!(snapshot.assurance_reason, CLI_PROBE_NOT_RUN, "{name}");
         }
     }
 
@@ -283,6 +486,34 @@ mod tests {
         .unwrap();
     }
 
+    fn write_src_entrypoint(root: &Path) {
+        std::fs::create_dir_all(root.join("src/anvil_app")).unwrap();
+        std::fs::write(root.join("src/anvil_app/main.py"), "print('ok')\n").unwrap();
+    }
+
+    fn write_fallback_behavior(root: &Path, evidence: Value) {
+        let path = root.join(FALLBACK_BEHAVIOR_EVIDENCE_PATH);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
+    }
+
+    fn passing_fallback_behavior(root: &Path) -> Value {
+        json!({
+            "profile": "python-cli",
+            "status": "pass",
+            "ok": true,
+            "reasons": [],
+            "details": {
+                "entrypoint": root.join("src/anvil_app/main.py"),
+                "first_exit_code": 0,
+                "second_exit_code": 0,
+                "first_stdout": "Hello, anvil!",
+                "second_stdout": "Hello, profile!",
+                "changed_by_input": true
+            }
+        })
+    }
+
     fn cli_config(root: &Path, events: std::path::PathBuf) -> Config {
         let mut config = Config::from_cli(Cli::parse_from([
             "commandagent",
@@ -300,8 +531,12 @@ mod tests {
         let mut snapshot = CompletionSnapshot::empty();
         snapshot.profile = "cli".into();
         snapshot.effective_profile = "cli".into();
+        snapshot.assurance_level = "full".into();
+        snapshot.runtime_acceptance_status = "pass".into();
         snapshot.final_acceptance_status = "full_success".into();
         snapshot.release_gate_status = "pass".into();
+        snapshot.profile_behavior_probe_status = "pass".into();
+        snapshot.profile_behavior_probe_evidence_path = FALLBACK_BEHAVIOR_EVIDENCE_PATH.into();
         snapshot.completion_contract_verification_enabled = true;
         snapshot
     }

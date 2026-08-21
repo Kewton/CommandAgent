@@ -31,6 +31,9 @@ use super::{
 #[allow(unused_imports)]
 use super::{DEV_SERVER_LIFECYCLE_STAGES, ReleaseRecoveryHandoffSummary};
 use std::io::{Read, Write};
+
+#[path = "acceptance/plan_final_probe.rs"]
+mod plan_final_probe;
 pub(super) fn emit_browser_probe_event(
     config: &Config,
     observation: &BrowserReadinessObservation,
@@ -2279,6 +2282,14 @@ pub(super) fn verify_plan_final_contract(
             &required_evidence,
         ),
     );
+    let profile_behavior_probe = plan_final_probe::PlanFinalProbe::dispatch(
+        config,
+        runtime,
+        &profile_id,
+        &plan.goal,
+        &required_capabilities,
+    );
+    profile_behavior_probe.bind_release_gate(&mut release_gate);
     let contract_required =
         runtime.requires_completion_contract(&profile_id, &plan.goal, &required_capabilities)
             || bound_contract.is_some_and(|bound| bound.required);
@@ -2307,17 +2318,19 @@ pub(super) fn verify_plan_final_contract(
         && !release_gate_failed;
     let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
     let runtime_acceptance_status =
-        runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
+        profile_behavior_probe.runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
     let (base_assurance_level, base_assurance_reason) =
         runtime.assurance_for_completion(&profile_id, &required_capabilities);
     let testimony_failed = release_gate.reasons.iter().any(|reason| {
         crate::planner::failure_vocabulary::ViolationId::is_testimony_binding(reason)
     });
-    let (assurance_level, assurance_reason) = if testimony_failed {
+    let base_assurance = if testimony_failed {
         ("failed", "testimony_binding_violation")
     } else {
         (base_assurance_level, base_assurance_reason)
     };
+    let (assurance_level, assurance_reason) =
+        profile_behavior_probe.assurance(&config.workspace_root, base_assurance);
     let release_quality_completion =
         release_quality_completion_status(&release_gate, final_acceptance_status);
     let next_action = release_gate_next_action(&release_gate, final_acceptance_status);
@@ -2468,7 +2481,7 @@ pub(super) fn verify_plan_final_contract(
                 .as_ref()
                 .map(|report| report.inconclusive)
                 .unwrap_or(false),
-            "runtime_acceptance_passed": runtime_ok,
+            "runtime_acceptance_passed": profile_behavior_probe.runtime_acceptance_passed(runtime_ok),
             "runtime_acceptance_status": runtime_acceptance_status,
             "final_acceptance_status": final_acceptance_status,
             "assurance_level": assurance_level,
@@ -2476,6 +2489,9 @@ pub(super) fn verify_plan_final_contract(
             "release_quality_completion": release_quality_completion,
             "release_gate_status": release_gate.status.clone(),
             "release_gate_reasons": release_gate.reasons.clone(),
+            "profile_behavior_probe_status": profile_behavior_probe.event_status(),
+            "profile_behavior_probe_reasons": profile_behavior_probe.reasons(),
+            "profile_behavior_probe_evidence_path": profile_behavior_probe.evidence_path(),
             "browser_readiness_status": release_gate.browser_readiness_status.clone(),
             "browser_readiness_evidence_path": release_gate.browser_readiness_evidence_path.clone(),
             "interaction_evidence_status": release_gate.interaction_evidence_status.clone(),

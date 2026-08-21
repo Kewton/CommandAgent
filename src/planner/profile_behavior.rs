@@ -198,6 +198,10 @@ pub trait ProfileRuntime: DomainProfile {
         self.behavior_probe(root, goal, required_capabilities, offline)
     }
 
+    fn plan_final_behavior_probe_required(&self, _profile_id: &ProfileId) -> bool {
+        false
+    }
+
     fn run_final_testimony_check(
         &self,
         _root: &Path,
