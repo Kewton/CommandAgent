@@ -17,6 +17,10 @@
 - `cargo clippy --all-targets --features gui -- -D warnings`: `passed`
 - `cargo test`: `passed`
 - `cargo test --features gui`: `passed`
+- `cargo +1.97.1 clippy --features gui --bin gui_server -- -D warnings`: `passed`
+- `cargo test --features gui --test gui_server trial_session_files_`: `passed`
+- `cargo test --features gui --test gui_server confirmed_session_delegates_with_cli_event_bytes_unchanged`: `passed`
+- `cargo test --test gui_read_only_guard trial_status_polling_revalidates_with_durable_timing_metadata`: `passed`
 - `git diff --check`: `passed`
 
 ## Evidence
@@ -45,6 +49,18 @@
   assertion but exposed the stale six-control lifecycle cardinality. The
   cardinality was strengthened to cover all seven current identity controls;
   the full two-base-path run was then repeated from start and passed.
+
+## CI follow-up evidence
+
+- Code commit `714017ca` was cherry-picked alone as `b4221a12`; its commit
+  contains only `src/bin/gui_server/session_files.rs`. No Issue 160 report file
+  is present in the cherry-pick or this report update.
+- Rust 1.97.1 Clippy passed with `-D warnings` and no lint allowance.
+- The two `trial_session_files_` integration tests passed, covering authenticated
+  confined/bounded file responses and rejection of a symlinked runtime root.
+- The confirmed-session integration test passed with its exact event bytes and
+  durable start/average response assertions intact.
+- The focused GUI source contract for durable reconnect timing metadata passed.
 
 ## Environment note
 
