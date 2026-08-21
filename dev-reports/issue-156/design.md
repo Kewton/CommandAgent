@@ -44,3 +44,43 @@
 - No rename or removal of `planner_provider`, API/schema migration, automatic
   model-ID selection, provider call, credential probe, event rewrite, or
   `.anvil/` runtime migration.
+
+## Follow-up propagation: Issue 162 auth retry
+
+### Source and overlap
+
+- Issue #169 follow-up commit `a37495fd` is the verified combined-tree form of
+  the Issue #162 auth-retry patch (patch-equivalent to `ea8f8fbd`). This branch
+  already contains the earlier #162 commit and #169 run-identity commit
+  `0ca9c5cb`, so the follow-up must be applied on top rather than replacing
+  either inherited contract.
+- The production change defers only automatic session-index revalidation while
+  the compose screen has a concrete reconnect target. This prevents a
+  background wrong-token 401 from clearing the controlled token before the
+  explicit reconnect request can own rejection and retry.
+- The source patch also updates the unchanged full-smoke editable-identity
+  cardinality from six to seven. Its `smoke.mjs` hunk overlaps Issue #156's
+  provider-propagation smoke mode, so resolution must retain both the seven
+  control assertion and every OpenAI/Gemini request, identity, and delegated
+  CLI argv assertion.
+
+### Propagation plan
+
+1. Commit this design amendment before production integration, then cherry-pick
+   `a37495fd` and resolve only demonstrated overlap semantically.
+2. Preserve the existing `planner_provider` API field, atomic provider pairing,
+   independent executor/planner model inputs, and #169 Gate 2/terminal identity
+   projection. Preserve every auth, GET-only reconnect, timing, measured-mean,
+   root/proxy, terminal, and editable-control acceptance assertion.
+3. Rebuild `target/release/commandagent` and run the focused session-index,
+   provider-propagation, and feedback/identity browser smokes. Then run the
+   unchanged full root/proxy smoke against that release candidate.
+4. Run GUI lint/typecheck plus formatting, default and GUI-feature Clippy, and
+   default and GUI-feature Rust tests because the shared Trial UI and browser
+   harness overlap.
+
+### Follow-up non-goals
+
+- No forced clicks, longer timeouts, ignored 401 responses, disabled automatic
+  refresh outside the explicit reconnect state, skipped base path, relaxed
+  cardinality, provider/model inference, or acceptance-gate extension.
