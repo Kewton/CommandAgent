@@ -23,6 +23,7 @@
 - `cargo test`: `passed`
 - `cargo test --features gui`: `passed`
 - `git diff --check`: `passed`
+- `git diff --check`: `passed`
 
 ## Evidence
 
@@ -47,3 +48,49 @@
   event; the probe was corrected to reuse `tests/fixtures/gui_cli_events.jsonl`,
   and the final approved smoke command above passed without weakening any
   assertion.
+
+## Follow-up combined-tree checks
+
+- `git cherry HEAD a37495fd`: `passed`
+- `cargo build --release --bin commandagent`: `passed`
+- `target/release/commandagent --version`: `passed`
+- `cd gui && node --check scripts/smoke.mjs`: `passed`
+- `cd gui && node --check scripts/session-index-smoke.mjs`: `passed`
+- `cd gui && npm run typecheck`: `passed`
+- `cd gui && npm run lint`: `passed`
+- `cd gui && npm run smoke:session-index -- --output /private/tmp/commandagent-issue156-followup-session-index-approved`: `passed`
+- `cd gui && npm run smoke:provider -- --output /private/tmp/commandagent-issue156-followup-provider`: `passed`
+- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue156-followup-feedback-identity --feedback-only --commandagent-bin ../target/release/commandagent`: `passed`
+- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue156-followup-full --commandagent-bin ../target/release/commandagent --model qwen3:8b`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo clippy --all-targets --features gui -- -D warnings`: `passed`
+- `cargo test`: `passed`
+- `cargo test --features gui`: `passed`
+
+## Follow-up combined-tree evidence
+
+- The rebuilt release candidate reported
+  `commandagent 0.1.0 5d6773f9 2026-08-21T09:52:20+09:00` before any browser
+  smoke was run against it.
+- `/private/tmp/commandagent-issue156-followup-session-index-approved/session-index-smoke.json`
+  reports root and `/proxy/commandagent/` cases `ok: true`, with rejected-token
+  removal, an enabled retry action, and GET-only reconnect traffic in both.
+- `/private/tmp/commandagent-issue156-followup-provider/browser-smoke.json`
+  reports both base paths `ok: true`. OpenAI and Gemini each retain matching
+  request and CLI executor/planner providers while preserving their distinct
+  executor and planner model IDs.
+- `/private/tmp/commandagent-issue156-followup-feedback-identity/browser-smoke.json`
+  reports both base paths `ok: true`, including elapsed-time and measured-mean
+  persistence plus exact Gate 2, reconnected, and terminal identities.
+- `/private/tmp/commandagent-issue156-followup-full/browser-smoke.json` reports
+  top-level, root, and proxy `ok: true`. The unchanged full smoke observed the
+  rejected reconnect request followed by a successful authenticated retry,
+  GET-only session traffic, frozen run identities, seven editable next-run
+  controls, lease protection, and terminal completion in both base paths.
+- `git cherry HEAD a37495fd` reports `- a37495fd...`, confirming the source
+  follow-up patch is present patch-equivalently as `5d6773f9`.
+
+The first follow-up session-index smoke attempt was denied loopback access by
+the sandbox before exercising the application. The approved rerun shown above
+passed without changing the smoke, its assertions, or the application.

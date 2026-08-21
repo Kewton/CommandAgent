@@ -34,3 +34,25 @@ rewritten when the provider changes.
 No API field, event name, schema, confirmation record, or `.anvil/` namespace
 changed. In particular, `planner_provider` remains present and is still the
 server's source for the confirmed planner pin.
+
+## Follow-up propagation from Issue 162
+
+- Recorded the combined-tree propagation design in commit `69fbc386` before
+  changing production code.
+- Integrated Issue #169 commit `a37495fd` as patch-equivalent commit
+  `5d6773f9`. The Trial session index now defers automatic revalidation only
+  while the compose screen owns a concrete reconnect target, so an automatic
+  wrong-token response cannot consume the explicit reconnect retry flow.
+- Kept manual session-index refresh and direct session access active and
+  GET-only. A rejected reconnect token is still removed, the retry action is
+  enabled, and the successful retry performs the authenticated session and
+  artifact reads.
+- Preserved Issue #156's atomic executor/planner provider update, independent
+  executor/planner model inputs, existing `planner_provider` API shape, and all
+  OpenAI/Gemini request plus delegated CLI assertions.
+- Preserved Issue #169's frozen Gate 2, reconnected, terminal, closed, and next
+  run identity behavior. The unchanged full smoke now checks all seven
+  editable identity controls for the next draft run.
+
+No acceptance gate, timeout, base-path case, or assertion was weakened,
+skipped, forced, or extended during propagation.
