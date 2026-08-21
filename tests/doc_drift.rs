@@ -657,7 +657,7 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
             "gui-trial.md#pack-selection-and-frozen-identity",
         ),
         (
-            "gui/components/trial-run.tsx",
+            "gui/components/trial-compose.tsx",
             "Gate 1 は CLI 実行前の確認です",
             "gui-trial.md#gate-1-confirm-before-execution",
         ),
@@ -803,7 +803,7 @@ fn introductory_surfaces_share_the_runtime_sample_goal() {
         "docs/user/first-loop.md",
         "docs/guide/en/tutorial.md",
         "docs/guide/ja/tutorial.md",
-        "gui/hooks/use-trial-run.ts",
+        "gui/hooks/use-trial-compose.ts",
     ] {
         assert!(
             read_repo_file(path).contains(CANONICAL_SAMPLE_GOAL),

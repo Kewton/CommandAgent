@@ -56,7 +56,7 @@ const helpMapEntries = [
   {
     copy: "Gate 1 は CLI 実行前の確認です",
     owner: "gui-trial.md#gate-1-confirm-before-execution",
-    source: "gui/components/trial-run.tsx",
+    source: "gui/components/trial-compose.tsx",
   },
   {
     copy: "固定済みパックが見つかりません。",

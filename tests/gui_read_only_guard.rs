@@ -241,7 +241,8 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
         }
     }
     for (path, required) in [
-        ("gui/hooks/use-trial-run.ts", "describeError"),
+        ("gui/hooks/use-trial-compose.ts", "describeError"),
+        ("gui/hooks/use-trial-terminal.ts", "describeError"),
         ("gui/components/trial-session-index.tsx", "describeError"),
         ("gui/lib/trial-api.ts", "responseError"),
     ] {
@@ -287,17 +288,17 @@ fn trial_route_is_wiring_only_and_shared_helpers_have_single_owners() {
     assert!(component.contains("data-testid=\"trial-active-stage\""));
 
     let hook = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
-    for required in [
-        "export function useTrialRun",
-        "useState",
-        "useEffect",
-        "isTrialTokenRejected(reason)",
-    ] {
+    for required in ["export function useTrialRun", "useState", "useEffect"] {
         assert!(
             hook.contains(required),
             "Trial workflow hook is missing {required:?}"
         );
     }
+    let compose_hook = std::fs::read_to_string("gui/hooks/use-trial-compose.ts").unwrap();
+    assert!(
+        compose_hook.contains("isTrialTokenRejected(reason)"),
+        "Trial compose hook is missing shared token-rejection handling"
+    );
 
     let api = std::fs::read_to_string("gui/lib/trial-api.ts").unwrap();
     assert!(api.contains("export function trialAuthorizationHeaders"));
@@ -334,7 +335,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     for required in [
         "if (!confirmed || proposal === null)",
         "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
-        "launchSession(trialToken, spec, proposal.card_hash)",
+        "createSession(trialToken, spec, proposal.card_hash)",
         "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
@@ -517,7 +518,8 @@ fn trial_monitor_retries_and_reconnects_with_tab_scoped_access() {
         "最終更新成功:",
         "監視を再接続",
         "GET のみを使用し、別の CLI プロセスは起動しません。",
-        "new URLSearchParams(window.location.search).get(\"session\")",
+        "const parameters = new URLSearchParams(window.location.search)",
+        "parameters.get(\"session\")",
         "url.searchParams.set(\"session\", id)",
         "reconnectIdFromError(reason)",
         "data-testid=\"reconnect-session-link\"",
@@ -920,7 +922,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         );
     }
 
-    let trial = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
+    let trial = std::fs::read_to_string("gui/hooks/use-trial-compose.ts").unwrap();
     for required in [
         "packPreselectionApplied",
         "new URLSearchParams(window.location.search).get(\"pack\")",
@@ -1178,8 +1180,8 @@ fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
         "data-testid=\"trial-active-stage\"",
         "data-stage={stage}",
         "stage === \"compose\"",
-        "proposal !== null && stage === \"gate_1\"",
-        "stage === \"gate_2\" && created !== null",
+        "if (proposal === null || stage !== \"gate_1\") return null",
+        "if (stage !== \"gate_2\" || created === null) return null",
         "stage === \"terminal\" && session !== null",
         "className=\"trial-action-bar trial-request-actions\"",
         "className=\"gate-one-actions trial-action-bar\"",
@@ -1547,7 +1549,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "setSessionIndexRevision((current) => current + 1)",
         "data-testid=\"terminal-session-history-link\"",
         "highlight={highlightedSessionId}",
-        "setHighlightedSessionId(session.id)",
+        "onHighlightSession={setHighlightedSessionId}",
+        "onHighlightSession(session.id)",
         "launchBlockReason !== null",
         "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
     ] {
@@ -1689,7 +1692,7 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     for path in [
         "gui/app/page.tsx",
         "gui/app/runs/page.tsx",
-        "gui/components/trial-run.tsx",
+        "gui/components/trial-gate-two.tsx",
         "gui/components/trial-session-index.tsx",
     ] {
         assert!(
@@ -1729,8 +1732,15 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
 fn trial_ui_sources() -> String {
     [
         "gui/app/try/page.tsx",
+        "gui/components/trial-compose.tsx",
+        "gui/components/trial-gate-one.tsx",
+        "gui/components/trial-gate-two.tsx",
         "gui/components/trial-run.tsx",
+        "gui/components/trial-terminal.tsx",
+        "gui/hooks/use-trial-compose.ts",
+        "gui/hooks/use-trial-monitor.ts",
         "gui/hooks/use-trial-run.ts",
+        "gui/hooks/use-trial-terminal.ts",
         "gui/lib/trial-api.ts",
     ]
     .iter()

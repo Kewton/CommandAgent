@@ -1,0 +1,265 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+
+import { useShellRuntimeStatus } from "../components/shell";
+import {
+  describeError,
+  GuiRequestError,
+  isTrialTokenRejected,
+  reconnectSessionId as reconnectIdFromError,
+} from "../lib/errors";
+import {
+  createSession,
+  fetchPackOptions,
+  fetchTrialOptions,
+  fetchWorkspaceLease,
+  proposeSession,
+} from "../lib/trial-api";
+import {
+  persistTrialToken,
+  removeRejectedTrialToken,
+  restoreTrialToken,
+} from "../lib/trial-token-storage";
+import type {
+  CreatedSession,
+  PackOptions,
+  SessionSpec,
+  TrialOptions,
+  TrialWorkspaceLease,
+} from "../lib/types";
+
+export type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
+
+type UseTrialComposeProps = {
+  stage: ScreenStage;
+  setStage: Dispatch<SetStateAction<ScreenStage>>;
+};
+
+const initialSpec: SessionSpec = {
+  goal: "",
+  profile: "python-cli",
+  provider: "ollama",
+  model: "",
+  planner_provider: "ollama",
+  planner_model: "",
+  pack: null,
+};
+
+export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
+  const runtime = useShellRuntimeStatus();
+  const gateOneRef = useRef<HTMLElement>(null);
+  const packPreselectionApplied = useRef(false);
+  const [trialToken, setTrialToken] = useState("");
+  const [reconnectSessionId, setReconnectSessionId] = useState("");
+  const [spec, setSpec] = useState<SessionSpec>(initialSpec);
+  const [proposal, setProposal] = useState<Awaited<ReturnType<typeof proposeSession>> | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [errorReconnectSessionId, setErrorReconnectSessionId] = useState<string | null>(null);
+  const [trialOptions, setTrialOptions] = useState<TrialOptions | null>(null);
+  const [packOptions, setPackOptions] = useState<PackOptions | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [providerChanged, setProviderChanged] = useState(false);
+  const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
+  const trialTokenAuthEnabled = runtime?.data?.trial_token_auth_enabled !== false;
+  const trialAccessReady = !trialTokenAuthEnabled || trialToken.trim() !== "";
+  const launchIdentityLocked = stage === "gate_2" || stage === "terminal" || stage === "closed";
+
+  useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    if (parameters.get("sample") === "python-cli") {
+      setSpec((current) => ({
+        ...current,
+        goal: "Create a CLI --pattern filter command",
+        profile: "python-cli",
+        pack: "cli-assist@1.0.0",
+      }));
+    }
+    const sessionId = parameters.get("session");
+    if (sessionId !== null) setReconnectSessionId(sessionId);
+  }, []);
+
+  useEffect(() => setTrialToken(restoreTrialToken()), []);
+  useEffect(() => {
+    if (runtime?.data?.trial_token_auth_enabled === false) {
+      setTrialToken("");
+      persistTrialToken("");
+    }
+  }, [runtime?.data?.trial_token_auth_enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([fetchTrialOptions(), fetchPackOptions()])
+      .then(([options, packs]) => {
+        if (!cancelled) {
+          setTrialOptions(options);
+          setPackOptions(packs);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setOptionsError(describeError(reason));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (packOptions === null || packPreselectionApplied.current) return;
+    packPreselectionApplied.current = true;
+    const selector = new URLSearchParams(window.location.search).get("pack");
+    const option = packOptions.packs.find(
+      (candidate) => `${candidate.id}@${candidate.version}` === selector,
+    );
+    if (selector !== null && option !== undefined) {
+      setSpec((current) => ({ ...current, profile: option.profile, pack: selector }));
+    }
+  }, [packOptions]);
+
+  const updateTrialToken = useCallback((value: string) => {
+    setTrialToken(value);
+    persistTrialToken(value);
+  }, []);
+
+  const rejectTrialToken = useCallback((reason: unknown, rejectedValue: string) => {
+    if (!isTrialTokenRejected(reason)) return false;
+    removeRejectedTrialToken(rejectedValue);
+    setTrialToken((current) => current.trim() === rejectedValue.trim() ? "" : current);
+    return true;
+  }, []);
+
+  function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
+    setSpec((current) => {
+      if (field === "profile") return { ...current, profile: value as string, pack: null };
+      if (field === "provider") {
+        return { ...current, provider: value as string, planner_provider: value as string };
+      }
+      return { ...current, [field]: value };
+    });
+    setProposal(null);
+    setConfirmed(false);
+    setError(null);
+    setErrorReconnectSessionId(null);
+    setStage("compose");
+  }
+
+  function recordError(reason: unknown) {
+    rejectTrialToken(reason, trialToken);
+    setError(describeError(reason));
+    const active = reconnectIdFromError(reason);
+    setErrorReconnectSessionId(active);
+    if (active !== null) {
+      setReconnectSessionId(active);
+      replaceSessionQuery(active);
+    }
+  }
+
+  async function checkContract() {
+    const missing = missingContractField(spec, trialAccessReady);
+    if (missing !== null) {
+      setError(missing);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setErrorReconnectSessionId(null);
+    try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
+      setProposal(await proposeSession(trialToken, spec));
+      setConfirmed(false);
+      setStage("gate_1");
+    } catch (reason) {
+      recordError(reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectWorkspaceLease() {
+    if (!trialAccessReady) {
+      setError("ワークスペースのリースを確認する前に、実行時の Trial アクセストークンを入力してください。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
+    } catch (reason) {
+      recordError(reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function launchConfirmed(onLaunched: (value: CreatedSession) => void) {
+    if (!confirmed || proposal === null) {
+      setError("起動するには Gate 1 の明示的な確認が必要です。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setErrorReconnectSessionId(null);
+    try {
+      const value = await createSession(trialToken, spec, proposal.card_hash);
+      setWorkspaceLease(null);
+      onLaunched(value);
+    } catch (reason) {
+      if (reason instanceof GuiRequestError && reason.status === 409) {
+        const currentLease = await fetchWorkspaceLease(trialToken).catch(() => null);
+        if (currentLease !== null) setWorkspaceLease(currentLease);
+      }
+      recordError(reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetForNewRun() {
+    setProposal(null);
+    setConfirmed(false);
+    setError(null);
+    setErrorReconnectSessionId(null);
+  }
+
+  const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
+  const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
+  const compatiblePacks = packOptions?.packs.filter(
+    (option) => option.profile === spec.profile && option.intent === "create",
+  ) ?? [];
+  const selectedPack = compatiblePacks.find(
+    (option) => `${option.id}@${option.version}` === spec.pack,
+  );
+
+  return {
+    busy, checkContract, compatiblePacks, confirmed, error, errorReconnectSessionId,
+    gateOneRef, inspectWorkspaceLease, launchBlockReason: leaseLaunchBlockReason(workspaceLease),
+    launchConfirmed, launchIdentityLocked, optionsError, proposal, providerChanged,
+    reconnectSessionId, recordError, rejectTrialToken, resetForNewRun, selectedPack,
+    selectedProfile, selectedProvider, setBusy, setConfirmed, setError,
+    setErrorReconnectSessionId, setProposal, setProviderChanged, setReconnectSessionId,
+    setWorkspaceLease, spec, trialAccessReady, trialOptions, trialToken,
+    trialTokenAuthEnabled, update, updateTrialToken, workspaceLease,
+  };
+}
+
+function missingContractField(spec: SessionSpec, trialAccessReady: boolean): string | null {
+  if (spec.goal.trim() === "") return "契約を確認する前に、目標を入力してください。";
+  if (spec.model.trim() === "") return "契約を確認する前に、実行モデルの正確な ID を入力してください。";
+  if (spec.planner_model.trim() === "") return "契約を確認する前に、計画モデルの正確な ID を入力してください。";
+  if (!trialAccessReady) return "契約を確認する前に、実行時の Trial アクセストークンを入力してください。";
+  return null;
+}
+
+function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | null {
+  if (lease === null || lease.status === "idle") return null;
+  if (lease.status === "running") {
+    return `実行中のセッション ${lease.session_id} がワークスペースを使用しているため、新しい起動はできません。`;
+  }
+  return `セッション ${lease.session_id} のワークスペース復旧が必要なため、新しい起動はできません。`;
+}
+
+export function replaceSessionQuery(id: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("session", id);
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}

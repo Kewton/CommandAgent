@@ -10,7 +10,7 @@ copy on both supported base paths.
 | term help | CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#terms-shown-in-the-app`](getting-started-gui.md#terms-shown-in-the-app) |
 | term help | Trial がファイルを変更できる、専用の作業ディレクトリです。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#terms-shown-in-the-app`](getting-started-gui.md#terms-shown-in-the-app) |
 | term help | 目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。 | `gui/components/getting-started.tsx` | [`gui-trial.md#pack-selection-and-frozen-identity`](gui-trial.md#pack-selection-and-frozen-identity) |
-| Gate primer | Gate 1 は CLI 実行前の確認です | `gui/components/trial-run.tsx` | [`gui-trial.md#gate-1-confirm-before-execution`](gui-trial.md#gate-1-confirm-before-execution) |
+| Gate primer | Gate 1 は CLI 実行前の確認です | `gui/components/trial-compose.tsx` | [`gui-trial.md#gate-1-confirm-before-execution`](gui-trial.md#gate-1-confirm-before-execution) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | action | Trial で使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | action | pack 作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
