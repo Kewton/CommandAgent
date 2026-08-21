@@ -349,9 +349,13 @@ export function useTrialRun(
   );
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
-    setSpec((current) => field === "profile"
-      ? { ...current, profile: value as string, pack: null }
-      : { ...current, [field]: value });
+    setSpec((current) => {
+      if (field === "profile") return { ...current, profile: value as string, pack: null };
+      if (field === "provider") {
+        return { ...current, provider: value as string, planner_provider: value as string };
+      }
+      return { ...current, [field]: value };
+    });
     setProposal(null);
     setConfirmed(false);
     setError(null);

@@ -5,6 +5,11 @@ contributor material in [`dev/`](dev/) and repository-level contracts kept at
 stable paths. Start with the root [English](../README.md) or
 [Japanese](../README.ja.md) README if you are new to the project.
 
+The end-user route is [getting started](user/getting-started-cli.md) →
+[detailed tutorial](guide/en/tutorial.md) →
+[CLI reference](guide/en/cli-reference.md). The bilingual
+[guide index](guide/README.md) provides the matching Japanese route.
+
 > Historical records describe the repository at the time they were written.
 > They may not match the current code. In particular, recorded paths and
 > implementation details are evidence, not current instructions.
@@ -57,6 +62,9 @@ paths.
 | [`fix-intent-contract.md`](fix-intent-contract.md) | Frozen v0 fix-intent evidence and assurance contract. | JA | Contributors |
 | [`investigation-intent-contract.md`](investigation-intent-contract.md) | Frozen v0 investigation-intent contract. | JA | Contributors |
 | [`intent-skeleton.md`](intent-skeleton.md) | Intent adjudication design and compatibility boundaries. | JA | Contributors |
+| [`cli-profile-contract.md`](cli-profile-contract.md) | Fixed Python CLI evidence and assurance contract. | Mixed | Contributors |
+| [`ingest-profile-contract.md`](ingest-profile-contract.md) | Fixed ingest evidence and assurance contract. | JA | Contributors |
+| [`pack-institution-contract.md`](pack-institution-contract.md) | Fixed assist/eval pack institution contract. | EN | Contributors |
 | [`dev/dev-guardrails.md`](dev/dev-guardrails.md) | Source growth budgets and engineering guardrails. | EN | Contributors |
 | [`dev/generality.md`](dev/generality.md) | Generality and earned-assurance policy. | Mixed | Contributors |
 | [`dev/profile-manifest.md`](dev/profile-manifest.md) | Profile manifest schema and lifecycle. | EN | Contributors |

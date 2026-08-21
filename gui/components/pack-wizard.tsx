@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { routePath, withBasePath } from "../lib/base-path";
 import { describeError, GuiRequestError } from "../lib/errors";
 import {
+  fetchExtensionPack,
   pinExtensionPack,
   retireExtensionPack,
   stageExtensionPack,
@@ -185,6 +186,8 @@ export function PackWizard() {
     setIssues([]);
     try {
       const nextReport = await verifyExtensionPack(token, id, version);
+      const savedPack = await fetchExtensionPack(token, id, version);
+      setFiles(filesFromMembers(savedPack.files));
       setLifecycle("staged");
       setReport(nextReport);
     } catch (reason) {
@@ -227,6 +230,22 @@ export function PackWizard() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function startNextVersion() {
+    if (!immutable) return;
+    const nextVersion = incrementPatchVersion(version);
+    setVersion(nextVersion);
+    setFiles((current) => ({
+      ...current,
+      assist: replaceIdentity(current.assist, "version", nextVersion),
+      eval: replaceIdentity(current.eval, "version", nextVersion),
+    }));
+    setLifecycle("draft");
+    setReport(null);
+    setIssues([]);
+    setRetireAcknowledged(false);
+    moveTo(2);
   }
 
   function focusEditorField(fieldId: string) {
@@ -468,7 +487,7 @@ export function PackWizard() {
       {step === 3 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-verification">
           <h3>4. 検証</h3>
-          <p>GUI ではなくサーバーが strict schema、closed vocabulary、contract floor、scrub、exact-byte hash を検証します。</p>
+          <p>GUI ではなくサーバーが strict schema、closed vocabulary、contract floor、scrub、exact-byte hash を検証します。保存済み bytes の再検証では、編集画面もサーバーの exact bytes に戻します。</p>
           <IssueList issues={issues} onFocus={focusEditorField} />
           {busy && <p className="pack-wizard-status" role="status">検証中…</p>}
           {report !== null && (
@@ -530,6 +549,11 @@ export function PackWizard() {
               <strong>retired — 終端状態</strong>
               <p>編集、再 pin、unretire、Trial 選択はできません。変更は新しい version で作成してください。</p>
             </div>
+          )}
+          {immutable && (
+            <button className="primary-action" data-testid="pack-wizard-new-version" disabled={busy} onClick={startNextVersion} type="button">
+              新しい version を作る
+            </button>
           )}
         </div>
       )}
@@ -660,9 +684,26 @@ function memberMap(files: PackWizardFiles): Record<string, string> {
   return members;
 }
 
+function filesFromMembers(members: Record<string, string>): PackWizardFiles {
+  return {
+    assist: members["assist.yaml"] ?? "",
+    eval: members["eval.yaml"] ?? "",
+    materials: Object.entries(members)
+      .filter(([name]) => name.startsWith("materials/") && name.endsWith(".md"))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, content]) => ({ name: name.slice("materials/".length), content })),
+  };
+}
+
 function replaceIdentity(document: string, field: "id" | "version", value: string): string {
   if (document === "") return document;
   return document.replace(new RegExp(`^(  ${field}: ).*$`, "m"), `$1${value}`);
+}
+
+function incrementPatchVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (match === null) return "1.0.0";
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
 }
 
 function cloneFiles(files: PackWizardFiles): PackWizardFiles {

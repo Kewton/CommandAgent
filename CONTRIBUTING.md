@@ -50,7 +50,7 @@ checks required by the affected surface.
 
 ## Engineering guardrails
 
-Read [`docs/dev-guardrails.md`](docs/dev-guardrails.md) before changing
+Read [`docs/dev/dev-guardrails.md`](docs/dev/dev-guardrails.md) before changing
 production code. CI enforces line-count budgets on the runner chokepoints and
 their extracted leaf modules. A guarded file that grows beyond its recorded
 baseline plus 2% fails CI. Put a new subsystem in a new module and keep wiring
@@ -58,7 +58,7 @@ changes in the chokepoints minimal; do not raise a baseline merely to admit
 growth.
 
 The compatibility policy is recorded in
-[`docs/mechanism-ledger.md`](docs/mechanism-ledger.md). Existing event names,
+[`docs/dev/mechanism-ledger.md`](docs/dev/mechanism-ledger.md). Existing event names,
 JSON keys, and schemas are frozen. Preserve those interfaces unless a task
 explicitly authorizes a migration. A change that touches a frozen contract,
 invariant, or vocabulary must include the corresponding ledger entry and
@@ -117,4 +117,4 @@ Before requesting review:
 
 - Update both sides of every affected documentation translation pair.
 - Update `CHANGELOG.md` under `Unreleased`.
-- Record any authorized contract change in `docs/mechanism-ledger.md`.
+- Record any authorized contract change in `docs/dev/mechanism-ledger.md`.

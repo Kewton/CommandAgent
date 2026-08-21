@@ -18,7 +18,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 another. CommandAgent rejects a call that combines action selectors.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-51 application flags below. The hidden `--completion-contract-json <PATH>` is an
+54 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -55,7 +55,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--setup-interaction-probe` | none | off | Install or validate the managed Playwright interaction probe. | [Probe unavailable](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | none | off | List recent runs for the current workspace without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
-| `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](../../model-probe.md) |
+| `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](../model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |

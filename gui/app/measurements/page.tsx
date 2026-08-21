@@ -16,6 +16,7 @@ export default function MeasurementsPage() {
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectedPath = selected?.path ?? null;
 
   async function readReport(path: string, signal?: AbortSignal) {
     setLoading(true);
@@ -34,12 +35,13 @@ export default function MeasurementsPage() {
   }
 
   useEffect(() => {
+    if (reports.data?.some((report) => report.path === selectedPath)) return;
     const first = reports.data?.at(0);
     if (first === undefined) return;
     const controller = new AbortController();
     void readReport(first.path, controller.signal);
     return () => controller.abort();
-  }, [reports.data]);
+  }, [reports.data, selectedPath]);
 
   return (
     <Shell

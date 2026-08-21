@@ -88,7 +88,7 @@ provider.
 5. At `commandagent>`, type a request as plain text:
 
    ```text
-   commandagent> Inspect this project and make one focused, tested improvement.
+   commandagent> Create a CLI --pattern filter command
    ```
 
    CommandAgent shows a Gate 1 card but does not execute yet. Review the request,
@@ -105,12 +105,18 @@ provider.
 `<your-model>` is a placeholder, not a literal model ID. Replace it with a
 model that actually exists in your local `ollama list` output.
 
-Continue at the layer you need:
+Follow the CLI learning path in order; every layer is linked from the previous
+one:
 
-- [Tutorial](docs/guide/en/tutorial.md) — a 20-minute walkthrough with real
-  screens: doctor, the first REPL request through Gate 1–4, and one GUI Trial
-- [CLI getting started](docs/user/getting-started-cli.md) — provider, config,
-  offline doctor, first loop, and exact-pack A/B
+1. [Getting started](docs/user/getting-started-cli.md) — provider, config,
+   offline doctor, and the first Gate 1 confirmation
+2. [Detailed tutorial](docs/guide/en/tutorial.md) — a 20-minute walkthrough
+   with real screens through Gate 1–4 and one GUI Trial
+3. [CLI reference](docs/guide/en/cli-reference.md) — every public flag,
+   default, and conflict
+
+Other entry points:
+
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
   sample Trial, Gate 1, and result reading
 - [Extensions](docs/user/gui-extensions.md) — pack/profile supply, lifecycle,

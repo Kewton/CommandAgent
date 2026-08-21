@@ -65,7 +65,7 @@ Status: complete on 2026-07-07.
 | milestone | status | date | reference |
 |---|---|---|---|
 | Instructions 81-87 | complete | 2026-07-07 | Single-model GAME verdict in [generality.md#recommended-model-tier](generality.md#recommended-model-tier). |
-| Corpus closure | complete | 2026-07-07 | Golden local single-model GAME full-pass fixture in [local-single-qwen36-game-full-pass](../tests/corpus/apps/local-single-qwen36-game-full-pass/expectations.toml). |
+| Corpus closure | complete | 2026-07-07 | Golden local single-model GAME full-pass fixture in [local-single-qwen36-game-full-pass](../../tests/corpus/apps/local-single-qwen36-game-full-pass/expectations.toml). |
 | Contract-design closure | complete | 2026-07-07 | Invisible-only observability contract principle in [generality.md#contract-design-principle](generality.md#contract-design-principle). |
 
 ## Promotion-Path Incident Chain
@@ -196,35 +196,37 @@ Permanent invariant: no pathway may require human interruption.
 The entries below backfill the task-track mechanisms that were implemented and
 measured during the 2026-07-10 to 2026-07-11 campaign. Commit hashes were
 checked against `git log --oneline`; corpus fixture names were taken from
-`git show --stat` under `tests/corpus/apps/`. UAT report paths
-are included only where the report exists under `workspace/management/runs/`.
+`git show --stat` under `tests/corpus/apps/`. The original 2026-07-10/11 UAT
+report files are not present in this checkout, so their run IDs remain as
+historical labels below without dead links; the committed corpus fixtures stay
+the local evidence pointers.
 
 | ID | mechanism | commit | motivation (discovery UAT) | corpus fixture | verification (result UAT) | state |
 |---|---|---|---|---|---|---|
-| T1 | Port-grep semantic rewrite | `923b623` | `test0710_bs_002` combo2-002 ([report](../workspace/management/runs/uat-test0710-bs-002/uat-report.md)) | `test0710_stage0_pivot` / `package-port-only-grep-normalization.jsonl` | Non-recurrence in `test0710_bs_003` ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | admitted |
-| T2 | Import/JSX boundary static guard | `5991fba` | `test0710_bs_002` combo1-001/003 ([report](../workspace/management/runs/uat-test0710-bs-002/uat-report.md)) | `test0710_stage0_pivot` / `static-import-guards.jsonl` | Non-recurrence from `test0710_bs_003` onward ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | admitted |
-| T3 | `write_required` rung | `8949be9` | `test0710_bs_002` read-only exhaustion group ([report](../workspace/management/runs/uat-test0710-bs-002/uat-report.md)) | `test0710_stage0_pivot` / `read-only-write-required.jsonl` | Fired in `test0710_bs_003`; wrong target exposed and handled by T4 ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | admitted |
-| T4 | Evidence-to-target mapping | `19c1d10` | `test0710_bs_003` combo1 wrong `package.json` target ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | `test0710_stage0_pivot` / `read-only-write-required-evidence-targets.jsonl` | Removed in `test0710_bs_004`; related route later recurred and was unified by T20 ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | superseded_by_T20 |
-| T5 | Hook snapshot and restoration rung | `f1af34e` | `test0710_bs_003` combo3 primary hook loss ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | `test0710_stage0_pivot` / `hook-snapshot-primary-restore.jsonl` | Class stopped dominating later runs | admitted |
-| T6 | Deterministic step template | `3ae842b` | `test0710_bs_003` planner-time dominance ([report](../workspace/management/runs/uat-test0710-bs-003/uat-report.md)) | `test0710_stage0_pivot` / `deterministic-step-plan-used.jsonl` | `test0710_bs_004` observed event counts 2/2/1 ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | admitted |
-| T7 | Deterministic restart repair (rung C) | `-` | `test0710_bs_004` ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | `-` | Not built by design; decomposed into T9/T16/T19 | not_built |
-| T8 | Hook grep quote-independent normalization | `fb1689d` | `test0710_bs_004` combo3 quote false negative ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | `test0710_bs_004_command_normalization` / `combo3-hook-grep-normalized.jsonl` | Same pair full in `test0710_bs_005` ([report](../workspace/management/runs/uat-test0710-bs-005/uat-report.md)) | admitted |
-| T9 | State-binding diagnosis | `4e6c4c8` | `test0710_bs_004` combo1-family interaction failures ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | `test0710_stage0_pivot` / `state-binding-diagnosis.jsonl` | `bs_005`/`bs_006` returned undeterminable, then T16 calibrated/prevented the class ([test0710_bs_005](../workspace/management/runs/uat-test0710-bs-005/uat-report.md), [test0710_bs_006](../workspace/management/runs/uat-test0710-bs-006/uat-report.md)) | superseded_by_T16 |
-| T10 | Inspect-command normalization | `fb1689d` | `test0710_bs_004` combo2 timeout ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | `test0710_bs_004_command_normalization` / `combo2-inspect-command-normalized.jsonl` | Fired in later runs | admitted |
-| T11 | Preset UltraPlan | `c268c53` | `test0710_bs_004` plan-isomorphism evidence ([report](../workspace/management/runs/uat-test0710-bs-004/uat-report.md)) | `test0710_stage0_pivot` / `preset-ultra-plan-used.jsonl` | `test0710_bs_006` fired 6/6; default later rolled back by T24 while opt-in remained ([report](../workspace/management/runs/uat-test0710-bs-006/uat-report.md)) | admitted_optin |
-| T12 | Adversary vocabulary, translation, and probe-dimension scan | `0be0f74` | `test0710_bs_006` breakout combo1 arbitration false negative ([report](../workspace/management/runs/uat-test0710-bs-006/uat-report.md)) | `test0710_bs_006_breakout_combo1` | `test0711_bs_001` #7 full ([report](../workspace/management/runs/uat-test0711-bs-001/uat-report.md)) | admitted |
-| T13 | Edit-anchor recovery ladder | `8aa3c2c` | `test0710_bs_005` combo2 anchor x8 ([report](../workspace/management/runs/uat-test0710-bs-005/uat-report.md)) | `test0710_bs_005_anchor_recovery_combo2` | Old terminal state disappeared in `test0711_bs_001`; T18 completed the interlock ([report](../workspace/management/runs/uat-test0711-bs-001/uat-report.md)) | admitted |
-| T14 | Route-unbound wiring guidance | `f1bfb82` | `test0710_bs_005` combo1 ([report](../workspace/management/runs/uat-test0710-bs-005/uat-report.md)) | `test0710_bs_005_route_unbound_combo1` | `test0711_bs_002` #7 recovered in live run and reached full ([report](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | admitted |
-| T15 | Probe preflight | `49325f6` | `test0710_bs_006` space combo3 infrastructure failure ([report](../workspace/management/runs/uat-test0710-bs-006/uat-report.md)) | `test0710_bs_006_probe_preflight_space_combo3` | Recorded in every later run | admitted |
-| T16 | Input-coupled diagnosis and contract wording | `764094b`, `926d3cd` | Calibration from `bs_005`/`bs_006` real artifacts ([test0710_bs_005](../workspace/management/runs/uat-test0710-bs-005/uat-report.md), [test0710_bs_006](../workspace/management/runs/uat-test0710-bs-006/uat-report.md)) | `test0710_bs_005_006_state_binding_input_coupled` | Contract wording acted preventively; class disappeared, while the diagnosis path remained unexercised | admitted_prevention |
-| T17 | Tier-coupled preset default | `b08e92f` | `test0711_bs_001`/`test0711_bs_002` A/B ([test0711_bs_001](../workspace/management/runs/uat-test0711-bs-001/uat-report.md), [test0711_bs_002](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | `test0711_bs_001_plan_preset_tier` | Did not fire in `test0711_bs_003`, fixed by T23, then `test0711_bs_004` measured distribution degradation and T24 rolled it back ([test0711_bs_003](../workspace/management/runs/uat-test0711-bs-003/uat-report.md), [test0711_bs_004](../workspace/management/runs/uat-test0711-bs-004/uat-report.md)) | rolled_back |
-| T18 | Anchor x stagnation interlock | `8cba4ef` | `test0711_bs_002` #2 ([report](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | `test0711_bs_007_anchor_stagnation_interlock` | `test0711_bs_003` showed carryover firing ([report](../workspace/management/runs/uat-test0711-bs-003/uat-report.md)) | admitted |
-| T19 | Contract-attribute-missing guidance | `53a967d` | `test0711_bs_001` #6 ([report](../workspace/management/runs/uat-test0711-bs-001/uat-report.md)) | `test0711_bs_001_6_contract_attribute_missing` | Fired in `test0711_bs_003` #1 ([report](../workspace/management/runs/uat-test0711-bs-003/uat-report.md)) | admitted |
-| T20/T20b | Target-resolution unification and escalation carryover | `f8388cf6`, `7e920fb0` | `test0711_bs_002` #1 `package.json` recurrence ([report](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | `test0710_stage0_pivot` / `final-acceptance-target-resolution.jsonl`; `test0711_bs_008_escalation_carryover` | `test0711_bs_003` showed `page.tsx` target resolution and carryover telemetry ([report](../workspace/management/runs/uat-test0711-bs-003/uat-report.md)) | admitted |
-| T21 | Compile diagnostic extraction | `99807bc` | `test0711_bs_002` #8 webpack-internal location ([report](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | `test0711_bs_008_compile_diagnostic_extraction` | `test0711_bs_003`/`test0711_bs_004` recorded real source locations ([test0711_bs_003](../workspace/management/runs/uat-test0711-bs-003/uat-report.md), [test0711_bs_004](../workspace/management/runs/uat-test0711-bs-004/uat-report.md)) | admitted |
-| T22 | Implementation-detail grep demotion | `1188842` | `test0711_bs_002` #3 `addEventListener` grep ([report](../workspace/management/runs/uat-test0711-bs-002/uat-report.md)) | `test0711_bs_002_source_detail_grep_advisory` | Not exercised later; zero demotions also confirmed the gate was not broadly relaxed | admitted_unexercised |
-| T23 | Tier decision from resolved model | `fe690b1` | `test0711_bs_003` default non-firing ([report](../workspace/management/runs/uat-test0711-bs-003/uat-report.md)) | `test0711_bs_003_resolved_planner_tier` | `test0711_bs_004` fired 6/6 ([report](../workspace/management/runs/uat-test0711-bs-004/uat-report.md)) | admitted(対象機構はrolled_back) |
-| T24 | Satisfied-setup short-circuit, preset-step conversion, and default-none rollback | `042880f` | `test0711_bs_004` #1/#7 ([report](../workspace/management/runs/uat-test0711-bs-004/uat-report.md)) | `test0711_bs_004_preset_setup_no_progress` | Verification UAT passed P0/P1 ([report](../workspace/management/runs/uat-test0711-bs-005/uat-report.md)) | admitted |
+| T1 | Port-grep semantic rewrite | `923b623` | `test0710_bs_002` combo2-002 (report unavailable in this checkout) | `test0710_stage0_pivot` / `package-port-only-grep-normalization.jsonl` | Non-recurrence in `test0710_bs_003` (report unavailable in this checkout) | admitted |
+| T2 | Import/JSX boundary static guard | `5991fba` | `test0710_bs_002` combo1-001/003 (report unavailable in this checkout) | `test0710_stage0_pivot` / `static-import-guards.jsonl` | Non-recurrence from `test0710_bs_003` onward (report unavailable in this checkout) | admitted |
+| T3 | `write_required` rung | `8949be9` | `test0710_bs_002` read-only exhaustion group (report unavailable in this checkout) | `test0710_stage0_pivot` / `read-only-write-required.jsonl` | Fired in `test0710_bs_003`; wrong target exposed and handled by T4 (report unavailable in this checkout) | admitted |
+| T4 | Evidence-to-target mapping | `19c1d10` | `test0710_bs_003` combo1 wrong `package.json` target (report unavailable in this checkout) | `test0710_stage0_pivot` / `read-only-write-required-evidence-targets.jsonl` | Removed in `test0710_bs_004`; related route later recurred and was unified by T20 (report unavailable in this checkout) | superseded_by_T20 |
+| T5 | Hook snapshot and restoration rung | `f1af34e` | `test0710_bs_003` combo3 primary hook loss (report unavailable in this checkout) | `test0710_stage0_pivot` / `hook-snapshot-primary-restore.jsonl` | Class stopped dominating later runs | admitted |
+| T6 | Deterministic step template | `3ae842b` | `test0710_bs_003` planner-time dominance (report unavailable in this checkout) | `test0710_stage0_pivot` / `deterministic-step-plan-used.jsonl` | `test0710_bs_004` observed event counts 2/2/1 (report unavailable in this checkout) | admitted |
+| T7 | Deterministic restart repair (rung C) | `-` | `test0710_bs_004` (report unavailable in this checkout) | `-` | Not built by design; decomposed into T9/T16/T19 | not_built |
+| T8 | Hook grep quote-independent normalization | `fb1689d` | `test0710_bs_004` combo3 quote false negative (report unavailable in this checkout) | `test0710_bs_004_command_normalization` / `combo3-hook-grep-normalized.jsonl` | Same pair full in `test0710_bs_005` (report unavailable in this checkout) | admitted |
+| T9 | State-binding diagnosis | `4e6c4c8` | `test0710_bs_004` combo1-family interaction failures (report unavailable in this checkout) | `test0710_stage0_pivot` / `state-binding-diagnosis.jsonl` | `bs_005`/`bs_006` returned undeterminable, then T16 calibrated/prevented the class (`test0710_bs_005`, `test0710_bs_006`) | superseded_by_T16 |
+| T10 | Inspect-command normalization | `fb1689d` | `test0710_bs_004` combo2 timeout (report unavailable in this checkout) | `test0710_bs_004_command_normalization` / `combo2-inspect-command-normalized.jsonl` | Fired in later runs | admitted |
+| T11 | Preset UltraPlan | `c268c53` | `test0710_bs_004` plan-isomorphism evidence (report unavailable in this checkout) | `test0710_stage0_pivot` / `preset-ultra-plan-used.jsonl` | `test0710_bs_006` fired 6/6; default later rolled back by T24 while opt-in remained (report unavailable in this checkout) | admitted_optin |
+| T12 | Adversary vocabulary, translation, and probe-dimension scan | `0be0f74` | `test0710_bs_006` breakout combo1 arbitration false negative (report unavailable in this checkout) | `test0710_bs_006_breakout_combo1` | `test0711_bs_001` #7 full (report unavailable in this checkout) | admitted |
+| T13 | Edit-anchor recovery ladder | `8aa3c2c` | `test0710_bs_005` combo2 anchor x8 (report unavailable in this checkout) | `test0710_bs_005_anchor_recovery_combo2` | Old terminal state disappeared in `test0711_bs_001`; T18 completed the interlock (report unavailable in this checkout) | admitted |
+| T14 | Route-unbound wiring guidance | `f1bfb82` | `test0710_bs_005` combo1 (report unavailable in this checkout) | `test0710_bs_005_route_unbound_combo1` | `test0711_bs_002` #7 recovered in live run and reached full (report unavailable in this checkout) | admitted |
+| T15 | Probe preflight | `49325f6` | `test0710_bs_006` space combo3 infrastructure failure (report unavailable in this checkout) | `test0710_bs_006_probe_preflight_space_combo3` | Recorded in every later run | admitted |
+| T16 | Input-coupled diagnosis and contract wording | `764094b`, `926d3cd` | Calibration from `bs_005`/`bs_006` real artifacts (`test0710_bs_005`, `test0710_bs_006`) | `test0710_bs_005_006_state_binding_input_coupled` | Contract wording acted preventively; class disappeared, while the diagnosis path remained unexercised | admitted_prevention |
+| T17 | Tier-coupled preset default | `b08e92f` | `test0711_bs_001`/`test0711_bs_002` A/B (`test0711_bs_001`, `test0711_bs_002`) | `test0711_bs_001_plan_preset_tier` | Did not fire in `test0711_bs_003`, fixed by T23, then `test0711_bs_004` measured distribution degradation and T24 rolled it back (`test0711_bs_003`, `test0711_bs_004`) | rolled_back |
+| T18 | Anchor x stagnation interlock | `8cba4ef` | `test0711_bs_002` #2 (report unavailable in this checkout) | `test0711_bs_007_anchor_stagnation_interlock` | `test0711_bs_003` showed carryover firing (report unavailable in this checkout) | admitted |
+| T19 | Contract-attribute-missing guidance | `53a967d` | `test0711_bs_001` #6 (report unavailable in this checkout) | `test0711_bs_001_6_contract_attribute_missing` | Fired in `test0711_bs_003` #1 (report unavailable in this checkout) | admitted |
+| T20/T20b | Target-resolution unification and escalation carryover | `f8388cf6`, `7e920fb0` | `test0711_bs_002` #1 `package.json` recurrence (report unavailable in this checkout) | `test0710_stage0_pivot` / `final-acceptance-target-resolution.jsonl`; `test0711_bs_008_escalation_carryover` | `test0711_bs_003` showed `page.tsx` target resolution and carryover telemetry (report unavailable in this checkout) | admitted |
+| T21 | Compile diagnostic extraction | `99807bc` | `test0711_bs_002` #8 webpack-internal location (report unavailable in this checkout) | `test0711_bs_008_compile_diagnostic_extraction` | `test0711_bs_003`/`test0711_bs_004` recorded real source locations (`test0711_bs_003`, `test0711_bs_004`) | admitted |
+| T22 | Implementation-detail grep demotion | `1188842` | `test0711_bs_002` #3 `addEventListener` grep (report unavailable in this checkout) | `test0711_bs_002_source_detail_grep_advisory` | Not exercised later; zero demotions also confirmed the gate was not broadly relaxed | admitted_unexercised |
+| T23 | Tier decision from resolved model | `fe690b1` | `test0711_bs_003` default non-firing (report unavailable in this checkout) | `test0711_bs_003_resolved_planner_tier` | `test0711_bs_004` fired 6/6 (report unavailable in this checkout) | admitted(対象機構はrolled_back) |
+| T24 | Satisfied-setup short-circuit, preset-step conversion, and default-none rollback | `042880f` | `test0711_bs_004` #1/#7 (report unavailable in this checkout) | `test0711_bs_004_preset_setup_no_progress` | Verification UAT passed P0/P1 (report unavailable in this checkout) | admitted |
 
 Summary:
 
@@ -273,7 +275,7 @@ Both report directories below were present when this closure was recorded.
 | ID | 機構 | コミット | 動機 | 検証 | 状態 |
 |---|---|---|---|---|---|
 | T29 | プローブdispatch契約駆動化 | なし（試行→全revert） | 過適応監査: `interaction_probe` のゲーム操作直書き（ArrowLeft/ArrowRight/Space）の宣言化 | パリティ計測5/6×2回で退行（Space/qwen35、Breakout/qwen35 が偽陰性化）。ゲーム入力判定がdispatch直後のlistener/rAFタイミングと癒着しており、宣言化にはプローブのタイミングモデル再設計が必要と判明 | **withdrawn** |
-| T30 | assurance投影のprofile dispatch | 本コミット | data早期失敗が汎用full seedによりpartialへインフレした契約違反を、[investigation-01.md](../workspace/management/runs/uat-test0713-data-001/investigation-01.md) に基づき厳格化方向へ修正 | data 4-run判定表、E1/E3未達negative conformance、Next.js早期失敗互換 | **fixed** |
+| T30 | assurance投影のprofile dispatch | 本コミット | data早期失敗が汎用full seedによりpartialへインフレした契約違反を、[investigation-01.md](../../workspace/management/runs/uat-test0713-data-001/investigation-01.md) に基づき厳格化方向へ修正 | data 4-run判定表、E1/E3未達negative conformance、Next.js早期失敗互換 | **fixed** |
 
 - 据え置きの根拠: 実害ゼロ（非ゲームは候補要素クリック経路が補完、バンド窓78runで本件起因の偽陰性/偽陽性ゼロ）に対し、修正には裁定層のタイミング再設計を要するため、コストが見合わない。
 - 再訪条件: (a) 第4のシナリオ族でdispatch不足起因の偽陰性が実測されたとき、(b) 近縁profile（Vue等）がプローブ拡張を要求したとき。再訪時はタイミングモデル再設計（listener登録待ち・rAF同期・リトライ付きdispatch）を含む適正スコープで行う。
@@ -285,7 +287,7 @@ Both report directories below were present when this closure was recorded.
 - 方式: `git filter-repo`で旧クレートsubtreeと`workspace/management`の
   2系統を`--path`選択し、旧クレートsubtreeをリポジトリrootへrenameした。
   抽出履歴はsquashせずCommandAgentの履歴へmergeした。
-- 旧新SHA対応表: [`docs/migration/anvil-commit-map.txt`](migration/anvil-commit-map.txt)。
+- 旧新SHA対応表: [`docs/migration/anvil-commit-map.txt`](../migration/anvil-commit-map.txt)。
 
 本文書内の移行以前のコミットハッシュは旧Anvil上のSHAであり、
 `docs/migration/anvil-commit-map.txt`およびAnvilリポジトリの凍結タグ
@@ -293,13 +295,13 @@ Both report directories below were present when this closure was recorded.
 
 - Rename: anvilminimal → commandagent（crate/binary: `d05a410`、生きた参照: `835c04f`、本コミット）。以後のUATレポートのversion表記は commandagent。旧名は歴史的記録内で有効。機械出力はversion/CLI、banner、remediation/再現コマンド、truncation marker、probe User-Agent、およびevalの`engine_label`/`binary_kind`/`subject`/レポート見出しのみ新名へ更新し、イベント名・JSONキー・スキーマは不変。
 - M-4移行ゲート（`test0714_m4_001`、2026-07-14）: G1/G2 **PASS**（新buildから6/6を各1回実行・正直終端・収集完了、data失敗5/5がassurance契約準拠、partialインフレ0）につきRepository migration完了を正式宣言し、Phase Bを再開。Evidence: `/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/uat-report.md` / `aggregate.json`。
-- B-2d（DATA-7/8/9、2026-07-14）: verify lint拒否原文テレメトリ（`82fff89`）、`.anvil`一貫私有化＋有界フィードバック（`bdca35c`）、Python traceback抽出・決定的修復注入・`traceback_mapped`ターゲット解決（本コミット）を、固定data契約を変更せず導入。一次資料: [`investigation-b2d.md`](../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)。
-- DATA-10 / DATA-7段2 / FF-1b（2026-07-15）: dataチェックと正準成果物のフェーズスコープ化（`10d0143`）、`data_inspection_schema`（`4d9a4da`）、verify書き換え拡張＋runtimeテレメトリ（`0ba612f`）、contract instrumentation欠落ガイダンス配線（本コミット）を導入。一次資料: [`investigation-data10.md`](../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)。
-- B-2f（2026-07-15）: inspectionの5キー字義例と実測値拘束をmanifest・修復ガイダンスへ追補（`bc9ec91`）し、data契約をassertする実測 `python/python3 -c` verifyを対応カタログチェックへ正準化（本コミット）。既存13件の正準化とNext.jsバイト列は維持。一次資料: [`uat-report.md`](../workspace/management/runs/uat-test0715-ff1-002/uat-report.md)。
-- B-2g E2較正（2026-07-15）: 偽陽性49件（日付分割36＋照合域13）を除去。モデル起因の違反は0件だった（[`investigation-e2.md`](../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md)）。契約§6ネガティブ維持＋照合域の新設ネガティブで非緩和を担保。
-- B-2h DATA-11／inspection行数照合／nearest_miss修復注入（2026-07-15）: 動的・正準最終フェーズから他フェーズ明示束縛チェックを除外してE1〜E4のみをfullゲート化（`2d42ae4`）、inspection報告行数を実CSV/TSV論理行数と照合（`4ddffcf`）、claims-bindingの違反claim・最近傍キー／値・差分をstep／最終受け入れ修復へ注入（本コミット）。根拠: [`uat-report.md`](../workspace/management/runs/uat-test0715-data-005/uat-report.md)。
-- B-2i DATA-12（2026-07-15）: data stepを全expected_paths実在＋実verify全pass時だけモデルターン前に短絡し、動的phaseで正準化後に空となったverify stepへphase別の既定checkを束縛する。根拠: [`uat-test0715-data-006`](../workspace/management/runs/uat-test0715-data-006/uat-report.md)。
-- B-2k DATA-7b（2026-07-16）: verify lintのシェル制御構文判定をshクォート対応とし、引用payload内の`; | & || &&`の偽陽性を除去。E2較正と同属の検証器精度修正であり、Next.js方向の影響は偽陽性減少のみ。既存のクォート外制御構文・ファイル書き込みredirectネガティブ維持で非緩和を担保。根拠: [`uat-test0716-data-008`](../workspace/management/runs/uat-test0716-data-008/uat-report.md) Run 6。
+- B-2d（DATA-7/8/9、2026-07-14）: verify lint拒否原文テレメトリ（`82fff89`）、`.anvil`一貫私有化＋有界フィードバック（`bdca35c`）、Python traceback抽出・決定的修復注入・`traceback_mapped`ターゲット解決（本コミット）を、固定data契約を変更せず導入。一次資料: [`investigation-b2d.md`](../../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)。
+- DATA-10 / DATA-7段2 / FF-1b（2026-07-15）: dataチェックと正準成果物のフェーズスコープ化（`10d0143`）、`data_inspection_schema`（`4d9a4da`）、verify書き換え拡張＋runtimeテレメトリ（`0ba612f`）、contract instrumentation欠落ガイダンス配線（本コミット）を導入。一次資料: [`investigation-data10.md`](../../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)。
+- B-2f（2026-07-15）: inspectionの5キー字義例と実測値拘束をmanifest・修復ガイダンスへ追補（`bc9ec91`）し、data契約をassertする実測 `python/python3 -c` verifyを対応カタログチェックへ正準化（本コミット）。既存13件の正準化とNext.jsバイト列は維持。一次資料: [`uat-report.md`](../../workspace/management/runs/uat-test0715-ff1-002/uat-report.md)。
+- B-2g E2較正（2026-07-15）: 偽陽性49件（日付分割36＋照合域13）を除去。モデル起因の違反は0件だった（[`investigation-e2.md`](../../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md)）。契約§6ネガティブ維持＋照合域の新設ネガティブで非緩和を担保。
+- B-2h DATA-11／inspection行数照合／nearest_miss修復注入（2026-07-15）: 動的・正準最終フェーズから他フェーズ明示束縛チェックを除外してE1〜E4のみをfullゲート化（`2d42ae4`）、inspection報告行数を実CSV/TSV論理行数と照合（`4ddffcf`）、claims-bindingの違反claim・最近傍キー／値・差分をstep／最終受け入れ修復へ注入（本コミット）。根拠: [`uat-report.md`](../../workspace/management/runs/uat-test0715-data-005/uat-report.md)。
+- B-2i DATA-12（2026-07-15）: data stepを全expected_paths実在＋実verify全pass時だけモデルターン前に短絡し、動的phaseで正準化後に空となったverify stepへphase別の既定checkを束縛する。根拠: [`uat-test0715-data-006`](../../workspace/management/runs/uat-test0715-data-006/uat-report.md)。
+- B-2k DATA-7b（2026-07-16）: verify lintのシェル制御構文判定をshクォート対応とし、引用payload内の`; | & || &&`の偽陽性を除去。E2較正と同属の検証器精度修正であり、Next.js方向の影響は偽陽性減少のみ。既存のクォート外制御構文・ファイル書き込みredirectネガティブ維持で非緩和を担保。根拠: [`uat-test0716-data-008`](../../workspace/management/runs/uat-test0716-data-008/uat-report.md) Run 6。
 
 ## Incident: semantic false-full (2026-07-14)
 
@@ -309,11 +311,11 @@ Both report directories below were present when this closure was recorded.
 
 - 発見経緯: 機械はfullと判定したが、人間の監査（成果物の目視）がgoal種別との不一致を検出した。UAT報告者がG1 FAILと判定し台帳更新を保留した対応は、本プロジェクトの検収規律の実演である。
 - 残存する境界（本修正の対象外）: 契約フックを正しく備えた「goal種別と異なる成果物」は依然fullを獲得しうる。goal種別と要求surfaceの契約束縛は未実装であり、検収可能性階層の実測された境界として記録する（対処は契約設計の将来課題。安易なgoal語彙マッチは偽陰性を量産するため急がない）。
-- 過去バンドへの影響監査: 実施済み（[audit-report.md](../workspace/management/runs/ff1-band-audit/audit-report.md)参照）。ウィンドウ内full 31件はすべてcontract-mode（非空state dimensions）で、heuristic-only / unverifiableは0件。既存バンドは有効。
+- 過去バンドへの影響監査: 実施済み（[audit-report.md](../../workspace/management/runs/ff1-band-audit/audit-report.md)参照）。ウィンドウ内full 31件はすべてcontract-mode（非空state dimensions）で、heuristic-only / unverifiableは0件。既存バンドは有効。
 
 ## Data profile first fulls (2026-07-15)
 
-[`uat-test0715-data-007`](../workspace/management/runs/uat-test0715-data-007/uat-report.md) は、dataプロファイルで初めてのfullを同一固定コード上の2 runで記録した。
+[`uat-test0715-data-007`](../../workspace/management/runs/uat-test0715-data-007/uat-report.md) は、dataプロファイルで初めてのfullを同一固定コード上の2 runで記録した。
 
 | run | preset / phase | 獲得evidence | 工程・短絡 |
 |---|---|---|---|
@@ -330,20 +332,20 @@ Both report directories below were present when this closure was recorded.
 
 ### Inspection書き込み非追従の再分類
 
-UAT #7ではqwen35 profileでinspection書き込み非追従が2件、gemma31 profileでは0件で完走となり、executor横断で発生率が異なるモデル分散クラスと確定した。機械側は字義JSON例、欠落キー列挙、`nearest_miss`まで導入済みであり、以後は[Spaceの4%分散](../workspace/management/runs/band_summary.md)と同じバンド特性として受容・文書化する。DATA-10の機械的なフェーズ束縛欠陥は根治済みであり、この残存クラスとは区別する。
+UAT #7ではqwen35 profileでinspection書き込み非追従が2件、gemma31 profileでは0件で完走となり、executor横断で発生率が異なるモデル分散クラスと確定した。機械側は字義JSON例、欠落キー列挙、`nearest_miss`まで導入済みであり、以後は[Spaceの4%分散](../../workspace/management/runs/band_summary.md)と同じバンド特性として受容・文書化する。DATA-10の機械的なフェーズ束縛欠陥は根治済みであり、この残存クラスとは区別する。
 
 ### 集計注記
 
 バンド集計は`final_acceptance_status`と`evidence/data-assurance.json`を正とする。B-2j以前の完走runでは、獲得済みfullがterminal projectionの`completion_contract_not_bound`によりpartialへデフレした値を含む。B-2j（`13b994f`）は`full_success`時にE1〜E4の実在evidenceからassuranceを再導出して投影し、evidence不在・不整合時の保守側投影と早期失敗のT30判定を維持する。歴史的イベントは改変しない。
 
-- data × create バンド宣言（2026-07-15）: 機構安定後窓は2/6 full、全期間窓は2/38 full（観測48 run中、操作誤り・preflight未達の10 runを理由付きで分母外）。再計測は集計スクリプトのみとし、原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md)を参照する。
+- data × create バンド宣言（2026-07-15）: 機構安定後窓は2/6 full、全期間窓は2/38 full（観測48 run中、操作誤り・preflight未達の10 runを理由付きで分母外）。再計測は集計スクリプトのみとし、原表は[`band_summary_data.md`](../../workspace/management/runs/band_summary_data.md)を参照する。
 - B-3 admission gate（2026-07-16）: `draft` profileのassurance宣言を`static / profile_not_admitted`に上限制限し、dataを[バンド宣言](generality.md#measured-capability-bands-data--create)に基づく初の`admitted` profileへ昇格した。以後、新profileはdraft起点でfull宣言不可。
 
 ## Phase B settlement: data profile cost (2026-07-15)
 
 data契約のfixedから初バンド宣言までを、次の再現可能な境界で集計した。
 移行前SHA `2c982fc` は
-[`docs/migration/anvil-commit-map.txt`](migration/anvil-commit-map.txt) 上の
+[`docs/migration/anvil-commit-map.txt`](../migration/anvil-commit-map.txt) 上の
 現リポジトリSHA `4f57714`（2026-07-13 21:23:57 JST）に対応する。終点は
 `68fdaf0`（2026-07-16 00:19:41 JST、7月15日キャンペーンのバンド宣言）
 で、実時間は50時間55分44秒、キャンペーン日では3日である。移行mergeが
@@ -355,11 +357,11 @@ B-2台帳行、調査/UAT記録、バンド生成物からfull SHAを集めて�
 | 集計項目 | 実測 | 集計規律 |
 |---|---:|---|
 | 台帳上のタスクID | 18 | B-0〜B-3の4 ID、B-2a〜B-2jの10 ID、下記4調査。B-2は配下a〜jのumbrellaなので、重複しない実行タスク数は17 |
-| 一次資料調査 | 4 | [`investigation-01.md`](../workspace/management/runs/uat-test0713-data-001/investigation-01.md)、[`investigation-b2d.md`](../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)、[`investigation-data10.md`](../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)、[`investigation-e2.md`](../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md) を `rg --files workspace/management/runs` で列挙 |
+| 一次資料調査 | 4 | [`investigation-01.md`](../../workspace/management/runs/uat-test0713-data-001/investigation-01.md)、[`investigation-b2d.md`](../../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)、[`investigation-data10.md`](../../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)、[`investigation-e2.md`](../../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md) を `rg --files workspace/management/runs` で列挙 |
 | fixed→初バンドのscoped commits | 38 | `4f57714`〜`68fdaf0`からdata/B系の契約・実装・調査・UAT・バンドcommitを対象パスと台帳で選び、full SHAで重複排除 |
 | B-0〜B-3の全ライフサイクルcommit | 42 | 上記38に、fixed直前のB-1 schema/doc 2件（`bb510b7`、`62a3320`）と、バンド後のB-3 gate/admission 2件（`2c2d154`、`8930784`）を加算。B-4清算commitは含めない |
 | 観測キャンペーン | 9 set | 正式data UAT #1〜#7の7 setに、無効計測 `uat-test0714-m4-002` / `m4-004` の2 setを加えた「7 set + α」 |
-| 観測run | 48 | [`band_summary_data.md`](../workspace/management/runs/band_summary_data.md) の走査行数。正式分母38、操作上のmodel-ID誤り5とpreflight未達・未完了5の計10は理由付き分母外 |
+| 観測run | 48 | [`band_summary_data.md`](../../workspace/management/runs/band_summary_data.md) の走査行数。正式分母38、操作上のmodel-ID誤り5とpreflight未達・未完了5の計10は理由付き分母外 |
 | full | 2/38 | E1〜E4とdata-assuranceの実在を集計器が横断確認。evidence欠口を持つfalse-fullは0 |
 
 38 commitは、`git show -s --format='%H %s'` で各対象SHAの存在とsubjectを
@@ -419,9 +421,9 @@ settlement `fcb9ac8`の次から族別band生成`207dd33`までである。
 |---|---:|---|
 | B-2kタスク | 2 | DATA-13 goal参照入力優先（`271deeb`）とDATA-7bクォート考慮lint（`2028eb4`） |
 | 一次資料調査 | 0 | 独立したinvestigation task / reportは追加せず、UAT #8一次資料を直接fixture化 |
-| UAT | 2 set / 12 run | [`uat-test0716-data-008`](../workspace/management/runs/uat-test0716-data-008/uat-report.md) と [`uat-test0716-data-009`](../workspace/management/runs/uat-test0716-data-009/uat-report.md)、各6 run・再試行なし |
+| UAT | 2 set / 12 run | [`uat-test0716-data-008`](../../workspace/management/runs/uat-test0716-data-008/uat-report.md) と [`uat-test0716-data-009`](../../workspace/management/runs/uat-test0716-data-009/uat-report.md)、各6 run・再試行なし |
 | 追加commit | 5 | `git rev-list --count fcb9ac8..207dd33`。UAT #8（`46d9e34`）、B-2k 2件、UAT #9（`c4d5727`）、族別band生成（`207dd33`）。本封緘docs commitは自己参照を避けて境界外 |
-| 族別分布 | aggregation 2/38、timeseries 0/12 | Window Bはaggregation 2/6、timeseries 0/6。機械生成原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md) |
+| 族別分布 | aggregation 2/38、timeseries 0/12 | Window Bはaggregation 2/6、timeseries 0/6。機械生成原表は[`band_summary_data.md`](../../workspace/management/runs/band_summary_data.md) |
 
 ## Phase B seal (2026-07-16)
 
@@ -495,7 +497,7 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | FIX-2 / FIX-3 | `e24f542` / `e0f3f67` | 契約由来R誘導とF1診断のPhase 2配線 |
 | FIX-4a / FIX-4b | `63532c6` / `b99b624` | 診断注入を変更stepへ限定し、predicate failureをroute-bound修復targetへ接続 |
 | live計測 | `8754592` / `61ab3f5` / `0fedc86` / `2f45863` | `uat-test0717-fix-001`〜`004`、4 set・24 run・各run再試行なし。raw 24、FIX-1前の環境留保2本を除く宣言分母22 |
-| intent軸集計・band宣言 | `e4aee4a` / `c9d5ae1` | intent列、fix 2族、F1〜F3 false-full abortを機械化し、[`band_summary_fix.md`](../workspace/management/runs/band_summary_fix.md)を生成。既存nextjs/data bandはbyte不変 |
+| intent軸集計・band宣言 | `e4aee4a` / `c9d5ae1` | intent列、fix 2族、F1〜F3 false-full abortを機械化し、[`band_summary_fix.md`](../../workspace/management/runs/band_summary_fix.md)を生成。既存nextjs/data bandはbyte不変 |
 
 初fullは2026-07-17の`uat-test0717-fix-001` / `fix1_compile_gemma31_001`。
 F1 `npm run build` failure@epoch 1から、同一lineageのF2 success@epoch 2、

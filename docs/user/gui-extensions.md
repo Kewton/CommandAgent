@@ -24,6 +24,8 @@ steps preserve the lifecycle boundary:
    conformance, scrub, and exact-byte hash result. A failed item has an
    **該当項目へ移動** action that returns focus to the responsible identity,
    YAML, material, or token control; the failure itself is never suppressed.
+   **保存済み bytes を再検証** reloads those persisted exact bytes into the
+   editor as well, so unsaved edits cannot diverge from the following pin.
 5. **pin** sends only the hash returned by the successful verification. The
    resulting local pack remains **ローカル（未承認・帯域未計測）** and can be
    handed to Trial with **Trial で使う**.
@@ -37,7 +39,10 @@ existing local-precedence warning applies.
 A pinned editor is read-only. Retirement requires a separate irreversible
 acknowledgement, removes the Trial handoff, and enters a terminal read-only
 state. There is no edit-after-pin, pin overwrite, delete, or unretire control;
-create a new version for any byte change.
+create a new version for any byte change. After pin or retirement, choose
+**新しい version を作る** to copy the displayed members into an editable next
+patch version without reloading. The copy is only a local draft until
+**保存して検証** stages it through the same lifecycle API.
 
 ## Extensions catalog
 
