@@ -4,13 +4,14 @@
 
 ## Checks
 
-- `cd gui && npm ci --include=dev --offline`: `passed`
+- `cargo build --release --bin commandagent`: `passed`
 - `cd gui && node --check scripts/smoke.mjs`: `passed`
+- `cd gui && node --check scripts/session-index-smoke.mjs`: `passed`
 - `cd gui && npm run typecheck`: `passed`
 - `cd gui && npm run lint`: `passed`
-- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue162-feedback --feedback-only --commandagent-bin ../target/debug/commandagent`: `passed`
-- `cargo test --test gui_read_only_guard`: `passed`
-- `cargo test --features gui --test gui_server`: `passed`
+- `cd gui && npm run smoke:session-index -- --output /private/tmp/commandagent-issue162-followup-session-index`: `passed`
+- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue162-followup-full-passed --commandagent-bin ../target/release/commandagent --model qwen3:8b`: `passed`
+- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue162-followup-feedback --feedback-only --commandagent-bin ../target/debug/commandagent`: `passed`
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo clippy --all-targets --features gui -- -D warnings`: `passed`
@@ -20,18 +21,33 @@
 
 ## Evidence
 
-- `/private/tmp/commandagent-issue162-feedback/browser-smoke.json` reports
-  overall `ok: true` for `/` and `/proxy/commandagent/`.
-- In both base-path cases, elapsed time advanced from 3 seconds before reload to
-  4 seconds after reconnect (`elapsed_preserved_after_reconnect: true`).
-- In both cases, the measured mean remained `平均 10.2 分` after reconnect
-  (`mean_preserved_after_reconnect: true`) instead of becoming `未記録`.
-- The GUI server integration target passed all 26 tests, including equality of
-  the Gate 1 and reconnected status average-duration values. The GUI source
-  guard passed all 24 tests.
+- The freshly rebuilt pre-fix reproduction at
+  `/private/tmp/commandagent-issue162-followup-repro/browser-smoke.json` exited
+  nonzero at the same 30-second disabled-button click as the Issue 158 evidence.
+  Its stack points to the first click after the wrong-token fill, proving the
+  session-index 401 cleared the field before an explicit reconnect dispatched.
+- `/private/tmp/commandagent-issue162-followup-session-index/session-index-smoke.json`
+  reports overall `ok: true` for `/` and `/proxy/commandagent/`. Both cases
+  report `rejected_token_removed: true`, `retry_button_enabled: true`, and
+  `reconnect_get_only: true`.
+- `/private/tmp/commandagent-issue162-followup-full-passed/browser-smoke.json`
+  reports overall and per-case `ok: true`. Both reconnect traces contain the
+  expected direct-session HTTP 401 followed by HTTP 200, retain the GET-only
+  contract, and preserve tab-scoped token storage.
+- The same full report records
+  `elapsed_preserved_after_reconnect: true`,
+  `mean_preserved_after_reconnect: true`, and
+  `new_run_identity_editable: true` for both base paths.
+- `/private/tmp/commandagent-issue162-followup-feedback/browser-smoke.json`
+  independently reports elapsed-time and measured-mean preservation with
+  overall `ok: true` for both base paths.
+- The first post-fix full run passed every authentication and Issue 162 timing
+  assertion but exposed the stale six-control lifecycle cardinality. The
+  cardinality was strengthened to cover all seven current identity controls;
+  the full two-base-path run was then repeated from start and passed.
 
 ## Environment note
 
-The first sandboxed browser-smoke attempt could not bind a loopback port. The
-same command was rerun with the required local-loopback permission and passed;
-no test assertion was changed or weakened.
+Browser smokes required the existing local-loopback/Chromium permission. No
+timeout was extended, no click was forced, and no auth, reconnect, root/proxy,
+terminal, elapsed-time, or measured-mean assertion was removed or weakened.

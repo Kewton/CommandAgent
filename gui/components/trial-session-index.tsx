@@ -18,6 +18,7 @@ type ObservedSession = Pick<TrialSessionSummary, "gate" | "id" | "status">;
 
 type TrialSessionIndexProps = {
   accessToken: string;
+  deferAutomaticRevalidation: boolean;
   highlight: string | null;
   observedSession: ObservedSession | null;
   onAccessTokenRejected: (reason: unknown, rejectedValue: string) => void;
@@ -27,6 +28,7 @@ type TrialSessionIndexProps = {
 
 export function TrialSessionIndexPanel({
   accessToken,
+  deferAutomaticRevalidation,
   highlight,
   observedSession,
   onAccessTokenRejected,
@@ -87,6 +89,12 @@ export function TrialSessionIndexPanel({
     setSessionIndex(null);
     setLastSuccessAt(null);
     setError(null);
+    if (deferAutomaticRevalidation) {
+      setRefreshing(false);
+      setBusy(false);
+      onLeaseChange(null);
+      return;
+    }
     void revalidate(trimmedToken);
 
     const refresh = () => void revalidate(trimmedToken);
@@ -100,13 +108,13 @@ export function TrialSessionIndexPanel({
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [authenticated, onLeaseChange, revalidate, trimmedToken]);
+  }, [authenticated, deferAutomaticRevalidation, onLeaseChange, revalidate, trimmedToken]);
 
   useEffect(() => {
     if (previousRevalidationKey.current === revalidationKey) return;
     previousRevalidationKey.current = revalidationKey;
-    if (authenticated) void revalidate(trimmedToken);
-  }, [authenticated, revalidate, revalidationKey, trimmedToken]);
+    if (authenticated && !deferAutomaticRevalidation) void revalidate(trimmedToken);
+  }, [authenticated, deferAutomaticRevalidation, revalidate, revalidationKey, trimmedToken]);
 
   const runtimeLease = runtime?.data === null
     ? null
@@ -116,12 +124,13 @@ export function TrialSessionIndexPanel({
     previousRuntimeLease.current = runtimeLease;
     if (
       authenticated &&
+      !deferAutomaticRevalidation &&
       previous === "running" &&
       (runtimeLease === "idle" || runtimeLease === "recovery_required")
     ) {
       void revalidate(trimmedToken);
     }
-  }, [authenticated, revalidate, runtimeLease, trimmedToken]);
+  }, [authenticated, deferAutomaticRevalidation, revalidate, runtimeLease, trimmedToken]);
 
   const sessions = useMemo(
     () => mergeObservedSession(sessionIndex?.sessions ?? [], observedSession),
