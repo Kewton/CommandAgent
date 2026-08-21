@@ -1071,7 +1071,7 @@ if __name__ == "__main__":
         );
         let phase_two_prompt = planner_request_text(&planner, 1);
         assert!(phase_two_prompt.contains("Profile: python-cli"));
-        assert!(phase_two_prompt.contains("python -m compileall -q src"));
+        assert!(phase_two_prompt.contains("python3 -m compileall -q src"));
         let final_acceptance = latest_event(&events, "ultra_final_acceptance");
         assert_eq!(
             final_acceptance.get("profile").and_then(Value::as_str),
@@ -3105,8 +3105,8 @@ if __name__ == "__main__":
         cfg.profile = "python-cli".to_string();
         cfg.eval_events_path = Some(events.clone());
         let scaffold_plan = r#"{"goal":"Scaffold Python CSV CLI","steps":[{"id":"scaffold","kind":"setup","expected_result":"pass","instruction":"Create pyproject.toml and src/csv_stats/main.py for a CSV file argument CLI","expected_paths":["pyproject.toml","src/csv_stats/main.py"],"verify":[]}]}"#;
-        let deps_plan = r#"{"goal":"Prepare Python CLI dependencies","steps":[{"id":"deps","kind":"verify","expected_result":"pass","instruction":"Verify dependency readiness and syntax","expected_paths":["pyproject.toml","src/csv_stats/main.py"],"verify":["python -m compileall -q src"]}]}"#;
-        let implement_plan = r#"{"goal":"Implement Python CSV CLI behavior","steps":[{"id":"implement","kind":"implement","expected_result":"pass","instruction":"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes","expected_paths":["src/csv_stats/main.py"],"verify":["python -m compileall -q src"]}]}"#;
+        let deps_plan = r#"{"goal":"Prepare Python CLI dependencies","steps":[{"id":"deps","kind":"verify","expected_result":"pass","instruction":"Verify dependency readiness and syntax","expected_paths":["pyproject.toml","src/csv_stats/main.py"],"verify":["python3 -m compileall -q src"]}]}"#;
+        let implement_plan = r#"{"goal":"Implement Python CSV CLI behavior","steps":[{"id":"implement","kind":"implement","expected_result":"pass","instruction":"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes","expected_paths":["src/csv_stats/main.py"],"verify":["python3 -m compileall -q src"]}]}"#;
         let mut planner = FakeClient::new(vec![
             AssistantReply::text(scaffold_plan),
             AssistantReply::text(deps_plan),

@@ -227,7 +227,8 @@ are shown separately on purpose: the **execution state** (`running`, the
 phase list rebuilt from `events.jsonl`) and the **monitoring health**
 (`接続中` / `不安定` / `切断`). If your browser loses the server, the CLI keeps
 running; reload the page and use **監視を再接続** with the session ID from the
-URL.
+URL. After reconnect, elapsed time continues from the session start and the
+measured mean matches the value shown before launch.
 
 ![Gate 2 view with phase progress](../../assets/tutorial/gui-05-gate2-start.png)
 

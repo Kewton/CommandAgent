@@ -13,6 +13,7 @@ const managedPlaywrightPath =
   join(homedir(), ".anvil", "tools", "interaction-probe", "node_modules", "playwright");
 const outputDirectory = valueArgument(process.argv.slice(2), "--output");
 const trialToken = "commandagent-session-index-smoke-token-000000000100";
+const rejectedTrialToken = `${trialToken}-wrong`;
 const createdSessionId = "0198b9c8-fab8-7000-8000-000000000100";
 const existingSessionId = "0198b9c8-fab8-7000-8000-000000000101";
 const scratchRoot = await mkdtemp(join(tmpdir(), "commandagent-session-index-smoke-"));
@@ -123,6 +124,7 @@ async function probeLifecycle(browser, origin, basePath) {
       const request = route.request();
       const pathname = new URL(request.url()).pathname;
       const method = request.method();
+      const authorization = request.headers()["x-commandagent-trial-authorization"];
       if (pathname.endsWith("/api/runtime-status") && method === "GET") {
         runtimeCalls += 1;
         await delay(75);
@@ -143,6 +145,17 @@ async function probeLifecycle(browser, origin, basePath) {
       }
       if (pathname.endsWith("/api/session-proposals") && method === "POST") {
         await json(route, 200, syntheticProposal());
+        return;
+      }
+      if (
+        pathname.includes("/api/sessions") &&
+        authorization === `Bearer ${rejectedTrialToken}`
+      ) {
+        sessionRequests.push({ method, pathname });
+        await json(route, 401, {
+          code: "trial_token_invalid",
+          error: "synthetic rejected Trial token",
+        });
         return;
       }
       if (pathname.endsWith("/api/sessions") && method === "GET") {
@@ -322,6 +335,18 @@ async function probeLifecycle(browser, origin, basePath) {
       (token) => document.querySelector("[data-testid='trial-token']")?.value === token,
       trialToken,
     );
+    await page.locator("[data-testid='trial-token']").fill(rejectedTrialToken);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='trial-token']")?.value === "",
+    );
+    const rejectedTokenRemoved = await page.evaluate(
+      () => !Object.values(sessionStorage).some((value) => value.includes("-wrong")),
+    );
+    await page.locator("[data-testid='trial-token']").fill(trialToken);
+    const retryButtonEnabled = await page
+      .locator("[data-testid='reconnect-session-button']")
+      .isEnabled();
     const requestOffset = sessionRequests.length;
     const beforeReconnect = indexCalls;
     await page.locator("[data-testid='reconnect-session-button']").click();
@@ -367,10 +392,14 @@ async function probeLifecycle(browser, origin, basePath) {
       visibility_revalidated: visibilityRevalidated,
       reconnect_requests: reconnectRequests,
       reconnect_get_only: reconnectGetOnly,
+      rejected_token_removed: rejectedTokenRemoved,
+      retry_button_enabled: retryButtonEnabled,
       runtime_badge_navigated: runtimeBadgeNavigated,
       ok:
         noPeriodicIndexPolling &&
         reconnectGetOnly &&
+        rejectedTokenRemoved &&
+        retryButtonEnabled &&
         runtimeMaxConcurrentRequests === 1 &&
         runtimePausedWhileHidden &&
         runtimeResumedWhenVisible &&

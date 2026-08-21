@@ -1403,6 +1403,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert_eq!(created.status, 202, "{}", created.body);
     let created_json: serde_json::Value = serde_json::from_str(&created.body).unwrap();
     let id = created_json["id"].as_str().unwrap();
+    let started_epoch_seconds = created_json["started_epoch_seconds"].as_u64().unwrap();
+    assert!(started_epoch_seconds > 0);
     let delegated_events = workspace.join(".anvil/runs").join(id).join("events.jsonl");
 
     let running = server.request_without_access("GET", "/api/runtime-status", None);
@@ -1505,15 +1507,22 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         std::collections::BTreeSet::from([
             "acceptance_sheet",
             "assurance",
+            "average_duration_seconds",
             "event_count",
             "events_path",
             "gate",
             "id",
             "phases",
             "section5",
+            "started_epoch_seconds",
             "status",
             "verdict",
         ])
+    );
+    assert_eq!(status_json["started_epoch_seconds"], started_epoch_seconds);
+    assert_eq!(
+        status_json["average_duration_seconds"],
+        proposal_json["price"]["average_duration_seconds"]
     );
     assert_eq!(status_json["gate"], "gate_3");
     assert_eq!(status_json["verdict"], "full");

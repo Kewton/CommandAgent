@@ -608,6 +608,7 @@ export function TrialRun() {
       )}
           <TrialSessionIndexPanel
             accessToken={trialToken}
+            deferAutomaticRevalidation={stage === "compose" && reconnectSessionId.trim() !== ""}
             highlight={highlightedSessionId}
             observedSession={observedSession}
             onAccessTokenRejected={rejectTrialToken}

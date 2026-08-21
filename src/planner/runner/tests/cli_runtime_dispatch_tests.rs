@@ -6,7 +6,7 @@ mod moved {
         accounting as ingest_accounting, runtime as ingest_runtime,
         source_binding as ingest_source_binding,
     };
-    use crate::planner::profiles::python_cli::{argv_probe, help_binding, runtime};
+    use crate::planner::profiles::python_cli::{self, argv_probe, help_binding, runtime};
 
     fn write_fixture(root: &Path, script: &str) {
         std::fs::create_dir_all(root.join("cli")).unwrap();
@@ -16,12 +16,14 @@ mod moved {
             "## Usage\n\n```console\n$ python3 cli/main.py sample.csv\nvalue=7\n```\n",
         )
         .unwrap();
+        let scaffold = ["pyproject.toml".into(), "src/anvil_app/main.py".into()];
+        python_cli::complete_scaffold(root, &scaffold).unwrap();
     }
 
     fn cli_plan() -> UltraPlan {
         UltraPlan {
             goal: "Create a deterministic command line tool".to_string(),
-            profile: "cli".to_string(),
+            profile: "python-cli".to_string(),
             style: "default".to_string(),
             intent: "create".to_string(),
             phases: Vec::new(),
@@ -41,7 +43,7 @@ p.parse_args()\n\
 print('value=7')\n",
         );
         let mut cfg = config(dir.path().to_path_buf());
-        cfg.profile = "cli".to_string();
+        cfg.profile = "python-cli".to_string();
         cfg.eval_events_path = Some(events.clone());
 
         let report = ultra_final_acceptance_report(&cli_plan(), &cfg).unwrap();
@@ -80,9 +82,11 @@ print('value=7')\n",
         );
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"event\":\"profile_behavior_probe\""));
-        assert!(event_text.contains("\"profile\":\"cli\""));
+        assert!(event_text.contains("\"profile\":\"python-cli\""));
         assert!(event_text.contains("\"status\":\"pass\""));
         assert!(event_text.contains("\"evidence_path\":\"evidence/cli-assurance.json\""));
+        assert!(event_text.contains("\"assurance_level\":\"full\""));
+        assert!(!event_text.contains("\"assurance_reason\":\"cli_probe_not_run\""));
         let final_acceptance = latest_event(
             cfg.eval_events_path.as_ref().unwrap(),
             "ultra_final_acceptance",

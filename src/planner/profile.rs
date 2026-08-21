@@ -710,6 +710,27 @@ impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
         ProfileId::PythonCli
     }
 
+    fn run_behavior_probe(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        goal: &str,
+        required_capabilities: &[String],
+        offline: bool,
+    ) -> anyhow::Result<ProfileBehaviorProbeReport> {
+        if !root.join("cli/main.py").is_file() {
+            return self.behavior_probe(root, goal, required_capabilities, offline);
+        }
+        let summary = crate::planner::profiles::python_cli::runtime::run_manifest_checks(root)?;
+        Ok(ProfileBehaviorProbeReport {
+            status: summary.assurance.behavior_status(),
+            reasons: summary.reasons,
+            evidence_path: Some(
+                crate::planner::profiles::python_cli::runtime::EVIDENCE_PATH.to_string(),
+            ),
+        })
+    }
+
     fn apply_completion_snapshot(
         &self,
         _profile_id: &ProfileId,

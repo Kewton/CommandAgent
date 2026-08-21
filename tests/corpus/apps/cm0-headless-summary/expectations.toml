@@ -25,7 +25,9 @@ expect = "not_checked"
 fixtures/full/events.jsonl = [
   "\"event\":\"ultra_final_acceptance\"",
   "\"verdict\":\"full\"",
-  "\"assurance_level\":\"full\""
+  "\"assurance_level\":\"full\"",
+  "\"caller_scope\":\"planner_step\"",
+  "\"provider_reasoning_tokens\":40"
 ]
 fixtures/failed/events.jsonl = [
   "\"status\":\"failed\"",
