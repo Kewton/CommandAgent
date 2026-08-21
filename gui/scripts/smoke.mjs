@@ -856,7 +856,7 @@ async function runCase(smokeCase) {
     const closedIdentityLocked = (await launchIdentityControls.count()) === 0;
     await page.locator("[data-testid='start-new-run']").click();
     const newRunStage = await page.locator(".gate-chip").innerText();
-    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 6);
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 7);
     const previousRunCleared =
       (await page.locator("[data-testid='session-progress']").count()) === 0 &&
       (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
