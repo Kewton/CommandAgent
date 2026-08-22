@@ -55,11 +55,11 @@ pub enum PackError {
     Empty,
     #[error("pack path `{path}` is not a regular file")]
     NotRegularFile { path: PathBuf },
-    #[error("failed to read pack file `{path}`: {source}")]
+    // The cause is rendered inline so CLI chain formatters do not repeat it.
+    #[error("failed to read pack file `{path}`: {cause}")]
     Io {
         path: PathBuf,
-        #[source]
-        source: std::io::Error,
+        cause: std::io::Error,
     },
     #[error("pack file `{path}` exceeds {MAX_FILE_BYTES} bytes")]
     TooLarge { path: PathBuf },
@@ -181,7 +181,7 @@ fn read_optional(path: PathBuf) -> Result<Option<Vec<u8>>, PackError> {
     let metadata = match std::fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => return Err(PackError::Io { path, source }),
+        Err(cause) => return Err(PackError::Io { path, cause }),
     };
     if !metadata.file_type().is_file() {
         return Err(PackError::NotRegularFile { path });
@@ -191,26 +191,26 @@ fn read_optional(path: PathBuf) -> Result<Option<Vec<u8>>, PackError> {
     }
     std::fs::read(&path)
         .map(Some)
-        .map_err(|source| PackError::Io { path, source })
+        .map_err(|cause| PackError::Io { path, cause })
 }
 
 fn validate_pack_directory(path: &Path) -> Result<(), PackError> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|source| PackError::Io {
+    let metadata = std::fs::symlink_metadata(path).map_err(|cause| PackError::Io {
         path: path.to_path_buf(),
-        source,
+        cause,
     })?;
     if !metadata.file_type().is_dir() {
         return Err(PackError::NotRegularFile {
             path: path.to_path_buf(),
         });
     }
-    for entry in std::fs::read_dir(path).map_err(|source| PackError::Io {
+    for entry in std::fs::read_dir(path).map_err(|cause| PackError::Io {
         path: path.to_path_buf(),
-        source,
+        cause,
     })? {
-        let entry = entry.map_err(|source| PackError::Io {
+        let entry = entry.map_err(|cause| PackError::Io {
             path: path.to_path_buf(),
-            source,
+            cause,
         })?;
         let name = entry.file_name();
         let supported = matches!(
@@ -231,9 +231,9 @@ fn validate_pack_directory(path: &Path) -> Result<(), PackError> {
             Some(catalog::PACK_PIN_FILE | catalog::RETIRED_MARKER_FILE)
         ) && !entry
             .file_type()
-            .map_err(|source| PackError::Io {
+            .map_err(|cause| PackError::Io {
                 path: entry.path(),
-                source,
+                cause,
             })?
             .is_file()
         {
@@ -248,10 +248,10 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
     let metadata = match std::fs::symlink_metadata(&directory) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
-        Err(source) => {
+        Err(cause) => {
             return Err(PackError::Io {
                 path: directory,
-                source,
+                cause,
             });
         }
     };
@@ -260,13 +260,13 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
     }
     let mut materials = BTreeMap::new();
     let mut total = 0_u64;
-    for entry in std::fs::read_dir(&directory).map_err(|source| PackError::Io {
+    for entry in std::fs::read_dir(&directory).map_err(|cause| PackError::Io {
         path: directory.clone(),
-        source,
+        cause,
     })? {
-        let entry = entry.map_err(|source| PackError::Io {
+        let entry = entry.map_err(|cause| PackError::Io {
             path: directory.clone(),
-            source,
+            cause,
         })?;
         let name =
             entry
@@ -279,9 +279,9 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
             return Err(PackError::InvalidMaterialName { name });
         }
         let member = entry.path();
-        let metadata = std::fs::symlink_metadata(&member).map_err(|source| PackError::Io {
+        let metadata = std::fs::symlink_metadata(&member).map_err(|cause| PackError::Io {
             path: member.clone(),
-            source,
+            cause,
         })?;
         if !metadata.file_type().is_file() {
             return Err(PackError::NotRegularFile { path: member });
@@ -295,9 +295,9 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
         if total > MAX_TOTAL_MATERIAL_BYTES {
             return Err(PackError::MaterialsTooLarge);
         }
-        let bytes = std::fs::read(&member).map_err(|source| PackError::Io {
+        let bytes = std::fs::read(&member).map_err(|cause| PackError::Io {
             path: member.clone(),
-            source,
+            cause,
         })?;
         std::str::from_utf8(&bytes).map_err(|_| PackError::MaterialNotUtf8 { path: member })?;
         materials.insert(name, bytes);

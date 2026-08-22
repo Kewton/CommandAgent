@@ -809,7 +809,9 @@ pub fn run_plan_file_with_ui(
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
     let path = resolve_plan_file_path(&config.workspace_root, path)?;
-    let text = std::fs::read_to_string(path)?;
+    let text = std::fs::read_to_string(&path).map_err(|error| {
+        anyhow::anyhow!("failed to read plan file `{}`: {error}", path.display())
+    })?;
     let plan = parse_step_plan(&text)?;
     run_step_plan_with_ui(client, &plan, config, ui)
 }
@@ -3309,7 +3311,9 @@ pub(super) fn _format_report(report: &VerificationReport) -> String {
 pub(super) fn resolve_plan_file_path(root: &Path, path: &Path) -> anyhow::Result<PathBuf> {
     let root = root.canonicalize()?;
     let canonical = if path.is_absolute() {
-        path.canonicalize()?
+        path.canonicalize().map_err(|error| {
+            anyhow::anyhow!("failed to resolve plan file `{}`: {error}", path.display())
+        })?
     } else {
         let raw = path
             .to_str()
