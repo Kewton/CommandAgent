@@ -211,7 +211,7 @@ fn workspace_from_standard_events_path(path: &Path) -> Option<PathBuf> {
     let state_dir = runs_dir.parent()?;
     if path.file_name()?.to_str()? == "events.jsonl"
         && runs_dir.file_name()?.to_str()? == "runs"
-        && state_dir.file_name()?.to_str()? == ".anvil"
+        && matches!(state_dir.file_name()?.to_str()?, ".commandagent" | ".anvil")
     {
         state_dir.parent().map(Path::to_path_buf)
     } else {

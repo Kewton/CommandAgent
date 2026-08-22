@@ -9,7 +9,7 @@ pub(super) struct SessionPaths {
 impl SessionPaths {
     pub(super) fn new(workspace: &Path, id: &str) -> Self {
         Self {
-            run_root: workspace.join(".anvil/runs").join(id),
+            run_root: commandagent::runtime_paths::runs_dir(workspace).join(id),
         }
     }
 
@@ -51,5 +51,5 @@ pub(super) fn relative_path(root: &Path, path: &Path) -> String {
 }
 
 pub(super) fn proposal_confirmation_root(workspace: &Path) -> PathBuf {
-    workspace.join(".anvil/gui-proposal-preview")
+    commandagent::runtime_paths::workspace_dir(workspace).join("gui-proposal-preview")
 }

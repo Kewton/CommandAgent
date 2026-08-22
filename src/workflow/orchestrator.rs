@@ -447,7 +447,7 @@ impl NodeRunIdentity {
         let origin = origin
             .canonicalize()
             .context("canonicalize workflow origin")?;
-        let runs_dir = origin.join(".anvil/runs");
+        let runs_dir = crate::runtime_paths::runs_dir(&origin);
         fs::create_dir_all(&runs_dir)?;
         let runs_dir = runs_dir.canonicalize()?;
         if !runs_dir.starts_with(&origin) {

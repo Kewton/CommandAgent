@@ -14,6 +14,27 @@ pub(crate) fn complete_model_ids(current: &OsStr) -> Vec<CompletionCandidate> {
     complete_model_ids_from_hosts(current, DEFAULT_OLLAMA_HOST, DEFAULT_LM_STUDIO_HOST)
 }
 
+pub(crate) fn complete_preset_names(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Ok(root) = std::env::current_dir() else {
+        return Vec::new();
+    };
+    complete_preset_names_from_root(current, &root)
+}
+
+fn complete_preset_names_from_root(
+    current: &OsStr,
+    root: &std::path::Path,
+) -> Vec<CompletionCandidate> {
+    let Some(prefix) = current.to_str() else {
+        return Vec::new();
+    };
+    crate::config::preset_names(root)
+        .into_iter()
+        .filter(|name| name.starts_with(prefix))
+        .map(CompletionCandidate::new)
+        .collect()
+}
+
 fn complete_model_ids_from_hosts(
     current: &OsStr,
     ollama_host: &str,
@@ -127,5 +148,29 @@ mod tests {
         drop(listener);
 
         assert!(complete_model_ids_from_hosts(OsStr::new(""), &host, &host).is_empty());
+    }
+
+    #[test]
+    fn preset_completion_merges_sorts_deduplicates_and_filters_search_paths() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".commandagent")).unwrap();
+        std::fs::create_dir_all(root.path().join(".anvil")).unwrap();
+        std::fs::write(
+            root.path().join(".commandagent/config.toml"),
+            "[preset.zeta_issue255]\n[preset.shared_issue255]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join(".anvil/config.toml"),
+            "[preset.alpha_issue255]\n[preset.shared_issue255]\n",
+        )
+        .unwrap();
+
+        let candidates = complete_preset_names_from_root(OsStr::new("s"), root.path())
+            .into_iter()
+            .map(|candidate| candidate.get_value().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(candidates, vec!["shared_issue255"]);
     }
 }

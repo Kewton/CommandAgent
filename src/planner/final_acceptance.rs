@@ -318,7 +318,10 @@ pub(super) fn collect_source_files_under(
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name == "node_modules" || name == ".anvil" || name.starts_with('.') {
+        if name == "node_modules"
+            || matches!(name.as_str(), ".commandagent" | ".anvil")
+            || name.starts_with('.')
+        {
             continue;
         }
         let rel = format!("{rel_dir}/{name}").replace('\\', "/");
@@ -376,7 +379,10 @@ pub(super) fn safe_dir_rel_path(raw: &str) -> Option<String> {
         return None;
     }
     let lower = rel.to_ascii_lowercase();
-    if lower == ".anvil"
+    if lower == ".commandagent"
+        || lower.starts_with(".commandagent/")
+        || lower.contains("/.commandagent/")
+        || lower == ".anvil"
         || lower.starts_with(".anvil/")
         || lower.contains("/.anvil/")
         || lower == "node_modules"
@@ -2219,7 +2225,12 @@ pub(super) fn compact_workspace_snapshot(root: &Path) -> String {
     let mut names = entries
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().to_string())
-        .filter(|name| !matches!(name.as_str(), ".git" | ".anvil" | "target" | ".DS_Store"))
+        .filter(|name| {
+            !matches!(
+                name.as_str(),
+                ".git" | ".commandagent" | ".anvil" | "target" | ".DS_Store"
+            )
+        })
         .take(12)
         .collect::<Vec<_>>();
     names.sort();

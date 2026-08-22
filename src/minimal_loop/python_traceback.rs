@@ -290,7 +290,7 @@ fn workspace_python_target(root: &Path, file: &str) -> Option<String> {
     (!normalized.is_empty()
         && !normalized
             .split('/')
-            .any(|component| matches!(component, ".anvil" | ".git")))
+            .any(|component| matches!(component, ".commandagent" | ".anvil" | ".git")))
     .then_some(normalized)
 }
 

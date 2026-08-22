@@ -134,9 +134,22 @@ async fn session_run_root(
 ) -> Result<PathBuf, SessionFileError> {
     let workspace = require_trial(state, headers, false).map_err(IntoResponse::into_response)?;
     require_session_id(id).map_err(IntoResponse::into_response)?;
-    let anvil_root = workspace.join(".anvil");
-    let runs_root = anvil_root.join("runs");
-    for directory in [&anvil_root, &runs_root] {
+    let canonical_root = commandagent::runtime_paths::workspace_dir(&workspace);
+    let canonical_runs = canonical_root.join("runs");
+    let legacy_root = commandagent::runtime_paths::legacy_workspace_dir(&workspace);
+    let legacy_runs = legacy_root.join("runs");
+    let (runtime_root, runs_root) = match tokio::fs::symlink_metadata(canonical_runs.join(id)).await
+    {
+        Ok(_) => (canonical_root, canonical_runs),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (legacy_root, legacy_runs),
+        Err(error) => {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                format!("session run root not found: {error}"),
+            ));
+        }
+    };
+    for directory in [&runtime_root, &runs_root] {
         let metadata = tokio::fs::symlink_metadata(directory)
             .await
             .map_err(|error| {

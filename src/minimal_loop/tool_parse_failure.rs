@@ -9,7 +9,7 @@ use crate::eval_events;
 use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 
 pub(crate) const RAW_EXCERPT_MAX_BYTES: usize = 512;
-const EVIDENCE_DIR: &str = ".anvil/evidence";
+const EVIDENCE_DIR: &str = ".commandagent/evidence";
 const EVIDENCE_STEM: &str = "tool-parse-failure";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

@@ -126,8 +126,7 @@ pub fn path_from_env_or_default(root: &Path) -> Option<PathBuf> {
 }
 
 pub fn default_run_events_path(root: &Path) -> PathBuf {
-    root.join(".anvil")
-        .join("runs")
+    crate::runtime_paths::runs_dir(root)
         .join(uuid::Uuid::now_v7().to_string())
         .join("events.jsonl")
 }
@@ -1871,7 +1870,7 @@ fn handoff_display_value(value: &str) -> String {
 }
 
 fn normalize_handoff_display_text(value: String) -> String {
-    if !value.contains(".anvil") {
+    if !value.contains(".commandagent") && !value.contains(".anvil") {
         return value;
     }
     value
@@ -1882,13 +1881,17 @@ fn normalize_handoff_display_text(value: String) -> String {
 }
 
 fn normalize_handoff_display_token(token: &str) -> String {
-    let Some(index) = token.find(".anvil") else {
+    let Some((index, namespace)) = [".commandagent", ".anvil"]
+        .into_iter()
+        .filter_map(|namespace| token.find(namespace).map(|index| (index, namespace)))
+        .min_by_key(|(index, _)| *index)
+    else {
         return token.to_string();
     };
     let (prefix, rest) = token.split_at(index);
     let mut path = rest.to_string();
     let mut trailing = Vec::new();
-    while path.len() > ".anvil".len() {
+    while path.len() > namespace.len() {
         let Some(ch) = path.chars().next_back() else {
             break;
         };
@@ -3055,6 +3058,15 @@ pub fn body_snippet_whole_tokens(body: &str) -> String {
     truncate_whole_tokens(&clean, SNIPPET_LIMIT)
 }
 
+pub(crate) fn scrub_sensitive_text(value: &str) -> String {
+    let clean = value
+        .split('\n')
+        .map(redact_secret_like)
+        .collect::<Vec<_>>()
+        .join("\n");
+    redact_home_paths(&clean)
+}
+
 fn truncate_whole_tokens(value: &str, limit: usize) -> String {
     if value.chars().count() <= limit {
         return value.to_string();
@@ -3251,10 +3263,10 @@ mod tests {
     }
 
     #[test]
-    fn default_run_events_path_uses_anvil_runs_events_jsonl() {
+    fn default_run_events_path_uses_commandagent_runs_events_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let path = default_run_events_path(dir.path());
-        assert!(path.starts_with(dir.path().join(".anvil").join("runs")));
+        assert!(path.starts_with(dir.path().join(".commandagent").join("runs")));
         assert_eq!(path.file_name().unwrap(), "events.jsonl");
     }
 

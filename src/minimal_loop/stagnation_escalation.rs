@@ -1161,8 +1161,8 @@ mod tests {
 
         assert!(err.contains("model_stagnation:read_only_loop"), "{err}");
         assert!(err.contains("recovery prompt saved:"), "{err}");
-        assert!(dir.path().join(".anvil/repairs").is_dir());
-        assert!(dir.path().join(".anvil/plans").is_dir());
+        assert!(dir.path().join(".commandagent/repairs").is_dir());
+        assert!(dir.path().join(".commandagent/plans").is_dir());
         let events = event_values(&events);
         assert_eq!(
             events

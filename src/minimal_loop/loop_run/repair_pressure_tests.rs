@@ -708,7 +708,7 @@ mod moved {
         .to_string();
         assert!(err.contains("verify repair made no file changes"));
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-minimal-loop-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-"),
             "{err}"
         );
         assert!(err.contains(".yaml"), "{err}");
@@ -718,8 +718,8 @@ mod moved {
         assert!(event_text.contains("\"changed_paths_before\":[\"a.py\"]"));
         assert!(event_text.contains("\"changed_paths_after\":[\"a.py\"]"));
         assert!(event_text.contains("\"recovery_yaml_missing\":false"));
-        assert!(dir.path().join(".anvil/repairs").is_dir());
-        assert!(dir.path().join(".anvil/plans").is_dir());
+        assert!(dir.path().join(".commandagent/repairs").is_dir());
+        assert!(dir.path().join(".commandagent/plans").is_dir());
     }
 
     #[test]
@@ -776,7 +776,7 @@ mod moved {
             outcome.missing_evidence,
             vec!["challenge_or_adversary_evidence".to_string()]
         );
-        assert!(!dir.path().join(".anvil/repairs").exists());
+        assert!(!dir.path().join(".commandagent/repairs").exists());
         let events = event_values(&events);
         assert!(events.iter().any(|event| {
             event.get("event").and_then(Value::as_str) == Some("loop_stop")
@@ -846,7 +846,7 @@ mod moved {
         .to_string();
 
         assert!(err.contains("verify repair made no file changes"), "{err}");
-        assert!(dir.path().join(".anvil/repairs").is_dir());
+        assert!(dir.path().join(".commandagent/repairs").is_dir());
         let events = event_values(&events);
         assert!(events.iter().any(|event| {
             event.get("event").and_then(Value::as_str) == Some("loop_stop")

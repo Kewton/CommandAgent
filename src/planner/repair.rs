@@ -359,7 +359,7 @@ pub fn save_repair_report_with_context(
     report: &VerificationReport,
     context: &RepairContext,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let dir = root.join(".anvil").join("repairs");
+    let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{step_id}-{}.md", uuid::Uuid::now_v7()));
     std::fs::write(&path, render_repair_report(step_id, report, context))?;
@@ -371,7 +371,7 @@ pub fn save_ultra_recovery_prompt(
     scope: &str,
     handoff: &RecoveryHandoff,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let dir = root.join(".anvil").join("repairs");
+    let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{scope}-{}.md", uuid::Uuid::now_v7()));
     std::fs::write(&path, render_ultra_recovery_prompt(handoff))?;
@@ -440,7 +440,7 @@ fn save_recovery_ultra_plan_rendered(
     } else {
         rendered
     };
-    let dir = root.join(".anvil").join("plans");
+    let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!(
         "recovery-ultra-plan-{scope}-{}.yaml",
@@ -558,7 +558,10 @@ pub(crate) fn workspace_relative_handoff_path(path: &Path) -> String {
         .components()
         .map(|component| component.as_os_str().to_string_lossy().to_string())
         .collect::<Vec<_>>();
-    if let Some(index) = components.iter().position(|part| part == ".anvil") {
+    if let Some(index) = components
+        .iter()
+        .position(|part| matches!(part.as_str(), ".commandagent" | ".anvil"))
+    {
         return components[index..].join("/");
     }
     path.to_string_lossy().replace('\\', "/")
@@ -985,7 +988,7 @@ mod tests {
             repair_targets: vec!["phase_scaffold".to_string()],
         };
         let path = save_recovery_ultra_plan(dir.path(), "phase-web-audio", &handoff).unwrap();
-        assert!(path.starts_with(dir.path().join(".anvil").join("plans")));
+        assert!(path.starts_with(dir.path().join(".commandagent").join("plans")));
         assert!(
             path.file_name()
                 .unwrap()

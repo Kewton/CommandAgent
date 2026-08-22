@@ -47,9 +47,15 @@ fn fail(edge: &str, reason: &str) -> EdgeFailure {
 }
 
 pub fn origin_recovery_yamls(origin: &Path) -> Vec<std::path::PathBuf> {
-    let mut paths = fs::read_dir(origin.join(".anvil/plans"))
-        .map(|entries| {
-            entries
+    let mut paths = Vec::new();
+    for plans_dir in [
+        crate::runtime_paths::plans_dir(origin),
+        crate::runtime_paths::legacy_workspace_dir(origin).join("plans"),
+    ] {
+        paths.extend(
+            fs::read_dir(plans_dir)
+                .into_iter()
+                .flatten()
                 .flatten()
                 .filter_map(|entry| {
                     let path = entry.path();
@@ -58,10 +64,9 @@ pub fn origin_recovery_yamls(origin: &Path) -> Vec<std::path::PathBuf> {
                             .extension()
                             .is_some_and(|extension| extension == "yaml"))
                     .then_some(path)
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+                }),
+        );
+    }
     paths.sort();
     paths
 }
@@ -72,11 +77,14 @@ pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
 
 pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
     let mut candidates = Vec::new();
-    let runs = origin.join(".anvil/runs");
-    for entry in fs::read_dir(runs).ok()?.flatten() {
-        let path = entry.path().join("events.jsonl");
-        if path.is_file() {
-            candidates.push(path);
+    for runs in crate::runtime_paths::run_read_dirs(origin) {
+        if let Ok(entries) = fs::read_dir(runs) {
+            for entry in entries.flatten() {
+                let path = entry.path().join("events.jsonl");
+                if path.is_file() {
+                    candidates.push(path);
+                }
+            }
         }
     }
     candidates.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());

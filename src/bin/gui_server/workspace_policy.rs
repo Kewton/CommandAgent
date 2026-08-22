@@ -217,14 +217,18 @@ pub(super) fn ensure_disjoint(repository: &Path, workspace: &Path) -> anyhow::Re
 }
 
 fn unfinished_session(workspace: &Path) -> Option<String> {
-    let runs = std::fs::read_dir(workspace.join(".anvil/runs")).ok()?;
-    for entry in runs.flatten() {
-        let path = entry.path();
-        if !path.is_dir() || !path.join("state/boundary-confirmations").is_dir() {
+    for runs_dir in commandagent::runtime_paths::run_read_dirs(workspace) {
+        let Ok(runs) = std::fs::read_dir(runs_dir) else {
             continue;
-        }
-        if !current_terminal(&path.join("events.jsonl")) {
-            return Some(entry.file_name().to_string_lossy().into_owned());
+        };
+        for entry in runs.flatten() {
+            let path = entry.path();
+            if !path.is_dir() || !path.join("state/boundary-confirmations").is_dir() {
+                continue;
+            }
+            if !current_terminal(&path.join("events.jsonl")) {
+                return Some(entry.file_name().to_string_lossy().into_owned());
+            }
         }
     }
     None

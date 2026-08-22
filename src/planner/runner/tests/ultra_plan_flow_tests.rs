@@ -575,7 +575,7 @@ Phase task: Implement paddle movement, collisions, score, and canvas behavior";
             .unwrap_err()
             .to_string();
         assert!(err.contains("invalid generated UltraPlan after corrective retries"));
-        assert!(!dir.path().join(".anvil/plans").exists());
+        assert!(!dir.path().join(".commandagent/plans").exists());
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"event\":\"ultra_plan_generation_failed\""));
         assert!(event_text.contains("\"planner_error_kind\":\"planner_schema_error\""));
@@ -1401,7 +1401,7 @@ if __name__ == "__main__":
 
         assert_eq!(result, "ultra-plan-run complete: 2 phases");
         assert_eq!(planner.messages().len(), 2);
-        assert!(!dir.path().join(".anvil/repairs").exists());
+        assert!(!dir.path().join(".commandagent/repairs").exists());
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"reason\":\"verify_repair_no_change_observed\""));
         assert!(event_text.contains("\"phase_scope\":\"phase-one\""));
@@ -2063,9 +2063,12 @@ if __name__ == "__main__":
         assert!(event_text.contains("\"failure_kind\":\"http_500\""));
         assert!(event_text.contains("\"child_reaped\":true"));
         assert!(
-            std::fs::read_to_string(dir.path().join(".anvil/evidence/browser-readiness.json"))
-                .unwrap()
-                .contains("\"http_status\": 500")
+            std::fs::read_to_string(
+                dir.path()
+                    .join(".commandagent/evidence/browser-readiness.json"),
+            )
+            .unwrap()
+            .contains("\"http_status\": 500")
         );
     }
 
@@ -2345,11 +2348,11 @@ if __name__ == "__main__":
         assert!(err.contains("ultra final acceptance repair failed"));
         assert!(err.contains("Recovery artifact check"));
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-"),
             "{err}"
         );
         assert!(err.contains(".yaml"), "{err}");
-        let repairs_dir = dir.path().join(".anvil/repairs");
+        let repairs_dir = dir.path().join(".commandagent/repairs");
         assert!(repairs_dir.is_dir());
         assert!(std::fs::read_dir(&repairs_dir).unwrap().next().is_some());
         let recovery_plan = assert_single_recovery_ultra_plan(dir.path());
@@ -2419,7 +2422,7 @@ if __name__ == "__main__":
         assert!(err.contains(".yaml"), "{err}");
         assert!(err.contains("Recovery artifact check"), "{err}");
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-"),
             "{err}"
         );
         let recovery_plan = assert_single_recovery_ultra_plan(dir.path());
@@ -2535,7 +2538,7 @@ if __name__ == "__main__":
         assert_eq!(lint["original_command"], original_command);
         assert_eq!(lint["normalized_commands"], serde_json::json!([]));
         assert_eq!(lint["violation_kind"], "shell_control_syntax");
-        let repair_path = std::fs::read_dir(dir.path().join(".anvil/repairs"))
+        let repair_path = std::fs::read_dir(dir.path().join(".commandagent/repairs"))
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .find(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
@@ -2637,7 +2640,7 @@ if __name__ == "__main__":
         assert!(err.contains("phase phase-one failed"), "{err}");
         assert!(err.contains("Paths:"), "{err}");
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-"),
             "{err}"
         );
         assert!(err.contains(".yaml"), "{err}");
@@ -2654,7 +2657,7 @@ if __name__ == "__main__":
         assert!(summary.contains(".yaml"), "{summary}");
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"recovery_handoff_kind\":\"phase_execute_error\""));
-        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".anvil/plans/"));
+        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".commandagent/plans/"));
     }
 
     #[test]
@@ -2739,11 +2742,11 @@ if __name__ == "__main__":
             "{message}"
         );
         assert!(
-            message.contains(".anvil/plans/recovery-ultra-plan-"),
+            message.contains(".commandagent/plans/recovery-ultra-plan-"),
             "{message}"
         );
         assert!(message.contains(".yaml"), "{message}");
-        let repairs_dir = dir.path().join(".anvil/repairs");
+        let repairs_dir = dir.path().join(".commandagent/repairs");
         let repair_text = std::fs::read_dir(&repairs_dir)
             .unwrap()
             .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
@@ -2768,8 +2771,8 @@ if __name__ == "__main__":
                 .contains("Repair targets:\n- completion_contract")
         }));
         let event_text = std::fs::read_to_string(events).unwrap();
-        assert!(event_text.contains("\"recovery_prompt_path\":\".anvil/repairs/"));
-        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".anvil/plans/"));
+        assert!(event_text.contains("\"recovery_prompt_path\":\".commandagent/repairs/"));
+        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".commandagent/plans/"));
     }
 
     #[test]
@@ -2825,7 +2828,7 @@ if __name__ == "__main__":
             "{err}"
         );
         assert!(err.contains("challenge_or_adversary_evidence"), "{err}");
-        let repairs_dir = dir.path().join(".anvil/repairs");
+        let repairs_dir = dir.path().join(".commandagent/repairs");
         let repair_text = std::fs::read_dir(&repairs_dir)
             .unwrap()
             .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
@@ -2838,7 +2841,7 @@ if __name__ == "__main__":
         assert!(!repair_text.contains("Missing capabilities:\n- none"));
         assert!(!repair_text.contains("Repair targets:\n- none"));
         assert!(repair_text.contains("Repair targets:\n- "), "{repair_text}");
-        let recovery_plan = std::fs::read_dir(dir.path().join(".anvil/plans"))
+        let recovery_plan = std::fs::read_dir(dir.path().join(".commandagent/plans"))
             .unwrap()
             .filter_map(|entry| {
                 let path = entry.unwrap().path();
@@ -2903,20 +2906,20 @@ if __name__ == "__main__":
                 "workspace root duplicated in:\n{text}"
             );
             assert!(
-                text.contains(".anvil/plans/recovery-ultra-plan-"),
+                text.contains(".commandagent/plans/recovery-ultra-plan-"),
                 "missing relative recovery yaml path in:\n{text}"
             );
         }
         assert!(
-            !err.contains(&format!("{root}/.anvil/plans/recovery-ultra-plan-")),
+            !err.contains(&format!("{root}/.commandagent/plans/recovery-ultra-plan-")),
             "{err}"
         );
         assert!(
-            !summary.contains(&format!("{root}/.anvil/plans/recovery-ultra-plan-")),
+            !summary.contains(&format!("{root}/.commandagent/plans/recovery-ultra-plan-")),
             "{summary}"
         );
         assert!(
-            event_text.contains("\"recovery_ultra_plan_path\":\".anvil/plans/"),
+            event_text.contains("\"recovery_ultra_plan_path\":\".commandagent/plans/"),
             "{event_text}"
         );
     }
@@ -3274,7 +3277,9 @@ if __name__ == "__main__":
                 .and_then(Value::as_str),
             Some("pass")
         );
-        let behavior_path = dir.path().join(".anvil/evidence/python-cli-behavior.json");
+        let behavior_path = dir
+            .path()
+            .join(".commandagent/evidence/python-cli-behavior.json");
         let behavior = std::fs::read_to_string(&behavior_path).unwrap();
         let behavior_json: Value = serde_json::from_str(&behavior).unwrap();
         let details = behavior_json.get("details").expect("behavior details");
@@ -3304,12 +3309,12 @@ if __name__ == "__main__":
         assert!(second_stdout.contains("8"), "{second_stdout}");
         assert!(
             dir.path()
-                .join(".anvil/evidence/python-cli-fixtures/input-a.csv")
+                .join(".commandagent/evidence/python-cli-fixtures/input-a.csv")
                 .is_file()
         );
         assert!(
             dir.path()
-                .join(".anvil/evidence/python-cli-fixtures/input-b.csv")
+                .join(".commandagent/evidence/python-cli-fixtures/input-b.csv")
                 .is_file()
         );
     }
@@ -3537,7 +3542,7 @@ if __name__ == "__main__":
         assert!(postcss.contains("tailwindcss"));
         assert!(postcss.contains("autoprefixer"));
         assert!(dir.path().join("check_finish.py").is_file());
-        assert!(!dir.path().join(".anvil/repairs").exists());
+        assert!(!dir.path().join(".commandagent/repairs").exists());
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"event\":\"profile_invariant_repair\""));
         assert!(event_text.contains("\"method\":\"deterministic\""));
@@ -3631,17 +3636,17 @@ if __name__ == "__main__":
         );
         assert!(err.contains("tsconfig.rootDir"), "{err}");
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-"),
             "{err}"
         );
         assert!(err.contains(".yaml"), "{err}");
-        assert!(dir.path().join(".anvil/repairs").is_dir());
+        assert!(dir.path().join(".commandagent/repairs").is_dir());
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"event\":\"profile_invariant_repair\""));
         assert!(event_text.contains("\"method\":\"deterministic\""));
         assert!(event_text.contains("\"method\":\"model\""));
         assert!(event_text.contains("\"recovery_handoff_kind\":\"profile_invariant_failure\""));
-        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".anvil/plans/"));
+        assert!(event_text.contains("\"recovery_ultra_plan_path\":\".commandagent/plans/"));
     }
 
     #[test]

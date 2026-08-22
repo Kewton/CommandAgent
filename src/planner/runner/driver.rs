@@ -787,7 +787,7 @@ pub(super) fn emit_step_plan_presentation(
 }
 
 pub fn save_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<PathBuf> {
-    let dir = root.join(".anvil").join("plans");
+    let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("plan-{}.yaml", uuid::Uuid::now_v7()));
     std::fs::write(&path, crate::planner::plan::render_editable_step_plan(plan))?;
@@ -2821,7 +2821,7 @@ pub(super) fn workspace_quality_snapshot(root: &Path) -> WorkspaceQualitySnapsho
 pub(super) fn is_agent_metadata_entry(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".anvil" | ".codex" | ".agents" | "target" | ".DS_Store"
+        ".git" | ".commandagent" | ".anvil" | ".codex" | ".agents" | "target" | ".DS_Store"
     ) || name.starts_with("commandagent-eval-")
 }
 
@@ -3019,7 +3019,7 @@ pub(super) fn emit_step_prompt_contract(
                 && prompt.contains("Artifacts available from previous steps:"),
             "prior_artifact_context_applicable": prior_context_applicable,
             "has_bounded_repair_policy": prompt.contains("bounded step-local repair"),
-            "prompt_body_saved": false,
+            "prompt_body_saved": crate::run_trace::enabled(),
         }),
     );
 }

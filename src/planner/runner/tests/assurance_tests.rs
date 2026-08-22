@@ -523,7 +523,7 @@ if __name__ == "__main__":
             release_gate_reasons.iter().any(|reason| {
                 reason.as_str().is_some_and(|reason| {
                     reason.contains(
-                        "profile_behavior_probe_evidence:.anvil/evidence/python-cli-behavior.json",
+                        "profile_behavior_probe_evidence:.commandagent/evidence/python-cli-behavior.json",
                     )
                 })
             }),

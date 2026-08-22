@@ -56,17 +56,22 @@ preset, the first value for each field wins while missing fields can be filled
 from later files. This permits a workspace preset to override only part of a
 user preset, subject to the [completeness trap](#the-preset-completeness-trap).
 
-The `.anvil/` names remain supported. Do not rename existing `.anvil/` runtime
-or guide paths based only on the newer `.commandagent/` config namespace.
+The `.anvil/` config names remain supported as legacy reads. New runs, plans,
+repairs, and evidence use the matching `.commandagent/` subdirectories; run
+inventory, resume discovery, and evidence consumers retain their applicable
+`.anvil/` reads. Default session and workspace-history writes use the platform
+`commandagent` state directory and fall back to `anvilminimal` when loading or
+copying forward existing state.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 20 current
+Select a preset with `--preset <name>`. A preset section accepts all 21 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
 | Preset key | Accepted value | Effective fallback when absent everywhere |
 | --- | --- | --- |
+| `extends` | one parent preset name | no parent |
 | `pack` | exact `"id@MAJOR.MINOR.PATCH"` selector | no pack |
 | `model` | model ID string | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`, `"lm-studio"`, `"openai"`, `"openai-compatible"`, or `"gemini"` | `"ollama"` |
@@ -87,6 +92,30 @@ unquoted integers.
 | `stream` | `"on"` or `"off"` | on for REPL, off otherwise |
 | `prompt_layout` | `"stable"` or `"legacy"` | top-level value, then `"legacy"` |
 | `plan_preset` | `"none"` or `"profile"` | top-level/computed planner value |
+
+`extends` performs single inheritance. The child wins for every field it
+defines, while missing fields come from the parent. Parents may themselves
+extend one parent; missing parents and cycles such as `a -> b -> a` are errors.
+Inherited field diagnostics retain `preset:<parent>` as their source.
+
+Quoted values may contain one or more `${ENV_NAME}` references. CommandAgent
+expands them from the process environment before validating the field. This
+works for string/enumeration fields and for quoted numeric fields, for example
+`context_budget = "${COMMANDAGENT_CONTEXT_BUDGET}"`. An unset, non-Unicode, or
+invalid variable reference fails configuration resolution and appears as `✗`
+in `--doctor`; the variable's value is never printed.
+
+```toml
+[preset.team_base]
+provider = "openai-compatible"
+base_url = "${TEAM_LLM_URL}"
+model = "${TEAM_EXECUTOR_MODEL}"
+planner_model = "${TEAM_PLANNER_MODEL}"
+
+[preset.alice]
+extends = "team_base"
+model = "${ALICE_EXECUTOR_MODEL}"
+```
 
 The following complete preset shows the current measured local role split. It
 is an explicit example, not a built-in default; read the [role-pair evidence
@@ -131,14 +160,15 @@ Preset merging stops early once these 11 fields are present: `model`,
 `stream`.
 
 `prompt_layout`, `api`, `tool_protocol`, `pack`, `planner_think`,
-`classifier_model`, `classifier_provider`, `base_url`, and `api_key_env` are
+`classifier_model`, `classifier_provider`, `base_url`, `api_key_env`, and
+`extends` are
 accepted but are **not** part
 of that completeness test. If a
 higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 20 accepted keys are the same as
+lower layer to be visited. Do not assume the 21 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys

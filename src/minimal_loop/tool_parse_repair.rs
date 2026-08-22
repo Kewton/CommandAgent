@@ -9,7 +9,7 @@ use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::providers::xml_repair::ToolCallRepair;
 
 const CHANGE_EXCERPT_MAX_BYTES: usize = 256;
-const EVIDENCE_DIR: &str = ".anvil/evidence";
+const EVIDENCE_DIR: &str = ".commandagent/evidence";
 const EVIDENCE_STEM: &str = "tool-parse-repair";
 
 #[derive(Debug, Serialize)]

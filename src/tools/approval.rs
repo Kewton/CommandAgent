@@ -43,7 +43,14 @@ mod tests {
     fn startup_warning_does_not_change_other_cli_presentations() {
         assert!(startup_warning(&Action::Prompt("inspect".to_string()), true, false).is_none());
         assert!(startup_warning(&Action::Prompt("inspect".to_string()), false, true).is_none());
-        assert!(startup_warning(&Action::Runs, false, false).is_none());
+        assert!(
+            startup_warning(
+                &Action::Runs(crate::config::RunsRequest::default()),
+                false,
+                false
+            )
+            .is_none()
+        );
     }
 
     #[test]

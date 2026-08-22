@@ -177,7 +177,7 @@ regression_check_ids: {}\n",
         crate::planner::ultra_plan::quote_yaml_string(&freeze.artifact.check_ids.join(",")),
     );
     rendered.push_str(&crate::planner::ultra_plan::render_ultra_plan(&plan));
-    let directory = workspace.join(".anvil").join("plans");
+    let directory = crate::runtime_paths::plans_dir(workspace);
     std::fs::create_dir_all(&directory)
         .with_context(|| format!("create modification plan directory {}", directory.display()))?;
     let path = directory.join(format!(

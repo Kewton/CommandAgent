@@ -23,7 +23,9 @@ impl WorkspacePolicy {
     pub fn allows_component(self, component: &str) -> bool {
         match self {
             WorkspacePolicy::ControllerMetadataAllowed => component != ".git",
-            WorkspacePolicy::GeneratedArtifactsAllowed => !matches!(component, ".git" | ".anvil"),
+            WorkspacePolicy::GeneratedArtifactsAllowed => {
+                !matches!(component, ".git" | ".commandagent" | ".anvil")
+            }
             WorkspacePolicy::Normal | WorkspacePolicy::NormalTask => {
                 !is_blocked_component(component)
             }
@@ -42,7 +44,7 @@ pub fn ensure_tool_path_allowed(
             continue;
         };
         if !policy.allows_component(part) {
-            if part == super::hidden_path::ENGINE_PRIVATE_COMPONENT {
+            if super::hidden_path::is_engine_private_component(component.as_os_str()) {
                 return Err(super::hidden_path::path_error(root, path));
             }
             bail!("workspace_policy_blocked: path component `{part}` is hidden from normal tasks");
@@ -59,6 +61,7 @@ fn is_blocked_component(component: &str) -> bool {
     matches!(
         component,
         ".git"
+            | ".commandagent"
             | ".anvil"
             | ".next"
             | "target"

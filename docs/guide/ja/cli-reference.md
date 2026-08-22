@@ -20,7 +20,7 @@
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-62 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+65 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -60,11 +60,13 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--run-ultra-plan` | `<RUN_ULTRA_PLAN>` パス | なし | 既存の UltraPlan YAML ファイルを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--validate-plan` | `<PATH>` | なし | step-plan または UltraPlan YAML を実行せずに検証し、エラーには行番号と列番号を表示します。 | [Plan YAML の編集](plan-yaml.md) |
 | `--setup-interaction-probe` | なし | オフ | 管理対象の Playwright interaction probe をインストールまたは検証します。 | [Probe 利用不可](troubleshooting.md#preflight-interaction-probe-unavailable) |
-| `--runs` | なし | オフ | プロバイダクライアントを作らず、現在のワークスペースの最近の run を一覧表示します。 | [スラッシュ `/runs`](slash-commands.md#コマンド一覧) |
+| `--runs` | 任意の `<ID>` | オフ | プロバイダクライアントを作らず、最近の run 一覧または ID 指定した 1 件を表示します。 | [スラッシュ `/runs`](slash-commands.md#コマンド一覧) |
+| `--events` | なし | オフ | 選択した `--runs <ID>` の event timeline を表示します。 | [トラブルシューティング](troubleshooting.md) |
+| `--filter` | `<phase\|tool\|provider>` | なし | `--events` を 1 つの event family に絞ります。 | [トラブルシューティング](troubleshooting.md) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
 | `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
-| `--json` | なし | オフ | `--doctor` または `--extensions` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--json` | なし | オフ | `--doctor`、`--extensions`、または `--runs` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--init-config` | なし | オフ | 既存ファイルを上書きせず、雛形から `.commandagent/config.toml` を作成します。 | [設定雛形](#設定雛形) |
@@ -76,6 +78,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求とその他のネットワーク可能なコマンドには影響しません。 | [プロバイダ](providers.md) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
+| `--trace` | なし | オフ | active run の `trace/` directory に scrub 済み provider exchange を opt-in 保存します。 | [トラブルシューティング](troubleshooting.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | CommandAgent が使う Ollama サーバーのベース URL を設定します。 | [Ollama のホスト](providers.md#ollama-のホストとモデル) |
 | `--think` | `[=<true\|false\|low\|medium\|high>]` | 省略 | Ollama を使うすべての役割で thinking を有効化します。単独指定は `true`、明示値には `--think=high` のように `=` が必要です。 | [Ollama thinking](providers.md#ollama-thinking) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | LM StudioのベースURLを設定します。末尾の任意の`/v1`は正規化します。 | [LM Studioのサーバー](providers.md#lm-studio-のサーバーとモデル) |
@@ -84,7 +87,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama または LM Studio なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-が存在しない) |
 | `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | executor と repair の表示ストリーミングを制御します。planner の機械形式出力は表示しません。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |
-| `--state-dir` | `<STATE_DIR>` パス | `$XDG_STATE_HOME/anvilminimal`、なければ `~/.local/state/anvilminimal` | 保存セッションと REPL 履歴の格納先を上書きします。 | [パス](configuration.md#設定ファイルの探索パス) |
+| `--state-dir` | `<STATE_DIR>` パス | `$XDG_STATE_HOME/commandagent`、なければ `~/.local/state/commandagent` | 保存セッションと REPL 履歴の格納先を上書きします。既定 loader は旧 `anvilminimal` fallback を維持します。 | [パス](configuration.md#設定ファイルの探索パス) |
 | `--cwd` | `<CWD>` パス | 現在のディレクトリ | 設定探索と実行の前に、アクティブなワークスペースを設定して正規化します。 | [パス](configuration.md#設定ファイルの探索パス) |
 | `--fresh-session` | なし | オフ | 直接 `--prompt` 実行で `--resume` を無視し、新しいセッションを作ります。 | [セッションオプション](#排他関係と組み合わせ) |
 | `--footer` | `<on\|off>` | `on` | 固定 TUI フッターを制御します。off でもスクロールバックの breadcrumb は残ります。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |

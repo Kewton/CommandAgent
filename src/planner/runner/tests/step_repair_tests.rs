@@ -299,7 +299,7 @@ fn step_repair_no_change_stops_on_progress_unchanged_and_handoff_saved() {
             .iter()
             .any(|phase| phase.prompt.contains("verify_repair_progress_unchanged"))
     );
-    let repair_dir = dir.path().join(".anvil/repairs");
+    let repair_dir = dir.path().join(".commandagent/repairs");
     assert!(repair_dir.is_dir());
     assert!(std::fs::read_dir(repair_dir).unwrap().any(|entry| {
         entry
@@ -353,7 +353,7 @@ fn dependency_repair_without_setup_authority_saves_unreachable_handoff_without_r
         event_text.contains("\"repair_attempts\":0")
             || !event_text.contains("step_verify_repair")
     );
-    let repair_dir = dir.path().join(".anvil/repairs");
+    let repair_dir = dir.path().join(".commandagent/repairs");
     let prompt = std::fs::read_dir(repair_dir)
         .unwrap()
         .flatten()
@@ -609,4 +609,3 @@ fn repair_loop_uses_repair_iteration_cap() {
         6
     );
 }
-

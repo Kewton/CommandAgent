@@ -350,7 +350,10 @@ fn nextjs_route_entry_candidates(root: &Path) -> Vec<String> {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            if name == "node_modules" || name == ".anvil" || name.starts_with('.') {
+            if name == "node_modules"
+                || matches!(name.as_str(), ".commandagent" | ".anvil")
+                || name.starts_with('.')
+            {
                 continue;
             }
             let Ok(file_type) = entry.file_type() else {

@@ -388,10 +388,7 @@ fn run_csv_file_behavior_probe(
 }
 
 fn write_csv_probe_fixtures(root: &Path) -> anyhow::Result<Vec<CsvProbeFixture>> {
-    let dir = root
-        .join(".anvil")
-        .join("evidence")
-        .join("python-cli-fixtures");
+    let dir = crate::runtime_paths::evidence_dir(root).join("python-cli-fixtures");
     std::fs::create_dir_all(&dir)?;
     let specs = [
         (
@@ -886,7 +883,7 @@ fn write_behavior_report(
     reasons: Vec<String>,
     details: Option<serde_json::Value>,
 ) -> anyhow::Result<ProfileBehaviorProbeReport> {
-    let dir = root.join(".anvil").join("evidence");
+    let dir = crate::runtime_paths::evidence_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("python-cli-behavior.json");
     let value = json!({

@@ -1160,7 +1160,14 @@ fn is_route_source_path(path: &Path) -> bool {
 fn should_skip_entry(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".anvil" | "target" | "node_modules" | ".next" | "dist" | "build"
+        ".git"
+            | ".commandagent"
+            | ".anvil"
+            | "target"
+            | "node_modules"
+            | ".next"
+            | "dist"
+            | "build"
     )
 }
 

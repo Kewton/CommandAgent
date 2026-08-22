@@ -55,16 +55,20 @@ timeout の既定値は、executor、planner、classifier のいずれかが Oll
 [完全性の罠](#preset-の完全性の罠)に該当しない限り、ワークスペースの preset でユーザー preset の
 一部だけを上書きできます。
 
-`.anvil/` の名前は引き続きサポートされます。新しい `.commandagent/` 設定名前空間だけを理由に、
-既存の `.anvil/` runtime またはガイド中のパスを変更しないでください。
+`.anvil/` の設定名は legacy read として引き続きサポートされます。新しい run、plan、repair、
+evidence は対応する `.commandagent/` subdirectory に書き込み、run inventory、resume 探索、
+evidence consumer は適用可能な `.anvil/` read を維持します。既定の session と workspace history は
+platform の `commandagent` state directory に書き込み、既存 state の load または copy-forward 時は
+`anvilminimal` へ fallback します。
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 20 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 21 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
 | --- | --- | --- |
+| `extends` | 親 preset 名 1 個 | 親なし |
 | `pack` | exact な `"id@MAJOR.MINOR.PATCH"` selector | pack なし |
 | `model` | model ID 文字列 | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"openai-compatible"`、`"gemini"` | `"ollama"` |
@@ -85,6 +89,28 @@ timeout の既定値は、executor、planner、classifier のいずれかが Oll
 | `stream` | `"on"` または `"off"` | REPL ではオン、それ以外はオフ |
 | `prompt_layout` | `"stable"` または `"legacy"` | トップレベル値、その後 `"legacy"` |
 | `plan_preset` | `"none"` または `"profile"` | トップレベル／計算された planner 値 |
+
+`extends` は単一継承です。子が定義したフィールドを優先し、不足フィールドを親から継承します。
+親も 1 個の親を継承できますが、親が見つからない場合や `a -> b -> a` のような循環はエラーです。
+継承したフィールドの診断 source は `preset:<parent>` のままです。
+
+クォートした値には `${ENV_NAME}` 参照を 1 個以上含められます。CommandAgent はフィールド検証前に
+process environment から展開します。文字列／列挙フィールドに加え、
+`context_budget = "${COMMANDAGENT_CONTEXT_BUDGET}"` のようなクォートした数値にも使えます。
+未設定、非 Unicode、または不正な変数参照は設定解決エラーとなり、`--doctor` では `✗` と表示します。
+変数の値は表示しません。
+
+```toml
+[preset.team_base]
+provider = "openai-compatible"
+base_url = "${TEAM_LLM_URL}"
+model = "${TEAM_EXECUTOR_MODEL}"
+planner_model = "${TEAM_PLANNER_MODEL}"
+
+[preset.alice]
+extends = "team_base"
+model = "${ALICE_EXECUTOR_MODEL}"
+```
 
 次の complete preset は、現在のローカル実測で推奨できる役割分割を示します。built-in default では
 ありません。利用前に
@@ -127,12 +153,12 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 `stream` の 11 フィールドが揃った時点で早期停止します。
 
 `prompt_layout`、`api`、`tool_protocol`、`pack`、`planner_think`、
-`classifier_model`、`classifier_provider`、`base_url`、`api_key_env` は受け付けるキーですが、
+`classifier_model`、`classifier_provider`、`base_url`、`api_key_env`、`extends` は受け付けるキーですが、
 この完全性判定には**含まれません**。優先度の高い preset が
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 20 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 21 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 

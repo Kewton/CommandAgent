@@ -819,7 +819,7 @@ fn invalid_planner_json_does_not_save_plan_file() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("invalid StepPlan after corrective retries"));
-    assert!(!dir.path().join(".anvil/plans").exists());
+    assert!(!dir.path().join(".commandagent/plans").exists());
 }
 
 #[test]
@@ -835,7 +835,7 @@ fn invalid_planner_lint_does_not_save_plan_file() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("verify command"));
-    assert!(!dir.path().join(".anvil/plans").exists());
+    assert!(!dir.path().join(".commandagent/plans").exists());
 }
 
 #[test]
