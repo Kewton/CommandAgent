@@ -7,12 +7,33 @@ CommandAgent supports separate executor and planner roles. `--provider` and
 configure planning. If the provider roles match, the planner inherits the
 executor model unless it is overridden.
 
+## Choose models by role
+
+Do not infer a role recommendation from parameter count alone. Measure the
+executor, planner, and classifier together with the fixed
+[role-pair model probe](model-probe.md#role-pair-procedure), then run the
+required smoke and full-scenario checks. The classifier has no CLI model flag;
+set `classifier_model` and `classifier_provider` in the selected preset.
+
+For the exact local Ollama setup measured on 2026-08-22, the supported starting
+combination is `qwen3.8:27b-mlx` for executor and planner plus `qwen3.5:4b` for
+the classifier. The 4B classifier completed 4/4 observed classifier tasks in
+the relevant arms and took 176–304 ms in the final hybrid. A smaller planner is
+not recommended from that evidence: warm 9B was slower than 27B, and 4B met the
+planner JSON contract in only 1/2 observations. See the [measured record and
+exact model digests](../model-probe-results/2026-08-22-local-role-pairs.md).
+
+This is a digest-, host-, context-, and build-specific probe/smoke starting
+point, not a built-in default or a universal quality tier. Re-measure before
+adoption when any of those inputs changes.
+
 ## Provider matrix
 
 | Provider | CLI value | Required key | Obtain/setup | CommandAgent endpoint | Configuration |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | none for a local server | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`, default `http://localhost:11434`; `/api/chat` is appended | `--provider ollama --model <model-id>` |
 | LM Studio | `lm-studio` | none by default; `LM_STUDIO_API_TOKEN` when server authentication is enabled | [LM Studio local server](https://lmstudio.ai/docs/developer/core/server) | `--lm-studio-host`, default `http://localhost:1234`; OpenAI-compatible `/v1` routes are appended | `--provider lm-studio --model <model-id>` |
+| Generic OpenAI-compatible | `openai-compatible` | none by default; the process variable named by `--api-key-env` when authentication is enabled | server or gateway documentation | explicit `--base-url`; an optional trailing `/v1` is normalized | `--provider openai-compatible --base-url <url> --model <model-id>` |
 | OpenAI | `openai` | `OPENAI_API_KEY` | [Create an OpenAI API key](https://platform.openai.com/api-keys) | fixed `https://api.openai.com`; explicit `--api chat-completions` (default) or `--api responses` | process environment only |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Create a Gemini API key in Google AI Studio](https://aistudio.google.com/app/apikey) | fixed Google Generative Language endpoints | process environment or workspace `.env` |
 
@@ -32,6 +53,10 @@ or current directory.
 `LM_STUDIO_API_TOKEN` is optional and read only from the process environment.
 Leave it unset for the default unauthenticated local server. Set it only when
 LM Studio's Require Authentication setting is enabled.
+
+The generic provider never accepts a key value in arguments or presets.
+`--api-key-env <NAME>` or preset `api_key_env = "NAME"` names an optional
+process-environment variable; omit it for an unauthenticated server.
 
 ### Shell environment
 
@@ -117,6 +142,43 @@ structured tool calls.
 LM Studio provider turns currently use the non-streaming client path. An
 interactive REPL remains functional when `--stream on`, but output is rendered
 after each provider turn completes.
+
+## Generic OpenAI-compatible servers
+
+Use the generic provider for vLLM, llama.cpp, an OpenAI-compatible Ollama
+endpoint, or a compatible internal gateway. Supply the server root or `/v1`
+URL; CommandAgent normalizes the optional `/v1` suffix and appends the selected
+Chat Completions or Responses route. Chat Completions remains the default.
+
+```bash
+export VLLM_API_KEY="<secret>" # omit for an unauthenticated server
+commandagent --provider openai-compatible \
+  --base-url http://localhost:8000/v1 \
+  --api-key-env VLLM_API_KEY \
+  --model <served-model-id>
+```
+
+The same settings can be kept in a preset without storing the secret:
+
+```toml
+[preset.gateway]
+model = "<served-model-id>"
+provider = "openai-compatible"
+base_url = "https://gateway.example.com/v1"
+api_key_env = "GATEWAY_API_KEY"
+```
+
+The base URL must use HTTP or HTTPS and cannot contain credentials, a query, or
+a fragment. The configured environment-variable name is recorded for
+diagnostics, but its value is redacted and never written to events. Native
+function tools and the existing validated text/XML fallback are available;
+use `--tool-protocol text` when a compatible server or model does not reliably
+implement structured tool calls. Provider turns are non-streaming, and the
+existing Escape/Ctrl-C provider cancellation boundary remains active.
+
+LM Studio uses this same transport with its existing `lm-studio`,
+`--lm-studio-host`, and `LM_STUDIO_API_TOKEN` names. Those settings remain
+backward compatible and are not automatically rewritten to the generic form.
 
 ## Ollama host and models
 

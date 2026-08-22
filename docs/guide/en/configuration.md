@@ -23,6 +23,7 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `footer` | `--no-footer` or `--footer` > preset > top-level key > `on` |
 | `stream` | `--stream` > preset > top-level key > on for REPL, off for direct actions |
 | `model`, `provider`, `context_budget`, `chat_timeout_secs` | CLI > preset > built-in/provider-dependent default |
+| `base_url`, `api_key_env` | CLI > preset; used only by `openai-compatible`, whose base URL is required |
 | `api` | `--api` > preset > `chat_completions` (OpenAI and LM Studio) |
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
@@ -60,7 +61,7 @@ or guide paths based only on the newer `.commandagent/` config namespace.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 18 current
+Select a preset with `--preset <name>`. A preset section accepts all 20 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
@@ -68,14 +69,16 @@ unquoted integers.
 | --- | --- | --- |
 | `pack` | exact `"id@MAJOR.MINOR.PATCH"` selector | no pack |
 | `model` | model ID string | `qwen3.6:27b-coding-nvfp4` |
-| `provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | `"ollama"` |
+| `provider` | `"ollama"`, `"lm-studio"`, `"openai"`, `"openai-compatible"`, or `"gemini"` | `"ollama"` |
+| `base_url` | HTTP(S) URL without credentials, query, or fragment | required for `openai-compatible` |
+| `api_key_env` | process-environment variable name | no bearer authentication |
 | `api` | `"chat_completions"` or `"responses"` | `"chat_completions"` |
 | `tool_protocol` | `"native"` or `"text"` | provider capability default |
 | `planner_model` | model ID string | executor model when providers match; otherwise required |
-| `planner_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | executor provider |
+| `planner_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, `"openai-compatible"`, or `"gemini"` | executor provider |
 | `planner_think` | `"true"`, `"false"`, `"low"`, `"medium"`, or `"high"` | `"false"` |
 | `classifier_model` | model ID string | planner model when providers match; otherwise required |
-| `classifier_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | planner provider |
+| `classifier_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, `"openai-compatible"`, or `"gemini"` | planner provider |
 | `context_budget` | non-negative platform-sized integer | `65536` |
 | `chat_timeout_secs` | non-negative 64-bit integer | provider-dependent `600` or `180` |
 | `profile` | profile string | inferred, then `"generic"` |
@@ -85,26 +88,35 @@ unquoted integers.
 | `prompt_layout` | `"stable"` or `"legacy"` | top-level value, then `"legacy"` |
 | `plan_preset` | `"none"` or `"profile"` | top-level/computed planner value |
 
+The following complete preset shows the current measured local role split. It
+is an explicit example, not a built-in default; read the [role-pair evidence
+and scope](../model-probe-results/2026-08-22-local-role-pairs.md) before use.
+
 ```toml
-[preset.local]
-model = "qwen3.6:27b-coding-nvfp4"
+[preset.local_role_split]
+model = "qwen3.8:27b-mlx"
 provider = "ollama"
 api = "chat_completions"
-tool_protocol = "text"
-planner_model = "qwen3.6:27b-coding-nvfp4"
+tool_protocol = "native"
+planner_model = "qwen3.8:27b-mlx"
 planner_provider = "ollama"
 planner_think = "false"
 classifier_model = "qwen3.5:4b"
 classifier_provider = "ollama"
 context_budget = 65536
 chat_timeout_secs = 600
-profile = "nextjs"
+profile = "generic"
 narration = "normal"
 footer = "on"
 stream = "on"
 prompt_layout = "legacy"
 plan_preset = "none"
 ```
+
+This exact local probe supports the smaller classifier only. It does not
+support replacing the planner with the measured 9B or 4B candidates. Re-run
+the [model probe](model-probe.md#role-pair-procedure) and scenario admission
+checks when a model digest, host, context, provider, or build changes.
 
 An unknown key or invalid value in a parsed preset is an error naming the file,
 line, and `preset.<name>.<key>`. Selecting a name that does not occur in any
@@ -119,13 +131,14 @@ Preset merging stops early once these 11 fields are present: `model`,
 `stream`.
 
 `prompt_layout`, `api`, `tool_protocol`, `pack`, `planner_think`,
-`classifier_model`, and `classifier_provider` are accepted but are **not** part
+`classifier_model`, `classifier_provider`, `base_url`, and `api_key_env` are
+accepted but are **not** part
 of that completeness test. If a
 higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 18 accepted keys are the same as
+lower layer to be visited. Do not assume the 20 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys

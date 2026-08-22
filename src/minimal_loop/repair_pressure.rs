@@ -358,7 +358,6 @@ mod tests {
         let long = pressure_seed(Some(&carried), 8);
         assert_eq!(long.initial_read_only_streak, 2);
         assert!(!long.pre_advanced);
-
         let short = pressure_seed(Some(&CarriedPressure::default()), 2);
         assert_eq!(short.initial_read_only_streak, 6);
         assert!(short.pre_advanced);
@@ -575,6 +574,7 @@ mod anchor_tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "m".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

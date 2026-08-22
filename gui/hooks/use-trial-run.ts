@@ -94,6 +94,7 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
     directive: terminal.directive,
     directiveText: terminal.directiveText,
     elapsedSeconds: monitor.elapsedSeconds,
+    editProposal: compose.editProposal,
     error: compose.error,
     errorReconnectSessionId: compose.errorReconnectSessionId,
     evidenceDocument: terminal.evidenceDocument,

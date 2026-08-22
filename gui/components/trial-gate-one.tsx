@@ -3,8 +3,8 @@ import { GateCardMarkdown } from "./gate-card-markdown";
 
 export function TrialGateOne({ run }: { run: TrialRunState }) {
   const {
-    busy, confirmed, gateOneRef, launchBlockReason, launchConfirmed, priceCost,
-    priceDuration, proposal, setConfirmed, stage,
+    busy, checkContract, confirmed, editProposal, gateOneRef, launchBlockReason,
+    launchConfirmed, priceCost, priceDuration, proposal, setConfirmed, stage,
   } = run;
   if (proposal === null || stage !== "gate_1") return null;
 
@@ -29,6 +29,26 @@ export function TrialGateOne({ run }: { run: TrialRunState }) {
           <strong>確認 ID</strong>
           <code className="hash-line">{proposal.card_hash}</code>
           <p>確認内容が1つでも変わると、この ID も変わります。</p>
+        </div>
+        <div className="gate-one-revision-actions trial-action-bar">
+          <button
+            className="secondary-action"
+            data-testid="gate-one-edit"
+            disabled={busy}
+            onClick={editProposal}
+            type="button"
+          >
+            内容を直す
+          </button>
+          <button
+            className="secondary-action"
+            data-testid="gate-one-repropose"
+            disabled={busy}
+            onClick={() => void checkContract()}
+            type="button"
+          >
+            現在の内容で再確認
+          </button>
         </div>
         <div className="gate-one-actions trial-action-bar">
           <label className="confirm-check">

@@ -2,8 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use clap::CommandFactory;
-use commandagent::cli::Cli;
 use commandagent::config::{SUPPORTED_PRESET_KEYS, SUPPORTED_TOP_LEVEL_KEYS};
 use commandagent::tui::slash::{SLASH_COMMANDS, render_help};
 
@@ -114,7 +112,7 @@ fn assert_same_entries(
 
 #[test]
 fn public_cli_flags_match_bilingual_references_and_advertised_counts() {
-    let code_flags = Cli::command()
+    let code_flags = commandagent::provider_cli::command()
         .get_arguments()
         .filter(|argument| !argument.is_hide_set())
         .filter_map(|argument| argument.get_long())
@@ -126,7 +124,7 @@ fn public_cli_flags_match_bilingual_references_and_advertised_counts() {
             "public CLI flag",
             &code_flags,
             &documented_flags,
-            "src/cli.rs (Cli::command())",
+            "src/provider_cli.rs (provider_cli::command())",
             path,
         );
     }
@@ -148,7 +146,7 @@ fn public_cli_flags_match_bilingual_references_and_advertised_counts() {
 #[test]
 fn public_cli_help_matches_english_reference_descriptions() {
     let documented = cli_flag_descriptions(&read_repo_file(CLI_DOC));
-    for argument in Cli::command()
+    for argument in commandagent::provider_cli::command()
         .get_arguments()
         .filter(|argument| !argument.is_hide_set())
         .filter(|argument| argument.get_long().is_some())
@@ -161,7 +159,7 @@ fn public_cli_help_matches_english_reference_descriptions() {
         assert_eq!(
             documented.get(&flag),
             Some(&help),
-            "{flag} help differs between src/cli.rs and {CLI_DOC}"
+            "{flag} help differs between the public CLI command and {CLI_DOC}"
         );
     }
 }

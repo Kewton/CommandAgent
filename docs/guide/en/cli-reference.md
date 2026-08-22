@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-60 application flags below. The hidden `--completion-contract-json <PATH>` is an
+62 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -40,7 +40,9 @@ internal integration surface and is intentionally not a public user flag.
 | `--pack-pin` | `<DIR>` | none | Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin. | [Conflicts](#conflicts-and-combinations) |
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, `gemini`, or `openai-compatible` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--base-url` | `<URL>` | none | Set the base URL for the generic OpenAI-compatible provider; an optional trailing `/v1` is normalized. | [OpenAI-compatible servers](providers.md#generic-openai-compatible-servers) |
+| `--api-key-env` | `<NAME>` | none | Read an optional OpenAI-compatible bearer token from this process-environment variable. | [OpenAI-compatible servers](providers.md#generic-openai-compatible-servers) |
 | `--api` | `<chat-completions\|responses>` | `chat-completions` | Explicitly select the OpenAI-compatible API surface; model names never select it implicitly. | [Presets](configuration.md#presets) |
 | `--tool-protocol` | `<native\|text>` | provider capability default | Explicitly select native function tools or the established text/XML tool protocol. | [Presets](configuration.md#presets) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
@@ -49,7 +51,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--workflow` | `<PATH>` | none | Run a declarative workflow-circle definition. Mutually exclusive with `--intent`. | [Examples](#examples) |
 | `--origin` | `<PATH>` | none | Supply the existing failed origin run workspace for `--workflow`. | [Examples](#examples) |
 | `--planner-model` | `<PLANNER_MODEL>` | executor model when providers match | Set the planner model ID. Required when planner and executor providers differ. | [Provider roles](providers.md#provider-matrix) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `lm-studio`, `openai`, `gemini`, or `openai-compatible` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
 | `--prompt` | `<PROMPT>` | none | Run one minimal-loop prompt instead of entering the TUI. | [Examples](#examples) |
 | `--plan-steps` | none | off | Generate and save a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
 | `--plan-run` | none | off | Generate and run a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
@@ -61,7 +63,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--setup-interaction-probe` | none | off | Install or validate the managed Playwright interaction probe. | [Probe unavailable](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | none | off | List recent runs for the current workspace without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
-| `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](../model-probe.md) |
+| `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--json` | none | off | Render --doctor or --extensions output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
@@ -88,6 +90,30 @@ internal integration surface and is intentionally not a public user flag.
 | `--fresh-session` | none | off | Ignore `--resume` and create a session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
+
+## Interactive REPL controls
+
+Within one TUI session, `/model <id>` and `/provider <name>` change the
+executor selection, while `/profile <name>` changes the explicit profile.
+These settings apply to new Gate 1 cards and are shown by `/status`; an already
+rendered card keeps its frozen identity. Use grouped `/help` or
+`/help <command>` for runtime usage and examples. `/status` shows current
+execution before the remaining session configuration, `/last` repeats the most
+recent result, and `/clear` clears the terminal screen.
+
+`/confirm` always accepts the full hash printed on the latest pending Gate 1
+card. By default it also accepts a matching canonical `sha256:` prefix with at
+least eight hexadecimal digits, such as `/confirm sha256:77cd5e23`. Set
+`COMMANDAGENT_STRICT_CONFIRM=1` before starting CommandAgent to require the
+full hash. Prefixes are expanded to the frozen full hash before confirmation is
+persisted.
+
+REPL history is isolated beneath `--state-dir` at
+`workspace-history/<sha256-of-canonical-workspace>.txt`. Only the active
+workspace file is loaded, and history hints require two entered characters and
+fit on one terminal line. The former shared `<state-dir>/history.txt` is not
+loaded, migrated, modified, or deleted, so existing history is preserved
+without exposing it in another workspace.
 
 ## Defaults and precedence
 

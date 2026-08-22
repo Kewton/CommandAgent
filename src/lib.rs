@@ -34,6 +34,7 @@ mod pack_actions;
 pub mod planner;
 pub mod preflight;
 pub mod provider_call;
+pub mod provider_cli;
 pub mod providers;
 pub mod repl;
 pub mod runs;
@@ -44,6 +45,7 @@ pub mod tui;
 pub mod util;
 pub mod workflow;
 
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -58,6 +60,13 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    run_with_provider_options(cli, config::ProviderCliOptions::default())
+}
+
+pub fn run_with_provider_options(
+    cli: Cli,
+    provider_options: config::ProviderCliOptions,
+) -> anyhow::Result<()> {
     let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
     if extension_inventory::run_if_requested(&cli)? {
         return Ok(());
@@ -110,11 +119,11 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         return Ok(());
     }
     if cli.doctor {
-        return doctor::run_cli(cli);
+        return doctor::run_cli_with_provider_options(cli, provider_options);
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
-    let config = Config::from_cli(cli)?;
+    let config = Config::from_cli_with_provider_options(cli, provider_options)?;
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -124,7 +133,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
     let summary_source =
         summary_json.then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
-    let result = run_resolved_config(config);
+    let result = run_resolved_config_with_summary(config, summary_source.clone());
     if let Some(source) = summary_source {
         println!("{}", headless_summary::render(&source));
     }
@@ -137,31 +146,44 @@ pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
         .any(|cause| cause.is::<cli_pack::PackCliError>())
     {
         2
+    } else if error_is_interrupted(error) {
+        130
     } else {
         1
     }
 }
 
+#[cfg(test)]
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {
+    run_resolved_config_with_summary(config, None)
+}
+
+fn run_resolved_config_with_summary(
+    config: Config,
+    summary_source: Option<headless_summary::Source>,
+) -> anyhow::Result<()> {
     let _git_reporter = (!matches!(
         config.action,
         Action::Runs | Action::UxDemo | Action::ModelProbe
     ))
     .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
-    cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone()))
+    cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
 }
 
 pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result<()> {
-    // This runs *inside* the outer CLI panic boundary: run_resolved_config already
-    // wrapped the workflow invocation in catch_cli_run, which holds the process-wide,
-    // non-reentrant PANIC_HOOK_LOCK for the whole run. Re-entering catch_cli_run here
-    // (as run_resolved_config would) makes the same thread re-lock that mutex and
-    // self-deadlock. Run the resolved config directly; the outer boundary still
-    // catches any panic raised by this child node run.
-    run_config(config)
+    // This runs *inside* the outer CLI panic boundary:
+    // run_resolved_config_with_summary already wrapped the workflow invocation in
+    // catch_cli_run, which holds the process-wide, non-reentrant PANIC_HOOK_LOCK for
+    // the whole run. Re-entering catch_cli_run here makes the same thread re-lock that
+    // mutex and self-deadlock. Run the resolved config directly; the outer boundary
+    // still catches any panic raised by this child node run.
+    run_config(config, None)
 }
 
-fn run_config(config: Config) -> anyhow::Result<()> {
+fn run_config(
+    config: Config,
+    summary_source: Option<headless_summary::Source>,
+) -> anyhow::Result<()> {
     if let Action::Workflow(definition, origin) = &config.action {
         return workflow::orchestrator::run_workflow(&config, definition, origin);
     }
@@ -172,7 +194,11 @@ fn run_config(config: Config) -> anyhow::Result<()> {
     let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
     emit_run_start(&config);
-    let direct_command_guard = DirectCommandCompletionGuard::start(&config);
+    let direct_command_guard = if let Some(source) = summary_source {
+        DirectCommandCompletionGuard::start_with_summary(&config, source)
+    } else {
+        DirectCommandCompletionGuard::start(&config)
+    };
     if let Some(warning) =
         tools::approval::startup_warning(&config.action, config.yes, tui::terminal::stdin_is_tty())
     {
@@ -434,6 +460,17 @@ struct DirectCommandCompletionGuard {
 
 impl DirectCommandCompletionGuard {
     fn start(config: &Config) -> Option<Self> {
+        Self::start_inner(config, None)
+    }
+
+    fn start_with_summary(config: &Config, source: headless_summary::Source) -> Option<Self> {
+        Self::start_inner(config, Some(source))
+    }
+
+    fn start_inner(
+        config: &Config,
+        summary_source: Option<headless_summary::Source>,
+    ) -> Option<Self> {
         let command = direct_command_for_action(&config.action)?.to_string();
         tui::terminal_notifications::command_started();
         let finalized = Arc::new(AtomicBool::new(false));
@@ -463,6 +500,18 @@ impl DirectCommandCompletionGuard {
                                 DirectCommandStatus::Interrupted,
                             );
                             tui::terminal_notifications::finish_process();
+                            let mut stdout = std::io::stdout().lock();
+                            if let Err(err) = write_interrupted_headless_summary(
+                                summary_source.as_ref(),
+                                signal_config.eval_events_path.as_deref(),
+                                &mut stdout,
+                            ) {
+                                eprintln!(
+                                    "warning: failed to write interrupted headless summary: {err}"
+                                );
+                            }
+                            // Keep stdout locked until exit so the JSON remains the final line.
+                            std::process::exit(130);
                         }
                         std::process::exit(130);
                     }
@@ -500,6 +549,28 @@ impl DirectCommandCompletionGuard {
         }
         emit_direct_command_stop_with_status(&self.config, &self.command, result, status);
     }
+}
+
+fn write_interrupted_headless_summary(
+    source: Option<&headless_summary::Source>,
+    events_path: Option<&std::path::Path>,
+    output: &mut impl Write,
+) -> std::io::Result<bool> {
+    let Some(source) = source else {
+        return Ok(false);
+    };
+    if events_path
+        .is_none_or(|path| eval_events::terminal_report::read_events(Some(path)).is_empty())
+    {
+        return Ok(false);
+    }
+    let source = source
+        .clone()
+        .with_terminal_status(headless_summary::TerminalStatus::Interrupted)
+        .with_exit_code(130);
+    writeln!(output, "{}", headless_summary::render(&source))?;
+    output.flush()?;
+    Ok(true)
 }
 
 impl Drop for DirectCommandCompletionGuard {
@@ -706,7 +777,8 @@ fn direct_event_projection_for_status(
 }
 
 fn error_is_interrupted(err: &anyhow::Error) -> bool {
-    err.to_string().contains("interrupted by user")
+    err.chain()
+        .any(|cause| cause.to_string().contains("interrupted by user"))
 }
 
 fn emit_run_start(config: &Config) {
@@ -719,9 +791,9 @@ fn emit_run_start(config: &Config) {
         json!({
             "event": "run_start",
             "workspace_root": eval_events::body_snippet(&config.workspace_root.display().to_string()),
-            "provider": config.provider.as_str(),
+            "provider": config.provider_label(config::ProviderRole::Executor),
             "model": eval_events::body_snippet(&config.model),
-            "planner_provider": config.planner_provider.as_str(),
+            "planner_provider": config.provider_label(config::ProviderRole::Planner),
             "planner_model": eval_events::body_snippet(&config.planner_model),
             "chat_timeout_secs": config.chat_timeout_secs,
             "chat_timeout_source": config.chat_timeout_source,
@@ -973,6 +1045,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "m".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
@@ -1005,6 +1078,17 @@ mod tests {
         run_resolved_config_for_workflow(cfg).unwrap();
 
         assert_eq!(cli_panic_boundary::test_panic_hook_install_count(), 0);
+    }
+
+    #[test]
+    fn cli_exit_code_maps_nested_interruption_to_130() {
+        let interrupted = anyhow::anyhow!("interrupted by user").context("provider stopped");
+
+        assert_eq!(cli_error_exit_code(&interrupted), 130);
+        assert_eq!(
+            cli_error_exit_code(&anyhow::anyhow!("validation failed")),
+            1
+        );
     }
 
     #[test]
@@ -1434,6 +1518,43 @@ mod tests {
         assert!(summary.contains("Status: interrupted"), "{summary}");
         assert!(summary.contains("Command status: interrupted"), "{summary}");
         assert!(!summary.contains("Status: running"), "{summary}");
+    }
+
+    #[test]
+    fn interrupted_headless_summary_requires_evidence_and_projects_exit_130() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/interrupted/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::UltraPlanRun("Create a smoke app".to_string());
+        cfg.eval_events_path = Some(events.clone());
+        let source = headless_summary::Source::from_config(&cfg, None);
+        let mut output = Vec::new();
+
+        assert!(
+            !write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+        assert!(output.is_empty());
+
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        std::fs::File::create(&events).unwrap();
+        assert!(
+            !write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+        assert!(output.is_empty());
+
+        emit_run_start(&cfg);
+        assert!(
+            write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+
+        assert!(output.ends_with(b"\n"));
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let value: Value = serde_json::from_str(text.trim_end()).unwrap();
+        assert_eq!(value["schema_version"], "commandagent.headless-summary/v1");
+        assert_eq!(value["status"], "interrupted");
+        assert_eq!(value["exit_code"], 130);
+        assert_eq!(value["events_path"], events.display().to_string());
     }
 
     #[test]

@@ -219,13 +219,102 @@ fn tui_pty_queues_input_during_command_and_replays_fifo() {
         "queued commands were not FIFO. output={text:?}"
     );
 
-    let history = std::fs::read_to_string(state_dir.join("history.txt")).unwrap();
+    let history_path =
+        commandagent::tui::history::workspace_history_path(&state_dir, tmp.path()).unwrap();
+    let history = std::fs::read_to_string(history_path).unwrap();
     for expected in ["/model-probe", "/help", "/status"] {
         assert!(
             history.lines().any(|line| line == expected),
             "missing {expected:?} in history={history:?}"
         );
     }
+}
+
+#[test]
+#[ignore]
+fn tui_pty_scopes_history_and_supports_session_controls() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let first = root.path().join("first-workspace");
+    let second = root.path().join("second-workspace");
+    let state_dir = root.path().join("state");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::create_dir_all(&state_dir).unwrap();
+    let legacy = state_dir.join("history.txt");
+    std::fs::write(&legacy, "/help issue151-legacy-secret\n").unwrap();
+
+    let seeded =
+        run_history_session_script(env!("CARGO_BIN_EXE_commandagent"), &first, &state_dir, true)
+            .expect("script(1) PTY helper must be available");
+    let seeded_text = String::from_utf8_lossy(&seeded.stdout).to_string()
+        + &String::from_utf8_lossy(&seeded.stderr);
+    assert!(seeded.status.success(), "output={seeded_text:?}");
+    let first_history =
+        commandagent::tui::history::workspace_history_path(&state_dir, &first).unwrap();
+    assert!(
+        std::fs::read_to_string(&first_history)
+            .unwrap()
+            .contains("issue151-workspace-secret")
+    );
+
+    let exercised = run_history_session_script(
+        env!("CARGO_BIN_EXE_commandagent"),
+        &second,
+        &state_dir,
+        false,
+    )
+    .expect("script(1) PTY helper must be available");
+    let text = String::from_utf8_lossy(&exercised.stdout).to_string()
+        + &String::from_utf8_lossy(&exercised.stderr);
+    assert!(exercised.status.success(), "output={text:?}");
+    for absent in ["issue151-workspace-secret", "issue151-legacy-secret"] {
+        assert!(
+            !text.contains(absent),
+            "cross-workspace history leaked {absent:?}. output={text:?}"
+        );
+    }
+    for expected in [
+        "Executor model set to `executor-new`",
+        "Executor provider set to `lm-studio`",
+        "Profile set to `nextjs`",
+        "Usage: /model <id>",
+        "- Model: executor-new (repl)",
+        "- Provider: lm-studio (repl)",
+        "- Profile: nextjs (repl)",
+        "\x1b[2J",
+    ] {
+        assert!(
+            text.contains(expected),
+            "missing {expected:?}. output={text:?}"
+        );
+    }
+    assert!(
+        text.matches("#### Current execution").count() >= 2,
+        "/last did not re-render status. output={text:?}"
+    );
+    let current = text.find("#### Current execution").unwrap();
+    let configuration = text[current..]
+        .find("#### Session configuration")
+        .map(|index| current + index)
+        .unwrap();
+    assert!(current < configuration, "output={text:?}");
+
+    assert_eq!(
+        std::fs::read_to_string(&legacy).unwrap(),
+        "/help issue151-legacy-secret\n"
+    );
+    let second_history =
+        commandagent::tui::history::workspace_history_path(&state_dir, &second).unwrap();
+    assert_ne!(first_history, second_history);
+    assert!(second_history.exists());
 }
 
 #[test]
@@ -1243,6 +1332,101 @@ fn run_queue_script(
     } else {
         run_queue_script_linux(bin, cwd, state_dir, host, chat_started)
     }
+}
+
+fn run_history_session_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    seed: bool,
+) -> std::io::Result<std::process::Output> {
+    let args = [
+        "--yes".to_string(),
+        "--cwd".to_string(),
+        cwd.to_string_lossy().into_owned(),
+        "--state-dir".to_string(),
+        state_dir.to_string_lossy().into_owned(),
+        "--provider".to_string(),
+        "ollama".to_string(),
+        "--model".to_string(),
+        "executor-old".to_string(),
+        "--planner-provider".to_string(),
+        "ollama".to_string(),
+        "--planner-model".to_string(),
+        "planner-fixed".to_string(),
+        "--ollama-host".to_string(),
+        "http://127.0.0.1:9".to_string(),
+        "--chat-timeout-secs".to_string(),
+        "1".to_string(),
+        "--chat-retries".to_string(),
+        "0".to_string(),
+        "--no-footer".to_string(),
+    ]
+    .into_iter()
+    .map(|arg| shell_quote(&arg))
+    .collect::<Vec<_>>()
+    .join(" ");
+    let command_line = format!("stty rows 24 cols 80; exec {} {args}", shell_quote(bin));
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("COMMANDAGENT_NO_SPINNER", "1")
+        .env("COMMANDAGENT_NO_INTERRUPT", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
+        .env("NO_COLOR", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    if seed {
+        stdin.write_all(b"/help issue151-workspace-secret\r")?;
+        stdin.flush()?;
+        thread::sleep(Duration::from_secs(1));
+    } else {
+        stdin.write_all(b"/h")?;
+        stdin.flush()?;
+        thread::sleep(Duration::from_millis(350));
+        stdin.write_all(b"elp\r")?;
+        stdin.flush()?;
+        thread::sleep(Duration::from_millis(250));
+        for line in [
+            b"/model executor-new\r".as_slice(),
+            b"/provider lm-studio\r",
+            b"/profile nextjs\r",
+            b"/help model\r",
+            b"/status\r",
+            b"/clear\r",
+            b"/last\r",
+        ] {
+            stdin.write_all(line)?;
+            stdin.flush()?;
+            thread::sleep(Duration::from_millis(180));
+        }
+    }
+    thread::sleep(Duration::from_millis(500));
+    stdin.write_all(b"/exit\r")?;
+    stdin.flush()?;
+    drop(stdin);
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(30))
 }
 
 fn run_queue_script_bsd(

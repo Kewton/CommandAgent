@@ -20,7 +20,7 @@
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-60 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+62 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -39,7 +39,9 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--pack-pin` | `<DIR>` | なし | green conformance 後に `pack.sha256` を作成し、同一 pin は変更せず、古い pin は拒否します。 | [排他関係](#排他関係と組み合わせ) |
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini`、`openai-compatible` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--base-url` | `<URL>` | なし | 汎用 OpenAI 互換プロバイダの base URL を設定します。末尾の `/v1` は正規化されます。 | [汎用 OpenAI 互換 server](providers.md#汎用-openai-互換-server) |
+| `--api-key-env` | `<NAME>` | なし | OpenAI 互換 bearer token を読み取る、このプロセスの環境変数名を設定します。 | [汎用 OpenAI 互換 server](providers.md#汎用-openai-互換-server) |
 | `--api` | `<chat-completions\|responses>` | `chat-completions` | OpenAI互換API面を明示選択します。モデル名から暗黙選択しません。 | [preset](configuration.md#preset) |
 | `--tool-protocol` | `<native\|text>` | プロバイダ能力の既定値 | native function tools または既存text/XML tool protocolを明示選択します。 | [preset](configuration.md#preset) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
@@ -48,7 +50,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--workflow` | `<PATH>` | なし | 宣言的な workflow-circle 定義を実行します。`--intent` とは排他です。 | [例](#例) |
 | `--origin` | `<PATH>` | なし | `--workflow` に、既存の失敗した origin run のワークスペースを渡します。 | [例](#例) |
 | `--planner-model` | `<PLANNER_MODEL>` | プロバイダが同じなら実行モデル | planner モデル ID を設定します。planner と実行のプロバイダが異なる場合は必須です。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini`、`openai-compatible` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
 | `--prompt` | `<PROMPT>` | なし | TUI に入らず、minimal loop のプロンプトを 1 件実行します。 | [例](#例) |
 | `--plan-steps` | なし | オフ | 末尾のゴールに対する step plan を生成して保存します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--plan-run` | なし | オフ | 末尾のゴールから step plan を生成して実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
@@ -60,7 +62,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--setup-interaction-probe` | なし | オフ | 管理対象の Playwright interaction probe をインストールまたは検証します。 | [Probe 利用不可](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | なし | オフ | プロバイダクライアントを作らず、現在のワークスペースの最近の run を一覧表示します。 | [スラッシュ `/runs`](slash-commands.md#コマンド一覧) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
-| `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](../model-probe.md) |
+| `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
 | `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--json` | なし | オフ | `--doctor` または `--extensions` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
@@ -87,6 +89,27 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--fresh-session` | なし | オフ | 直接 `--prompt` 実行で `--resume` を無視し、新しいセッションを作ります。 | [セッションオプション](#排他関係と組み合わせ) |
 | `--footer` | `<on\|off>` | `on` | 固定 TUI フッターを制御します。off でもスクロールバックの breadcrumb は残ります。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 | `--no-footer` | なし | オフ | 固定 TUI フッターを無効にします。効果は `--footer off` と同じです。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
+
+## 対話型 REPL の操作
+
+1 回の TUI セッション内で、`/model <id>` と `/provider <name>` は executor の
+選択を変更し、`/profile <name>` は明示 profile を変更します。これらの設定は新しい
+Gate 1 カードに適用され、`/status` に表示されます。すでに表示済みのカードは固定済みの
+identity を維持します。実行時の使用法と例は、グループ化された `/help` または
+`/help <command>` で確認できます。`/status` は現在の実行を残りのセッション設定より
+先に表示し、`/last` は直近の結果を再表示し、`/clear` は端末画面を消去します。
+
+`/confirm` は、最新の確認待ち Gate 1 カードに表示された完全な hash を常に受け付けます。
+既定では `/confirm sha256:77cd5e23` のように、8 桁以上の 16 進数を持つ canonical な
+`sha256:` 前方一致も受け付けます。CommandAgent の起動前に
+`COMMANDAGENT_STRICT_CONFIRM=1` を設定すると完全 hash を必須にできます。前方一致は、
+confirmation を保存する前に固定済みの完全 hash へ展開されます。
+
+REPL 履歴は `--state-dir` 配下の
+`workspace-history/<canonical-workspaceのsha256>.txt` に分離されます。アクティブな
+workspace のファイルだけを読み込み、履歴ヒントは 2 文字以上の入力後に 1 行へ収まる長さで
+表示します。以前の共有 `<state-dir>/history.txt` は読み込み、移行、変更、削除を行わないため、
+既存履歴を保持しながら別 workspace で露出させません。
 
 ## 既定値と優先順位
 

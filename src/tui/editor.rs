@@ -16,9 +16,13 @@ use rustyline::{
 
 use crate::config::Config;
 use crate::tui::slash::{SLASH_COMMANDS, SlashCommandKind, slash_command_spec};
+use crate::util::{display_width, fit_display_width};
 
 const FLAGS: &[&str] = &["--profile", "--style", "--prompt-layout"];
+const PROVIDERS: &[&str] = &["gemini", "lm-studio", "ollama", "openai"];
 const CONTINUATION_PROMPT: &str = "... ";
+const REPL_PROMPT_DISPLAY_WIDTH: usize = 14;
+const MIN_HISTORY_HINT_CHARS: usize = 2;
 
 pub struct ReplEditor {
     editor: Editor<ReplHelper, DefaultHistory>,
@@ -340,11 +344,21 @@ impl Completer for ReplHelper {
 
         let prior = before_cursor[..token_start].trim_end();
         let previous_token = prior.split_whitespace().next_back().unwrap_or("");
-        if previous_token == "--profile" {
+        if matches!(previous_token, "--profile" | "/profile") {
             return Ok(Self::prefixed_candidates(
                 token_start,
                 token,
                 crate::planner::profile::profile_names(),
+            ));
+        }
+        if previous_token == "/provider" {
+            return Ok(Self::prefixed_candidates(token_start, token, PROVIDERS));
+        }
+        if previous_token == "/help" {
+            return Ok(Self::prefixed_candidates(
+                token_start,
+                token,
+                SLASH_COMMANDS.iter().map(|command| command.name),
             ));
         }
         if token.starts_with('-') {
@@ -386,8 +400,13 @@ impl Hinter for ReplHelper {
         if line.is_empty() || pos != line.len() {
             return None;
         }
-        if let Some(hint) = self.history_hinter.hint(line, pos, ctx) {
-            return Some(hint);
+        if line.chars().count() >= MIN_HISTORY_HINT_CHARS
+            && let Some(hint) = self.history_hinter.hint(line, pos, ctx)
+        {
+            let columns = crossterm::terminal::size()
+                .map(|(columns, _)| usize::from(columns))
+                .unwrap_or(80);
+            return fit_history_hint(line, &hint, columns);
         }
         SLASH_COMMANDS
             .iter()
@@ -395,6 +414,21 @@ impl Hinter for ReplHelper {
             .find(|command| command.starts_with(line) && *command != line)
             .map(|command| command[pos..].to_string())
     }
+}
+
+fn fit_history_hint(line: &str, hint: &str, columns: usize) -> Option<String> {
+    let available = columns
+        .saturating_sub(REPL_PROMPT_DISPLAY_WIDTH)
+        .saturating_sub(display_width(line));
+    if available == 0 {
+        return None;
+    }
+    let content_width = available.saturating_sub(1);
+    Some(fit_display_width(
+        &hint.replace(['\n', '\r'], " "),
+        content_width,
+        "…",
+    ))
 }
 
 impl Highlighter for ReplHelper {
@@ -512,6 +546,22 @@ mod tests {
             completions(dir.path(), "/ultra-plan-run ").1,
             vec!["--profile", "--prompt-layout", "--style"]
         );
+        assert_eq!(
+            completions(dir.path(), "/provider ").1,
+            vec!["gemini", "lm-studio", "ollama", "openai"]
+        );
+        assert!(
+            completions(dir.path(), "/profile ")
+                .1
+                .iter()
+                .any(|candidate| candidate == "nextjs")
+        );
+        assert!(
+            completions(dir.path(), "/help ")
+                .1
+                .iter()
+                .any(|candidate| candidate == "/model")
+        );
     }
 
     #[test]
@@ -572,6 +622,36 @@ mod tests {
         let empty_history = DefaultHistory::new();
         let ctx = Context::new(&empty_history);
         assert_eq!(helper.hint("/model", 6, &ctx).as_deref(), Some("-probe"));
+    }
+
+    #[test]
+    fn history_hints_require_two_characters_and_fit_one_prompt_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let helper = helper(dir.path());
+        let mut history = DefaultHistory::new();
+        history
+            .add("/status private customer request that must remain clipped")
+            .unwrap();
+        let ctx = Context::new(&history);
+
+        assert_eq!(helper.hint("/", 1, &ctx).as_deref(), Some("help"));
+        assert!(
+            helper
+                .hint("/s", 2, &ctx)
+                .is_some_and(|hint| hint.contains("private"))
+        );
+
+        let fitted = fit_history_hint(
+            "/s",
+            "tatus private customer request that must remain clipped",
+            32,
+        )
+        .unwrap();
+        assert!(fitted.ends_with('…'), "{fitted}");
+        assert!(
+            display_width("/s") + display_width(&fitted) + REPL_PROMPT_DISPLAY_WIDTH <= 32,
+            "{fitted}"
+        );
     }
 
     #[test]

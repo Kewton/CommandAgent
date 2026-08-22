@@ -1,12 +1,9 @@
 use std::io::Write;
 
 use anyhow::Context;
-use clap::CommandFactory;
 use clap_complete::Shell;
 use clap_complete::env::{Bash, Elvish, EnvCompleter, Fish, Powershell, Zsh};
 use clap_mangen::Man;
-
-use crate::cli::Cli;
 
 pub(crate) fn write_completions(shell: Shell, writer: &mut dyn Write) -> anyhow::Result<()> {
     let executable = std::env::current_exe()
@@ -35,5 +32,5 @@ pub(crate) fn write_completions(shell: Shell, writer: &mut dyn Write) -> anyhow:
 }
 
 pub(crate) fn write_man_page(writer: &mut dyn Write) -> std::io::Result<()> {
-    Man::new(Cli::command()).render(writer)
+    Man::new(crate::provider_cli::command()).render(writer)
 }

@@ -221,11 +221,21 @@ fn delegated_cli_command(
     command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
-        .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
+        .args([
+            "--allow",
+            "read,write,bash:verify",
+            "--quiet",
+            "--footer",
+            "off",
+            "--stream",
+            "off",
+        ])
         .arg("--cwd")
         .arg(&workspace)
         .arg("--state-dir")
         .arg(paths.state_root())
+        .args(["--ollama-host", &state.ollama_host])
+        .args(["--lm-studio-host", &state.lm_studio_host])
         .args(["--profile", identity.profile.as_str()])
         .args(["--intent", identity.intent.as_str()])
         .args(["--provider", identity.pins.executor_provider.as_str()])

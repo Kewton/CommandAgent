@@ -24,3 +24,14 @@
   the inherited '--allow' wiring remains intact.
 - No live provider probe was required because the action is local, offline, and
   read-only.
+
+## Post-base-sync recovery
+
+- Merged `origin/develop` after #251, #221, and #157 landed. The only conflicts
+  were the implementation-derived CLI counts; `--extensions` brings the merged
+  public flag total to 62.
+- `cargo test --test doc_drift`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed` with the existing pyenv shims prepended to `PATH` for
+  the Python reference checks.
