@@ -10,6 +10,9 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+mod human_summary;
+pub(crate) mod summary_language;
+pub(crate) mod terminal_report;
 pub(crate) mod typed;
 
 const SNIPPET_LIMIT: usize = 500;
@@ -176,7 +179,7 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = summary_document(text);
+    let content = human_summary::render(path, &summary_body(text));
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -200,12 +203,14 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         return;
     }
     let existing = std::fs::read_to_string(&summary).unwrap_or_default();
+    let existing = human_summary::machine_body(&existing);
     let combined = if existing.trim().is_empty() {
-        format!("{}\n", summary_document(text))
+        content
     } else {
-        format!("{}\n---\n\n{content}\n", existing.trim_end())
+        format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
-    if let Err(err) = std::fs::write(summary, combined) {
+    let document = human_summary::render(path, &combined);
+    if let Err(err) = std::fs::write(summary, format!("{document}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
 }
@@ -3097,15 +3102,6 @@ fn summary_body(body: &str) -> String {
     out
 }
 
-fn summary_document(body: &str) -> String {
-    let content = summary_body(body);
-    if content.is_empty() {
-        crate::build_info::summary_line()
-    } else {
-        format!("{}\n{content}", crate::build_info::summary_line())
-    }
-}
-
 fn argument_value_summary(key: &str, value: &Value) -> Value {
     match value {
         Value::String(text) => {
@@ -3382,6 +3378,12 @@ mod tests {
         let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
         assert!(summary.contains("Status: incomplete\nCompleted phases:\n- scaffold"));
         assert!(summary.contains("---\n\nTUI command failed: phase failed"));
+        assert_eq!(
+            summary.matches("# Run result").count() + summary.matches("# 実行結果").count(),
+            1,
+            "{summary}"
+        );
+        assert!(summary.contains("## Machine details"), "{summary}");
         assert!(summary.contains("<redacted>"));
         assert!(!summary.contains("sk-test"));
     }
