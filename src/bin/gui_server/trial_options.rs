@@ -1,12 +1,17 @@
+use std::collections::BTreeSet;
+use std::time::Duration;
+
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use commandagent::config::Provider;
 use commandagent::planner::pack::catalog::{PackLocator, PackSource, admitted_packs};
 use commandagent::planner::profile::ProfileId;
 use commandagent::planner::profile_descriptor::descriptor;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
-use serde::Serialize;
+use reqwest::redirect::Policy;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::AppState;
 use super::error_response::GuiError;
@@ -17,6 +22,7 @@ const ADMITTED_PROVIDERS: [Provider; 4] = [
     Provider::Openai,
     Provider::Gemini,
 ];
+const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Serialize)]
 pub struct TrialOptions {
@@ -42,6 +48,11 @@ struct ProviderOption {
     model_hint: &'static str,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ProviderModelsQuery {
+    provider: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PackOptions {
     packs: Vec<PackOption>,
@@ -61,6 +72,25 @@ struct PackOption {
 
 pub async fn get() -> Json<TrialOptions> {
     Json(options())
+}
+
+pub async fn get_provider_models(
+    State(state): State<AppState>,
+    Query(query): Query<ProviderModelsQuery>,
+) -> Result<Json<Vec<String>>, GuiError> {
+    let requested = query.provider.as_deref().unwrap_or("");
+    let provider = local_provider(requested).ok_or_else(|| {
+        GuiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "provider_models_unsupported",
+            format!(
+                "provider `{}` does not support local model discovery",
+                requested
+            ),
+        )
+    })?;
+    let models = discover_models(&state, provider).await.unwrap_or_default();
+    Ok(Json(models))
 }
 
 pub async fn get_packs(State(state): State<AppState>) -> Result<Json<PackOptions>, GuiError> {
@@ -143,6 +173,104 @@ pub fn is_admitted_provider(value: &str) -> bool {
     ADMITTED_PROVIDERS
         .iter()
         .any(|provider| provider.as_str() == value)
+}
+
+pub fn normalize_model_host(value: &str, provider: Provider) -> anyhow::Result<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    let normalized = if provider == Provider::LmStudio {
+        trimmed.strip_suffix("/v1").unwrap_or(trimmed)
+    } else {
+        trimmed
+    };
+    if normalized.is_empty() {
+        anyhow::bail!("--{}-host must not be empty", host_option_name(provider));
+    }
+    let parsed = reqwest::Url::parse(normalized).map_err(|error| {
+        anyhow::anyhow!("invalid --{}-host URL: {error}", host_option_name(provider))
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        anyhow::bail!(
+            "--{}-host must use http or https",
+            host_option_name(provider)
+        );
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        anyhow::bail!(
+            "--{}-host must not contain credentials",
+            host_option_name(provider)
+        );
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        anyhow::bail!(
+            "--{}-host must not contain a query or fragment",
+            host_option_name(provider)
+        );
+    }
+    Ok(normalized.to_string())
+}
+
+async fn discover_models(state: &AppState, provider: Provider) -> anyhow::Result<Vec<String>> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(MODEL_DISCOVERY_TIMEOUT)
+        .timeout(MODEL_DISCOVERY_TIMEOUT)
+        .redirect(Policy::none())
+        .build()?;
+    let mut request = match provider {
+        Provider::Ollama => client.get(format!("{}/api/tags", state.ollama_host)),
+        Provider::LmStudio => client.get(format!("{}/v1/models", state.lm_studio_host)),
+        Provider::Openai | Provider::Gemini => anyhow::bail!("provider is not local"),
+    };
+    if provider == Provider::LmStudio
+        && let Some(token) = std::env::var_os("LM_STUDIO_API_TOKEN")
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    {
+        request = request.bearer_auth(token);
+    }
+    let body = request
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Value>()
+        .await?;
+    let entries = match provider {
+        Provider::Ollama => body.get("models").and_then(Value::as_array),
+        Provider::LmStudio => body.get("data").and_then(Value::as_array),
+        Provider::Openai | Provider::Gemini => None,
+    }
+    .ok_or_else(|| anyhow::anyhow!("model list is missing"))?;
+    let key = match provider {
+        Provider::Ollama => "name",
+        Provider::LmStudio => "id",
+        Provider::Openai | Provider::Gemini => unreachable!("local provider checked above"),
+    };
+    Ok(entries
+        .iter()
+        .filter_map(|entry| entry.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect())
+}
+
+fn local_provider(value: &str) -> Option<Provider> {
+    match value {
+        "ollama" => Some(Provider::Ollama),
+        "lm-studio" => Some(Provider::LmStudio),
+        _ => None,
+    }
+}
+
+const fn host_option_name(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Ollama => "ollama",
+        Provider::LmStudio => "lm-studio",
+        Provider::Openai => "openai",
+        Provider::Gemini => "gemini",
+    }
 }
 
 fn options() -> TrialOptions {

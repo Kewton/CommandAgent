@@ -5,6 +5,7 @@ pub mod editor;
 pub mod elapsed;
 pub mod footer;
 pub mod glyphs;
+pub mod history;
 pub mod input_queue;
 pub mod interrupt;
 pub mod markdown;

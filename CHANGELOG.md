@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add explicit `--allow` tool-class policy, Git workspace warnings and exit
+  diffs, and doctor-visible `--offline` scope.
 - Add the repository's MIT License, contribution guide, and changelog.
 - Add documented `just` development tasks and a reproducible Dev Container.
 - Reorganize CLI, GUI, and extension documentation by reader, with stable GUI

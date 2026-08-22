@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
 use anyhow::{Context, bail};
@@ -10,7 +10,7 @@ use crate::tui::editor::{PromptInterruptAction, ReplEditor, normalize_multiline_
 use crate::tui::markdown::TerminalMarkdownRenderer;
 use crate::tui::{InteractionUi, OutputRenderer, TerminalUi};
 
-pub fn run(config: Config) -> anyhow::Result<()> {
+pub fn run(mut config: Config) -> anyhow::Result<()> {
     let stdin_is_terminal = io::stdin().is_terminal();
     if !stdin_is_terminal {
         if !config.fresh_session
@@ -36,11 +36,15 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let mut active_identity = boundary_shell.restore_latest_terminal()?;
     let mut directive_round = 0_u32;
     let mut editor = ReplEditor::new(&config)?;
-    let history_path = config.state_dir.join("history.txt");
-    if let Some(parent) = history_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let history_path = crate::tui::history::prepare_workspace_history_path(
+        &config.state_dir,
+        &config.workspace_root,
+    )
+    .ok();
+    if let Some(history_path) = history_path.as_deref() {
+        let _ = editor.load_history(history_path);
     }
-    let _ = editor.load_history(&history_path);
+    let mut last_result = None;
 
     loop {
         let line = if let Some(line) = ui.take_queued_input() {
@@ -75,6 +79,72 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             break;
         }
         let _ = editor.add_history_entry(line);
+        let words = crate::tui::slash::parse_words(line);
+        match words.first().map(String::as_str) {
+            Some("/model") => {
+                let result = update_executor_model(&config, &words).map(|updated| {
+                    config = updated;
+                    ui.publish_status(crate::tui::status::UiStatus::from_config(&config));
+                    format!(
+                        "Executor model set to `{}` for new Gate 1 cards. Existing cards remain unchanged.",
+                        config.model
+                    )
+                });
+                render_command_result(&renderer, &mut last_result, result)?;
+                ui.reset_interrupt();
+                continue;
+            }
+            Some("/provider") => {
+                let result = update_executor_provider(&config, &words).and_then(|updated| {
+                    let replacement = crate::providers::client_from_config(&updated, false)?;
+                    config = updated;
+                    execution = replacement;
+                    ui.publish_status(crate::tui::status::UiStatus::from_config(&config));
+                    Ok(format!(
+                        "Executor provider set to `{}` for new Gate 1 cards. Existing cards remain unchanged.",
+                        config.provider.as_str()
+                    ))
+                });
+                render_command_result(&renderer, &mut last_result, result)?;
+                ui.reset_interrupt();
+                continue;
+            }
+            Some("/profile") => {
+                let result = update_profile(&config, &words).map(|updated| {
+                    config = updated;
+                    ui.publish_status(crate::tui::status::UiStatus::from_config(&config));
+                    format!(
+                        "Profile set to `{}` for new Gate 1 cards. Existing cards remain unchanged.",
+                        config.profile
+                    )
+                });
+                render_command_result(&renderer, &mut last_result, result)?;
+                ui.reset_interrupt();
+                continue;
+            }
+            Some("/clear") => {
+                let result = require_no_arguments(&words, "/clear").and_then(|()| clear_screen());
+                if let Err(error) = result {
+                    render_and_remember(&renderer, &mut last_result, error.to_string())?;
+                }
+                ui.reset_interrupt();
+                continue;
+            }
+            Some("/last") => {
+                if let Err(error) = require_no_arguments(&words, "/last") {
+                    render_and_remember(&renderer, &mut last_result, error.to_string())?;
+                } else {
+                    renderer.render_assistant(
+                        last_result
+                            .as_deref()
+                            .unwrap_or("No previous REPL result is available."),
+                    )?;
+                }
+                ui.reset_interrupt();
+                continue;
+            }
+            _ => {}
+        }
         if line == "/packs" {
             let (profile, intent) = active_identity
                 .as_ref()
@@ -88,6 +158,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let extension_root = crate::config::configured_extension_root(&config.workspace_root)?;
             render_command_result(
                 &renderer,
+                &mut last_result,
                 crate::pack_actions::render_list(profile, intent, extension_root.as_deref()),
             )?;
             ui.reset_interrupt();
@@ -107,14 +178,16 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                     config.eval_events_path.as_deref(),
                 )
             });
-            render_command_result(&renderer, listed)?;
+            render_command_result(&renderer, &mut last_result, listed)?;
             ui.reset_interrupt();
             continue;
         }
         if line == "/pack" || line.starts_with("/pack ") {
             let selector = line.strip_prefix("/pack").unwrap_or_default().trim();
             let Some(identity) = active_identity.clone() else {
-                renderer.render_assistant(
+                render_and_remember(
+                    &renderer,
+                    &mut last_result,
                     "Pack change refused: no failed confirmed run is active at Gate 4.",
                 )?;
                 ui.reset_interrupt();
@@ -124,7 +197,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let changed = match changed {
                 Ok(identity) => identity.clone(),
                 Err(error) => {
-                    renderer.render_assistant(&format!("Pack change refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Pack change refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -138,7 +215,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 "Gate 1 pack change proposal",
                 &card,
             )?;
-            renderer.render_assistant(&card)?;
+            render_and_remember(&renderer, &mut last_result, card)?;
             ui.reset_interrupt();
             continue;
         }
@@ -146,7 +223,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let target_run_id = match boundary_run_id(config.eval_events_path.as_deref()) {
                 Ok(run_id) => run_id,
                 Err(error) => {
-                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Directive refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -154,7 +235,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let next_round = match boundary_shell.next_directive_round(&target_run_id) {
                 Ok(round) => round.max(directive_round.saturating_add(1)),
                 Err(error) => {
-                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Directive refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -162,7 +247,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let directive = match boundary_shell.begin_directive(raw, &target_run_id, next_round) {
                 Ok(directive) => directive,
                 Err(error) => {
-                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Directive refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -192,13 +281,15 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 &format!("{gate_label} directive proposal"),
                 &proposal,
             )?;
-            renderer.render_assistant(&proposal)?;
+            render_and_remember(&renderer, &mut last_result, proposal)?;
             ui.reset_interrupt();
             continue;
         }
         if let Some(directive_hash) = line.strip_prefix("/confirm-directive ").map(str::trim) {
             let Some(identity) = active_identity.clone() else {
-                renderer.render_assistant(
+                render_and_remember(
+                    &renderer,
+                    &mut last_result,
                     "Directive confirmation refused: no confirmed terminal run is active.",
                 )?;
                 ui.reset_interrupt();
@@ -207,14 +298,19 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             let directive = match boundary_shell.confirm_directive(directive_hash) {
                 Ok(confirmed) => confirmed.directive().clone(),
                 Err(error) => {
-                    renderer
-                        .render_assistant(&format!("Directive confirmation refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Directive confirmation refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
             };
             let Some(events_path) = config.eval_events_path.as_deref() else {
-                renderer.render_assistant(
+                render_and_remember(
+                    &renderer,
+                    &mut last_result,
                     "Directive continuation refused: the failed run has no event stream.",
                 )?;
                 ui.reset_interrupt();
@@ -228,8 +324,11 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             ) {
                 Ok(continuation) => continuation,
                 Err(error) => {
-                    renderer
-                        .render_assistant(&format!("Directive continuation refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Directive continuation refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -240,7 +339,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 continuation.target_run_id,
                 continuation.directive_round,
             );
-            renderer.render_assistant(&confirmed_text)?;
+            render_and_remember(&renderer, &mut last_result, confirmed_text.clone())?;
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,
                 if directive.artifact().issued_gate == "gate_3" {
@@ -291,25 +390,45 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 gate,
                 &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
             )?;
-            renderer.render_assistant(&rendered)?;
+            render_and_remember(&renderer, &mut last_result, rendered)?;
             directive_round = continuation.directive_round;
             ui.reset_interrupt();
             continue;
         }
         if let Some(card_hash) = line.strip_prefix("/confirm ").map(str::trim) {
-            let identity = match boundary_shell.confirm(card_hash) {
+            let resolved_hash = match resolve_confirmation_hash(
+                boundary_shell.state(),
+                card_hash,
+                strict_confirmation_enabled(),
+            ) {
+                Ok(hash) => hash,
+                Err(error) => {
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Confirmation refused: {error}"),
+                    )?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let identity = match boundary_shell.confirm(&resolved_hash) {
                 Ok(confirmed) => confirmed.identity().clone(),
                 Err(error) => {
-                    renderer.render_assistant(&format!("Confirmation refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Confirmation refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
             };
             let confirmed_text = format!(
                 "Persisted confirmation: `{}`\n\nDispatching {} × {} × {}.",
-                card_hash, identity.profile, identity.intent, identity.task_family
+                resolved_hash, identity.profile, identity.intent, identity.task_family
             );
-            renderer.render_assistant(&confirmed_text)?;
+            render_and_remember(&renderer, &mut last_result, confirmed_text.clone())?;
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,
                 "Gate 1 confirmation",
@@ -354,18 +473,26 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 gate,
                 &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
             )?;
-            renderer.render_assistant(&rendered)?;
+            render_and_remember(&renderer, &mut last_result, rendered)?;
             active_identity = Some(identity);
             ui.reset_interrupt();
             continue;
         }
         if let Some(error) = resume_preflight_error(&config.workspace_root, line) {
-            renderer.render_assistant(&format!("Resume unavailable: {error:#}"))?;
+            render_and_remember(
+                &renderer,
+                &mut last_result,
+                format!("Resume unavailable: {error:#}"),
+            )?;
             ui.reset_interrupt();
             continue;
         }
         if crate::tui::boundary_shell::execution_slash_requires_gate_one(line) {
-            renderer.render_assistant(crate::tui::repl_output::GATE_ONE_REQUIRED_GUIDANCE)?;
+            render_and_remember(
+                &renderer,
+                &mut last_result,
+                crate::tui::repl_output::GATE_ONE_REQUIRED_GUIDANCE,
+            )?;
             ui.reset_interrupt();
             continue;
         }
@@ -373,7 +500,11 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             let parsed_request = match crate::tui::slash::parse_inline_request(line) {
                 Ok(parsed) => parsed,
                 Err(error) => {
-                    renderer.render_assistant(&format!("Gate 1 request refused: {error}"))?;
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
+                        format!("Gate 1 request refused: {error}"),
+                    )?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -417,15 +548,20 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     ) {
                         Ok(pack) => pack,
                         Err(error) => {
-                            renderer
-                                .render_assistant(&format!("Gate 1 request refused: {error}"))?;
+                            render_and_remember(
+                                &renderer,
+                                &mut last_result,
+                                format!("Gate 1 request refused: {error}"),
+                            )?;
                             ui.reset_interrupt();
                             continue;
                         }
                     }
                 }
                 (None, Some(_)) => {
-                    renderer.render_assistant(
+                    render_and_remember(
+                        &renderer,
+                        &mut last_result,
                         "Gate 1 request refused: choose a typed route before selecting a pack.",
                     )?;
                     ui.reset_interrupt();
@@ -449,7 +585,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                         "Route correction required",
                         &correction,
                     )?;
-                    renderer.render_assistant(&correction)?;
+                    render_and_remember(&renderer, &mut last_result, correction)?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -463,17 +599,20 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 "Gate 1 proposal",
                 &card,
             )?;
-            renderer.render_assistant(&card)?;
+            render_and_remember(&renderer, &mut last_result, card)?;
             ui.reset_interrupt();
             continue;
         }
         render_command_result(
             &renderer,
+            &mut last_result,
             crate::tui::slash::handle_command(line, &config, &mut *planner, &mut *execution, &ui),
         )?;
         ui.reset_interrupt();
     }
-    let _ = editor.save_history(&history_path);
+    if let Some(history_path) = history_path.as_deref() {
+        let _ = editor.save_history(history_path);
+    }
     Ok(())
 }
 
@@ -491,6 +630,126 @@ fn resume_preflight_error(root: &Path, line: &str) -> Option<anyhow::Error> {
     }
     let target = words[1..].join(" ");
     crate::runs::prepare_resume(root, &target).err()
+}
+
+fn update_executor_model(config: &Config, words: &[String]) -> anyhow::Result<Config> {
+    let value = single_argument(words, "/model", "<id>")?;
+    if value.chars().any(char::is_whitespace) {
+        bail!("/model requires one model ID without whitespace");
+    }
+    if config.provider == crate::config::Provider::Openai {
+        crate::openai_model::validate_strict_id(value, "executor")?;
+    }
+    let mut updated = config.clone();
+    updated.model = value.to_string();
+    updated.field_sources.model = "repl".to_string();
+    Ok(updated)
+}
+
+fn update_executor_provider(config: &Config, words: &[String]) -> anyhow::Result<Config> {
+    let value = single_argument(words, "/provider", "<name>")?;
+    let provider = match value {
+        "ollama" => crate::config::Provider::Ollama,
+        "lm-studio" => crate::config::Provider::LmStudio,
+        "openai" => crate::config::Provider::Openai,
+        "gemini" => crate::config::Provider::Gemini,
+        _ => bail!("unknown provider `{value}`; expected ollama, lm-studio, openai, or gemini"),
+    };
+    if provider == crate::config::Provider::Openai {
+        crate::openai_model::validate_strict_id(&config.model, "executor")?;
+    }
+    let mut updated = config.clone();
+    updated.provider = provider;
+    updated.field_sources.provider = "repl".to_string();
+    Ok(updated)
+}
+
+fn update_profile(config: &Config, words: &[String]) -> anyhow::Result<Config> {
+    let value = single_argument(words, "/profile", "<name>")?;
+    let Some(profile) = crate::planner::profile_descriptor::descriptor_for_name(value) else {
+        bail!("unknown profile `{value}`; use Tab after `/profile ` to list profiles");
+    };
+    let mut updated = config.clone();
+    updated.profile = profile.canonical.to_string();
+    updated.profile_explicit = true;
+    updated.profile_inference = None;
+    updated.field_sources.profile = "repl".to_string();
+    Ok(updated)
+}
+
+fn single_argument<'a>(
+    words: &'a [String],
+    command: &str,
+    value_name: &str,
+) -> anyhow::Result<&'a str> {
+    if words.len() != 2 || words[1].is_empty() {
+        bail!("usage: {command} {value_name}");
+    }
+    Ok(&words[1])
+}
+
+fn require_no_arguments(words: &[String], command: &str) -> anyhow::Result<()> {
+    if words.len() != 1 {
+        bail!("usage: {command}");
+    }
+    Ok(())
+}
+
+fn clear_screen() -> anyhow::Result<()> {
+    let mut stdout = io::stdout();
+    crossterm::execute!(
+        stdout,
+        crossterm::cursor::MoveTo(0, 0),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+    )?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn strict_confirmation_enabled() -> bool {
+    crate::env_compat::var("COMMANDAGENT_STRICT_CONFIRM")
+        .ok()
+        .as_deref()
+        == Some("1")
+}
+
+fn resolve_confirmation_hash(
+    state: &crate::tui::boundary_shell::BoundaryState,
+    supplied: &str,
+    strict: bool,
+) -> anyhow::Result<String> {
+    let crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation {
+        card_hash: expected,
+        ..
+    } = state
+    else {
+        bail!("no Gate 1 proposal is awaiting confirmation");
+    };
+    if supplied == expected {
+        return Ok(expected.clone());
+    }
+    if strict {
+        bail!("COMMANDAGENT_STRICT_CONFIRM=1 requires the full Gate 1 confirmation hash");
+    }
+    let Some(prefix) = supplied.strip_prefix("sha256:") else {
+        bail!("confirmation prefixes must use the `sha256:` form shown on the Gate 1 card");
+    };
+    if !(8..64).contains(&prefix.len()) {
+        bail!("confirmation prefixes require 8 to 63 lowercase hexadecimal digits");
+    }
+    if !prefix
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("confirmation prefixes require lowercase hexadecimal digits");
+    }
+    let Some(expected_digest) = expected.strip_prefix("sha256:") else {
+        bail!("the pending Gate 1 card has an invalid confirmation identity");
+    };
+    if !expected_digest.starts_with(prefix) {
+        bail!("confirmation prefix does not match the latest Gate 1 card");
+    }
+    Ok(expected.clone())
 }
 
 fn apply_confirmed_identity(
@@ -650,12 +909,22 @@ fn provider_name(provider: crate::config::Provider) -> &'static str {
 
 fn render_command_result(
     renderer: &dyn OutputRenderer,
+    last_result: &mut Option<String>,
     result: anyhow::Result<String>,
 ) -> anyhow::Result<()> {
-    match result {
-        Ok(output) => renderer.render_assistant(&output),
-        Err(err) => renderer.render_assistant(&err.to_string()),
-    }
+    let output = result.unwrap_or_else(|error| error.to_string());
+    render_and_remember(renderer, last_result, output)
+}
+
+fn render_and_remember(
+    renderer: &dyn OutputRenderer,
+    last_result: &mut Option<String>,
+    output: impl Into<String>,
+) -> anyhow::Result<()> {
+    let output = output.into();
+    renderer.render_assistant(&output)?;
+    *last_result = Some(output);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -827,9 +1096,11 @@ mod tests {
     fn command_error_is_sent_through_markdown_renderer_once_without_error_prefix() {
         let capture = crate::tui::markdown::capture::start();
         let renderer = TerminalMarkdownRenderer::for_stdout();
+        let mut last_result = None;
 
         render_command_result(
             &renderer,
+            &mut last_result,
             Err(crate::tui::repl_output::RenderedCommandError::new(
                 "================ TASK FAILED ================".to_string(),
             )
@@ -840,6 +1111,120 @@ mod tests {
         let output = capture.output();
         assert_eq!(output.matches("TASK FAILED").count(), 1, "{output}");
         assert!(!output.contains("error:"), "{output}");
+        assert_eq!(
+            last_result.as_deref(),
+            Some("================ TASK FAILED ================")
+        );
+    }
+
+    fn session_config() -> Config {
+        Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            env!("CARGO_MANIFEST_DIR"),
+            "--provider",
+            "ollama",
+            "--model",
+            "executor-old",
+            "--planner-provider",
+            "gemini",
+            "--planner-model",
+            "planner-fixed",
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn session_switches_are_validated_and_preserve_planner_settings() {
+        let config = session_config();
+
+        let model = update_executor_model(
+            &config,
+            &crate::tui::slash::parse_words("/model executor-new"),
+        )
+        .unwrap();
+        assert_eq!(model.model, "executor-new");
+        assert_eq!(model.provider, crate::config::Provider::Ollama);
+        assert_eq!(model.planner_model, "planner-fixed");
+        assert_eq!(model.planner_provider, crate::config::Provider::Gemini);
+        assert_eq!(model.field_sources.model, "repl");
+
+        let provider = update_executor_provider(
+            &model,
+            &crate::tui::slash::parse_words("/provider lm-studio"),
+        )
+        .unwrap();
+        assert_eq!(provider.provider, crate::config::Provider::LmStudio);
+        assert_eq!(provider.planner_provider, crate::config::Provider::Gemini);
+        assert_eq!(provider.field_sources.provider, "repl");
+
+        let profile = update_profile(
+            &provider,
+            &crate::tui::slash::parse_words("/profile next.js"),
+        )
+        .unwrap();
+        assert_eq!(profile.profile, "nextjs");
+        assert!(profile.profile_explicit);
+        assert!(profile.profile_inference.is_none());
+        assert_eq!(profile.field_sources.profile, "repl");
+
+        assert!(
+            update_executor_provider(
+                &config,
+                &crate::tui::slash::parse_words("/provider unknown")
+            )
+            .is_err()
+        );
+        assert!(
+            update_profile(&config, &crate::tui::slash::parse_words("/profile missing")).is_err()
+        );
+        assert!(update_executor_model(&config, &crate::tui::slash::parse_words("/model")).is_err());
+    }
+
+    #[test]
+    fn confirmation_accepts_only_matching_bounded_prefix_unless_strict() {
+        let root = tempfile::tempdir().unwrap();
+        let mut shell = crate::tui::boundary_shell::BoundaryShell::new(
+            root.path().join("confirmations"),
+            Some(root.path().join("events.jsonl")),
+        );
+        shell
+            .begin_gate_one(
+                python_cli_proposal(),
+                "Python CLI filter",
+                root.path(),
+                pins(),
+                PackSelection::None,
+            )
+            .unwrap();
+        let expected = match shell.state() {
+            crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation {
+                card_hash, ..
+            } => card_hash.clone(),
+            state => panic!("unexpected state: {state:?}"),
+        };
+        let digest = expected.strip_prefix("sha256:").unwrap();
+        let prefix = format!("sha256:{}", &digest[..8]);
+
+        assert_eq!(
+            resolve_confirmation_hash(shell.state(), &prefix, false).unwrap(),
+            expected
+        );
+        assert_eq!(
+            resolve_confirmation_hash(shell.state(), &expected, true).unwrap(),
+            expected
+        );
+        assert!(resolve_confirmation_hash(shell.state(), &prefix, true).is_err());
+        assert!(
+            resolve_confirmation_hash(shell.state(), &format!("sha256:{}", &digest[..7]), false)
+                .is_err()
+        );
+        assert!(resolve_confirmation_hash(shell.state(), "sha256:00000000", false).is_err());
+        assert!(resolve_confirmation_hash(shell.state(), "sha256:ABCDEF12", false).is_err());
+
+        let expanded = resolve_confirmation_hash(shell.state(), &prefix, false).unwrap();
+        let confirmed = shell.confirm(&expanded).unwrap();
+        assert_eq!(confirmed.card_hash(), expected);
     }
 
     #[test]

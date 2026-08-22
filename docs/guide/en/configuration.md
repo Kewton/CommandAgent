@@ -85,26 +85,35 @@ unquoted integers.
 | `prompt_layout` | `"stable"` or `"legacy"` | top-level value, then `"legacy"` |
 | `plan_preset` | `"none"` or `"profile"` | top-level/computed planner value |
 
+The following complete preset shows the current measured local role split. It
+is an explicit example, not a built-in default; read the [role-pair evidence
+and scope](../model-probe-results/2026-08-22-local-role-pairs.md) before use.
+
 ```toml
-[preset.local]
-model = "qwen3.6:27b-coding-nvfp4"
+[preset.local_role_split]
+model = "qwen3.8:27b-mlx"
 provider = "ollama"
 api = "chat_completions"
-tool_protocol = "text"
-planner_model = "qwen3.6:27b-coding-nvfp4"
+tool_protocol = "native"
+planner_model = "qwen3.8:27b-mlx"
 planner_provider = "ollama"
 planner_think = "false"
 classifier_model = "qwen3.5:4b"
 classifier_provider = "ollama"
 context_budget = 65536
 chat_timeout_secs = 600
-profile = "nextjs"
+profile = "generic"
 narration = "normal"
 footer = "on"
 stream = "on"
 prompt_layout = "legacy"
 plan_preset = "none"
 ```
+
+This exact local probe supports the smaller classifier only. It does not
+support replacing the planner with the measured 9B or 4B candidates. Re-run
+the [model probe](model-probe.md#role-pair-procedure) and scenario admission
+checks when a model digest, host, context, provider, or build changes.
 
 An unknown key or invalid value in a parsed preset is an error naming the file,
 line, and `preset.<name>.<key>`. Selecting a name that does not occur in any

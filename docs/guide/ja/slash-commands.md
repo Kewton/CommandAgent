@@ -7,14 +7,19 @@
 
 ## コマンド一覧
 
-レジストリには主コマンドが 18 件あります。`/quit` は `/exit` の別名として独立して受け付ける
-コマンド名なので、受け付ける名前は合計 19 件です。
+レジストリには主コマンドが 23 件あります。`/quit` は `/exit` の別名として独立して受け付ける
+コマンド名なので、受け付ける名前は合計 24 件です。
 
 | コマンド名 | `/help` に表示される使用法 | 動作 |
 | --- | --- | --- |
-| `/help` | `/help` | コマンド一覧、footer のヒント、入力キュー上限、複数行の継続入力、interrupt 動作を表示します。 |
-| `/confirm` | `/confirm <hash>` | 確認した Gate 1 カードを正確に保存し、その依頼を直ちに実行します。カードに表示された hash を使います。 |
-| `/status` | `/status` | 実効設定とプロバイダの readiness を表示します。 |
+| `/help` | `/help [command]` | グループ化したコマンドを表示するか、1 コマンドの詳しい使用法と例を表示します。 |
+| `/confirm` | `/confirm <hash>` | 確認した Gate 1 カードを保存し、その依頼を直ちに実行します。strict confirmation が無効なら、8 桁以上の 16 進数を持つ一致した `sha256:` 前方一致も使えます。 |
+| `/status` | `/status` | 現在の実行を先に、その後で実効セッション設定と readiness を表示します。 |
+| `/model` | `/model <id>` | この REPL セッションで新しい Gate 1 カードに使う executor model を設定します。 |
+| `/provider` | `/provider <name>` | この REPL セッションで新しい Gate 1 カードに使う executor provider を設定します。 |
+| `/profile` | `/profile <name>` | この REPL セッションで新しい Gate 1 カードに使う明示 profile を設定します。 |
+| `/clear` | `/clear` | 直近の結果を破棄せずに端末画面を消去します。 |
+| `/last` | `/last` | 直近の REPL 結果を再表示します。 |
 | `/doctor` | `/doctor` | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 |
 | `/packs` | `/packs` | 実効 profile と intent に対し、`commandagent --packs` と同じ列・順序で compatible な admitted/local pack を一覧表示します。 |
 | `/pack` | `/pack <id@version>` | Gate 4 で compatible な admitted exact-byte pack を選び、新しい Gate 1 カードへ戻ります。 |
@@ -28,16 +33,21 @@
 | `/ultra-plan-run` | `/ultra-plan-run <goal>` | UltraPlan を生成して実行します。 |
 | `/run-ultra-plan` | `/run-ultra-plan <path>` | 既存の UltraPlan YAML ファイルを実行します。 |
 | `/setup-interaction-probe` | `/setup-interaction-probe` | 管理対象の Playwright interaction readiness probe をインストールまたは検証します。 |
-| `/model-probe` | `/model-probe` | 限定的なモデル動作プローブ一式を実行します。[モデル動作プローブ](../model-probe.md)も参照してください。 |
+| `/model-probe` | `/model-probe` | 限定的なモデル動作プローブ一式を実行します。[モデル動作プローブ](model-probe.md)も参照してください。 |
 | `/exit` | `/exit or /quit` | TUI を終了します。 |
 | `/quit` | `/exit or /quit` | `/exit` の別名として TUI を終了します。 |
 
 未知のスラッシュコマンドは入力エラーとして扱われ、候補がある場合は最も近いコマンドを案内します。
 タスクの開始や run summary の生成は行いません。スラッシュなしの平文は Gate 1 カードを
-作りますが、まだ実行しません。カードを確認し、表示された正確な hash で
+作りますが、まだ実行しません。カードを確認し、表示された hash または許可された前方一致で
 `/confirm <hash>` を入力すると実行が始まります。`/ultra-plan-run <goal>` や
 `/plan-run <goal>` などを直接入力した場合も、この Gate 1 フローへ戻る案内を表示します。
 plan コマンドの失敗は REPL を終了せずに報告されます。
+
+完全 hash は常に受け付けます。既定では、8〜63 桁の小文字 16 進数を持つ canonical な
+`sha256:` 前方一致を、最新の確認待ち Gate 1 カードに一致する場合だけ受け付けます。
+`COMMANDAGENT_STRICT_CONFIRM=1` で完全 hash 一致へ戻せます。保存と event 出力には前方一致では
+なく、固定済みの完全 hash を使います。
 
 ## インラインフラグ
 
@@ -132,6 +142,10 @@ preset の `profile` のいずれかがあれば、明示値が `generic` でも
 
 ## TUI の注意点
 
+- `/model`、`/provider`、`/profile` は現在の REPL process 内だけで維持され、新しい Gate 1
+  カードに適用されます。既存カードの固定済み pin は変わりません。
+- 履歴は state directory 配下にあるアクティブ workspace 専用の hash leaf だけを読み込みます。
+  以前の共有 `history.txt` は保持しますが読み込みません。
 - コマンド実行中に Enter を押した入力は、最大 10 行、各行最大 4096 バイトまでキューに入ります。
   Backspace で保留中の入力を編集できます。
 - Ctrl-C は interrupt します。Esc は空でない保留入力を消去し、それ以外では interrupt します。

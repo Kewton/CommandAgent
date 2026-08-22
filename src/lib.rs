@@ -58,6 +58,7 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
     if pack_actions::run_if_requested(&cli)? {
         return Ok(());
     }
@@ -149,6 +150,11 @@ fn run_resolved_config_with_summary(
     config: Config,
     summary_source: Option<headless_summary::Source>,
 ) -> anyhow::Result<()> {
+    let _git_reporter = (!matches!(
+        config.action,
+        Action::Runs | Action::UxDemo | Action::ModelProbe
+    ))
+    .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
     cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
 }
 

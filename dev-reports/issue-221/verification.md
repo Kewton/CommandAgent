@@ -21,3 +21,13 @@ The headless integration and final full-suite commands ran outside the
 filesystem/network sandbox because the SIGINT regression binds a loopback
 listener and signals its child process. The final full-suite run included the
 terminal protection audit and completed with no failures.
+
+## Post-base-sync recovery
+
+- Merged `origin/develop` after #227 and the earlier Wave 4 prerequisites
+  landed. The `src/lib.rs` resolution retains both the Git run reporter and the
+  interruption-aware summary source.
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed` with the existing pyenv shims prepended to `PATH` so
+  the Python reference checks use the repository's available PyYAML runtime.
