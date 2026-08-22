@@ -1,0 +1,55 @@
+case_id = "issue253-workflow-v02"
+source = "Issue #253 workflow-circle v0.2 schema contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/v02-draft-planner.yaml = [
+  "version: 0.2",
+  "profile: static-site",
+  "planner_model: small-planner",
+  "planner_provider: gemini",
+  "when: recovery_yaml_present"
+]
+fixtures/v02-draft-terminal-cap.yaml = [
+  "version: 0.2",
+  "profile: static-site",
+  "verdict: circle_full"
+]
+fixtures/negative-planner-half.yaml = [
+  "planner_model: small-planner",
+  "planner_provider"
+]
+fixtures/negative-planner-v01.yaml = [
+  "version: 0.1",
+  "planner_model: small-planner",
+  "planner_provider: gemini"
+]
+fixtures/negative-draft-v01.yaml = [
+  "version: 0.1",
+  "profile: static-site"
+]
+fixtures/negative-unknown-condition.yaml = [
+  "when: evidence_expression"
+]
+fixtures/negative-unregistered-profile.yaml = [
+  "profile: typo-profile"
+]

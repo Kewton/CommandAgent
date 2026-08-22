@@ -1,4 +1,4 @@
-//! Strict parser and validator for workflow circle schema v0 and v0.1.
+//! Strict parser and validator for workflow circle schema v0 through v0.2.
 //! YAML is configuration only; execution and adjudication remain in Rust.
 
 use serde::{Deserialize, Deserializer, de};
@@ -29,12 +29,17 @@ pub struct Node {
     pub model: Option<String>,
     #[serde(default)]
     pub provider: Option<Provider>,
+    #[serde(default)]
+    pub planner_model: Option<String>,
+    #[serde(default)]
+    pub planner_provider: Option<Provider>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowVersion {
     V0,
     V0_1,
+    V0_2,
 }
 
 impl<'de> Deserialize<'de> for WorkflowVersion {
@@ -52,7 +57,14 @@ impl<'de> Deserialize<'de> for WorkflowVersion {
             {
                 Ok(Self::V0_1)
             }
-            _ => Err(de::Error::custom("workflow version must be 0 or 0.1")),
+            serde_yaml::Value::Number(number)
+                if number
+                    .as_f64()
+                    .is_some_and(|value| (value - 0.2).abs() < f64::EPSILON) =>
+            {
+                Ok(Self::V0_2)
+            }
+            _ => Err(de::Error::custom("workflow version must be 0, 0.1, or 0.2")),
         }
     }
 }
@@ -138,9 +150,18 @@ impl Workflow {
             return Err(SchemaError("entry node is not defined".into()));
         }
         for (id, node) in &self.nodes {
-            if profile_admission::status(&node.profile) != ManifestStatus::Admitted {
+            let status = profile_admission::status(&node.profile);
+            if self.version != WorkflowVersion::V0_2 && status != ManifestStatus::Admitted {
                 return Err(SchemaError(format!(
                     "node `{id}` uses a non-admitted profile `{}`",
+                    node.profile
+                )));
+            }
+            if self.version == WorkflowVersion::V0_2
+                && crate::planner::profile_descriptor::descriptor_for_name(&node.profile).is_none()
+            {
+                return Err(SchemaError(format!(
+                    "node `{id}` uses an unregistered profile `{}`",
                     node.profile
                 )));
             }
@@ -160,6 +181,30 @@ impl Workflow {
                 }
                 (None, Some(_)) => {
                     return Err(SchemaError(format!("node `{id}` provider requires model")));
+                }
+            }
+            match (&node.planner_model, node.planner_provider) {
+                (None, None) => {}
+                (Some(model), Some(_)) if model.trim().is_empty() => {
+                    return Err(SchemaError(format!(
+                        "node `{id}` planner_model must not be empty"
+                    )));
+                }
+                (Some(_), Some(_)) if self.version != WorkflowVersion::V0_2 => {
+                    return Err(SchemaError(format!(
+                        "node `{id}` planner override requires workflow version 0.2"
+                    )));
+                }
+                (Some(_), Some(_)) => {}
+                (Some(_), None) => {
+                    return Err(SchemaError(format!(
+                        "node `{id}` planner_model requires planner_provider"
+                    )));
+                }
+                (None, Some(_)) => {
+                    return Err(SchemaError(format!(
+                        "node `{id}` planner_provider requires planner_model"
+                    )));
                 }
             }
         }
@@ -195,6 +240,7 @@ mod tests {
     use super::*;
     const VALID: &str = "workflow: recovery-circle-data\nversion: 0\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\n  investigate: {intent: investigate, profile: generic}\nroutes:\n  - {from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml]}\nterminal: {}\n";
     const VALID_V0_1: &str = "workflow: recovery-circle-data\nversion: 0.1\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\n  investigate: {intent: investigate, profile: generic, model: elevated-model, provider: gemini}\nroutes:\n  - {from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml]}\nterminal: {}\n";
+    const VALID_V0_2: &str = "workflow: recovery-circle-data\nversion: 0.2\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\n  investigate: {intent: investigate, profile: generic, planner_model: planner-model, planner_provider: gemini}\nroutes:\n  - {from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml]}\nterminal: {}\n";
 
     #[test]
     fn parses_valid_schema() {
@@ -209,17 +255,25 @@ mod tests {
             lm_studio.nodes["investigate"].provider,
             Some(Provider::LmStudio)
         );
+
+        let workflow = Workflow::parse(VALID_V0_2).unwrap();
+        let investigate = &workflow.nodes["investigate"];
+        assert_eq!(investigate.planner_model.as_deref(), Some("planner-model"));
+        assert_eq!(investigate.planner_provider, Some(Provider::Gemini));
     }
 
     #[test]
     fn rejects_unknown_key() {
         assert!(Workflow::parse(&VALID.replace("version: 0", "version: 0\nextra: true")).is_err());
+        assert!(Workflow::parse(&VALID_V0_2.replace("version: 0.2", "version: 0.3")).is_err());
         assert!(
-            Workflow::parse(&VALID_V0_1.replace(
-                "model: elevated-model",
-                "planner_model: elevated-planner, model: elevated-model"
+            Workflow::parse(&VALID_V0_2.replace(
+                "planner_provider: gemini",
+                "planner_provider: gemini, classifier_model: classifier"
             ))
-            .is_err()
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field")
         );
     }
 
@@ -244,6 +298,43 @@ mod tests {
                 .contains("requires workflow version 0.1")
         );
         assert!(Workflow::parse(&VALID_V0_1.replace("gemini", "unknown-provider")).is_err());
+    }
+
+    #[test]
+    fn planner_override_requires_v0_2_model_provider_pair() {
+        assert!(
+            Workflow::parse(&VALID_V0_2.replace(", planner_provider: gemini", ""))
+                .unwrap_err()
+                .to_string()
+                .contains("planner_model requires planner_provider")
+        );
+        assert!(
+            Workflow::parse(&VALID_V0_2.replace(", planner_model: planner-model", ""))
+                .unwrap_err()
+                .to_string()
+                .contains("planner_provider requires planner_model")
+        );
+        assert!(
+            Workflow::parse(&VALID_V0_2.replace("version: 0.2", "version: 0.1"))
+                .unwrap_err()
+                .to_string()
+                .contains("requires workflow version 0.2")
+        );
+        assert!(Workflow::parse(&VALID_V0_2.replace("gemini", "unknown-provider")).is_err());
+    }
+
+    #[test]
+    fn v0_2_still_rejects_unregistered_profiles_and_conditions() {
+        assert!(
+            Workflow::parse(&VALID_V0_2.replace("profile: generic", "profile: typo-profile"))
+                .unwrap_err()
+                .to_string()
+                .contains("unregistered profile")
+        );
+        assert!(
+            Workflow::parse(&VALID_V0_2.replace("recovery_yaml_present", "free_form_expression"))
+                .is_err()
+        );
     }
 
     #[test]

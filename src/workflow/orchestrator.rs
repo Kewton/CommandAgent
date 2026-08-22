@@ -120,11 +120,12 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             let bindings =
                 runner::derive_origin_bindings(&origin_events).map_err(|e| anyhow::anyhow!(e))?;
             runner::verify_origin(&bindings, |_| true).map_err(|e| anyhow::anyhow!(e))?;
+            let adjudication = super::admission::after_origin_verification(&workflow);
             emit(
                 &events_path,
-                workflow_adjudicated_event("circle_full", None),
+                workflow_adjudicated_event(adjudication.verdict, adjudication.event_reason),
             )?;
-            circle.adjudicate("circle_full", Some("verify_origin"));
+            circle.adjudicate(adjudication.verdict, Some(adjudication.evidence_reason));
             return write_circle(origin, &circle);
         }
         let intent = match node.intent {
@@ -164,6 +165,8 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             reproducer,
             model,
             provider,
+            planner_model: node.planner_model.clone(),
+            planner_provider: node.planner_provider,
             diagnosis,
         };
         let node_events = origin.join(format!("evidence/{node_id}-events.jsonl"));
@@ -184,17 +187,16 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
                 },
             )
             .map_err(anyhow::Error::msg)?;
-        emit(
-            &events_path,
-            json!({
-                "event":"workflow_node_run_created",
-                "node":node_id,
-                "run_id":identity.run_id,
-                "run_dir":identity.run_dir,
-                "model":request.model,
-                "provider":provider_name(request.provider),
-            }),
-        )?;
+        let mut created = json!({
+            "event":"workflow_node_run_created",
+            "node":node_id,
+            "run_id":identity.run_id,
+            "run_dir":identity.run_dir,
+            "model":request.model,
+            "provider":provider_name(request.provider),
+        });
+        super::node_pins::add_to_event(&mut created, &request);
+        emit(&events_path, created)?;
         let execution = runner::execute_node(&request, &node_events, |req| {
             execute_configured_node(config, node, req, &identity, |child| {
                 crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
@@ -475,17 +477,16 @@ fn emit_node_run_created(
     node_id: &str,
     request: &runner::NodeRunRequest,
 ) -> anyhow::Result<()> {
-    emit(
-        &identity.events_path,
-        json!({
-            "event":"workflow_node_run_created",
-            "node":node_id,
-            "run_id":identity.run_id,
-            "run_dir":identity.run_dir,
-            "model":request.model,
-            "provider":provider_name(request.provider),
-        }),
-    )
+    let mut event = json!({
+        "event":"workflow_node_run_created",
+        "node":node_id,
+        "run_id":identity.run_id,
+        "run_dir":identity.run_dir,
+        "model":request.model,
+        "provider":provider_name(request.provider),
+    });
+    super::node_pins::add_to_event(&mut event, request);
+    emit(&identity.events_path, event)
 }
 
 fn emit_node_run_stop_if_absent(
@@ -528,8 +529,8 @@ fn emit_node_run_stop_if_absent(
 // plan_preset                        node intent/profile default; explicit     wrong
 //                                    global override is preserved
 // intent_override                    node declaration                         correct
-// planner_model                      global inheritance                       correct
-// planner_provider                   global inheritance                       correct
+// planner_model                      node declaration or global inheritance   correct
+// planner_provider                   node declaration or global inheritance   correct
 // ollama_host                        global inheritance                       correct
 // num_predict                        global inheritance                       correct
 // max_iterations                     global inheritance                       correct
@@ -549,8 +550,8 @@ fn emit_node_run_stop_if_absent(
 // action                             origin-derived goal + node intent Prompt wrong
 // field_sources.model                node declaration or global inheritance   correct
 // field_sources.provider             node declaration or global inheritance   correct
-// field_sources.planner_model        global inheritance                       correct
-// field_sources.planner_provider     global inheritance                       correct
+// field_sources.planner_model        node declaration or global inheritance   correct
+// field_sources.planner_provider     node declaration or global inheritance   correct
 // field_sources.context_budget       global inheritance                       correct
 // field_sources.chat_timeout_secs    global inheritance                       correct
 // field_sources.prompt_layout        global inheritance                       correct
@@ -567,7 +568,7 @@ fn emit_node_run_stop_if_absent(
 // action selector / ultra_plan_run fixed Action::UltraPlanRun               correct
 // single-intent execution entry    run_resolved_config_for_workflow          correct
 // panic boundary                   outer workflow CLI boundary only          correct
-// node request                     route-derived goal/intent/carry/config    correct
+// node request                     route-derived goal/intent/carry/model pins correct
 // external reproducer binding      route carry -> origin-confined state file correct
 // workflow child marker            fixed origin-confined state file          correct
 // node identity                    origin-confined allocated UUID/run paths  correct
@@ -660,6 +661,7 @@ fn node_config(
         child.field_sources.model = "workflow_node".into();
         child.field_sources.provider = "workflow_node".into();
     }
+    super::node_pins::apply_to_config(&mut child, request);
     Ok(child)
 }
 
@@ -803,6 +805,8 @@ mod tests {
             reproducer: None,
             model: model.into(),
             provider,
+            planner_model: None,
+            planner_provider: None,
             diagnosis: None,
         }
     }
@@ -813,6 +817,8 @@ mod tests {
             profile: "data".into(),
             model: model.map(str::to_string),
             provider,
+            planner_model: None,
+            planner_provider: None,
         }
     }
 
@@ -896,6 +902,8 @@ mod tests {
             profile: "data".into(),
             model: None,
             provider: None,
+            planner_model: None,
+            planner_provider: None,
         };
         let mut request = request(root.path(), &global.model, global.provider);
         request.intent = "fix".into();
