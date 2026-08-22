@@ -80,7 +80,7 @@ export function GettingStarted() {
 
         <div className="getting-started-actions">
           <h3>サンプルから始める</h3>
-          <p>Python CLI の小さな目標を入力します。モデル ID は環境に合わせて指定してください。</p>
+          <p>「--pattern で行を絞り込む CLI コマンドを作ってください」を入力します。モデル ID は環境に合わせて指定してください。</p>
           <a
             className="primary-action"
             data-testid="getting-started-sample"

@@ -14,6 +14,7 @@ const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
 const GUIDE_INDEX: &str = "docs/guide/README.md";
 const CONFIG_DOC: &str = "docs/guide/en/configuration.md";
 const CANONICAL_SAMPLE_GOAL: &str = "Create a CLI --pattern filter command";
+const GUI_SAMPLE_GOAL: &str = "--pattern で行を絞り込む CLI コマンドを作ってください";
 const ROOT_MARKDOWN_DOCS: &[&str] = &[
     ".devcontainer/README.md",
     "benchmarks/README.md",
@@ -860,7 +861,7 @@ fn bilingual_learning_path_is_ordered_and_within_three_clicks() {
 }
 
 #[test]
-fn introductory_surfaces_share_the_runtime_sample_goal() {
+fn introductory_surfaces_keep_cli_and_gui_sample_goals_explicit() {
     for path in [
         "README.md",
         "README.ja.md",
@@ -868,13 +869,16 @@ fn introductory_surfaces_share_the_runtime_sample_goal() {
         "docs/user/first-loop.md",
         "docs/guide/en/tutorial.md",
         "docs/guide/ja/tutorial.md",
-        "gui/hooks/use-trial-compose.ts",
     ] {
         assert!(
             read_repo_file(path).contains(CANONICAL_SAMPLE_GOAL),
-            "{path} does not use the canonical runtime sample goal"
+            "{path} does not use the canonical CLI sample goal"
         );
     }
+    assert!(
+        read_repo_file("gui/hooks/use-trial-compose.ts").contains(GUI_SAMPLE_GOAL),
+        "GUI Trial does not use the Japanese sample goal"
+    );
 }
 
 #[test]

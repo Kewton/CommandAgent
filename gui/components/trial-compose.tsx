@@ -1,15 +1,32 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import type { TrialRunState } from "../hooks/use-trial-run";
+import { apiPath } from "../lib/base-path";
 import type { TrialWorkspaceLease } from "../lib/types";
+
+const localModelProviders = new Set(["ollama", "lm-studio"]);
 
 export function TrialCompose({ run }: { run: TrialRunState }) {
   const {
     busy, checkContract, compatiblePacks, created, error, errorReconnectSessionId,
     inspectWorkspaceLease, launchIdentityLocked, optionsError, reconnectExisting,
-    reconnectSessionId, selectedPack, selectedProfile, selectedProvider, setConfirmed,
-    setProposal, setProviderChanged, setReconnectSessionId, setStage, setWorkspaceLease,
-    spec, trialAccessReady, trialOptions, trialToken, trialTokenAuthEnabled, update,
-    updateTrialToken, workspaceLease,
+    reconnectSessionId, selectedPack, selectedProfile, selectedProvider, setConfirmed, setProposal,
+    setProviderChanged, setReconnectSessionId, setStage, setWorkspaceLease, spec,
+    trialAccessReady, trialOptions, trialToken, trialTokenAuthEnabled, update, updateTrialToken,
+    workspaceLease,
   } = run;
+  const providerModels = useProviderModels(spec.provider);
+  const [requestedPack, setRequestedPack] = useState<string | null>(null);
+  const executorModelUnknown = unknownDiscoveredModel(spec.model, providerModels);
+  const plannerModelUnknown = unknownDiscoveredModel(spec.planner_model, providerModels);
+  const packPreselectionWarning =
+    requestedPack !== null && trialOptions !== null && spec.pack !== requestedPack;
+
+  useEffect(() => {
+    setRequestedPack(new URLSearchParams(window.location.search).get("pack"));
+  }, []);
 
   return (
     <div className="trial-compose panel">
@@ -117,7 +134,10 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
             data-testid="trial-profile"
             disabled={launchIdentityLocked || trialOptions === null}
             value={spec.profile}
-            onChange={(event) => update("profile", event.target.value)}
+            onChange={(event) => {
+              setRequestedPack(null);
+              update("profile", event.target.value);
+            }}
           >
             {trialOptions === null ? (
               <option value={spec.profile}>許可済みプロファイルを読み込み中…</option>
@@ -142,7 +162,10 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
             data-testid="trial-pack"
             disabled={launchIdentityLocked || trialOptions === null || selectedProfile?.status === "draft"}
             value={spec.pack ?? ""}
-            onChange={(event) => update("pack", event.target.value || null)}
+            onChange={(event) => {
+              setRequestedPack(null);
+              update("pack", event.target.value || null);
+            }}
           >
             <option value="">選択なし</option>
             {compatiblePacks.map((option) => {
@@ -162,6 +185,11 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           {selectedProfile?.status === "draft" && (
             <small className="trial-field-hint" data-testid="trial-draft-pack-note">
               draft profile では検証 pack は「選択なし」固定です。
+            </small>
+          )}
+          {packPreselectionWarning && (
+            <small className="trial-field-hint" data-testid="trial-pack-preselection-warning" role="status">
+              この pack は現在の profile / intent では選べません。
             </small>
           )}
         </label>
@@ -188,9 +216,13 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
         <label>
           実行モデル
           <input
-            aria-describedby={run.providerChanged ? "trial-provider-model-hint" : undefined}
+            aria-describedby={describedBy(
+              run.providerChanged ? "trial-provider-model-hint" : null,
+              executorModelUnknown ? "trial-executor-model-warning" : null,
+            )}
             data-testid="trial-executor-model"
             disabled={launchIdentityLocked}
+            list="trial-provider-model-options"
             placeholder="正確なモデル ID"
             value={spec.model}
             onChange={(event) => update("model", event.target.value)}
@@ -205,17 +237,42 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
               プロバイダーを変更しても実行モデルは自動更新されません。{selectedProvider.model_hint}
             </small>
           )}
+          {executorModelUnknown && (
+            <small
+              className="trial-model-warning"
+              data-testid="trial-executor-model-warning"
+              id="trial-executor-model-warning"
+              role="status"
+            >
+              この実行モデルは取得済みの候補にありません。正確な ID か確認してください。
+            </small>
+          )}
         </label>
         <label>
           計画モデル
           <input
+            aria-describedby={plannerModelUnknown ? "trial-planner-model-warning" : undefined}
             data-testid="trial-planner-model"
             disabled={launchIdentityLocked}
+            list="trial-provider-model-options"
             placeholder="正確なモデル ID"
             value={spec.planner_model}
             onChange={(event) => update("planner_model", event.target.value)}
           />
+          {plannerModelUnknown && (
+            <small
+              className="trial-model-warning"
+              data-testid="trial-planner-model-warning"
+              id="trial-planner-model-warning"
+              role="status"
+            >
+              この計画モデルは取得済みの候補にありません。正確な ID か確認してください。
+            </small>
+          )}
         </label>
+        <datalist id="trial-provider-model-options">
+          {providerModels.map((model) => <option key={model} value={model} />)}
+        </datalist>
       </div>
       <div className="trial-action-bar trial-request-actions">
         <button
@@ -255,4 +312,46 @@ function workspaceLeaseLabel(lease: TrialWorkspaceLease | null): string {
   if (lease.status === "recovery_required") return "復旧が必要";
   if (lease.status === "running") return "実行中";
   return "待機中";
+}
+
+function unknownDiscoveredModel(model: string, candidates: string[]): boolean {
+  return candidates.length > 0 && model.trim() !== "" && !candidates.includes(model);
+}
+
+function describedBy(...ids: Array<string | null>): string | undefined {
+  const value = ids.filter((id): id is string => id !== null).join(" ");
+  return value === "" ? undefined : value;
+}
+
+function useProviderModels(provider: string): string[] {
+  const [models, setModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!localModelProviders.has(provider)) {
+      setModels([]);
+      return;
+    }
+    const controller = new AbortController();
+    setModels([]);
+    void fetch(apiPath("provider-models", new URLSearchParams({ provider })), {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => response.ok ? response.json() as Promise<unknown> : [])
+      .then((value) => {
+        if (!controller.signal.aborted) {
+          setModels(
+            Array.isArray(value)
+              ? value.filter((model): model is string => typeof model === "string")
+              : [],
+          );
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) setModels([]);
+      });
+    return () => controller.abort();
+  }, [provider]);
+
+  return models;
 }
