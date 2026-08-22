@@ -70,6 +70,13 @@ class IssueAnalysis:
     dependency_hints: tuple[str, ...] = ()
     explicit_dependencies: tuple[int, ...] | None = None
     approved_decision: str = ""
+    worktree_issue_numbers: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorktreeRow:
+    lead_issue_number: int
+    issue_numbers: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -225,8 +232,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="ISSUE:DEP,DEP",
         help=(
-            "Authoritative dependency entry. When used, specify every requested Issue; "
-            "use ISSUE: for an Issue with no dependencies."
+            "Authoritative dependency entry. When used, specify every planned "
+            "worktree row (the lead Issue when --worktree-row is used); use ISSUE: "
+            "for a row with no dependencies."
         ),
     )
     parser.add_argument(
@@ -235,6 +243,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="ISSUE:TEXT",
         help="Approved Issue decision to add to planning and worker instructions.",
+    )
+    parser.add_argument(
+        "--worktree-row",
+        action="append",
+        default=[],
+        metavar="LEAD:ISSUE,ISSUE",
+        help=(
+            "Authoritative worktree row. Specify every requested Issue in at least "
+            "one row; a member may appear in multiple rows when its implementation "
+            "is intentionally split. Row leads must be unique."
+        ),
     )
     parser.add_argument(
         "--phase",
@@ -398,6 +417,56 @@ def parse_issue_decisions(
     return decisions
 
 
+def parse_worktree_rows(
+    specs: list[str], requested_issues: list[int]
+) -> list[WorktreeRow]:
+    if not specs:
+        return []
+    requested = set(requested_issues)
+    if len(requested) != len(requested_issues):
+        raise ValueError("requested Issue list contains duplicates")
+    rows: list[WorktreeRow] = []
+    seen_leads: set[int] = set()
+    covered: set[int] = set()
+    for spec in specs:
+        lead_issue, raw_members = split_issue_spec(spec, option="--worktree-row")
+        try:
+            members = tuple(
+                int(part.strip()) for part in raw_members.split(",") if part.strip()
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"worktree row #{lead_issue} must contain integer Issue numbers"
+            ) from exc
+        if not members:
+            raise ValueError(f"worktree row #{lead_issue} must contain at least one Issue")
+        if len(members) != len(set(members)):
+            raise ValueError(f"worktree row #{lead_issue} contains duplicate Issues")
+        if lead_issue not in members:
+            raise ValueError(
+                f"worktree row lead #{lead_issue} must be included in its Issue list"
+            )
+        if lead_issue in seen_leads:
+            raise ValueError(f"duplicate worktree row lead Issue #{lead_issue}")
+        unknown = set(members) - requested
+        if lead_issue not in requested:
+            unknown.add(lead_issue)
+        if unknown:
+            formatted = ", ".join(f"#{number}" for number in sorted(unknown))
+            raise ValueError(f"worktree row references unrequested Issues {formatted}")
+        rows.append(WorktreeRow(lead_issue, members))
+        seen_leads.add(lead_issue)
+        covered.update(members)
+    missing = requested - covered
+    if missing:
+        formatted = ", ".join(f"#{number}" for number in sorted(missing))
+        raise ValueError(
+            "worktree rows are authoritative and must cover every requested Issue; "
+            f"missing {formatted}"
+        )
+    return rows
+
+
 def load_issues(
     numbers: list[int], fixture_path: Path | None, repo: str = ""
 ) -> list[Issue]:
@@ -522,6 +591,72 @@ def analyze_issue(issue: Issue, repo_name: str, *, skip_enhance: bool) -> IssueA
     )
 
 
+def unique_items(values: list[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def apply_worktree_rows(
+    analyses: list[IssueAnalysis], rows: list[WorktreeRow], repo_name: str
+) -> list[IssueAnalysis]:
+    if not rows:
+        return analyses
+    by_issue = {analysis.issue.number: analysis for analysis in analyses}
+    grouped: list[IssueAnalysis] = []
+    for row in rows:
+        members = [by_issue[number] for number in row.issue_numbers]
+        lead = by_issue[row.lead_issue_number]
+        issue_suffix = "-".join(str(number) for number in row.issue_numbers)
+        objective = "; ".join(
+            f"#{member.issue.number}: {member.objective}" for member in members
+        )
+        questions = unique_items(
+            [question for member in members for question in member.questions]
+        )
+        grouped.append(
+            replace(
+                lead,
+                issue=replace(
+                    lead.issue,
+                    labels=unique_items(
+                        [label for member in members for label in member.issue.labels]
+                    ),
+                ),
+                objective=objective,
+                acceptance_criteria=unique_items(
+                    [
+                        criterion
+                        for member in members
+                        for criterion in member.acceptance_criteria
+                    ]
+                ),
+                suspected_files=unique_items(
+                    [path for member in members for path in member.suspected_files]
+                ),
+                reference_files=unique_items(
+                    [path for member in members for path in member.reference_files]
+                ),
+                test_expectations=unique_items(
+                    [command for member in members for command in member.test_expectations]
+                ),
+                enhancement_needed=bool(questions),
+                questions=questions,
+                branch_name=f"feature/issue-{issue_suffix}",
+                worktree_path=f"../{repo_name}-issue-{issue_suffix}",
+                dependency_hints=unique_items(
+                    [hint for member in members for hint in member.dependency_hints]
+                ),
+                explicit_dependencies=None,
+                approved_decision="",
+                worktree_issue_numbers=row.issue_numbers,
+            )
+        )
+    return grouped
+
+
+def included_issue_numbers(analysis: IssueAnalysis) -> tuple[int, ...]:
+    return analysis.worktree_issue_numbers or (analysis.issue.number,)
+
+
 def apply_planning_overrides(
     analyses: list[IssueAnalysis],
     dependency_overrides: dict[int, tuple[int, ...]],
@@ -536,16 +671,23 @@ def apply_planning_overrides(
         reference_files = list(analysis.reference_files)
         questions = analysis.questions
         if decision:
-            acceptance = (*acceptance, f"Apply approved decision: {decision}")
             decision_suspected, decision_references = classify_file_candidates(
                 extract_file_candidates(decision)
             )
-            suspected_files.extend(
-                path for path in decision_suspected if path not in suspected_files
-            )
-            reference_files.extend(
-                path for path in decision_references if path not in reference_files
-            )
+            if analysis.worktree_issue_numbers:
+                acceptance = (f"Apply approved row decision: {decision}",)
+                if decision_suspected:
+                    suspected_files = list(decision_suspected)
+                if decision_references:
+                    reference_files = list(decision_references)
+            else:
+                acceptance = (*acceptance, f"Apply approved decision: {decision}")
+                suspected_files.extend(
+                    path for path in decision_suspected if path not in suspected_files
+                )
+                reference_files.extend(
+                    path for path in decision_references if path not in reference_files
+                )
             questions = tuple(
                 question
                 for question in questions
@@ -615,12 +757,12 @@ def extract_acceptance_criteria(body: str) -> list[str]:
 
 def extract_file_candidates(text: str) -> list[str]:
     patterns = [
-        r"`([^`\s]+\.(?:py|md|toml|json|yaml|yml|rs|ts|tsx|js|jsx|sh))`",
+        r"`([^`\s]+\.(?:py|md|toml|json|yaml|yml|rs|ts|tsx|js|jsx|css|sh))`",
         (
             r"\b((?:src|crates|workspace|scripts|tests|docs|configs|examples|benches|"
             r"\.github|\.agents|\.codex)/[A-Za-z0-9_./-]+)\b"
         ),
-        r"\b([A-Za-z0-9_.-]+/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|md|toml|json|yaml|yml|rs|ts|tsx|js|jsx|sh))\b",
+        r"\b([A-Za-z0-9_.-]+/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|md|toml|json|yaml|yml|rs|ts|tsx|js|jsx|css|sh))\b",
     ]
     seen: set[str] = set()
     out: list[str] = []
@@ -981,6 +1123,7 @@ def render_manifest(
     codex_agent_name: str,
     dependency_overrides: dict[int, tuple[int, ...]],
     issue_decisions: dict[int, str],
+    worktree_rows: dict[int, tuple[int, ...]],
 ) -> str:
     dependency_summary = "; ".join(
         f"#{issue}<-{','.join(f'#{dependency}' for dependency in dependencies) or 'none'}"
@@ -988,6 +1131,10 @@ def render_manifest(
     )
     decision_summary = "; ".join(
         f"#{issue}: {decision}" for issue, decision in issue_decisions.items()
+    )
+    row_summary = "; ".join(
+        f"#{lead}=[{','.join(f'#{number}' for number in members)}]"
+        for lead, members in worktree_rows.items()
     )
     return "\n".join(
         [
@@ -1007,6 +1154,7 @@ def render_manifest(
             f"- Dependency source: `{'explicit' if dependency_overrides else 'inferred'}`",
             f"- Dependency overrides: {dependency_summary or 'none'}",
             f"- Approved decisions: {decision_summary or 'none'}",
+            f"- Worktree rows: {row_summary or 'one Issue per worktree'}",
             "",
             "## Generated Artifacts",
             "",
@@ -1026,9 +1174,16 @@ def render_issue_analysis(analyses: list[IssueAnalysis]) -> str:
     lines = ["# Issue Analysis", ""]
     for analysis in analyses:
         issue = analysis.issue
+        included = included_issue_numbers(analysis)
+        heading = (
+            f"Worktree row #{issue.number} "
+            f"(Issues {', '.join(f'#{number}' for number in included)}): {issue.title}"
+            if analysis.worktree_issue_numbers
+            else f"Issue #{issue.number}: {issue.title}"
+        )
         lines.extend(
             [
-                f"## Issue #{issue.number}: {issue.title}",
+                f"## {heading}",
                 "",
                 f"- 種別: `{', '.join(issue.labels) if issue.labels else 'unknown'}`",
                 f"- 目的: {analysis.objective}",
@@ -1191,10 +1346,12 @@ def render_dependency_plan(
     lines.extend(["", "## Issue Plans", ""])
     for analysis in analyses:
         classification = classify_issue(analysis, analyses)
+        included = included_issue_numbers(analysis)
         lines.extend(
             [
-                f"### Issue #{analysis.issue.number}",
+                f"### Worktree row #{analysis.issue.number}",
                 "",
+                f"- Issues: {', '.join(f'#{number}' for number in included)}",
                 f"- Classification: `{classification}`",
                 f"- Dependency reason: {dependency_reason(analysis, analyses)}",
                 f"- Dependency source: `{'explicit' if analysis.explicit_dependencies is not None else 'inferred'}`",
@@ -1246,6 +1403,11 @@ def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> 
                 analysis.issue.number: analysis.approved_decision
                 for analysis in analyses
                 if analysis.approved_decision
+            },
+            worktree_rows={
+                analysis.issue.number: included_issue_numbers(analysis)
+                for analysis in analyses
+                if analysis.worktree_issue_numbers
             },
         ),
         encoding="utf-8",
@@ -1439,9 +1601,16 @@ def build_worker_prompt(
         or "- None"
     )
     approved_decision = analysis.approved_decision or "None"
+    included = included_issue_numbers(analysis)
+    task_label = (
+        f"worktree row #{analysis.issue.number} for Issues "
+        + ", ".join(f"#{number}" for number in included)
+        if analysis.worktree_issue_numbers
+        else f"Issue #{analysis.issue.number}"
+    )
     return "\n".join(
         [
-            f"Codex issue worker task for Issue #{analysis.issue.number}",
+            f"Codex issue worker task for {task_label}",
             "",
             "If `$codex-issue-worker` is available in this worktree, follow that skill.",
             "If it is not available, treat this message as the full worker instruction.",
@@ -1468,6 +1637,7 @@ def build_worker_prompt(
             "",
             "## Issue Summary",
             "",
+            f"- Included Issues: {', '.join(f'#{number}' for number in included)}",
             f"- Title: {analysis.issue.title}",
             f"- Objective: {analysis.objective}",
             "",
@@ -2324,9 +2494,12 @@ def render_pr_body(analysis: IssueAnalysis, run_id: str) -> str:
     tests = (
         "\n".join(f"- `{item}`" for item in analysis.test_expectations) or "- 未実行"
     )
+    issue_links = "\n".join(
+        f"Tracks #{number}" for number in included_issue_numbers(analysis)
+    )
     return "\n".join(
         [
-            f"Closes #{analysis.issue.number}",
+            issue_links,
             "",
             "## Summary",
             "",
@@ -2438,7 +2611,9 @@ def create_pull_requests(
                 )
             )
             continue
-        title = f"#{analysis.issue.number} {analysis.issue.title}"
+        included = included_issue_numbers(analysis)
+        issue_prefix = "/".join(f"#{number}" for number in included)
+        title = f"{issue_prefix} {analysis.issue.title}"
         body = render_pr_body(analysis, run_id)
         cmd = [
             "gh",
@@ -3466,16 +3641,36 @@ def render_photon_events(results: list[PhotonEventResult]) -> str:
 def main() -> int:
     args = parse_args()
     repo_name = commandmate_repository_name()
-    dependency_overrides = parse_dependency_overrides(
-        args.dependency_override, args.issues
-    )
-    issue_decisions = parse_issue_decisions(args.issue_decision, args.issues)
+    worktree_rows = parse_worktree_rows(args.worktree_row, args.issues)
     issues = load_issues(args.issues, args.issue_json, args.repo)
     analyses = [
         analyze_issue(issue, repo_name, skip_enhance=args.skip_enhance)
         for issue in issues
     ]
+    analyses = apply_worktree_rows(analyses, worktree_rows, repo_name)
+    work_item_issues = [analysis.issue.number for analysis in analyses]
+    dependency_overrides = parse_dependency_overrides(
+        args.dependency_override, work_item_issues
+    )
+    issue_decisions = parse_issue_decisions(args.issue_decision, work_item_issues)
     analyses = apply_planning_overrides(analyses, dependency_overrides, issue_decisions)
+    if args.close_issues:
+        included = [
+            issue_number
+            for analysis in analyses
+            for issue_number in included_issue_numbers(analysis)
+        ]
+        duplicates = sorted(
+            issue_number
+            for issue_number in set(included)
+            if included.count(issue_number) > 1
+        )
+        if duplicates:
+            formatted = ", ".join(f"#{number}" for number in duplicates)
+            raise ValueError(
+                "--close-issues cannot be used when Issues span multiple worktree "
+                f"rows; split Issues: {formatted}"
+            )
     batches, issue_merge_order = classify_batches(
         analyses, args.merge_order, max_parallel=args.max_parallel
     )
@@ -3616,7 +3811,9 @@ def main() -> int:
     pr_results: list[PullRequestResult] = []
     if publish_requested and can_publish:
         pr_results = create_pull_requests(
-            analyses, run_id=run_dir.name, dry_run=dry_run
+            analyses,
+            run_id=run_dir.name,
+            dry_run=dry_run,
         )
         (run_dir / "pr-report.md").write_text(
             render_pr_report(pr_results), encoding="utf-8"
@@ -3772,8 +3969,14 @@ def main() -> int:
         (run_dir / "merge-recovery-report.md").write_text(
             render_merge_recovery_report(merge_results), encoding="utf-8"
         )
+        issue_to_pr_for_close = {
+            issue_number: issue_to_pr[analysis.issue.number]
+            for analysis in analyses
+            if analysis.issue.number in issue_to_pr
+            for issue_number in included_issue_numbers(analysis)
+        }
         issue_close_results = close_merged_issues(
-            issue_to_pr,
+            issue_to_pr_for_close,
             merge_results,
             authorized=args.close_issues,
             dry_run=dry_run,

@@ -108,13 +108,14 @@ def test_extract_file_candidates_ignores_absolute_path_fragments() -> None:
     module = load_script()
     candidates = module.extract_file_candidates(
         "参照: `/Users/me/repo/external/scripts/export_agent_training_data.py`\n"
-        "対象: `src/memory/sanitizer.py`\n"
+        "対象: `src/memory/sanitizer.py` and `gui/app/globals.css`\n"
     )
 
     assert (
         "Users/me/repo/external/scripts/export_agent_training_data.py" not in candidates
     )
     assert "src/memory/sanitizer.py" in candidates
+    assert "gui/app/globals.css" in candidates
 
 
 def test_classify_file_candidates_splits_external_references() -> None:
@@ -237,6 +238,72 @@ def test_parser_rejects_non_positive_max_parallel() -> None:
 
     with pytest.raises(SystemExit):
         module.parse_args_from_list_for_test(["1", "--max-parallel", "0"])
+
+
+def test_worktree_rows_allow_grouping_and_split_issue_membership() -> None:
+    module = load_script()
+    issues = [
+        module.Issue(
+            159,
+            "Fix GUI retry",
+            "Update `gui/lib/trial-monitor.ts`.\n\n## Acceptance Criteria\n- stops retrying\n",
+        ),
+        module.Issue(
+            163,
+            "Expose recovery session",
+            "Update `src/bin/gui_server/sessions.rs`.\n\n## Acceptance Criteria\n- reconnects\n",
+        ),
+        module.Issue(
+            170,
+            "Report invalid events",
+            "Update `gui/lib/errors.ts`.\n\n## Acceptance Criteria\n- reports corruption\n",
+        ),
+    ]
+    rows = module.parse_worktree_rows(
+        ["163:163,170", "159:159,163,170"], [159, 163, 170]
+    )
+    analyses = [
+        module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+        for issue in issues
+    ]
+
+    grouped = module.apply_worktree_rows(analyses, rows, "CommandAgent")
+
+    assert [analysis.issue.number for analysis in grouped] == [163, 159]
+    assert grouped[0].worktree_issue_numbers == (163, 170)
+    assert grouped[0].branch_name == "feature/issue-163-170"
+    assert grouped[1].worktree_issue_numbers == (159, 163, 170)
+    assert "#170: Update `gui/lib/errors.ts`." in grouped[1].objective
+    assert "gui/lib/errors.ts" in grouped[1].suspected_files
+    body = module.render_pr_body(grouped[1], "row-run")
+    assert "Tracks #159" in body
+    assert "Tracks #163" in body
+    assert "Tracks #170" in body
+    overrides = module.parse_dependency_overrides(
+        ["163:", "159:163"], [analysis.issue.number for analysis in grouped]
+    )
+    decisions = module.parse_issue_decisions(
+        ["163:Implement only `src/bin/gui_server/sessions.rs`; server tests pass."],
+        [analysis.issue.number for analysis in grouped],
+    )
+    grouped = module.apply_planning_overrides(grouped, overrides, decisions)
+    assert grouped[0].acceptance_criteria == (
+        (
+            "Apply approved row decision: Implement only "
+            "`src/bin/gui_server/sessions.rs`; server tests pass."
+        ),
+    )
+    assert grouped[0].suspected_files == ("src/bin/gui_server/sessions.rs",)
+    batches, merge_order = module.classify_batches(grouped, "", max_parallel=2)
+    assert batches == [[163], [159]]
+    assert merge_order == [163, 159]
+
+
+def test_worktree_rows_require_complete_requested_issue_coverage() -> None:
+    module = load_script()
+
+    with pytest.raises(ValueError, match="missing #170"):
+        module.parse_worktree_rows(["163:163"], [163, 170])
 
 
 def test_dependency_overrides_replace_inference_with_complete_explicit_graph() -> None:
@@ -1546,7 +1613,8 @@ def test_render_pr_body_contains_required_sections() -> None:
 
     body = module.render_pr_body(analysis, "run-1")
 
-    assert "Closes #6" in body
+    assert "Tracks #6" in body
+    assert "Closes #6" not in body
     assert "## Tests Run" in body
     assert "run-1" in body
 
