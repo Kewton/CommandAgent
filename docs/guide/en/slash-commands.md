@@ -8,14 +8,19 @@ source of truth for the installed binary.
 
 ## Command reference
 
-The registry contains 18 primary entries. `/quit` is a separately accepted
-command name and an alias of `/exit`, giving 19 accepted names in total.
+The registry contains 23 primary entries. `/quit` is a separately accepted
+command name and an alias of `/exit`, giving 24 accepted names in total.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
-| `/help` | `/help` | Show the command list, footer hint, queued-input limits, multi-line continuation, and interrupt behavior. |
-| `/confirm` | `/confirm <hash>` | Persist the exact reviewed Gate 1 card and immediately execute its request. Use the hash printed on the card. |
-| `/status` | `/status` | Show effective configuration and provider readiness. |
+| `/help` | `/help [command]` | Show grouped commands, or detailed usage and an example for one command. |
+| `/confirm` | `/confirm <hash>` | Persist the reviewed Gate 1 card and immediately execute its request. A matching `sha256:` prefix needs at least eight hexadecimal digits unless strict confirmation is enabled. |
+| `/status` | `/status` | Show current execution first, followed by effective session configuration and readiness. |
+| `/model` | `/model <id>` | Set the executor model used by new Gate 1 cards in this REPL session. |
+| `/provider` | `/provider <name>` | Set the executor provider used by new Gate 1 cards in this REPL session. |
+| `/profile` | `/profile <name>` | Set the explicit profile used by new Gate 1 cards in this REPL session. |
+| `/clear` | `/clear` | Clear the terminal screen without discarding the most recent result. |
+| `/last` | `/last` | Render the most recent REPL result again. |
 | `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
 | `/packs` | `/packs` | List compatible admitted and local packs with the same columns and ordering as `commandagent --packs` for the active profile and intent. |
 | `/pack` | `/pack <id@version>` | At Gate 4, select a compatible admitted exact-byte pack and return to a new Gate 1 card. |
@@ -36,10 +41,15 @@ command name and an alias of `/exit`, giving 19 accepted names in total.
 Unknown slash commands are treated as input errors: the REPL suggests the
 nearest command when useful and does not start a task or create a run summary.
 Plain text creates a Gate 1 card but is not executed yet. Review the card, then
-enter `/confirm <hash>` with its exact printed hash to start the run. Direct
+enter `/confirm <hash>` with its printed hash or an admitted prefix to start the run. Direct
 execution commands such as `/ultra-plan-run <goal>` and `/plan-run <goal>`
 instead point back to this Gate 1 flow. Planning command failures are reported
 without leaving the REPL.
+
+The full hash is always accepted. By default, a canonical `sha256:` prefix of
+8 through 63 lowercase hexadecimal digits is accepted only when it matches the
+latest pending Gate 1 card. `COMMANDAGENT_STRICT_CONFIRM=1` restores full-hash
+matching. The full frozen hash, never the prefix, is persisted and emitted.
 
 ## Inline flags
 
@@ -144,6 +154,10 @@ this routine and must be selected explicitly.
 
 ## TUI notes
 
+- `/model`, `/provider`, and `/profile` persist only for the current REPL
+  process and affect new Gate 1 cards. Existing cards keep their frozen pins.
+- History is loaded only from the active workspace's hashed leaf beneath the
+  state directory. The legacy shared `history.txt` is preserved but ignored.
 - Enter queues input typed while a command is running: at most 10 lines, each at
   most 4096 bytes. Backspace edits pending input.
 - Ctrl-C interrupts. Esc clears non-empty pending input; otherwise it

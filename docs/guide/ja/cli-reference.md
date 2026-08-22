@@ -85,6 +85,27 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--footer` | `<on\|off>` | `on` | 固定 TUI フッターを制御します。off でもスクロールバックの breadcrumb は残ります。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 | `--no-footer` | なし | オフ | 固定 TUI フッターを無効にします。効果は `--footer off` と同じです。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 
+## 対話型 REPL の操作
+
+1 回の TUI セッション内で、`/model <id>` と `/provider <name>` は executor の
+選択を変更し、`/profile <name>` は明示 profile を変更します。これらの設定は新しい
+Gate 1 カードに適用され、`/status` に表示されます。すでに表示済みのカードは固定済みの
+identity を維持します。実行時の使用法と例は、グループ化された `/help` または
+`/help <command>` で確認できます。`/status` は現在の実行を残りのセッション設定より
+先に表示し、`/last` は直近の結果を再表示し、`/clear` は端末画面を消去します。
+
+`/confirm` は、最新の確認待ち Gate 1 カードに表示された完全な hash を常に受け付けます。
+既定では `/confirm sha256:77cd5e23` のように、8 桁以上の 16 進数を持つ canonical な
+`sha256:` 前方一致も受け付けます。CommandAgent の起動前に
+`COMMANDAGENT_STRICT_CONFIRM=1` を設定すると完全 hash を必須にできます。前方一致は、
+confirmation を保存する前に固定済みの完全 hash へ展開されます。
+
+REPL 履歴は `--state-dir` 配下の
+`workspace-history/<canonical-workspaceのsha256>.txt` に分離されます。アクティブな
+workspace のファイルだけを読み込み、履歴ヒントは 2 文字以上の入力後に 1 行へ収まる長さで
+表示します。以前の共有 `<state-dir>/history.txt` は読み込み、移行、変更、削除を行わないため、
+既存履歴を保持しながら別 workspace で露出させません。
+
 ## 既定値と優先順位
 
 Clap の既定値として宣言された値だけが、設定解決より前に固定されます。model、provider、

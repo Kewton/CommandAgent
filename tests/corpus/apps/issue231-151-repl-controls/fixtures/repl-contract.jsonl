@@ -1,0 +1,6 @@
+{"command":"/model executor-new","effect":"new_gate_one","role":"executor","pending_card":"unchanged"}
+{"command":"/provider lm-studio","effect":"new_gate_one","role":"executor","pending_card":"unchanged"}
+{"command":"/profile nextjs","effect":"new_gate_one","pending_card":"unchanged"}
+{"command":"/confirm sha256:77cd5e23","minimum_prefix_digits":8,"persisted_hash":"full_sha256","strict_environment":"COMMANDAGENT_STRICT_CONFIRM=1"}
+{"history":"workspace_scoped","legacy_shared_history":"ignored_and_preserved","hint_minimum_characters":2,"hint_scope":"one_terminal_line"}
+{"commands":["/help [command]","/status","/clear","/last"],"help":"grouped","status_first":"current_execution"}

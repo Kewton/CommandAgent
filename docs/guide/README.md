@@ -28,7 +28,7 @@ Recommended route / 推奨順路:
   conflicts
 - [Plan YAML editing](en/plan-yaml.md) — commented templates, offline
   validation, next commands, and recovery diffs
-- [Slash commands](en/slash-commands.md) — all 19 accepted command names,
+- [Slash commands](en/slash-commands.md) — all 24 accepted command names,
   inline flags, file expansion, and profile inference
 - [Configuration](en/configuration.md) — precedence, presets, paths, legacy
   files, and environment variables
@@ -53,7 +53,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 - [CLI リファレンス](ja/cli-reference.md) — 公開されている全 58 フラグ、既定値、排他関係
 - [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、
   recovery 差分
-- [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 19 コマンド名、インラインフラグ、
+- [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 24 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数
 - [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
