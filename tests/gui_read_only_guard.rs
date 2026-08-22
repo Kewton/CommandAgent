@@ -4,6 +4,7 @@ const DELEGATE_MODULE: &str = "src/bin/gui_server/delegate.rs";
 const DIRECTIVES_MODULE: &str = "src/bin/gui_server/directives.rs";
 const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
 const SERVER_ROOT_MODULE: &str = "src/bin/gui_server.rs";
+const TRIAL_OPTIONS_MODULE: &str = "src/bin/gui_server/trial_options.rs";
 
 #[test]
 fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
@@ -20,7 +21,6 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         "planner::runner",
         "minimal_loop::loop_run",
         "run_resolved_config",
-        "reqwest",
         "tokio::process",
         "fs::write",
         "OpenOptions",
@@ -59,6 +59,13 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
                     path.display()
                 );
             }
+        }
+        if path != Path::new(TRIAL_OPTIONS_MODULE) {
+            assert!(
+                !source.contains("reqwest"),
+                "{} can make provider discovery requests outside trial_options",
+                path.display()
+            );
         }
     }
 
@@ -121,6 +128,25 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         !delegate[..allowlist_end].contains("COMMANDAGENT_PACK_"),
         "delegate parent allowlist admits ambient pack selectors"
     );
+
+    let trial_options = std::fs::read_to_string(TRIAL_OPTIONS_MODULE).unwrap();
+    for required in [
+        "client.get(",
+        ".redirect(Policy::none())",
+        "Provider::Ollama",
+        "Provider::LmStudio",
+    ] {
+        assert!(
+            trial_options.contains(required),
+            "provider discovery guard is missing {required:?}"
+        );
+    }
+    for forbidden in ["client.post(", "client.put(", "client.delete(", ".body("] {
+        assert!(
+            !trial_options.contains(forbidden),
+            "provider discovery contains mutating request surface {forbidden:?}"
+        );
+    }
 
     let directives = std::fs::read_to_string(DIRECTIVES_MODULE).unwrap();
     for required in [
