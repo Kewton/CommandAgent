@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
+use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
@@ -833,7 +834,7 @@ fn gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack() {
         server.request_with_access("POST", "/api/sessions", Some(&packed), None, Some(&origin));
     assert_eq!(response.status, 202, "{}", response.body);
     let session_id = response.json()["id"].as_str().unwrap().to_string();
-    let run_root = workspace.path().join(".anvil/runs").join(session_id);
+    let run_root = runs_dir(workspace.path()).join(session_id);
     let events_path = run_root.join("events.jsonl");
     let deadline = Instant::now() + Duration::from_secs(3);
     let events = loop {
@@ -1081,9 +1082,7 @@ fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
     let response = server.request("POST", "/api/sessions", Some(&proposal));
     assert_eq!(response.status, 202, "{}", response.body);
     let session_id = response.json()["id"].as_str().unwrap().to_string();
-    let delegated_env_path = workspace
-        .path()
-        .join(".anvil/runs")
+    let delegated_env_path = runs_dir(workspace.path())
         .join(&session_id)
         .join("delegated-env.txt");
     let expected_env = [
@@ -1566,7 +1565,7 @@ fn malformed_session_events_return_a_dedicated_error_code() {
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    let events_path = workspace.join(".anvil/runs").join(&id).join("events.jsonl");
+    let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     std::fs::write(events_path, "not-json\n").unwrap();
     let response = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(response.status, 500, "{}", response.body);
@@ -1849,7 +1848,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let id = created_json["id"].as_str().unwrap();
     let started_epoch_seconds = created_json["started_epoch_seconds"].as_u64().unwrap();
     assert!(started_epoch_seconds > 0);
-    let delegated_events = workspace.join(".anvil/runs").join(id).join("events.jsonl");
+    let delegated_events = runs_dir(&workspace).join(id).join("events.jsonl");
 
     let running = server.request_without_access("GET", "/api/runtime-status", None);
     assert_eq!(running.status, 200, "{}", running.body);
