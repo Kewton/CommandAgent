@@ -83,6 +83,7 @@ fn render_gate_one_for_surface(
             "- 比較対象: {}; {} までの証跡",
             identity.band_arm, identity.band_measurement
         ),
+        duration_estimate_line(identity),
         format!("- 証跡の参照先: {}", identity.band_source),
         format!("- 合格の条件: {}", full_meaning(identity)),
         String::new(),
@@ -136,6 +137,21 @@ fn render_gate_one_for_surface(
         },
     ]);
     Ok(lines.join("\n"))
+}
+
+fn duration_estimate_line(identity: &ConfirmationIdentity) -> String {
+    match super::band_catalog::duration_for_labels(
+        &identity.profile,
+        &identity.intent,
+        &identity.task_family,
+    ) {
+        Some(estimate) => format!(
+            "- 類似実行の平均所要時間: 平均 {:.1} 分 ({}件)",
+            estimate.average_minutes(),
+            estimate.sample_count
+        ),
+        None => "- 類似実行の平均所要時間: 未計測".to_string(),
+    }
 }
 
 fn inline(value: &str) -> String {
@@ -561,6 +577,7 @@ mod tests {
         let rendered = render_gate_one(&identity, &PackLocator::new(root)).unwrap();
         for required in [
             "全必須チェックに合格した実行: 3件中0件 (0%)",
+            "類似実行の平均所要時間: 平均 10.5 分 (3件)",
             "C1 — 実行動作: 通常のコマンドは成功",
             "C2 — ヘルプの正確さ: --help と実際",
             "C3 — 出力の正確さ: README の例",
@@ -576,6 +593,43 @@ mod tests {
             assert!(!rendered.contains(internal_label), "{rendered}");
         }
         assert!(!rendered.contains("検証パックの供給元:"), "{rendered}");
+    }
+
+    #[test]
+    fn gate_one_keeps_missing_duration_evidence_honest() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let route = RouteCandidate {
+            profile: ProfileId::Nextjs,
+            intent: IntentId::Create,
+            family: TaskFamilyId::Quiz,
+            bases: vec![RouteBasis {
+                rule: "fixture",
+                observation: "quiz".to_string(),
+            }],
+            contract_ref: "docs/nextjs-profile-contract.md",
+        };
+        let identity = ConfirmationIdentity::new(
+            "create a quiz".to_string(),
+            root,
+            &route,
+            value_for("nextjs", IntentId::Create, TaskFamilyId::Quiz).unwrap(),
+            ExecutionPins {
+                planner_provider: "ollama".to_string(),
+                planner_model: "planner".to_string(),
+                executor_provider: "ollama".to_string(),
+                executor_model: "executor".to_string(),
+                preset: "profile".to_string(),
+            },
+            PackSelection::None,
+        )
+        .unwrap();
+
+        let rendered = render_gate_one(&identity, &PackLocator::new(root)).unwrap();
+
+        assert!(
+            rendered.contains("類似実行の平均所要時間: 未計測"),
+            "{rendered}"
+        );
     }
 
     #[test]

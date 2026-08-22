@@ -288,10 +288,7 @@ fn add_known(current: Option<u64>, delta: Option<u64>) -> Option<u64> {
 }
 
 pub fn build_footer_line(status: &UiStatus, use_color: bool) -> String {
-    let tokens = match status.token_total() {
-        Some(value) => format_token_count(value),
-        None => "n/a".to_string(),
-    };
+    let tokens = token_breakdown(status);
     let yes = if status.yes { " [yes]" } else { "" };
     let body = format!(
         "[{}] provider:{} model:{} ctx:{} tokens:{}{}",
@@ -301,6 +298,63 @@ pub fn build_footer_line(status: &UiStatus, use_color: bool) -> String {
         format!("\x1b[2m{body}\x1b[0m")
     } else {
         body
+    }
+}
+
+fn token_breakdown(status: &UiStatus) -> String {
+    if status.prompt_tokens.is_none() && status.completion_tokens.is_none() {
+        return "n/a".to_string();
+    }
+    let display = |value: Option<u64>| {
+        value
+            .map(format_token_count)
+            .unwrap_or_else(|| "n/a".to_string())
+    };
+    format!(
+        "p:{}/g:{}/t:{}",
+        display(status.prompt_tokens),
+        display(status.completion_tokens),
+        display(status.token_total())
+    )
+}
+
+pub fn startup_duration_estimate(config: &Config) -> Option<String> {
+    let goal = crate::config::action_goal(&config.action)?;
+    let explicit_profile = crate::planner::profile_descriptor::descriptor_for_name(&config.profile)
+        .filter(|descriptor| descriptor.band_key.is_some())
+        .map(|descriptor| descriptor.id.clone());
+    let route = crate::tui::boundary_shell::route::deterministic_route(
+        crate::tui::boundary_shell::route::RouteRequest {
+            request: goal,
+            workspace: &config.workspace_root,
+            explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding {
+                profile: explicit_profile,
+                intent: config.intent_override,
+                family: None,
+            },
+        },
+    );
+    if route.resolution != crate::tui::boundary_shell::route::DeterministicResolution::Unique {
+        return None;
+    }
+    let candidate = route.candidates.first()?;
+    let band = candidate.band()?;
+    let prefix = "Estimated duration from similar runs";
+    match crate::tui::boundary_shell::band_catalog::duration_for(
+        band.profile,
+        band.intent,
+        band.family,
+    ) {
+        Some(estimate) => Some(format!(
+            "{prefix}: average {:.1} min ({} samples; {} band).",
+            estimate.average_minutes(),
+            estimate.sample_count,
+            band.arm
+        )),
+        None => Some(format!(
+            "{prefix}: unmeasured (no duration samples for the {} band).",
+            band.arm
+        )),
     }
 }
 
@@ -1061,7 +1115,43 @@ mod tests {
     #[test]
     fn footer_known_tokens_are_formatted() {
         let line = build_footer_line(&status(Some(1500)), false);
-        assert!(line.contains("tokens:1.5k"));
+        assert!(line.contains("tokens:p:1.5k/g:n/a/t:1.5k"), "{line}");
+    }
+
+    #[test]
+    fn footer_separates_prompt_generation_and_cumulative_tokens() {
+        let mut current = status(Some(1_500));
+        current.completion_tokens = Some(250);
+
+        let line = build_footer_line(&current, false);
+
+        assert!(line.contains("tokens:p:1.5k/g:250/t:1.8k"), "{line}");
+    }
+
+    #[test]
+    fn startup_duration_uses_typed_band_and_keeps_missing_samples_honest() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = crate::config::Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            dir.path().to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+        ]))
+        .unwrap();
+        config.action = crate::config::Action::PlanSteps(
+            "create a CLI that calculates sum and mean".to_string(),
+        );
+        let measured = startup_duration_estimate(&config).unwrap();
+        assert!(measured.contains("average 10.5 min"), "{measured}");
+        assert!(measured.contains("3 samples"), "{measured}");
+
+        config.profile = "nextjs".to_string();
+        config.action = crate::config::Action::PlanSteps("create a quiz app".to_string());
+        let unmeasured = startup_duration_estimate(&config).unwrap();
+        assert!(unmeasured.contains("unmeasured"), "{unmeasured}");
     }
 
     #[test]

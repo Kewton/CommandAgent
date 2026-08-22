@@ -46,6 +46,7 @@ pub mod tools;
 pub mod tui;
 pub mod util;
 pub mod workflow;
+mod workspace_lock;
 
 use std::io::Write;
 use std::sync::Arc;
@@ -165,6 +166,11 @@ fn run_resolved_config_with_summary(
     config: Config,
     summary_source: Option<headless_summary::Source>,
 ) -> anyhow::Result<()> {
+    let _workspace_lock = action_uses_workspace_lock(&config.action)
+        .then(|| {
+            workspace_lock::acquire(&config.workspace_root, config.eval_events_path.as_deref())
+        })
+        .transpose()?;
     let _git_reporter = (!matches!(
         config.action,
         Action::Runs(_) | Action::UxDemo | Action::ModelProbe
@@ -200,6 +206,9 @@ fn run_config(
     let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
     emit_run_start(&config);
+    if let Some(estimate) = tui::footer::startup_duration_estimate(&config) {
+        eprintln!("{estimate}");
+    }
     let direct_command_guard = if let Some(source) = summary_source {
         DirectCommandCompletionGuard::start_with_summary(&config, source)
     } else {
@@ -401,6 +410,13 @@ fn run_config(
     }
     emit_run_stop(&config, &result);
     result
+}
+
+fn action_uses_workspace_lock(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe | Action::Doctor
+    )
 }
 
 enum DirectActionUi {
@@ -1072,6 +1088,22 @@ mod tests {
             style: "default".to_string(),
             action: Action::Repl,
         }
+    }
+
+    #[test]
+    fn workspace_lock_covers_execution_but_not_read_only_observers() {
+        assert!(action_uses_workspace_lock(&Action::Repl));
+        assert!(action_uses_workspace_lock(&Action::PlanSteps(
+            "goal".to_string()
+        )));
+        assert!(action_uses_workspace_lock(&Action::RunPlan(PathBuf::from(
+            "plan.yaml"
+        ))));
+        assert!(!action_uses_workspace_lock(&Action::Runs(
+            crate::config::RunsRequest::default()
+        )));
+        assert!(!action_uses_workspace_lock(&Action::ModelProbe));
+        assert!(!action_uses_workspace_lock(&Action::Doctor));
     }
 
     #[test]
