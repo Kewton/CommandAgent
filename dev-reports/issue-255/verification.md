@@ -12,6 +12,11 @@
 - `cargo test --test doc_drift`: `passed`
 - `cargo test --test generality_guardrails`: `passed`
 - `cargo test --test gui_read_only_guard`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server malformed_session_events_return_a_dedicated_error_code -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server confirmed_session_delegates_with_cli_event_bytes_unchanged -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle -- --exact --nocapture`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo test`: `passed`
