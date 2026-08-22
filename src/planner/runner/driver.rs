@@ -504,6 +504,14 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     &verify_after_repair,
                 );
                 strengthen_step_plan_for_profile(&mut plan, config);
+                let python_cli_canonicalized =
+                    crate::planner::python_cli_plan_synthesis::canonicalize_implementation_plan(
+                        &mut plan,
+                        &config.workspace_root,
+                        &config.profile,
+                        config.resolved_run_intent() == IntentId::Create,
+                        config.eval_events_path.as_deref(),
+                    );
                 repair_generated_step_plan_contract(&mut plan);
                 let runtime = resolve_profile_runtime(&config.profile);
                 let step_checks_converted = runtime.canonicalize_create_plan(
@@ -534,7 +542,8 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
                     || step_checks_converted > 0
-                    || preset_converted > 0;
+                    || preset_converted > 0
+                    || python_cli_canonicalized > 0;
                 emit_planner_plan_sanitized(
                     config,
                     client.label(),
