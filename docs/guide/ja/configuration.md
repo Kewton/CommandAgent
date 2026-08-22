@@ -83,26 +83,35 @@ timeout の既定値は、executor、planner、classifier のいずれかが Oll
 | `prompt_layout` | `"stable"` または `"legacy"` | トップレベル値、その後 `"legacy"` |
 | `plan_preset` | `"none"` または `"profile"` | トップレベル／計算された planner 値 |
 
+次の complete preset は、現在のローカル実測で推奨できる役割分割を示します。built-in default では
+ありません。利用前に
+[役割別の実測根拠と適用範囲](../model-probe-results/2026-08-22-local-role-pairs.md)
+を確認してください。
+
 ```toml
-[preset.local]
-model = "qwen3.6:27b-coding-nvfp4"
+[preset.local_role_split]
+model = "qwen3.8:27b-mlx"
 provider = "ollama"
 api = "chat_completions"
-tool_protocol = "text"
-planner_model = "qwen3.6:27b-coding-nvfp4"
+tool_protocol = "native"
+planner_model = "qwen3.8:27b-mlx"
 planner_provider = "ollama"
 planner_think = "false"
 classifier_model = "qwen3.5:4b"
 classifier_provider = "ollama"
 context_budget = 65536
 chat_timeout_secs = 600
-profile = "nextjs"
+profile = "generic"
 narration = "normal"
 footer = "on"
 stream = "on"
 prompt_layout = "legacy"
 plan_preset = "none"
 ```
+
+この exact local probe が支持する小型化は classifier だけです。計測した 9B／4B 候補による planner
+置換は支持しません。model digest、host、context、provider、build が変わった場合は、
+[model probe](model-probe.md#役割別の計測手順)と scenario admission check を再実行してください。
 
 構文解析した preset に未知のキーまたは不正な値がある場合、ファイル、行、
 `preset.<name>.<key>` を示すエラーになります。探索パスのどこにもない名前を選んだ場合もエラーです。

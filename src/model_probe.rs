@@ -14,12 +14,16 @@ use crate::minimal_loop::loop_run::{
     ContractEnforcement, PromptArtifactExtraction, RunSessionOptions, RunSessionScope,
     RunSessionStepKind, run_session_with_outcome_with_options,
 };
-use crate::provider_call::{ProviderCallScope, ProviderChatRequest, chat_with_cancel};
+use crate::provider_call::{
+    ProviderCallOverrides, ProviderCallScope, ProviderChatRequest, chat_with_cancel,
+    chat_with_cancel_and_response_limit_and_overrides,
+};
 use crate::providers::{AssistantReply, ChatClient};
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use crate::tui::NOOP_UI;
 
-pub const MODEL_PROBE_VERSION: &str = "model-probe-v2";
+pub const MODEL_PROBE_VERSION: &str = "model-probe-v3";
+const CLASSIFIER_PROBE_MAX_RESPONSE_BYTES: usize = 1_024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelProbeOutput {
@@ -37,8 +41,10 @@ pub struct ModelProbeReport {
     pub scope: String,
     pub executor: ProbeRole,
     pub planner: ProbeRole,
+    pub classifier: ProbeRole,
     pub tasks: Vec<ModelProbeTaskEvidence>,
     pub metrics: ModelProbeMetrics,
+    pub role_measurements: BTreeMap<String, ModelProbeRoleMeasurements>,
     pub no_network_guarantee: bool,
 }
 
@@ -67,6 +73,9 @@ pub struct ModelProbeMetrics {
     pub json_valid_count: usize,
     pub json_valid_rate: f64,
     pub missing_field_kinds: BTreeMap<String, usize>,
+    pub classifier_response_count: usize,
+    pub classifier_valid_count: usize,
+    pub classifier_valid_rate: f64,
     pub empty_response_count: usize,
     pub empty_response_rate: f64,
     pub malformed_tool_call_count: usize,
@@ -76,6 +85,18 @@ pub struct ModelProbeMetrics {
     pub later_turn_latency_ms: LatencyStats,
     pub token_telemetry: TokenTelemetryMetrics,
     pub context_truncation_suspected_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelProbeRoleMeasurements {
+    pub task_count: usize,
+    pub passed_task_count: usize,
+    pub failed_task_count: usize,
+    pub probe_band: String,
+    pub provider_turn_count: usize,
+    pub provider_duration_ms_total: u64,
+    pub latency_ms: LatencyStats,
+    pub token_telemetry: TokenTelemetryMetrics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -144,6 +165,7 @@ pub struct RawToolCallEvidence {
 enum ProbeRoleKind {
     Executor,
     Planner,
+    Classifier,
 }
 
 impl ProbeRoleKind {
@@ -151,6 +173,7 @@ impl ProbeRoleKind {
         match self {
             Self::Executor => "executor",
             Self::Planner => "planner",
+            Self::Classifier => "classifier",
         }
     }
 }
@@ -185,6 +208,7 @@ struct ProbeTask {
 enum ProbeTaskKind {
     Session,
     JsonSchema,
+    ClassifierClosed,
 }
 
 struct ScratchWorkspace {
@@ -285,9 +309,14 @@ pub fn run_with_output_dir(
             ProbeTaskKind::JsonSchema => {
                 run_json_schema_probe(planner, &probe_config, &task, &events_path, events_before)?
             }
+            ProbeTaskKind::ClassifierClosed => {
+                run_classifier_probe(planner, &probe_config, &task, &events_path, events_before)?
+            }
         };
         tasks.push(evidence);
     }
+
+    let role_measurements = compute_role_measurements(&tasks);
 
     let report = ModelProbeReport {
         version: MODEL_PROBE_VERSION.to_string(),
@@ -306,17 +335,25 @@ pub fn run_with_output_dir(
             provider: config.planner_provider,
             model: config.planner_model.clone(),
         },
+        classifier: ProbeRole {
+            role: "classifier".to_string(),
+            provider: config.classifier_provider,
+            model: config.classifier_model.clone(),
+        },
         metrics: ModelProbeMetrics {
             task_count: tasks.len(),
             ..compute_metrics(&tasks)
         },
+        role_measurements,
         no_network_guarantee: no_network_commands(&tasks),
         tasks,
     };
     let card = render_card(&report);
     let basename = format!(
-        "{}-{}.json",
+        "executor-{}--planner-{}--classifier-{}--{}.json",
         sanitize_filename(&config.model),
+        sanitize_filename(&config.planner_model),
+        sanitize_filename(&config.classifier_model),
         report.generated_at
     );
     let profile_path = output_dir.join(basename);
@@ -414,6 +451,59 @@ fn run_json_schema_probe(
             native_tools_enabled: false,
         },
         || false,
+    );
+    let events = read_event_values(events_path);
+    let new_events = events.into_iter().skip(events_before).collect::<Vec<_>>();
+    let (ok, error, final_text, raw_tool_calls) = match outcome.result {
+        Ok(reply) => {
+            let raw_tool_calls = raw_tool_calls_from_reply(&reply);
+            (true, String::new(), reply.content, raw_tool_calls)
+        }
+        Err(err) => (false, err.to_string(), String::new(), Vec::new()),
+    };
+    let raw_commands = raw_commands_from_calls(&raw_tool_calls);
+    Ok(ModelProbeTaskEvidence {
+        id: task.id.to_string(),
+        role: task.role.as_str().to_string(),
+        session_mode: task.session_mode.as_str().to_string(),
+        ok,
+        error,
+        final_text,
+        changed_paths: Vec::new(),
+        iterations: 1,
+        tool_call_count: raw_tool_calls.len(),
+        raw_tool_calls,
+        raw_commands,
+        provider_turns: events_named(&new_events, "provider_turn_duration"),
+        notable_events: notable_events(new_events),
+    })
+}
+
+fn run_classifier_probe(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    task: &ProbeTask,
+    events_path: &Path,
+    events_before: usize,
+) -> anyhow::Result<ModelProbeTaskEvidence> {
+    let outcome = chat_with_cancel_and_response_limit_and_overrides(
+        client,
+        config,
+        ProviderChatRequest {
+            scope: ProviderCallScope::PlannerStep,
+            model: &config.classifier_model,
+            messages: &[
+                ConversationMessage::system(
+                    "Choose only from the closed candidate list. Return JSON without prose.",
+                ),
+                ConversationMessage::user(task.prompt.clone()),
+            ],
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        || false,
+        CLASSIFIER_PROBE_MAX_RESPONSE_BYTES,
+        ProviderCallOverrides::classifier(config),
     );
     let events = read_event_values(events_path);
     let new_events = events.into_iter().skip(events_before).collect::<Vec<_>>();
@@ -594,6 +684,15 @@ fn battery(root: &Path) -> Vec<ProbeTask> {
                 "MODEL PROBE task json_schema for workspace {}: respond ONLY with JSON matching this schema: {{\"steps\":[{{\"instruction\":\"string\",\"kind\":\"implement|verify|report\",\"expected_paths\":[\"string\"],\"expected_result\":\"string\"}}]}}. Use one step that writes src/util/math.ts.",
                 root.display()
             ),
+        },
+        ProbeTask {
+            id: "classifier_closed",
+            role: ProbeRoleKind::Classifier,
+            session_mode: ProbeSessionMode::Fresh,
+            kind: ProbeTaskKind::ClassifierClosed,
+            required_paths: Vec::new(),
+            step_kind: RunSessionStepKind::Report,
+            prompt: "MODEL PROBE task classifier_closed: choose the one candidate that matches the request `Create a Python CLI that filters lines by a pattern`. Return ONLY one JSON object with exactly profile, intent, and family. Candidates:\n{\"profile\":\"generic\",\"intent\":\"fix\",\"family\":\"repair\"}\n{\"profile\":\"python-cli\",\"intent\":\"create\",\"family\":\"filter\"}\n{\"profile\":\"data\",\"intent\":\"investigate\",\"family\":\"aggregation\"}".to_string(),
         },
     ]
 }
@@ -795,6 +894,11 @@ fn compute_metrics(tasks: &[ModelProbeTaskEvidence]) -> ModelProbeMetrics {
                 }
                 JsonSchemaAnalysis::Invalid => {}
             }
+        } else if task.id == "classifier_closed" {
+            metrics.classifier_response_count += 1;
+            if classifier_response_is_valid(&task.final_text) {
+                metrics.classifier_valid_count += 1;
+            }
         }
     }
     metrics.absolute_path_rate = ratio(metrics.absolute_path_count, metrics.path_argument_count);
@@ -806,15 +910,121 @@ fn compute_metrics(tasks: &[ModelProbeTaskEvidence]) -> ModelProbeMetrics {
         .sum::<usize>();
     metrics.malformed_tool_call_rate = ratio(metrics.malformed_tool_call_count, tool_call_count);
     metrics.json_valid_rate = ratio(metrics.json_valid_count, metrics.json_response_count);
+    metrics.classifier_valid_rate = ratio(
+        metrics.classifier_valid_count,
+        metrics.classifier_response_count,
+    );
     metrics.latency_ms = latency_stats(latencies);
     metrics.first_turn_latency_ms = latency_stats(first_turn_latencies);
     metrics.later_turn_latency_ms = latency_stats(later_turn_latencies);
     metrics
 }
 
+fn compute_role_measurements(
+    tasks: &[ModelProbeTaskEvidence],
+) -> BTreeMap<String, ModelProbeRoleMeasurements> {
+    ["executor", "planner", "classifier"]
+        .into_iter()
+        .map(|role| {
+            let role_tasks = tasks
+                .iter()
+                .filter(|task| task.role == role)
+                .collect::<Vec<_>>();
+            let provider_turn_count = role_tasks
+                .iter()
+                .map(|task| task.provider_turns.len())
+                .sum();
+            let passed_task_count = role_tasks
+                .iter()
+                .filter(|task| task_passed_for_role_band(task))
+                .count();
+            let mut latencies = Vec::new();
+            let mut token_telemetry = TokenTelemetryMetrics::default();
+            for task in &role_tasks {
+                for event in &task.provider_turns {
+                    if let Some(value) = event.get("duration_ms").and_then(Value::as_u64) {
+                        latencies.push(value);
+                    }
+                    if let Some(value) = event
+                        .get("estimated_prompt_tokens_sent")
+                        .and_then(Value::as_u64)
+                    {
+                        token_telemetry.estimated_prompt_tokens_sent_total += value;
+                    }
+                    if let Some(value) = event.get("prompt_eval_count").and_then(Value::as_u64) {
+                        token_telemetry.prompt_eval_count_total += value;
+                    } else {
+                        token_telemetry.missing_prompt_eval_count += 1;
+                    }
+                    if let Some(value) = event.get("eval_count").and_then(Value::as_u64) {
+                        token_telemetry.eval_count_total += value;
+                    }
+                    if let Some(reason) = event.get("finish_reason").and_then(Value::as_str) {
+                        *token_telemetry
+                            .finish_reasons
+                            .entry(reason.to_string())
+                            .or_default() += 1;
+                    }
+                }
+            }
+            let task_count = role_tasks.len();
+            let probe_band = if task_count == 0 {
+                "not_measured"
+            } else if passed_task_count == task_count {
+                "complete"
+            } else if passed_task_count == 0 {
+                "failed"
+            } else {
+                "partial"
+            };
+            let provider_duration_ms_total = latencies.iter().sum();
+            (
+                role.to_string(),
+                ModelProbeRoleMeasurements {
+                    task_count,
+                    passed_task_count,
+                    failed_task_count: task_count.saturating_sub(passed_task_count),
+                    probe_band: probe_band.to_string(),
+                    provider_turn_count,
+                    provider_duration_ms_total,
+                    latency_ms: latency_stats(latencies),
+                    token_telemetry,
+                },
+            )
+        })
+        .collect()
+}
+
+fn task_passed_for_role_band(task: &ModelProbeTaskEvidence) -> bool {
+    if !task.ok {
+        return false;
+    }
+    match task.id.as_str() {
+        "json_schema" => matches!(
+            analyze_json_schema_response(&task.final_text),
+            JsonSchemaAnalysis::Valid { missing_fields } if missing_fields.is_empty()
+        ),
+        "classifier_closed" => classifier_response_is_valid(&task.final_text),
+        _ => true,
+    }
+}
+
 enum JsonSchemaAnalysis {
     Valid { missing_fields: Vec<String> },
     Invalid,
+}
+
+fn classifier_response_is_valid(text: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(text.trim()) else {
+        return false;
+    };
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.len() == 3
+        && object.get("profile").and_then(Value::as_str) == Some("python-cli")
+        && object.get("intent").and_then(Value::as_str) == Some("create")
+        && object.get("family").and_then(Value::as_str) == Some("filter")
 }
 
 fn analyze_json_schema_response(text: &str) -> JsonSchemaAnalysis {
@@ -979,6 +1189,10 @@ fn render_card(report: &ModelProbeReport) -> String {
             "- Planner: {:?} `{}`",
             report.planner.provider, report.planner.model
         ),
+        format!(
+            "- Classifier: {:?} `{}`",
+            report.classifier.provider, report.classifier.model
+        ),
         format!("- Tasks: {}", metrics.task_count),
         format!(
             "- No-network guarantee: {}",
@@ -988,6 +1202,30 @@ fn render_card(report: &ModelProbeReport) -> String {
                 "failed"
             }
         ),
+        String::new(),
+        "## Role Measurements".to_string(),
+        String::new(),
+        "| Role | Probe band | Tasks | Provider turns | Provider duration | p50 latency | Prompt / generation tokens |".to_string(),
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |".to_string(),
+    ];
+    for role in ["executor", "planner", "classifier"] {
+        if let Some(measurement) = report.role_measurements.get(role) {
+            lines.push(format!(
+                "| {role} | `{}` | {}/{} | {} | {} ms | {} ms | {} / {} |",
+                measurement.probe_band,
+                measurement.passed_task_count,
+                measurement.task_count,
+                measurement.provider_turn_count,
+                measurement.provider_duration_ms_total,
+                option_u64(measurement.latency_ms.p50_ms),
+                measurement.token_telemetry.prompt_eval_count_total,
+                measurement.token_telemetry.eval_count_total,
+            ));
+        }
+    }
+    lines.extend([
+        String::new(),
+        "Probe band is fixed-battery completion only: complete means every role task met its bounded probe contract; partial means some did; failed means none did. It is not a production capability tier.".to_string(),
         String::new(),
         "## Dialect Metrics".to_string(),
         String::new(),
@@ -1036,6 +1274,12 @@ fn render_card(report: &ModelProbeReport) -> String {
             render_map(&metrics.missing_field_kinds)
         ),
         format!(
+            "- classifier_valid_rate: {} ({}/{})",
+            percent(metrics.classifier_valid_rate),
+            metrics.classifier_valid_count,
+            metrics.classifier_response_count
+        ),
+        format!(
             "- empty_response_rate: {} ({}/{})",
             percent(metrics.empty_response_rate),
             metrics.empty_response_count,
@@ -1073,7 +1317,7 @@ fn render_card(report: &ModelProbeReport) -> String {
         String::new(),
         "## Absorption Map".to_string(),
         String::new(),
-    ];
+    ]);
     let absorption = absorption_lines(metrics);
     if absorption.is_empty() {
         lines.push("- No elevated dialect indicator in this battery.".to_string());
@@ -1123,6 +1367,9 @@ fn absorption_lines(metrics: &ModelProbeMetrics) -> Vec<String> {
     }
     if metrics.json_valid_rate < 1.0 || !metrics.missing_field_kinds.is_empty() {
         lines.push("- JSON/schema drift observed => planner schema repair and descriptive-field defaulting will be hot.".to_string());
+    }
+    if metrics.classifier_valid_rate < 1.0 {
+        lines.push("- Closed-list classifier drift observed => keep typed-unknown fallback and human confirmation enabled.".to_string());
     }
     if metrics.empty_response_count > 0 {
         lines.push("- Empty responses observed => empty-response ladder and fresh-session retry will be hot.".to_string());
@@ -1248,6 +1495,7 @@ mod tests {
             "--model-probe",
         ]))
         .unwrap();
+        config.classifier_model = "fixture-classifier".to_string();
         config.chat_timeout_secs = 5;
         config.state_dir = output.path().join("state");
 
@@ -1269,7 +1517,8 @@ mod tests {
         let report: ModelProbeReport =
             serde_json::from_str(&fs::read_to_string(&result.profile_path).unwrap()).unwrap();
         assert_eq!(report.version, MODEL_PROBE_VERSION);
-        assert_eq!(report.metrics.task_count, 11);
+        assert_eq!(report.metrics.task_count, 12);
+        assert_eq!(report.classifier.model, "fixture-classifier");
         assert!(report.no_network_guarantee);
         assert_eq!(report.metrics.absolute_path_count, 1);
         assert!(report.metrics.absolute_path_rate > 0.0);
@@ -1288,6 +1537,8 @@ mod tests {
         assert_eq!(report.metrics.regeneration_follow_through, "edited");
         assert_eq!(report.metrics.json_response_count, 1);
         assert_eq!(report.metrics.json_valid_count, 1);
+        assert_eq!(report.metrics.classifier_response_count, 1);
+        assert_eq!(report.metrics.classifier_valid_count, 1);
         assert_eq!(
             report
                 .metrics
@@ -1303,6 +1554,26 @@ mod tests {
         assert_eq!(
             report.metrics.token_telemetry.finish_reasons.get("stop"),
             Some(&report.metrics.latency_ms.count)
+        );
+        assert_eq!(report.role_measurements["executor"].task_count, 10);
+        assert_eq!(report.role_measurements["executor"].probe_band, "complete");
+        assert_eq!(report.role_measurements["planner"].probe_band, "failed");
+        assert_eq!(
+            report.role_measurements["classifier"].probe_band,
+            "complete"
+        );
+        assert!(
+            report
+                .role_measurements
+                .values()
+                .all(|measurement| measurement.provider_turn_count > 0)
+        );
+        let filename = result.profile_path.file_name().unwrap().to_string_lossy();
+        assert!(filename.contains("executor-fixture-executor"), "{filename}");
+        assert!(filename.contains("planner-fixture-planner"), "{filename}");
+        assert!(
+            filename.contains("classifier-fixture-classifier"),
+            "{filename}"
         );
 
         let write_deep = report
@@ -1348,13 +1619,23 @@ mod tests {
                 .any(|command| command.contains("__import__('csv').DictReader")),
             "{csv_task:?}"
         );
+        let classifier_task = report
+            .tasks
+            .iter()
+            .find(|task| task.id == "classifier_closed")
+            .unwrap();
+        assert_eq!(classifier_task.role, "classifier");
+        assert!(classifier_response_is_valid(&classifier_task.final_text));
 
         let card = fs::read_to_string(&result.card_path).unwrap();
         for expected in [
             "# Model Probe Card",
-            "- Scope: N=11 micro-tasks; dialect indicators, not a capability benchmark",
+            "- Scope: N=12 micro-tasks; dialect indicators, not a capability benchmark",
+            "- Classifier: Ollama `fixture-classifier`",
             "- No-network guarantee: passed",
+            "| classifier | `complete` | 1/1 |",
             "- shell_control_breakdown: &&=2 ;=0 pipe=1 redirect=1 cd=1",
+            "- classifier_valid_rate: 100% (1/1)",
             "- latency_cache_note: first_turn_p50=",
             "- Compact-only repair follow-through => expect the 85 compact-session rung to matter.",
             "- JSON/schema drift observed => planner schema repair and descriptive-field defaulting will be hot.",
@@ -1510,6 +1791,9 @@ mod tests {
                 "json_schema" => reply_text(
                     r#"{"steps":[{"instruction":"write math helper","kind":"implement","expected_paths":["src/util/math.ts"]}]}"#,
                 ),
+                "classifier_closed" => {
+                    reply_text(r#"{"profile":"python-cli","intent":"create","family":"filter"}"#)
+                }
                 other => anyhow::bail!("unhandled model-probe task {other}: {joined}"),
             })
         }
@@ -1548,6 +1832,7 @@ mod tests {
             "regenerate",
             "csv_fixture_verify",
             "json_schema",
+            "classifier_closed",
         ]
         .into_iter()
         .find(|task| after.starts_with(task))
