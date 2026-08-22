@@ -418,7 +418,6 @@ fn validate_identity_fields(identity: &ConfirmationIdentity) -> anyhow::Result<(
         || identity.contract_checks.is_empty()
         || (identity.band_denominator == 0 && identity.draft_manifest.is_none())
         || !draft_complete
-        || (identity.draft_manifest.is_some() && !matches!(identity.pack, PackSelection::None))
     {
         bail!(
             "Gate 1 refuses conversational omission: missing={}, bases={}, checks={}, denominator={}",

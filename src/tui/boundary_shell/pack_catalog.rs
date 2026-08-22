@@ -1,5 +1,6 @@
 use anyhow::{Context, bail};
 
+use crate::planner::pack::PackProfile;
 use crate::planner::pack::catalog::{self, AdmittedPack, PackLocator, PackSource};
 
 use super::confirmation::PackSelection;
@@ -42,7 +43,11 @@ pub fn select_with_locator(
         bail!("pack selector `{selector}` must pin one id@MAJOR.MINOR.PATCH")
     }
     let located = locator.locate_pinned(id, version, None)?;
-    if located.profile != profile || located.intent != intent {
+    let located_profile = PackProfile::parse(&located.profile)
+        .context("selected pack profile is no longer registered")?;
+    if !catalog::profile_is_compatible(located.source, profile, located_profile)
+        || located.intent != intent
+    {
         bail!(
             "pack `{selector}` is for {} × {}, not {profile} × {intent}",
             located.profile,
@@ -113,7 +118,11 @@ pub fn validate_selection_with_locator(
             located.source
         )
     }
-    if located.profile != profile || located.intent != intent {
+    let located_profile = PackProfile::parse(&located.profile)
+        .context("selected pack profile is no longer registered")?;
+    if !catalog::profile_is_compatible(located.source, profile, located_profile)
+        || located.intent != intent
+    {
         bail!(
             "pack `{id}@{version}` is for {} × {}, not {profile} × {intent}",
             located.profile,

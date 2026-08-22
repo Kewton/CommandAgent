@@ -6,12 +6,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 
 use crate::cli::{Cli, IntentArg};
-use crate::planner::pack::{PACKS_DIRECTORY, PackIntent, PackProfile};
+use crate::planner::pack::{PACKS_DIRECTORY, PackIntent};
 use crate::planner::profile_manifest::source::EXTENSION_PROFILES_DIRECTORY;
 
 const PACK_PIN_FILE: &str = "pack.sha256";
 
 pub(crate) fn run_if_requested(cli: &Cli) -> anyhow::Result<bool> {
+    if (cli.packs || cli.pack_verify.is_some() || cli.pack_pin.is_some())
+        && let Some(extension_root) = cli.extension_root.as_deref()
+    {
+        crate::planner::extension_profiles::register(extension_root).with_context(|| {
+            format!(
+                "load external profiles from extension root {}",
+                extension_root.display()
+            )
+        })?;
+    }
     if cli.packs {
         list(cli)?;
         return Ok(true);
@@ -53,9 +63,7 @@ pub(crate) fn render_list(
     requested_intent: &str,
     extension_root: Option<&Path>,
 ) -> anyhow::Result<String> {
-    let profile = crate::planner::profile_descriptor::descriptor_for_name(requested_profile)
-        .and_then(|descriptor| descriptor.pack_profile)
-        .or_else(|| PackProfile::parse(requested_profile))
+    let profile = crate::planner::profile_descriptor::pack_profile_for_name(requested_profile)
         .with_context(|| format!("profile `{requested_profile}` does not support packs"))?;
     let intent = PackIntent::parse(requested_intent)
         .with_context(|| format!("intent `{requested_intent}` does not support packs"))?;

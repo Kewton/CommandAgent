@@ -51,22 +51,28 @@ pub enum PackProfile {
     PythonCli,
     Ingest,
     Nextjs,
+    /// An exact process-lifetime ID from the registered external draft catalog.
+    Draft(&'static str),
 }
 
 impl PackProfile {
     pub fn as_str(self) -> &'static str {
-        crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
-            .iter()
-            .find(|profile| profile.pack_profile == Some(self))
-            .map(|profile| profile.canonical)
-            .expect("every PackProfile variant must have a ProfileDescriptor")
+        match self {
+            Self::Draft(id) => id,
+            compiled => crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
+                .iter()
+                .find(|profile| profile.pack_profile == Some(compiled))
+                .map(|profile| profile.canonical)
+                .expect("every compiled PackProfile variant must have a ProfileDescriptor"),
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
-            .iter()
-            .find(|profile| profile.canonical == value)
-            .and_then(|profile| profile.pack_profile)
+        crate::planner::profile_descriptor::pack_profile_for_identity(value)
+    }
+
+    pub const fn is_draft(self) -> bool {
+        matches!(self, Self::Draft(_))
     }
 }
 

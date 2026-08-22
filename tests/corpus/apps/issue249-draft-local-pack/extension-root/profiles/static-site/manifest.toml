@@ -1,0 +1,16 @@
+[metadata]
+id = "static-site"
+display_name = "Static site"
+schema_version = "v2"
+task_family = "Quiz"
+[plan]
+intent = "create"
+phases = [{ id = "core-implementation", prompt = "Create the requested static site for {goal}." }]
+[artifacts]
+required = ["index.html"]
+[guidance.variants.static_site]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Keep the site self-contained and produce index.html." }
+[[checks.final]]
+id = "scaffold_files_present"
+params = { files = ["index.html"] }

@@ -123,9 +123,12 @@ semantics and refuses to overwrite an existing manifest.
 
 Gate 1 permits the intentionally unmeasured draft identity without inventing
 a capability band. It pins the manifest path/source/hash, displays
-`draft / 未承認 / 保証上限 static`, and fixes pack selection to none. The terminal
-admission cap and acceptance sheet retain `profile_not_admitted` and the exact
-manifest hash.
+`draft / 未承認 / 保証上限 static`, and may separately pin a conformant local
+pack whose `pack.profile` is the exact registered draft ID. Draft compatibility
+never applies to repository or admitted supply, and does not register new pack
+sources, checks, or executable vocabulary. The terminal admission cap and
+acceptance sheet retain `profile_not_admitted`, the exact manifest hash, and
+the exact local pack identity.
 
 ### Additive overlays
 

@@ -589,7 +589,7 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
 
 #[cfg(unix)]
 #[test]
-fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
+fn gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack() {
     use std::os::unix::fs::PermissionsExt;
 
     let extension = tempfile::tempdir().unwrap();
@@ -599,15 +599,48 @@ fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
     std::fs::write(
         profile_dir.join("manifest.toml"),
         include_str!(
-            "corpus/apps/issue117-draft-profile/extension-root/profiles/static-site/manifest.toml"
+            "corpus/apps/issue249-draft-local-pack/extension-root/profiles/static-site/manifest.toml"
+        ),
+    )
+    .unwrap();
+    let pack_dir = extension.path().join("packs/static-guidance/1.0.0");
+    std::fs::create_dir_all(pack_dir.join("materials")).unwrap();
+    std::fs::write(
+        pack_dir.join("assist.yaml"),
+        include_str!(
+            "corpus/apps/issue249-draft-local-pack/extension-root/packs/static-guidance/1.0.0/assist.yaml"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        pack_dir.join("pack.sha256"),
+        include_str!(
+            "corpus/apps/issue249-draft-local-pack/extension-root/packs/static-guidance/1.0.0/pack.sha256"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        pack_dir.join("materials/BRIEF.md"),
+        include_str!(
+            "corpus/apps/issue249-draft-local-pack/extension-root/packs/static-guidance/1.0.0/materials/BRIEF.md"
         ),
     )
     .unwrap();
     let workspace = tempfile::tempdir().unwrap();
+    let cli_root = tempfile::tempdir().unwrap();
+    let cli = cli_root.path().join("draft-pack-cli.sh");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nenv | sort > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-env.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"static-site\",\"assurance_level\":\"static\",\"assurance_reason\":\"profile_not_admitted\",\"runtime_acceptance_status\":\"full\",\"final_acceptance_status\":\"completed\",\"release_gate_status\":\"passed\",\"stop_reason\":\"completed\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
     let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
     let mut server = Server::start_with_repository_root_and_env(
         Some(workspace.path()),
-        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        &cli,
         false,
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
         StaticExport::new(&static_root, "/"),
@@ -667,8 +700,8 @@ fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
     );
     assert_eq!(proposal["price"]["source"], "未計測");
 
-    let mut packed = spec;
-    packed["pack"] = serde_json::Value::String("nextjs-quality@1.0.0".to_string());
+    let mut packed = spec.clone();
+    packed["pack"] = serde_json::Value::String("static-guidance@1.0.0".to_string());
     let response = server.request_with_access(
         "POST",
         "/api/session-proposals",
@@ -676,8 +709,64 @@ fn gui_lists_and_proposes_an_external_draft_profile_without_a_pack() {
         None,
         Some(&origin),
     );
+    assert_eq!(response.status, 200, "{}", response.body);
+    let proposal = response.json();
+    assert_eq!(proposal["identity"]["profile"], "static-site");
+    assert_eq!(proposal["identity"]["pack"]["selection"], "pinned");
+    assert_eq!(proposal["identity"]["pack"]["source"], "local");
+    assert_eq!(
+        proposal["identity"]["draft_manifest"]["assurance_ceiling"],
+        "static"
+    );
+    assert!(
+        proposal["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("検証パックの供給元: ローカル（未承認・帯域未計測）")
+    );
+
+    packed["confirmation_hash"] = proposal["card_hash"].clone();
+    let response =
+        server.request_with_access("POST", "/api/sessions", Some(&packed), None, Some(&origin));
+    assert_eq!(response.status, 202, "{}", response.body);
+    let session_id = response.json()["id"].as_str().unwrap().to_string();
+    let run_root = workspace.path().join(".anvil/runs").join(session_id);
+    let events_path = run_root.join("events.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let events = loop {
+        if let Ok(events) = std::fs::read_to_string(&events_path)
+            && events.contains("tui_command_stop")
+        {
+            break events;
+        }
+        assert!(Instant::now() < deadline, "draft pack delegation timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(events.contains("\"assurance_level\":\"static\""));
+    assert!(events.contains("\"assurance_reason\":\"profile_not_admitted\""));
+    let delegated_env = std::fs::read_to_string(run_root.join("delegated-env.txt")).unwrap();
+    assert!(
+        delegated_env.contains("COMMANDAGENT_PACK_ID=static-guidance"),
+        "{delegated_env}"
+    );
+    assert!(
+        delegated_env.contains(
+            "COMMANDAGENT_PACK_HASH=sha256:b1d8b936d3fee069583e8caf081a49cf3155223fbd552b0df23d07194c7bc90b"
+        ),
+        "{delegated_env}"
+    );
+
+    let mut wrong_pack = spec;
+    wrong_pack["pack"] = serde_json::Value::String("nextjs-acme@1.0.0".to_string());
+    let response = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&wrong_pack),
+        None,
+        Some(&origin),
+    );
     assert_eq!(response.status, 422, "{}", response.body);
-    assert!(response.body.contains("pack selection to none"));
+    assert!(response.body.contains("not static-site"));
     server.stop();
 }
 
