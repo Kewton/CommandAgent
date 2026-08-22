@@ -143,6 +143,36 @@ pub fn descriptor_for_domain(name: &str) -> &'static ProfileDescriptor {
         .expect("PROFILE_DESCRIPTORS must register the generic fallback")
 }
 
+/// Resolve the effective pack-profile identity for a selected runtime profile.
+///
+/// Compiled descriptors retain their explicit closed `PackProfile`. An
+/// external descriptor gains only its already-registered exact draft ID; this
+/// does not add it to the compiled registry or change its admission status.
+pub fn pack_profile_for_name(name: &str) -> Option<PackProfile> {
+    let descriptor = descriptor_for_name(name)?;
+    descriptor.pack_profile.or_else(|| {
+        crate::planner::extension_profiles::find(descriptor.canonical)
+            .map(|profile| PackProfile::Draft(profile.id))
+    })
+}
+
+/// Decode a canonical pack identity. Unlike runtime selection, aliases are not
+/// accepted in pack bytes.
+pub fn pack_profile_for_identity(name: &str) -> Option<PackProfile> {
+    let normalized = name.trim().to_ascii_lowercase();
+    if name != normalized {
+        return None;
+    }
+    let descriptor = descriptor_for_name(&normalized)?;
+    if descriptor.canonical != normalized {
+        return None;
+    }
+    descriptor.pack_profile.or_else(|| {
+        crate::planner::extension_profiles::find(descriptor.canonical)
+            .map(|profile| PackProfile::Draft(profile.id))
+    })
+}
+
 fn admitted() -> ManifestStatus {
     ManifestStatus::Admitted
 }
@@ -249,5 +279,21 @@ mod tests {
                 assert_eq!(PackProfile::parse(profile.canonical), Some(pack_profile));
             }
         }
+    }
+
+    #[test]
+    fn pack_identity_resolution_keeps_compiled_aliases_out_of_pack_bytes() {
+        assert_eq!(
+            pack_profile_for_name("python"),
+            Some(PackProfile::PythonCli)
+        );
+        assert_eq!(
+            pack_profile_for_identity(PYTHON_CLI_PROFILE_ID),
+            Some(PackProfile::PythonCli)
+        );
+        assert_eq!(pack_profile_for_identity("python"), None);
+        assert_eq!(pack_profile_for_identity(" python-cli "), None);
+        assert_eq!(pack_profile_for_identity(GENERIC_PROFILE_ID), None);
+        assert_eq!(pack_profile_for_identity("unregistered-draft"), None);
     }
 }

@@ -375,7 +375,7 @@ fn create_floor(profile: PackProfile) -> Result<BTreeMap<String, FloorCheck>, Co
         PackProfile::Ingest => ingest::manifest::get(),
         // Next.js has no registered E/F/I/C/N pack check in v0. Its testimony
         // gate is deliberately a P-1 addition, not an invented P-0b ID.
-        PackProfile::Nextjs => return Ok(BTreeMap::new()),
+        PackProfile::Nextjs | PackProfile::Draft(_) => return Ok(BTreeMap::new()),
     };
     manifest_floor(manifest)
 }

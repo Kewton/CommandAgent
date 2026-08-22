@@ -498,6 +498,11 @@ fn validate_point_owner(identity: &PackIdentity, point: InjectionPoint) -> Resul
                     | InjectionPoint::ContractWiring
                     | InjectionPoint::BuildVerification
             ),
+            // External manifests may select registered phase IDs. The
+            // source/point pair and all parameters remain validated below by
+            // the same closed compiled vocabulary; an undeclared phase is
+            // inert because runtime matching is phase-exact.
+            PackProfile::Draft(_) => true,
         },
         PackIntent::Investigate => matches!(
             point,

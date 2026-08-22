@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use crate::cli::Cli;
 use crate::config::Config;
-use crate::planner::pack::{PackIntent, PackProfile};
+use crate::planner::pack::PackIntent;
+use crate::planner::pack::catalog::{self, PackSource};
 
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
@@ -150,7 +151,7 @@ fn resolve_inner(cli: &Cli, config: &Config) -> Result<Option<ResolvedPack>, Pac
             loaded.hash
         )));
     }
-    validate_compatibility(config, &loaded)?;
+    validate_compatibility(config, &loaded, source)?;
     crate::planner::pack::conform(&loaded)
         .map_err(|error| PackCliError::new(format!("selected pack conformance failed: {error}")))?;
     Ok(Some(ResolvedPack {
@@ -229,20 +230,27 @@ fn locate(
 fn validate_compatibility(
     config: &Config,
     loaded: &crate::planner::pack::LoadedPack,
+    source: SelectionSource,
 ) -> Result<(), PackCliError> {
-    let expected_profile = crate::planner::profile_descriptor::descriptor_for_name(&config.profile)
-        .and_then(|descriptor| descriptor.pack_profile)
-        .or_else(|| PackProfile::parse(&config.profile))
-        .ok_or_else(|| {
-            PackCliError::new(format!(
-                "profile `{}` cannot activate an assist/eval pack",
-                config.profile
-            ))
-        })?;
+    let expected_profile = crate::planner::profile_descriptor::pack_profile_for_name(
+        &config.profile,
+    )
+    .ok_or_else(|| {
+        PackCliError::new(format!(
+            "profile `{}` cannot activate an assist/eval pack",
+            config.profile
+        ))
+    })?;
     let intent = config.resolved_run_intent().as_str();
     let expected_intent = PackIntent::parse(intent)
         .ok_or_else(|| PackCliError::new(format!("intent `{intent}` cannot activate a pack")))?;
-    if loaded.identity.profile != expected_profile || loaded.identity.intent != expected_intent {
+    let source = match source {
+        SelectionSource::ExtensionRoot => PackSource::Local,
+        SelectionSource::Repository => PackSource::Repository,
+    };
+    if !catalog::profile_is_compatible(source, &config.profile, loaded.identity.profile)
+        || loaded.identity.intent != expected_intent
+    {
         return Err(PackCliError::new(format!(
             "selected pack is for {} × {}, not {} × {}",
             loaded.identity.profile, loaded.identity.intent, expected_profile, expected_intent

@@ -59,6 +59,13 @@ missing pin, parse failure, retirement marker, or hash mismatch stays visible
 as a warning and is never presented as approved. **Trial で使う** appears only
 for a non-retired admitted row or a conformant, exact-byte pinned local row.
 
+A local pack may target an external draft profile when its `pack.profile`
+value exactly matches that profile's registered ID in the same configured
+extension root. Gate 1 shows and pins both identities. The pack remains local
+and unadmitted, and successful execution cannot raise the draft profile above
+`static / profile_not_admitted`. A repository pack cannot gain draft-profile
+compatibility from the same string match.
+
 ## Lifecycle workflow
 
 The browser wizard delegates to this API sequence with explicit state

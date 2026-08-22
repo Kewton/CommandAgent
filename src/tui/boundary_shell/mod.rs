@@ -181,7 +181,13 @@ impl BoundaryShell {
         let identity = if let Some(profile) =
             crate::planner::extension_profiles::find(selected.profile.as_str())
         {
-            ConfirmationIdentity::new_draft(request, workspace, &selected, pins, pack, profile)?
+            if let Some(locator) = locator {
+                ConfirmationIdentity::new_draft_with_locator(
+                    request, workspace, &selected, pins, pack, profile, locator,
+                )?
+            } else {
+                ConfirmationIdentity::new_draft(request, workspace, &selected, pins, pack, profile)?
+            }
         } else {
             let band = selected
                 .band()

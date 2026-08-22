@@ -166,6 +166,21 @@ pub fn is_admitted(
         })
 }
 
+/// Match a selected profile to pack bytes without allowing a draft identity to
+/// escape operator-local supply. Exact draft IDs come only from the registered
+/// external profile catalog.
+pub fn profile_is_compatible(
+    source: PackSource,
+    selected_profile: &str,
+    pack_profile: super::PackProfile,
+) -> bool {
+    crate::planner::profile_descriptor::pack_profile_for_name(selected_profile).is_some_and(
+        |expected| {
+            expected == pack_profile && (!expected.is_draft() || source == PackSource::Local)
+        },
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackLocator {
     repository_root: PathBuf,
@@ -303,6 +318,20 @@ impl PackLocator {
             )
         }
         super::conform(&loaded).context("selected pack conformance failed")?;
+        if loaded.identity.profile.is_draft() {
+            if source != PackSource::Local {
+                bail!(
+                    "draft profile pack `{id}@{version}` must come from the configured local extension root"
+                )
+            }
+            if crate::planner::extension_profiles::registered_root().as_deref()
+                != self.extension_root.as_deref()
+            {
+                bail!(
+                    "draft profile pack `{id}@{version}` does not share the registered profile extension root"
+                )
+            }
+        }
         let point = pack_point(&loaded);
         let admitted = source != PackSource::Local
             && point.as_deref().is_some_and(|point| {
