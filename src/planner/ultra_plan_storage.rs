@@ -4,7 +4,10 @@ pub fn save_ultra_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<PathBuf>
     let dir = root.join(".anvil").join("plans");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("ultra-plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_ultra_plan(plan))?;
+    std::fs::write(
+        &path,
+        crate::planner::plan::render_editable_ultra_plan(plan),
+    )?;
     Ok(path)
 }
 

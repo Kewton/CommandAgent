@@ -295,6 +295,19 @@ pub struct Cli {
     pub run_ultra_plan: Option<PathBuf>,
     #[arg(
         long,
+        value_name = "PATH",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Validate a step-plan or UltraPlan YAML file without executing it; errors include line and column numbers."
+    )]
+    pub validate_plan: Option<PathBuf>,
+    #[arg(
+        long,
         action = ArgAction::SetTrue,
         help_heading = "Actions (use one)",
         help = "Install or validate the managed Playwright interaction probe."
@@ -756,6 +769,32 @@ mod tests {
     fn help_includes_runs() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--runs"));
+    }
+
+    #[test]
+    fn validate_plan_is_an_exclusive_action() {
+        let cli = Cli::try_parse_from(["commandagent", "--validate-plan", "plan.yaml"]).unwrap();
+        assert_eq!(
+            cli.validate_plan.as_deref(),
+            Some(std::path::Path::new("plan.yaml"))
+        );
+
+        let error = Cli::try_parse_from([
+            "commandagent",
+            "--validate-plan",
+            "plan.yaml",
+            "--run-plan",
+            "plan.yaml",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn help_describes_located_plan_validation() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--validate-plan <PATH>"));
+        assert!(help.contains("errors include line and column numbers"));
     }
 
     #[test]

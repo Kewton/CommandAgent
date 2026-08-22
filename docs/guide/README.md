@@ -24,8 +24,10 @@ Recommended route / 推奨順路:
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
   Trial, Gate 1, and result reading
 - [Extensions](../user/gui-extensions.md) — supply lifecycle, names, and review
-- [CLI reference](en/cli-reference.md) — all 57 public flags, defaults, and
+- [CLI reference](en/cli-reference.md) — all 58 public flags, defaults, and
   conflicts
+- [Plan YAML editing](en/plan-yaml.md) — commented templates, offline
+  validation, next commands, and recovery diffs
 - [Slash commands](en/slash-commands.md) — all 19 accepted command names,
   inline flags, file expansion, and profile inference
 - [Configuration](en/configuration.md) — precedence, presets, paths, legacy
@@ -48,7 +50,9 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   最初の 1 周、exact pack A/B
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
 - [拡張](../user/gui-extensions.md) — 供給ライフサイクル、命名、レビュー
-- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 57 フラグ、既定値、排他関係
+- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 58 フラグ、既定値、排他関係
+- [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、
+  recovery 差分
 - [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 19 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数

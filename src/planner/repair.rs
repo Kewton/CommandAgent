@@ -459,7 +459,7 @@ fn render_recovery_ultra_plan_with_review(
     plan: &UltraPlan,
     needs_review_reason: Option<&str>,
 ) -> String {
-    let mut out = String::new();
+    let mut out = crate::planner::plan::render_recovery_diff_comments(handoff);
     out.push_str("# anvil-recovery-ultra-plan\n");
     out.push_str("recovery_schema_version: \"1\"\n");
     if let Some(reason) = needs_review_reason {
@@ -993,6 +993,12 @@ mod tests {
                 .starts_with("recovery-ultra-plan-phase-web-audio-")
         );
         let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# Recovery diff summary"));
+        assert!(text.contains("# - retained changed paths: src/app/page.tsx"));
+        assert!(text.contains("# - missing paths: src/app/page.tsx"));
+        assert!(text.contains("# - missing capabilities: interactive_ui"));
+        assert!(text.contains("# - repair targets: phase_scaffold"));
+        assert!(text.contains("# - checks to rerun: npm run build"));
         assert!(text.contains("# anvil-recovery-ultra-plan"));
         assert!(text.contains("recovery_schema_version"));
         assert!(text.contains("recovery_failure_kind: \"phase_scaffold_error\""));

@@ -1,0 +1,26 @@
+# Recovery diff summary (informational; these comments are not executed).
+# - retained changed paths: src/lib.rs, tests/cli.rs
+# - missing paths: docs/guide/en/plan-yaml.md
+# - missing capabilities: editable_plan_validation
+# - repair targets: cli_validation
+# - checks to rerun: cargo test --test issue228_plan_yaml
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "Improve plan YAML editing"
+recovery_failure_kind: "build_failed"
+recovery_profile: "generic"
+recovery_failed_phase: "verify-release"
+recovery_expected_completed_artifacts:
+  - "src/lib.rs"
+  - "tests/cli.rs"
+goal: "Improve plan YAML editing"
+profile: "generic"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current plan YAML workflow and preserve completed work."
+  - id: "repair-verify-release"
+    prompt: "Repair the remaining CLI validation and documentation gap."
+  - id: "verify-recovery"
+    prompt: "Run the focused plan YAML tests and confirm the edited plan is valid."

@@ -1,0 +1,36 @@
+case_id = "issue228-plan-yaml"
+source = "Issue #228 editable recovery UltraPlan diff-summary fixture"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recovery-ultra-plan.yaml = [
+  "# Recovery diff summary (informational; these comments are not executed).",
+  "# - retained changed paths: src/lib.rs, tests/cli.rs",
+  "# - missing paths: docs/guide/en/plan-yaml.md",
+  "# - missing capabilities: editable_plan_validation",
+  "# - repair targets: cli_validation",
+  "# - checks to rerun: cargo test --test issue228_plan_yaml",
+  "recovery_schema_version: \"1\"",
+  "recovery_failed_phase: \"verify-release\"",
+  "recovery_expected_completed_artifacts:",
+  "intent: \"recover\""
+]
