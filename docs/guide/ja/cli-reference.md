@@ -12,14 +12,14 @@
 直接コマンドを実行するにはアクション選択フラグを 1 つ使い、TUI を使う場合はすべて省略します。
 アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
-`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、`--doctor` です。
+`--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、`--doctor` です。
 オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
 `--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
 アクションの `--validate-manifest` と `--init-profile` も、help の
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-57 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+58 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -53,6 +53,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--ultra-plan` | なし | オフ | 末尾のゴールに対する UltraPlan を生成して保存します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--ultra-plan-run` | なし | オフ | 末尾のゴールから UltraPlan を生成して実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--run-ultra-plan` | `<RUN_ULTRA_PLAN>` パス | なし | 既存の UltraPlan YAML ファイルを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
+| `--validate-plan` | `<PATH>` | なし | step-plan または UltraPlan YAML を実行せずに検証し、エラーには行番号と列番号を表示します。 | [Plan YAML の編集](plan-yaml.md) |
 | `--setup-interaction-probe` | なし | オフ | 管理対象の Playwright interaction probe をインストールまたは検証します。 | [Probe 利用不可](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | なし | オフ | プロバイダクライアントを作らず、現在のワークスペースの最近の run を一覧表示します。 | [スラッシュ `/runs`](slash-commands.md#コマンド一覧) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
@@ -109,6 +110,9 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
+- `--validate-plan` は offline かつ read-only の action で、実行 action および生成物 action の
+  すべてと排他です。step plan、UltraPlan、recovery UltraPlan YAML を受け付けます。詳細は
+  [Plan YAML の編集](plan-yaml.md)を参照してください。
 - `--planner-provider` が実行プロバイダと異なる場合、明示または preset の
   `planner_model` が必要です。なければ起動に失敗します。
 - `--think` には、解決後の provider 役割の少なくとも一方で Ollama が必要です。

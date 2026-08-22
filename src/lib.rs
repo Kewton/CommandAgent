@@ -74,6 +74,22 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         println!("created config template at {}", path.display());
         return Ok(());
     }
+    if let Some(path) = cli.validate_plan.as_deref() {
+        let workspace_root = cli
+            .cwd
+            .clone()
+            .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
+            .canonicalize()
+            .context("failed to canonicalize workspace root")?;
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            workspace_root.join(path)
+        };
+        let validation = planner::plan::validate_plan_file(&path, &workspace_root)?;
+        println!("{}", validation.render_success(&path));
+        return Ok(());
+    }
     if let Some(path) = cli.validate_manifest.as_deref() {
         planner::profile_manifest::commands::validate_file(path)?;
         println!("valid external profile manifest: {}", path.display());
@@ -221,6 +237,10 @@ fn run_config(config: Config) -> anyhow::Result<()> {
                 let path = planner::save_step_plan(&config.workspace_root, &plan)?;
                 drop(ui);
                 println!("{}", path.display());
+                println!(
+                    "{}",
+                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Step)
+                );
                 Ok(())
             }
             Action::PlanRun(goal) => {
@@ -263,6 +283,10 @@ fn run_config(config: Config) -> anyhow::Result<()> {
                 let path = planner::save_ultra_plan(&config.workspace_root, &plan)?;
                 drop(ui);
                 println!("{}", path.display());
+                println!(
+                    "{}",
+                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Ultra)
+                );
                 Ok(())
             }
             Action::UltraPlanRun(goal) => {

@@ -12,7 +12,7 @@ authority: use `commandagent --help` when its version differs from this checkout
 Use one of the action-selector flags for a direct command, or omit all of them
 for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 `--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
-`--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
+`--validate-plan`, `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
 `--doctor`. The offline pack actions `--packs`, `--pack-verify`, and
 `--pack-pin`, generated-artifact actions `--completions` and `--generate-man`,
 config action `--init-config`, and delegated manifest actions
@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-57 application flags below. The hidden `--completion-contract-json <PATH>` is an
+58 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -55,6 +55,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--ultra-plan` | none | off | Generate and save an UltraPlan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
 | `--ultra-plan-run` | none | off | Generate and run an UltraPlan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
 | `--run-ultra-plan` | `<RUN_ULTRA_PLAN>` path | none | Run an existing UltraPlan YAML file. | [Action exclusivity](#conflicts-and-combinations) |
+| `--validate-plan` | `<PATH>` | none | Validate a step-plan or UltraPlan YAML file without executing it; errors include line and column numbers. | [Plan YAML editing](plan-yaml.md) |
 | `--setup-interaction-probe` | none | off | Install or validate the managed Playwright interaction probe. | [Probe unavailable](troubleshooting.md#preflight-interaction-probe-unavailable) |
 | `--runs` | none | off | List recent runs for the current workspace without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
@@ -115,6 +116,9 @@ See [Configuration](configuration.md) for the exact per-field layers.
   their target directory directly.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
+- `--validate-plan` is an offline, read-only action and conflicts with every
+  execution or generated-artifact action. It accepts step-plan, UltraPlan, and
+  recovery UltraPlan YAML; see [Plan YAML editing](plan-yaml.md).
 - A different `--planner-provider` requires an explicit or preset
   `planner_model`; otherwise startup fails.
 - `--think` requires at least one resolved provider role to use Ollama. When

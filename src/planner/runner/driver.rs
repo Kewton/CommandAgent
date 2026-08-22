@@ -781,7 +781,7 @@ pub fn save_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<PathBuf> {
     let dir = root.join(".anvil").join("plans");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_step_plan(plan))?;
+    std::fs::write(&path, crate::planner::plan::render_editable_step_plan(plan))?;
     Ok(path)
 }
 

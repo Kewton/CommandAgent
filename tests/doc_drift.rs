@@ -9,6 +9,8 @@ use commandagent::tui::slash::{SLASH_COMMANDS, render_help};
 
 const CLI_DOC: &str = "docs/guide/en/cli-reference.md";
 const JA_CLI_DOC: &str = "docs/guide/ja/cli-reference.md";
+const PLAN_YAML_DOC: &str = "docs/guide/en/plan-yaml.md";
+const JA_PLAN_YAML_DOC: &str = "docs/guide/ja/plan-yaml.md";
 const SLASH_DOC: &str = "docs/guide/en/slash-commands.md";
 const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
 const GUIDE_INDEX: &str = "docs/guide/README.md";
@@ -160,6 +162,37 @@ fn public_cli_help_matches_english_reference_descriptions() {
             documented.get(&flag),
             Some(&help),
             "{flag} help differs between src/cli.rs and {CLI_DOC}"
+        );
+    }
+}
+
+#[test]
+fn bilingual_plan_yaml_guides_pin_the_edit_validate_run_contract() {
+    for path in [PLAN_YAML_DOC, JA_PLAN_YAML_DOC] {
+        let markdown = read_repo_file(path);
+        for marker in [
+            "--plan-steps",
+            "--ultra-plan",
+            "--validate-plan",
+            "--run-plan",
+            "--run-ultra-plan",
+            "path:line:column",
+            "Recovery",
+        ] {
+            assert!(
+                markdown.contains(marker),
+                "{path} is missing plan YAML contract marker {marker:?}"
+            );
+        }
+    }
+
+    let template = commandagent::planner::plan::render_editable_step_plan(
+        &commandagent::planner::step_plan::StepPlan::single("document plan editing"),
+    );
+    for marker in ["--validate-plan <path>", "--run-plan <path>"] {
+        assert!(
+            template.contains(marker),
+            "saved step-plan template is missing documented marker {marker:?}"
         );
     }
 }
