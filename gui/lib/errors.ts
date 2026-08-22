@@ -4,6 +4,7 @@ export class GuiRequestError extends Error {
     readonly code: string,
     readonly serverMessage: string,
     readonly report: unknown = null,
+    readonly sessionId: string | null = null,
   ) {
     super(serverMessage);
     this.name = "GuiRequestError";
@@ -14,6 +15,7 @@ type ErrorPayload = {
   code?: unknown;
   error?: unknown;
   report?: unknown;
+  session_id?: unknown;
 };
 
 export async function responseError(response: Response): Promise<GuiRequestError> {
@@ -29,7 +31,14 @@ export async function responseError(response: Response): Promise<GuiRequestError
     typeof payload.error === "string" && payload.error.trim() !== ""
       ? payload.error
       : text.trim() || response.statusText || "empty error response";
-  return new GuiRequestError(response.status, code, serverMessage, payload.report ?? null);
+  const sessionId = typeof payload.session_id === "string" ? payload.session_id : null;
+  return new GuiRequestError(
+    response.status,
+    code,
+    serverMessage,
+    payload.report ?? null,
+    sessionId,
+  );
 }
 
 export function describeError(reason: unknown): string {
@@ -186,9 +195,16 @@ export function isTrialTokenRejected(reason: unknown): boolean {
 export function reconnectSessionId(reason: unknown): string | null {
   if (
     !(reason instanceof GuiRequestError) ||
-    !["trial_workspace_running", "trial_workspace_conflict"].includes(reason.code)
+    ![
+      "trial_workspace_running",
+      "trial_workspace_recovery_required",
+      "trial_workspace_conflict",
+    ].includes(reason.code)
   ) {
     return null;
+  }
+  if (reason.sessionId !== null && SESSION_ID_PATTERN.test(reason.sessionId)) {
+    return reason.sessionId;
   }
   return (
     reason.serverMessage.match(
@@ -196,6 +212,9 @@ export function reconnectSessionId(reason: unknown): string | null {
     )?.[1] ?? null
   );
 }
+
+const SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function withDetail(guidance: string, detail: string): string {
   return `${guidance} 詳細: ${detail}`;
