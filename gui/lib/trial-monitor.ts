@@ -48,18 +48,23 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
     };
   }
 
-  const invalidJsonl = /invalid[^.\n]*jsonl|jsonl[^.\n]*invalid/i.test(detail.summary);
+  const sessionMissing = response.status === 404;
+  const invalidJsonl =
+    detail.code === "trial_session_events_invalid" ||
+    /invalid[^.\n]*jsonl|jsonl[^.\n]*invalid/i.test(detail.summary);
   return {
     status: response.status,
     code: detail.code,
     guidance:
       response.status === 413
         ? "セッションのイベントストリームがポーリング上限を超えました。CLI の成果物を直接確認してください。"
-        : invalidJsonl
-          ? "セッションのイベント JSONL が不正です。再接続する前に既存の成果物を確認し、修復してください。"
-          : `監視リクエストに失敗しました (${response.status || "状態不明"})。上限付きバックオフで再試行します。`,
+        : sessionMissing
+          ? "監視対象のセッションが見つかりません (HTTP 404)。セッション ID と実行ルートを確認して再接続するか、新しい実行を開始してください。"
+          : invalidJsonl
+            ? "セッションのイベント JSONL が不正です。既存のイベントと成果物を確認して修復してから再接続してください。"
+            : `監視リクエストに失敗しました (${response.status || "状態不明"})。上限付きバックオフで再試行します。`,
     summary: detail.summary,
-    terminal: response.status === 413 || invalidJsonl,
+    terminal: response.status === 413 || invalidJsonl || sessionMissing,
   };
 }
 
