@@ -26,6 +26,8 @@ fn gui_server_help_exposes_only_serving_inputs() {
         "--extension-root",
         "--trial-token-auth",
         "--commandagent-bin",
+        "--ollama-host",
+        "--lm-studio-host",
         "--init",
         "--check",
         "--json",
@@ -584,6 +586,107 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
                 .is_some_and(|hash| hash.starts_with("sha256:"))
             && pack["point"] == "cli-validation"
     }));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_model_discovery_uses_local_read_only_endpoints_and_degrades_to_empty() {
+    let (ollama_host, ollama) = spawn_json_server(
+        "/api/tags",
+        r#"{"models":[{"name":"zeta"},{"name":"alpha"},{"name":"alpha"},{"name":""}]}"#,
+        None,
+    );
+    let (lm_studio_host, lm_studio) = spawn_json_server(
+        "/v1/models",
+        r#"{"data":[{"id":"model-b"},{"id":"model-a"},{"id":"model-b"}]}"#,
+        Some("Bearer local-model-token"),
+    );
+    let repository = tempfile::tempdir().unwrap();
+    let mut server = Server::start_dashboard_only_with_provider_hosts(
+        repository.path(),
+        ProviderHosts {
+            ollama: &ollama_host,
+            lm_studio: &lm_studio_host,
+        },
+        &[("LM_STUDIO_API_TOKEN", "local-model-token")],
+    );
+
+    let response =
+        server.request_without_access("GET", "/api/provider-models?provider=ollama", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json(), serde_json::json!(["alpha", "zeta"]));
+
+    let response =
+        server.request_without_access("GET", "/api/provider-models?provider=lm-studio", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json(), serde_json::json!(["model-a", "model-b"]));
+    ollama.join().unwrap();
+    lm_studio.join().unwrap();
+
+    let response =
+        server.request_without_access("GET", "/api/provider-models?provider=ollama", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json(), serde_json::json!([]));
+
+    for provider in ["openai", "gemini", "unknown"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/provider-models?provider={provider}"),
+            None,
+        );
+        assert_eq!(response.status, 422, "{}", response.body);
+        assert_eq!(response.json()["code"], "provider_models_unsupported");
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn band_means_expose_catalog_keys_and_only_matching_measurements() {
+    let repository = tempfile::tempdir().unwrap();
+    let runs = repository.path().join("workspace/management/runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    std::fs::write(
+        runs.join("band_summary_cli.md"),
+        "\
+| Family | Band status | Seconds |\n\
+| --- | --- | --- |\n\
+| stats | formal Window B | 60 |\n\
+| stats | formal Window B | 120 |\n\
+| stats | excluded | 999 |\n\
+| filter | formal Window B | 30s |\n",
+    )
+    .unwrap();
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+
+    let response = server.request_without_access("GET", "/api/band-means", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let rows = response.json();
+    let rows = rows.as_array().unwrap();
+    let stats = rows
+        .iter()
+        .find(|row| row["profile"] == "python-cli" && row["family"] == "stats")
+        .unwrap();
+    assert_eq!(stats["intent"], "create");
+    assert_eq!(stats["duration_n"], 2);
+    assert_eq!(stats["average_duration_seconds"], 90.0);
+    assert_eq!(
+        stats["source"],
+        "workspace/management/runs/band_summary_cli.md"
+    );
+    let filter = rows
+        .iter()
+        .find(|row| row["profile"] == "python-cli" && row["family"] == "filter")
+        .unwrap();
+    assert_eq!(filter["duration_n"], 1);
+    assert_eq!(filter["average_duration_seconds"], 30.0);
+    let missing = rows
+        .iter()
+        .find(|row| row["profile"] == "ingest" && row["family"] == "list")
+        .unwrap();
+    assert_eq!(missing["duration_n"], 0);
+    assert!(missing["average_duration_seconds"].is_null());
     server.stop();
 }
 
@@ -1587,7 +1690,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\nprintf '%s\\n' \"$@\" > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
@@ -1828,6 +1931,25 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         assert!(
             !delegated_env.contains(forbidden),
             "delegated environment contains {forbidden}: {delegated_env}"
+        );
+    }
+    let delegated_args = std::fs::read_to_string(
+        delegated_events
+            .parent()
+            .unwrap()
+            .join("delegated-args.txt"),
+    )
+    .unwrap();
+    let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+    assert!(!delegated_args.contains(&"--yes"), "{delegated_args:?}");
+    for pair in [
+        ["--allow", "read,write,bash:verify"],
+        ["--ollama-host", "http://localhost:11434"],
+        ["--lm-studio-host", "http://localhost:1234"],
+    ] {
+        assert!(
+            delegated_args.windows(2).any(|arguments| arguments == pair),
+            "missing {pair:?}: {delegated_args:?}"
         );
     }
 
@@ -2161,12 +2283,29 @@ struct Server {
 struct StaticExport<'a> {
     root: &'a std::path::Path,
     base_path: &'a str,
+    provider_hosts: Option<ProviderHosts<'a>>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+struct ProviderHosts<'a> {
+    ollama: &'a str,
+    lm_studio: &'a str,
 }
 
 #[cfg(unix)]
 impl<'a> StaticExport<'a> {
     fn new(root: &'a std::path::Path, base_path: &'a str) -> Self {
-        Self { root, base_path }
+        Self {
+            root,
+            base_path,
+            provider_hosts: None,
+        }
+    }
+
+    fn with_provider_hosts(mut self, provider_hosts: ProviderHosts<'a>) -> Self {
+        self.provider_hosts = Some(provider_hosts);
+        self
     }
 }
 
@@ -2233,6 +2372,23 @@ impl Server {
     fn start_dashboard_only() -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
         Self::start_dashboard_only_with_static_root(&static_root)
+    }
+
+    fn start_dashboard_only_with_provider_hosts(
+        repository_root: &std::path::Path,
+        provider_hosts: ProviderHosts<'_>,
+        environment: &[(&str, &str)],
+    ) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_repository_root_and_env(
+            None,
+            std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+            false,
+            repository_root,
+            StaticExport::new(&static_root, "/").with_provider_hosts(provider_hosts),
+            None,
+            environment,
+        )
     }
 
     fn start_dashboard_only_with_static_root(static_root: &std::path::Path) -> Self {
@@ -2322,7 +2478,11 @@ impl Server {
         extension_root: Option<&std::path::Path>,
         environment: &[(&str, &str)],
     ) -> Self {
-        let StaticExport { root, base_path } = static_export;
+        let StaticExport {
+            root,
+            base_path,
+            provider_hosts,
+        } = static_export;
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
         command
             .args(["--port", "0", "--base-path", base_path])
@@ -2335,6 +2495,11 @@ impl Server {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         command.envs(environment.iter().copied());
+        if let Some(provider_hosts) = provider_hosts {
+            command
+                .args(["--ollama-host", provider_hosts.ollama])
+                .args(["--lm-studio-host", provider_hosts.lm_studio]);
+        }
         if let Some(workspace) = workspace {
             command.arg("--execution-root").arg(workspace);
         }
@@ -2499,6 +2664,41 @@ impl HttpResponse {
             .get(&name.to_ascii_lowercase())
             .map(String::as_str)
     }
+}
+
+#[cfg(unix)]
+fn spawn_json_server(
+    expected_path: &'static str,
+    body: &'static str,
+    expected_authorization: Option<&'static str>,
+) -> (String, std::thread::JoinHandle<()>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let worker = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 4096];
+        let read = stream.read(&mut request).unwrap();
+        let request = String::from_utf8_lossy(&request[..read]);
+        assert!(
+            request.starts_with(&format!("GET {expected_path} HTTP/1.1")),
+            "{request}"
+        );
+        if let Some(expected) = expected_authorization {
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains(&format!("authorization: {}", expected.to_ascii_lowercase())),
+                "{request}"
+            );
+        }
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    (host, worker)
 }
 
 #[cfg(unix)]

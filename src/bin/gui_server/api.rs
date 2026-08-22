@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path as FilePath, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use commandagent::tui::boundary_shell::band_catalog::{BAND_VALUES, BandValue};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
@@ -59,6 +60,16 @@ pub struct Document {
     id: String,
     path: String,
     content: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BandMean {
+    profile: &'static str,
+    intent: &'static str,
+    family: &'static str,
+    duration_n: usize,
+    average_duration_seconds: Option<f64>,
+    source: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,6 +181,48 @@ pub async fn bands(State(state): State<AppState>) -> Result<Json<Vec<Document>>,
             .is_some_and(|name| name.starts_with("band_summary") && name.ends_with(".md"))
     })
     .await
+}
+
+pub async fn band_means(State(state): State<AppState>) -> Result<Json<Vec<BandMean>>, ApiError> {
+    let mut sources = BTreeMap::new();
+    for band in BAND_VALUES {
+        if !sources.contains_key(band.source) {
+            let path = state.repository_root.join(band.source);
+            let text = match tokio::fs::try_exists(&path).await {
+                Ok(false) => None,
+                Ok(true) => {
+                    let path = checked_existing_path_without_symlinks(
+                        &state.repository_root,
+                        FilePath::new(band.source),
+                    )
+                    .await?;
+                    Some(read_text(&path).await?)
+                }
+                Err(error) => {
+                    return Err(internal(format!("read {}: {error}", path.display())));
+                }
+            };
+            sources.insert(band.source, text);
+        }
+    }
+    let means = BAND_VALUES
+        .iter()
+        .map(|band| {
+            let durations = sources
+                .get(band.source)
+                .and_then(Option::as_deref)
+                .map_or_else(Vec::new, |text| band_durations(text, band));
+            BandMean {
+                profile: band.profile,
+                intent: band.intent.as_str(),
+                family: band.family.as_str(),
+                duration_n: durations.len(),
+                average_duration_seconds: mean(&durations),
+                source: band.source,
+            }
+        })
+        .collect();
+    Ok(Json(means))
 }
 
 pub async fn maps(State(state): State<AppState>) -> Result<Json<Vec<DocumentSummary>>, ApiError> {
@@ -469,6 +522,107 @@ fn is_measurement_report(path: &FilePath) -> bool {
         || name == "study-summary.json"
 }
 
+fn band_durations(text: &str, band: &BandValue) -> Vec<f64> {
+    let mut durations = Vec::new();
+    let mut headers: Option<Vec<String>> = None;
+    for line in text.lines() {
+        if !line.trim_start().starts_with('|') {
+            headers = None;
+            continue;
+        }
+        let cells = markdown_cells(line);
+        if cells.iter().all(|cell| {
+            let trimmed = cell.trim_matches(['-', ':', ' ']);
+            trimmed.is_empty()
+        }) {
+            continue;
+        }
+        let has_family = cells
+            .iter()
+            .any(|cell| matches!(cell.as_str(), "Family" | "Scenario"));
+        let has_duration = cells
+            .iter()
+            .any(|cell| matches!(cell.as_str(), "Seconds" | "Duration"));
+        let has_band_scope = cells
+            .iter()
+            .any(|cell| matches!(cell.as_str(), "Band status" | "Window"));
+        if has_family
+            && has_duration
+            && (has_band_scope || cells.iter().any(|cell| cell == "Seconds"))
+        {
+            headers = Some(cells);
+            continue;
+        }
+        let Some(header) = headers.as_ref() else {
+            continue;
+        };
+        if cells.len() != header.len() {
+            continue;
+        }
+        let field = |names: &[&str]| {
+            header
+                .iter()
+                .position(|value| names.contains(&value.as_str()))
+                .and_then(|index| cells.get(index))
+                .map(String::as_str)
+        };
+        if !field(&["Family", "Scenario"])
+            .is_some_and(|family| family.eq_ignore_ascii_case(band.family.as_str()))
+        {
+            continue;
+        }
+        if let Some(scope) = field(&["Band status", "Window"])
+            && !band_scope_matches(scope, band.arm)
+        {
+            continue;
+        }
+        if let Some(duration) = field(&["Seconds", "Duration"]).and_then(parse_duration_seconds) {
+            durations.push(duration);
+        }
+    }
+    durations
+}
+
+fn markdown_cells(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn band_scope_matches(value: &str, arm: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    let arm = arm.trim().to_ascii_lowercase();
+    value.contains(&arm)
+        || arm
+            .strip_prefix("window ")
+            .is_some_and(|window| value == window)
+}
+
+fn parse_duration_seconds(value: &str) -> Option<f64> {
+    let value = value.trim().trim_matches('`').trim();
+    if let Ok(seconds) = value.parse::<f64>() {
+        return seconds.is_finite().then_some(seconds);
+    }
+    if let Some(seconds) = value.strip_suffix('s') {
+        if let Ok(seconds) = seconds.parse::<f64>() {
+            return seconds.is_finite().then_some(seconds);
+        }
+        if let Some((minutes, seconds)) = seconds.split_once('m') {
+            let minutes = minutes.parse::<f64>().ok()?;
+            let seconds = seconds.parse::<f64>().ok()?;
+            let total = minutes * 60.0 + seconds;
+            return total.is_finite().then_some(total);
+        }
+    }
+    None
+}
+
+fn mean(values: &[f64]) -> Option<f64> {
+    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+}
+
 fn is_text_document(path: &FilePath) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
@@ -618,7 +772,11 @@ fn internal(message: impl Into<String>) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExtractedStatus, RunState, extract_status};
+    use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::tui::boundary_shell::band_catalog::BandValue;
+    use commandagent::tui::boundary_shell::family_catalog::TaskFamilyId;
+
+    use super::{ExtractedStatus, RunState, band_durations, extract_status};
 
     #[test]
     fn extract_status_normalizes_markdown_and_enumerates_pass() {
@@ -672,5 +830,53 @@ mod tests {
                 text: "blockade readiness".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn band_duration_parser_filters_family_and_formal_arm() {
+        let band = BandValue {
+            profile: "python-cli",
+            intent: IntentId::Create,
+            family: TaskFamilyId::Stats,
+            full: 0,
+            denominator: 3,
+            display_rate: "0%",
+            arm: "formal Window B",
+            measurement: "fixture",
+            source: "fixture.md",
+            full_meaning: "fixture",
+        };
+        let text = "\
+| Family | Band status | Seconds |\n\
+| --- | --- | --- |\n\
+| stats | formal Window B | 60 |\n\
+| stats | excluded | 900 |\n\
+| filter | formal Window B | 120 |\n";
+
+        assert_eq!(band_durations(text, &band), vec![60.0]);
+    }
+
+    #[test]
+    fn band_duration_parser_accepts_duration_encodings_and_window_short_name() {
+        let band = BandValue {
+            profile: "data",
+            intent: IntentId::Create,
+            family: TaskFamilyId::Aggregation,
+            full: 2,
+            denominator: 6,
+            display_rate: "33%",
+            arm: "Window B",
+            measurement: "fixture",
+            source: "fixture.md",
+            full_meaning: "fixture",
+        };
+        let text = "\
+| Family | Window | Duration |\n\
+| --- | --- | --- |\n\
+| aggregation | B | 5m02s |\n\
+| aggregation | B | 390s |\n\
+| aggregation | A | 999s |\n";
+
+        assert_eq!(band_durations(text, &band), vec![302.0, 390.0]);
     }
 }
