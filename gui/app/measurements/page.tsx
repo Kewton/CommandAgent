@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
@@ -16,7 +16,17 @@ export default function MeasurementsPage() {
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
   const selectedPath = selected?.path ?? null;
+
+  const filteredReports = useMemo(() => {
+    const available = reports.data ?? [];
+    const query = filter.trim().toLocaleLowerCase("ja-JP");
+    if (query === "") return available;
+    return available.filter((report) =>
+      `${report.id} ${report.path}`.toLocaleLowerCase("ja-JP").includes(query),
+    );
+  }, [filter, reports.data]);
 
   async function readReport(path: string, signal?: AbortSignal) {
     setLoading(true);
@@ -54,19 +64,18 @@ export default function MeasurementsPage() {
           <span className="panel-index">参照マップ</span>
           <h2>到達度 × 構成時間</h2>
           <p>
-            各点はリポジトリの計測行に対応します。画面が狭い場合は横にスクロールするか、原寸 SVG
-            を開いて拡大し、出典を確認できます。
+            各点はリポジトリの計測行に対応します。画面幅に合わせた全体図を確認し、詳細は原寸
+            SVG を開いて拡大できます。
           </p>
           <a className="map-source-link" href={scoreTimeMapPath} rel="noreferrer" target="_blank">
             原寸 SVG を開く ↗
           </a>
         </div>
         <div
-          aria-label="横スクロールできるスコアと時間の計測マップ"
+          aria-label="スコアと時間の計測マップ"
           className="map-frame compact"
           data-testid="measurement-map-frame"
           role="region"
-          tabIndex={0}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -78,18 +87,42 @@ export default function MeasurementsPage() {
       </section>
 
       <section className="measurement-workbench">
-        <aside className="report-index panel">
+        <aside className="report-index run-picker panel">
           <header>
             <h2 style={{ margin: 0 }}>
               <span>レポート一覧</span>
             </h2>
-            <strong>{reports.data?.length ?? "—"}</strong>
+            <strong aria-live="polite" data-testid="report-filter-count">
+              {reports.data === null
+                ? "—"
+                : `${filteredReports.length} / ${reports.data.length}`}
+            </strong>
           </header>
+          <form className="run-filter" onSubmit={(event) => event.preventDefault()}>
+            <label htmlFor="report-filter">レポートを絞り込む</label>
+            <input
+              aria-describedby="report-filter-help"
+              data-testid="report-filter"
+              id="report-filter"
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="ID・パスで検索"
+              type="search"
+              value={filter}
+            />
+            <p className="source-note" id="report-filter-help">
+              レポート ID またはパスの一部で一覧を絞り込みます。
+            </p>
+          </form>
           {reports.loading && <LoadingState label="計測レポートを索引化しています" />}
           {reports.error !== null && <ErrorState message={reports.error} />}
           {reports.data?.length === 0 && <EmptyState message="レポートが見つかりません。" />}
+          {reports.data !== null &&
+            reports.data.length > 0 &&
+            filteredReports.length === 0 && (
+              <EmptyState label="該当なし" message="条件に一致するレポートがありません。" />
+            )}
           <div className="report-list">
-            {reports.data?.map((report) => (
+            {filteredReports.map((report) => (
               <button
                 className={selected?.path === report.path ? "active" : ""}
                 key={report.path}

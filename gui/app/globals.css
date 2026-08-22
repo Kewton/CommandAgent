@@ -3287,12 +3287,14 @@ a.runtime-badge:focus-visible {
   }
 
   .measure-map .map-frame {
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
+    overflow: hidden;
   }
 
   .measure-map .map-frame img {
-    min-width: 70rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: auto;
   }
 
   .asset-tabs button {

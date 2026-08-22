@@ -831,11 +831,57 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "request_ownership",
         "empty_selection_cleared",
         "sourceLinkPresent",
-        "mobileMap.horizontally_scrollable",
+        "mobileMap.fits_without_axis_scroll",
     ] {
         assert!(
             smoke.contains(required),
             "Issue 75 browser smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
+fn measurement_filter_and_mobile_map_fit_are_pinned() {
+    let measurements = std::fs::read_to_string("gui/app/measurements/page.tsx").unwrap();
+    for required in [
+        "data-testid=\"report-filter\"",
+        "data-testid=\"report-filter-count\"",
+        "toLocaleLowerCase(\"ja-JP\")",
+        "`${report.id} ${report.path}`",
+        "filteredReports.map",
+        "label=\"該当なし\"",
+        "画面幅に合わせた全体図",
+        "aria-label=\"スコアと時間の計測マップ\"",
+    ] {
+        assert!(
+            measurements.contains(required),
+            "measurement filtering contract is missing {required:?}"
+        );
+    }
+    assert!(!measurements.contains("横スクロールできるスコアと時間の計測マップ"));
+
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert!(styles.contains(".measure-map .map-frame {\n    overflow: hidden;"));
+    assert!(styles.contains(
+        ".measure-map .map-frame img {\n    width: 100%;\n    max-width: 100%;\n    min-width: 0;\n    height: auto;"
+    ));
+    assert!(!styles.contains("min-width: 70rem"));
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "filter_matches_path",
+        "no_match_label_visible",
+        "count_restored",
+        "selection_retained_after_filter",
+        "fits_single_viewport",
+        "fits_without_axis_scroll",
+        "has_horizontal_overflow",
+        "has_vertical_overflow",
+        "image_fits_frame",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Issue 185 browser smoke is missing {required:?}"
         );
     }
 }
