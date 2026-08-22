@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[test]
 #[ignore]
@@ -210,6 +210,7 @@ fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
             host,
             started: _started,
             completed: response_completed,
+            disconnected: _disconnected,
             saw_stream,
             stop,
             server,
@@ -279,6 +280,7 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_and_footer() {
         host,
         started,
         completed: _completed,
+        disconnected: _disconnected,
         saw_stream,
         stop,
         server,
@@ -322,6 +324,63 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_and_footer() {
     assert!(
         text.contains("\x1b[r") && text.contains("commandagent>"),
         "footer/raw terminal cleanup did not restore the prompt after Esc. output={text:?}"
+    );
+}
+
+#[test]
+#[ignore]
+fn tui_pty_planner_interrupt_closes_http_and_reaches_gate_four_within_one_second() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_commandagent");
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join("state");
+    let StreamingOllama {
+        host,
+        started,
+        completed: _completed,
+        disconnected,
+        saw_stream,
+        stop,
+        server,
+    } = start_streaming_ollama(1);
+    let (output, gate_four_elapsed, disconnect_elapsed) =
+        run_gate_four_interrupt_script(bin, tmp.path(), &state_dir, &host, started, disconnected)
+            .expect("script(1) PTY helper and interruptible fake Ollama must be available");
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "PTY command failed. output={text:?}"
+    );
+    assert!(
+        saw_stream.load(Ordering::SeqCst),
+        "planner request did not enable stream with --stream off"
+    );
+    assert!(
+        gate_four_elapsed < Duration::from_secs(1),
+        "Gate 4 took {gate_four_elapsed:?} after Esc. output={text:?}"
+    );
+    assert!(
+        disconnect_elapsed < Duration::from_secs(1),
+        "Ollama HTTP connection stayed open for {disconnect_elapsed:?} after Esc"
+    );
+    assert!(
+        text.contains("Gate 4") && text.to_ascii_lowercase().contains("interrupted"),
+        "honest interrupted Gate 4 was not rendered. output={text:?}"
+    );
+    assert!(
+        !text.contains(r#"{"goal":"test","#),
+        "planner stream payload reached the terminal. output={text:?}"
     );
 }
 
@@ -830,10 +889,152 @@ fn run_stream_script(
     finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
 }
 
+fn run_gate_four_interrupt_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    started: mpsc::Receiver<()>,
+    disconnected: mpsc::Receiver<()>,
+) -> std::io::Result<(std::process::Output, Duration, Duration)> {
+    let mut args = queue_cli_args(cwd, state_dir, host);
+    args.extend(["--stream".to_string(), "off".to_string()]);
+    let args = args
+        .into_iter()
+        .map(|arg| shell_quote(&arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command_line = format!("stty rows 24 cols 120; exec {} {args}", shell_quote(bin));
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    stdin.write_all(b"Fix a Next.js compile error\n")?;
+    stdin.flush()?;
+
+    let transcript = state_dir.join("boundary-transcript.md");
+    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
+        Ok(card_hash) => card_hash,
+        Err(error) => {
+            let _ = child.kill();
+            drop(stdin);
+            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
+            return Err(error);
+        }
+    };
+    thread::sleep(Duration::from_millis(500));
+    stdin.write_all(format!("/confirm {card_hash}\n").as_bytes())?;
+    stdin.flush()?;
+    if started.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+        drop(stdin);
+        let output =
+            finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1))?;
+        let text = String::from_utf8_lossy(&output.stdout).to_string()
+            + &String::from_utf8_lossy(&output.stderr);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("planner call did not reach fake Ollama. output={text:?}"),
+        ));
+    }
+
+    let interrupted_at = Instant::now();
+    stdin.write_all(b"\x1b")?;
+    stdin.flush()?;
+    let gate_four_elapsed =
+        match wait_for_transcript_text(&transcript, "## Gate 4", Duration::from_secs(2)) {
+            Ok(()) => interrupted_at.elapsed(),
+            Err(error) => {
+                let _ = child.kill();
+                drop(stdin);
+                let _ =
+                    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
+                return Err(error);
+            }
+        };
+    let disconnect_elapsed = disconnected
+        .recv_timeout(Duration::from_secs(2).saturating_sub(interrupted_at.elapsed()))
+        .map(|()| interrupted_at.elapsed())
+        .unwrap_or(Duration::MAX);
+    stdin.write_all(b"/exit\r")?;
+    stdin.flush()?;
+    drop(stdin);
+    let output = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))?;
+    Ok((output, gate_four_elapsed, disconnect_elapsed))
+}
+
+fn wait_for_gate_one_hash(path: &std::path::Path, timeout: Duration) -> std::io::Result<String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Ok(transcript) = std::fs::read_to_string(path)
+            && let Some(start) = transcript.find("sha256:")
+        {
+            let hash = transcript[start..]
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == ':')
+                .collect::<String>();
+            if hash.len() == "sha256:".len() + 64 {
+                return Ok(hash);
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("Gate 1 hash did not appear in {}", path.display()),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_transcript_text(
+    path: &std::path::Path,
+    expected: &str,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if std::fs::read_to_string(path).is_ok_and(|text| text.contains(expected)) {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("{expected:?} did not appear in {}", path.display()),
+            ));
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 struct StreamingOllama {
     host: String,
     started: mpsc::Receiver<()>,
     completed: mpsc::Receiver<()>,
+    disconnected: mpsc::Receiver<()>,
     saw_stream: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     server: thread::JoinHandle<()>,
@@ -849,6 +1050,7 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
     let thread_saw_stream = Arc::clone(&saw_stream);
     let (started_tx, started_rx) = mpsc::sync_channel(1);
     let (completed_tx, completed_rx) = mpsc::sync_channel(1);
+    let (disconnected_tx, disconnected_rx) = mpsc::sync_channel(1);
     let handle = thread::spawn(move || {
         let mut chat_count = 0usize;
         while !thread_stop.load(Ordering::SeqCst) {
@@ -890,12 +1092,35 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
                     let _ = stream.write_all(first.as_bytes());
                     let _ = stream.flush();
                     let _ = started_tx.try_send(());
-                    thread::sleep(Duration::from_millis(800));
+                    thread::sleep(Duration::from_millis(300));
                     let _ = stream.write_all(second.as_bytes());
                     let _ = stream.write_all(terminal.as_bytes());
                     let _ = stream.flush();
                     if chat_count == completion_after {
                         let _ = completed_tx.try_send(());
+                    }
+                    stream
+                        .set_read_timeout(Some(Duration::from_millis(20)))
+                        .unwrap();
+                    let disconnect_deadline = Instant::now() + Duration::from_millis(600);
+                    while Instant::now() < disconnect_deadline {
+                        let mut probe = [0_u8; 1];
+                        match stream.read(&mut probe) {
+                            Ok(0) => {
+                                let _ = disconnected_tx.try_send(());
+                                break;
+                            }
+                            Ok(_) => {}
+                            Err(error)
+                                if matches!(
+                                    error.kind(),
+                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                                ) => {}
+                            Err(_) => {
+                                let _ = disconnected_tx.try_send(());
+                                break;
+                            }
+                        }
                     }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
@@ -909,6 +1134,7 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
         host,
         started: started_rx,
         completed: completed_rx,
+        disconnected: disconnected_rx,
         saw_stream,
         stop,
         server: handle,

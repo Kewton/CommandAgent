@@ -316,10 +316,9 @@ where
     let think = (provider == Provider::Ollama.as_str())
         .then_some(configured_think)
         .flatten();
-    let stream = stream_allowed
-        && on_chunk.is_some()
-        && config.stream
-        && worker_client.supports_streaming_for_model(model);
+    let stream = on_chunk.is_some()
+        && worker_client.supports_streaming_for_model(model)
+        && (scope.is_planner() || (stream_allowed && config.stream));
     let render_stream_chunks = stream && scope.renders_stream_chunks();
     let timeout = Duration::from_secs(config.chat_timeout_secs);
     let estimated_prompt_tokens =
@@ -469,6 +468,7 @@ where
         match rx.recv_timeout(slice) {
             Ok(ProviderWorkerMessage::Chunk(chunk)) => {
                 if render_stream_chunks
+                    && !chunk.is_empty()
                     && let Some(on_chunk) = on_chunk.as_deref_mut()
                     && let Err(err) = on_chunk(&chunk)
                 {
@@ -1215,6 +1215,53 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct CancellationStreamingClient {
+        callback_closed: Arc<AtomicBool>,
+    }
+
+    impl ChatClient for CancellationStreamingClient {
+        fn label(&self) -> &str {
+            "cancellation-streaming-mock"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn supports_streaming(&self) -> bool {
+            true
+        }
+
+        fn chat_stream(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+            on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+        ) -> anyhow::Result<AssistantReply> {
+            for _ in 0..200 {
+                if let Err(error) = on_chunk("") {
+                    self.callback_closed.store(true, Ordering::SeqCst);
+                    return Err(error);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Ok(AssistantReply::text("late"))
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            Ok(AssistantReply::text("batch"))
+        }
+    }
+
     #[test]
     fn planner_scope_timeout_kinds_are_stable() {
         assert_eq!(
@@ -1755,8 +1802,7 @@ mod tests {
     #[test]
     fn planner_scopes_stream_transport_without_forwarding_machine_chunks() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let mut config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
-        config.stream = true;
+        let config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
         let mut client = StreamingClient::new();
 
         for scope in [
@@ -1764,7 +1810,7 @@ mod tests {
             ProviderCallScope::PlannerUltra,
         ] {
             let mut chunks = Vec::new();
-            let outcome = chat_with_cancel_inner(
+            let outcome = chat_with_cancel_and_stream(
                 &mut client,
                 &config,
                 ProviderChatRequest {
@@ -1775,12 +1821,10 @@ mod tests {
                     native_tools_enabled: false,
                 },
                 || false,
-                None,
-                true,
-                Some(&mut |chunk| {
+                &mut |chunk| {
                     chunks.push(chunk.to_string());
                     Ok(())
-                }),
+                },
             );
 
             assert_eq!(outcome.result.unwrap().content, "hello");
@@ -1788,6 +1832,89 @@ mod tests {
         }
         assert_eq!(client.stream_calls.load(Ordering::SeqCst), 2);
         assert_eq!(client.chat_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn disabled_visible_streaming_keeps_executor_on_batch_transport() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
+        let mut client = StreamingClient::new();
+        let mut chunks = Vec::new();
+
+        let outcome = chat_with_cancel_and_stream(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m",
+                messages: &[ConversationMessage::user("execute")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            },
+        );
+
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        assert!(chunks.is_empty());
+        assert_eq!(client.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(client.chat_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn planner_cancellation_closes_stream_callback_with_visible_streaming_disabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
+        let callback_closed = Arc::new(AtomicBool::new(false));
+        let mut client = CancellationStreamingClient {
+            callback_closed: Arc::clone(&callback_closed),
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let thread_cancelled = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            thread_cancelled.store(true, Ordering::SeqCst);
+        });
+        let mut rendered_chunks = Vec::new();
+
+        let started = Instant::now();
+        let outcome = chat_with_cancel_and_stream(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::PlannerStep,
+                model: "m",
+                messages: &[ConversationMessage::user("plan")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || cancelled.load(Ordering::SeqCst),
+            &mut |chunk| {
+                rendered_chunks.push(chunk.to_string());
+                Ok(())
+            },
+        );
+
+        assert!(outcome.aborted_by_user);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(rendered_chunks.is_empty());
+        let callback_deadline = Instant::now() + Duration::from_secs(1);
+        while !callback_closed.load(Ordering::SeqCst) && Instant::now() < callback_deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            callback_closed.load(Ordering::SeqCst),
+            "stream worker did not observe the dropped receiver"
+        );
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).expect("events");
+        assert!(events.contains("\"aborted_by_user\":true"), "{events}");
+        assert!(
+            events.contains("\"event\":\"provider_turn_aborted_by_user\""),
+            "{events}"
+        );
     }
 
     #[test]

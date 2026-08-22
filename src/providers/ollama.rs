@@ -313,6 +313,8 @@ struct ChatMessage {
     #[serde(default)]
     content: String,
     #[serde(default)]
+    thinking: String,
+    #[serde(default)]
     tool_calls: Vec<OllamaToolCall>,
 }
 
@@ -406,6 +408,8 @@ pub fn parse_chat_stream<R: std::io::Read>(
             if !message.content.is_empty() {
                 on_chunk(&message.content)?;
                 content.push_str(&message.content);
+            } else if !message.thinking.is_empty() || !message.tool_calls.is_empty() {
+                on_chunk("")?;
             }
             tool_calls.extend(message.tool_calls);
         }
@@ -674,8 +678,36 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(chunks, vec!["final answer"]);
+        assert_eq!(chunks, vec!["", "", "final answer"]);
         assert_eq!(reply.content, "final answer");
+    }
+
+    #[test]
+    fn streamed_thinking_propagates_callback_cancellation_before_visible_content() {
+        let input = concat!(
+            r#"{"message":{"thinking":"private reasoning"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":"must not be reached"},"done":false}"#,
+            "\n",
+            r#"{"done":true}"#,
+            "\n"
+        );
+        let mut callback_calls = 0;
+
+        let error = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &[],
+            false,
+            &mut |_| {
+                callback_calls += 1;
+                anyhow::bail!("cancelled stream receiver")
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(callback_calls, 1);
+        assert!(error.contains("cancelled stream receiver"), "{error}");
     }
 
     #[test]
