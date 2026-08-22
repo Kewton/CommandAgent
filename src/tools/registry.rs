@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -45,6 +46,7 @@ pub struct FunctionSpec {
 #[derive(Debug, Clone)]
 pub struct ToolRegistry {
     specs: Vec<ToolSpec>,
+    extensions: BTreeMap<String, super::extension::ExtensionTool>,
     repeated_reads: Arc<Mutex<RepeatedReadCache>>,
 }
 
@@ -52,12 +54,36 @@ impl Default for ToolRegistry {
     fn default() -> Self {
         Self {
             specs: default_tool_specs(),
+            extensions: BTreeMap::new(),
             repeated_reads: Arc::new(Mutex::new(RepeatedReadCache::default())),
         }
     }
 }
 
 impl ToolRegistry {
+    pub fn with_extensions(
+        extensions: impl IntoIterator<Item = super::extension::ExtensionTool>,
+    ) -> anyhow::Result<Self> {
+        let mut registry = Self::default();
+        for extension in extensions {
+            registry.register_extension(extension)?;
+        }
+        Ok(registry)
+    }
+
+    pub fn register_extension(
+        &mut self,
+        extension: super::extension::ExtensionTool,
+    ) -> anyhow::Result<()> {
+        let name = extension.name().to_string();
+        if self.specs.iter().any(|spec| spec.function.name == name) {
+            bail!("duplicate tool name: {name}");
+        }
+        self.specs.push(extension.spec().clone());
+        self.extensions.insert(name, extension);
+        Ok(())
+    }
+
     pub fn specs(&self) -> &[ToolSpec] {
         &self.specs
     }
@@ -83,6 +109,9 @@ impl ToolRegistry {
         F: Fn() -> bool,
         G: Fn() -> bool,
     {
+        if let Some(extension) = self.extensions.get(name) {
+            return extension.execute(arguments, context);
+        }
         enforce_mode(name, context.mode)?;
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
@@ -575,6 +604,8 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
         "stale_absolute_path_recoverable"
     } else if message.starts_with("unknown tool:") {
         "unknown_tool"
+    } else if message.starts_with("extension_tool_rejected:") {
+        "extension_tool_rejected"
     } else if message.contains("bash_path_confinement_error") {
         "bash_path_confinement_error"
     } else if message.contains("path escapes workspace")
@@ -623,6 +654,7 @@ pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
         tool_error_kind(err),
         "missing_arg"
             | "unknown_tool"
+            | "extension_tool_rejected"
             | "tool_args_path_near_root_corruption"
             | "tool_args_path_malformed"
             | "bash_path_confinement_error"

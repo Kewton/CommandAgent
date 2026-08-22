@@ -1,0 +1,31 @@
+case_id = "issue254-read-only-mcp"
+source = "Issue #254 read-only MCP extension event contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"extension_tool_call\"",
+  "\"event\":\"extension_tool_rejected\"",
+  "\"event\":\"extension_tool_result\"",
+  "\"transport\":\"mcp\"",
+  "\"access\":\"read_only\""
+]
