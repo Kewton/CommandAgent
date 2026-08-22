@@ -18,12 +18,29 @@ execute hostile projects or hostile instructions safely.
   as the current OS user, and static inspection cannot prove every indirect
   effect of an arbitrary program.
 
-## `--yes`
+## `--allow` and `--yes`
 
-`--yes` skips interactive approval for mutating tools. It does not bypass the
-recognized Bash write-destination guard. Use it only in a trusted workspace
-after checking the goal and current branch: it does not turn Bash into an OS
-sandbox and does not auto-kill unrelated local processes.
+`--allow` installs a hard tool-class ceiling for a run. `read` admits
+Read/Glob/Grep, `write` admits and auto-approves Write/Edit, and `bash:verify`
+admits and auto-approves only Bash commands accepted by the shared verifier
+policy; recognized direct filesystem-mutating Bash commands remain excluded.
+Repeat the option or comma-separate selectors. Once an explicit list is used,
+omitted classes are blocked before execution.
+
+`--yes` is the backward-compatible all-tools alias and also skips resume
+confirmation. Neither option bypasses the recognized Bash write-destination
+guard. Use `--yes` only in a trusted workspace after checking the goal and
+current branch: it does not turn Bash into an OS sandbox and does not auto-kill
+unrelated local processes.
+
+At run startup CommandAgent warns about a non-Git workspace or existing Git
+changes. At exit it reports the final tracked/staged diff stat and untracked
+files. The report describes final workspace state and may include changes that
+predated the run.
+
+`--offline` blocks runtime dependency setup plus Bash command families named in
+`--help`. It does not block provider/API requests or arbitrary network-capable
+programs and therefore is not a network sandbox.
 
 ## Child Process Environment
 

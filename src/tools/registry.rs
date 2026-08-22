@@ -84,15 +84,15 @@ impl ToolRegistry {
         G: Fn() -> bool,
     {
         enforce_mode(name, context.mode)?;
-        if is_mutating(name) {
-            super::approval::require_tool_approval(
-                name,
-                context.auto_approve,
-                context.interactive_approval,
-            )?;
-        }
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
+        super::allow_policy::authorize_current(
+            name,
+            arguments,
+            &context.root,
+            context.auto_approve,
+            context.interactive_approval,
+        )?;
         if name != "Read" {
             self.repeated_reads().note_non_read_call();
         }
@@ -504,10 +504,6 @@ fn enforce_mode(name: &str, mode: ExecutionMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn is_mutating(name: &str) -> bool {
-    matches!(name, "Write" | "Edit" | "Bash")
-}
-
 fn required_path_suffix_fallback(raw: &str, expected_paths: &[String]) -> Option<String> {
     let matches = required_path_suffix_matches(raw, expected_paths);
     (matches.len() == 1).then(|| matches[0].clone())
@@ -723,6 +719,46 @@ mod tests {
                 .execute("Write", &json!({"path":"a","content":"b"}), &context)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn explicit_write_allowance_blocks_bash_before_execution() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("bash-ran");
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+        };
+        let _policy = crate::tools::allow_policy::install(
+            false,
+            &[crate::tools::allow_policy::AllowTarget::Write],
+        );
+
+        registry
+            .execute(
+                "Write",
+                &json!({"path":"allowed.txt","content":"ok"}),
+                &context,
+            )
+            .unwrap();
+        let error = registry
+            .execute(
+                "Bash",
+                &json!({"command": format!("touch {}", marker.display())}),
+                &context,
+            )
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("not permitted by --allow write"), "{error}");
+        assert!(!marker.exists(), "disallowed Bash command executed");
     }
 
     #[test]

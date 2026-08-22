@@ -53,6 +53,12 @@ pub(super) fn confinement_rejection(
     None
 }
 
+pub(super) fn has_recognized_mutation(command: &str) -> bool {
+    write_targets(command)
+        .iter()
+        .any(|target| target.operation != "working directory")
+}
+
 fn write_targets(command: &str) -> Vec<WriteTarget> {
     let Some(tokens) = shell_tokens(command) else {
         return Vec::new();

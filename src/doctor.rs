@@ -328,6 +328,7 @@ fn pack_selection_check(
 }
 
 fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    checks.push(offline_mode_check(config.offline));
     add_setting_check(
         checks,
         "config.model",
@@ -374,6 +375,24 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         config.planner_provider,
         config.ollama_think,
     ));
+}
+
+fn offline_mode_check(enabled: bool) -> DoctorCheck {
+    let scope = crate::tools::offline_policy::doctor_scope(enabled);
+    DoctorCheck::new(
+        "mode.offline",
+        "mode",
+        "Offline scope",
+        CheckStatus::Pass,
+        scope.message(),
+        None,
+        json!({
+            "enabled": scope.enabled,
+            "blocked_bash_command_families": crate::tools::offline_policy::BLOCKED_BASH_COMMAND_FAMILIES,
+            "runtime_dependency_setup_blocked": scope.runtime_dependency_setup_blocked,
+            "provider_requests_blocked": scope.provider_requests_blocked,
+        }),
+    )
 }
 
 fn context_budget_check(

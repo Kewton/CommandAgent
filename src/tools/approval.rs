@@ -1,13 +1,16 @@
 use crate::config::Action;
 
-const HEADLESS_PROMPT_WARNING: &str = "warning: --prompt is non-interactive because stdin is not a TTY; mutating tools cannot be approved without --yes. Rerun with --yes only in a trusted workspace if changes are required.";
+const HEADLESS_PROMPT_WARNING: &str = "warning: --prompt is non-interactive because stdin is not a TTY; mutating tools require an explicit --allow policy or --yes. Use --yes only in a trusted workspace.";
 
 pub(crate) fn startup_warning(
     action: &Action,
     auto_approve: bool,
     stdin_is_terminal: bool,
 ) -> Option<&'static str> {
-    (matches!(action, Action::Prompt(_)) && !auto_approve && !stdin_is_terminal)
+    (matches!(action, Action::Prompt(_))
+        && !auto_approve
+        && !super::allow_policy::current_has_mutating_authority()
+        && !stdin_is_terminal)
         .then_some(HEADLESS_PROMPT_WARNING)
 }
 

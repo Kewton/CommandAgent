@@ -19,14 +19,15 @@
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-58 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+59 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
 
 | フラグ | 引数 | 省略時の既定値 | 説明 | 関連項目 |
 | --- | --- | --- | --- | --- |
-| `--yes` | なし | オフ | 変更ツールと再開確認を自動承認します。認識された Bash 書き込みは引き続き workspace 内に制限されます。使用中ポートの所有プロセスを自動終了することはありません。信頼できるワークスペースでのみ使ってください。 | [使用中ポート](troubleshooting.md#preflight-port-n-is-busy) |
+| `--yes` | なし | オフ | 全ツールを許可し、再開確認を省略します。認識された Bash 書き込みは引き続き workspace 内に制限されます。使用中ポートの所有プロセスを自動終了することはありません。信頼できるワークスペースでのみ使ってください。 | [使用中ポート](troubleshooting.md#preflight-port-n-is-busy) |
+| `--allow` | `<read\|write\|bash:verify>` | 従来の read 許可と変更ごとの承認 | 選択したツールクラスだけを許可します。read、write、bash:verify は反復指定またはカンマ区切りにできます。選択した変更は自動承認され、省略したクラスは拒否されます。 | [セキュリティモデル](../../../SECURITY.md) |
 | `--preset` | `<PRESET>` | なし | 設定ファイルから組み立てた名前付き `[preset.<name>]` を選びます。 | [Preset](configuration.md#preset) |
 | `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
@@ -68,7 +69,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--profile` | `<PROFILE>` | 推論後に `generic` | 組み込み profile または外部 draft ID を明示します。外部 ID には `profiles/<id>/manifest.toml` を宣言する extension root が必要です。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
-| `--offline` | なし | オフ | ネットワーク依存の依存関係セットアップと検査を禁止します。クラウドモデルをオフラインプロバイダに変えるものではありません。 | [プロバイダ](providers.md) |
+| `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求とその他のネットワーク可能なコマンドには影響しません。 | [プロバイダ](providers.md) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | CommandAgent が使う Ollama サーバーのベース URL を設定します。 | [Ollama のホスト](providers.md#ollama-のホストとモデル) |
@@ -104,6 +105,8 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 ### 排他関係と組み合わせ
 
 - `--footer` と `--no-footer` は Clap レベルで排他であり、同時に使えません。
+- `--allow` は `read`、`write`、`bash:verify` を反復またはカンマ区切りで受け付けます。
+  指定した場合、省略したツールクラスは拒否されます。`--yes` は後方互換の全ツール許可です。
 - アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
   `only one action selector can be used at a time` で失敗します。
 - `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。

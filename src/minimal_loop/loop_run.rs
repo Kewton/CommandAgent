@@ -1422,16 +1422,25 @@ pub(crate) fn run_session_with_outcome_with_options(
                     .iter()
                     .any(|segment| segment.command.install_family().is_some());
                 if call.name == "Bash" && (split_bash_segments.len() > 1 || split_has_install) {
-                    execute_split_runtime_bash(
-                        &split_bash_segments,
+                    crate::tools::allow_policy::authorize_current(
+                        &call.name,
+                        &call.arguments,
                         &context.root,
-                        &config.profile,
-                        options.dependency_setup_authority,
-                        context.offline,
-                        config.eval_events_path.as_deref(),
-                        || ui.interrupted(),
-                        || ui.force_interrupted(),
+                        context.auto_approve,
+                        context.interactive_approval,
                     )
+                    .and_then(|()| {
+                        execute_split_runtime_bash(
+                            &split_bash_segments,
+                            &context.root,
+                            &config.profile,
+                            options.dependency_setup_authority,
+                            context.offline,
+                            config.eval_events_path.as_deref(),
+                            || ui.interrupted(),
+                            || ui.force_interrupted(),
+                        )
+                    })
                 } else {
                     registry.execute_with_cancel(
                         &call.name,
