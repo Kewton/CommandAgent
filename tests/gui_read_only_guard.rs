@@ -497,7 +497,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "emptyGoalGuidance.includes(\"目標を入力してください\")",
         "selectOption(\"lm-studio\")",
         "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
-        "terminalTitle === \"✔ すべての必須チェックに合格しました — CommandAgent\"",
+        "terminalTitle === expectedTerminalTitle",
+        "!terminalTitle.includes(\"✔\")",
         "code: \"trial_workspace_running\"",
         "conflictGuidance.includes(`セッション ${sessionId} に再接続`)",
     ] {
@@ -557,6 +558,7 @@ fn trial_monitor_retries_and_reconnects_with_tab_scoped_access() {
         "Synthetic browser fetch rejection",
         "return \"opaqueredirect\"",
         "reconnectMethods.every((method) => method === \"GET\")",
+        "lifecycleReconnectCalls.every((call) => call.method === \"GET\")",
         "reloadRestoredToken",
         "rejectedTokenRemoved",
         "tokenStayedTabScoped",
@@ -1186,7 +1188,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
 }
 
 #[test]
-fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
+fn trial_feedback_restores_sessions_and_uses_an_honest_terminal_title() {
     let source = trial_ui_sources();
     for required in [
         "data-testid=\"elapsed-time\"",
@@ -1196,7 +1198,11 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
         "currentPhase.total > 0",
         "フェーズ {currentPhase.index} / {currentPhase.total}",
         "平均所要時間（予測ではありません）",
-        "document.title = `✔ ${terminalHeading(session)} — CommandAgent`",
+        "void reconnectExisting(id).then((restored)",
+        "url.searchParams.delete(\"sample\")",
+        "session.gate === \"gate_3\" ? \"✔\" : \"✗\"",
+        "document.title = `${marker} ${heading} | CommandAgent`",
+        "clearSessionQuery()",
     ] {
         assert!(
             source.contains(required),
@@ -1213,8 +1219,13 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
         "elapsed_changed",
         "elapsed_preserved_after_reconnect",
         "mean_preserved_after_reconnect",
+        "sample_consumed_before_reload",
+        "reload_automatically_reconnected",
+        "reload_only_gets",
         "zero_total_hidden",
         "monitor_and_progress_separate",
+        "✗ すべての必須チェックには合格していません | CommandAgent",
+        "!terminalTitle.includes(\"✔\")",
         "title_changed",
     ] {
         assert!(
@@ -1648,12 +1659,14 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "focus refresh",
         "visible-tab refresh",
         "reconnect_get_only",
+        "automatic_reconnect_restored_result",
         "runtime_max_concurrent_requests",
         "runtime_paused_while_hidden",
         "runtime_resumed_when_visible",
         "terminal_row_highlighted",
         "time_labels_use_shared_ja_jp_format",
         "runtime_badge_navigated",
+        "runtime_badge_reconnected",
         "resource_revalidation",
         "failure_retained_previous_data",
         "repository-only",
