@@ -19,52 +19,6 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
 
   return (
     <>
-      {evidenceOpen && created !== null && (stage === "gate_2" || stage === "terminal") && (
-        <section className="panel session-files-panel" data-testid="trial-session-files">
-          <header className="panel-heading">
-            <div>
-              <span className="panel-index">読み取り専用セッションファイル</span>
-              <h2>失敗の証跡</h2>
-            </div>
-            <span>{evidenceLoading ? "読み込み中…" : `${artifacts.length} 件`}</span>
-          </header>
-          {evidenceError !== null && <p className="trial-error" role="alert">{evidenceError}</p>}
-          <div className="session-files-workbench">
-            <aside className="session-file-list" aria-label="セッションファイル">
-              <button
-                className={evidenceDocument?.path === "events.jsonl" ? "active" : ""}
-                data-testid="trial-events-open"
-                disabled={evidenceLoading}
-                onClick={() => void readEvents()}
-                type="button"
-              >
-                <span>events.jsonl</span>
-                <small>直近 200 行</small>
-              </button>
-              {artifacts.filter((artifact) => artifact.path !== "events.jsonl").map((artifact) => (
-                <button
-                  className={evidenceDocument?.path === artifact.path ? "active" : ""}
-                  data-testid={artifact.path === "summary.md" ? "trial-summary-open" : undefined}
-                  disabled={evidenceLoading}
-                  key={artifact.path}
-                  onClick={() => void readArtifact(artifact.path)}
-                  type="button"
-                >
-                  <span>{artifact.id}</span>
-                  <small>{byteLabel(artifact.size_bytes)}</small>
-                </button>
-              ))}
-            </aside>
-            <div className="session-file-document" data-testid="trial-file-viewer">
-              <DocumentViewer
-                document={evidenceDocument}
-                empty="イベント、サマリー、または受入成果物を選択すると、ここに表示します。"
-              />
-            </div>
-          </div>
-        </section>
-      )}
-
       {stage === "terminal" && session !== null && (
         <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
           <article className="panel verdict-card">
@@ -73,21 +27,21 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
             </span>
             <h2 data-testid="terminal-result-heading">{terminalHeading(session)}</h2>
             <p className="terminal-gate-explanation">{gateExplanation(session.gate)}</p>
-            <TrialRunIdentity identity={session.identity} />
             <dl className="terminal-result-summary" data-testid="terminal-result-summary">
               <div>
                 <dt>結果</dt>
-                <dd data-testid="terminal-verdict-summary">{verdictSummary(session)}</dd>
+                <dd data-testid="terminal-verdict-summary">{resultSummary(session)}</dd>
               </div>
               <div>
-                <dt>保証水準</dt>
-                <dd data-testid="terminal-assurance-summary">{assuranceSummary(session.assurance)}</dd>
+                <dt>{session.gate === "gate_3" ? "判定理由" : "原因"}</dt>
+                <dd data-testid="terminal-assurance-summary">{reasonSummary(session)}</dd>
               </div>
               <div>
-                <dt>状態</dt>
-                <dd data-testid="terminal-status-summary">{statusSummary(session.status)}</dd>
+                <dt>次の一手</dt>
+                <dd data-testid="terminal-status-summary">{nextActionSummary(session)}</dd>
               </div>
             </dl>
+            <TrialRunIdentity identity={session.identity} />
             <a
               className="terminal-history-link"
               data-testid="terminal-session-history-link"
@@ -96,9 +50,12 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
             >
               このセッションを GUI Trial 実行履歴で確認
             </a>
-            <pre>
-              {session.acceptance_sheet ?? "実行結果の証跡が不足しているため、受入シートは生成されていません。"}
-            </pre>
+            <details className="acceptance-sheet-details" data-testid="terminal-acceptance-details">
+              <summary>受入シートの詳細を表示</summary>
+              <pre>
+                {session.acceptance_sheet ?? "実行結果の証跡が不足しているため、受入シートは生成されていません。"}
+              </pre>
+            </details>
           </article>
           <aside className="panel next-action-card">
             <span className="panel-index">任意の次の操作</span>
@@ -149,6 +106,52 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
         </section>
       )}
 
+      {evidenceOpen && created !== null && (stage === "gate_2" || stage === "terminal") && (
+        <section className="panel session-files-panel" data-testid="trial-session-files">
+          <header className="panel-heading">
+            <div>
+              <span className="panel-index">読み取り専用セッションファイル</span>
+              <h2>セッションファイル</h2>
+            </div>
+            <span>{evidenceLoading ? "読み込み中…" : `${artifacts.length} 件`}</span>
+          </header>
+          {evidenceError !== null && <p className="trial-error" role="alert">{evidenceError}</p>}
+          <div className="session-files-workbench">
+            <aside className="session-file-list" aria-label="セッションファイル">
+              <button
+                className={evidenceDocument?.path === "events.jsonl" ? "active" : ""}
+                data-testid="trial-events-open"
+                disabled={evidenceLoading}
+                onClick={() => void readEvents()}
+                type="button"
+              >
+                <span>events.jsonl</span>
+                <small>直近 200 行</small>
+              </button>
+              {artifacts.filter((artifact) => artifact.path !== "events.jsonl").map((artifact) => (
+                <button
+                  className={evidenceDocument?.path === artifact.path ? "active" : ""}
+                  data-testid={artifact.path === "summary.md" ? "trial-summary-open" : undefined}
+                  disabled={evidenceLoading}
+                  key={artifact.path}
+                  onClick={() => void readArtifact(artifact.path)}
+                  type="button"
+                >
+                  <span>{artifact.id}</span>
+                  <small>{byteLabel(artifact.size_bytes)}</small>
+                </button>
+              ))}
+            </aside>
+            <div className="session-file-document" data-testid="trial-file-viewer">
+              <DocumentViewer
+                document={evidenceDocument}
+                empty="イベント、サマリー、または受入成果物を選択すると、ここに表示します。"
+              />
+            </div>
+          </div>
+        </section>
+      )}
+
       {stage === "closed" && (
         <section className="panel closed-card" data-testid="closed-session">
           <span>セッション終了</span>
@@ -170,7 +173,7 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
 export function terminalHeading(session: PolledSession): string {
   return session.gate === "gate_3"
     ? "すべての必須チェックに合格しました"
-    : "すべての必須チェックには合格していません";
+    : "実行結果と次の一手を確認してください";
 }
 
 function gateExplanation(gate: string): string {
@@ -179,14 +182,33 @@ function gateExplanation(gate: string): string {
     : "Gate 4 は、未達または不十分な必須チェックがあり、証跡と次の操作を確認する結果です。";
 }
 
-function verdictSummary(session: PolledSession): string {
-  if (session.verdict === null) return "最終受け入れは記録されていません。";
-  if (["static", "partial", "failed", "none", "reduced"].includes(session.verdict)) {
+function resultSummary(session: PolledSession): string {
+  return `${statusSummary(session.status)} ${verdictSummary(session.verdict)}`;
+}
+
+function verdictSummary(verdict: string | null): string {
+  if (verdict === null) return "最終受け入れは記録されていません。";
+  if (["static", "partial", "none", "reduced"].includes(verdict)) {
     return "最終受け入れは記録されていません。";
   }
-  return session.gate === "gate_3"
+  return ["pass", "passed", "full", "full_success", "completed"].includes(verdict)
     ? "最終受け入れは合格として記録されています。"
     : "最終受け入れは不合格として記録されています。";
+}
+
+function reasonSummary(session: PolledSession): string {
+  if (session.gate === "gate_3") {
+    return "独立検証を含む必須チェックがすべて合格しました。";
+  }
+  const assurance = assuranceSummary(session.assurance);
+  const assuranceReason = translateAssuranceReason(session.assurance_reason);
+  const stopReason = translateStopReason(session.stop_reason);
+  if (stopReason !== null && assuranceReason !== null) {
+    return `${stopReason} ${assurance} ${assuranceReason}`;
+  }
+  if (stopReason !== null) return `${stopReason} ${assurance}`;
+  if (assuranceReason !== null) return `${assurance} ${assuranceReason}`;
+  return `${assurance} 原因は記録されていません。`;
 }
 
 function assuranceSummary(assurance: string | null): string {
@@ -197,6 +219,57 @@ function assuranceSummary(assurance: string | null): string {
     case "failed": return "記録された証跡に、必須チェックの不合格があります。";
     case null: return "保証水準は記録されていません。";
     default: return "詳しい保証水準は下の受入シートで確認してください。";
+  }
+}
+
+function translateAssuranceReason(reason: string | null | undefined): string | null {
+  if (reason === null || reason === undefined || reason.trim() === "") return null;
+  switch (reason) {
+    case "cli_probe_not_run":
+      return "独立した CLI 動作プローブは実行されていません。";
+    case "data_profile_probe_not_run":
+      return "独立したデータ動作プローブは実行されていません。";
+    case "investigation_probe_not_run":
+      return "独立した調査プローブは実行されていません。";
+    case "profile_not_admitted":
+      return "未承認プロファイルのため、保証上限は static です。";
+    case "acceptance_not_full_success":
+      return "最終受け入れが full success に到達していません。";
+    case "generic profile — no capability contract, no behavioral verification":
+      return "汎用プロファイルには能力契約と動作検証がありません。";
+    default:
+      if (reason.startsWith("missing_required_evidence:")) {
+        return `必須証跡が不足しています（${reason.slice("missing_required_evidence:".length)}）。`;
+      }
+      return `記録された保証理由: ${reason}`;
+  }
+}
+
+function translateStopReason(reason: string | null | undefined): string | null {
+  if (reason === null || reason === undefined || reason.trim() === "" || reason === "completed") {
+    return null;
+  }
+  if (reason === "interrupted by user") return "ユーザー操作により中断されました。";
+  return `記録された停止理由: ${reason.split("\n", 1)[0]}`;
+}
+
+function nextActionSummary(session: PolledSession): string {
+  const action = session.next_action?.trim();
+  if (action === undefined || action === "" || action === "none") {
+    return session.gate === "gate_3"
+      ? "追加操作はありません。"
+      : "次の一手は記録されていません。";
+  }
+  switch (action) {
+    case "fix_command_failure": return "コマンドの失敗を修正してから再実行します。";
+    case "repair_release_gate_failure": return "リリースゲートの不合格を修正して再検証します。";
+    case "resume_or_rerun_command": return "コマンドを再開または再実行します。";
+    case "inspect_summary_and_resume_or_rerun":
+      return "summary.md を確認してから再開または再実行します。";
+    case "run_setup_interaction_probe_to_enable_interaction_release_checks":
+      return "interaction probe を準備して再検証します。";
+    case "elevated_model": return "より高性能なモデルを選び、Gate 1 から再確認します。";
+    default: return `記録された次の一手: ${action}`;
   }
 }
 

@@ -1969,6 +1969,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         std::collections::BTreeSet::from([
             "acceptance_sheet",
             "assurance",
+            "assurance_reason",
             "average_duration_seconds",
             "event_count",
             "events_path",
@@ -1976,9 +1977,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "id",
             "identity",
             "phases",
+            "next_action",
             "section5",
             "started_epoch_seconds",
             "status",
+            "stop_reason",
             "verdict",
         ])
     );
@@ -1989,6 +1992,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
     assert_eq!(status_json["gate"], "gate_3");
     assert_eq!(status_json["verdict"], "full");
+    assert!(status_json["assurance_reason"].is_null());
+    assert_eq!(status_json["stop_reason"], "completed");
+    assert!(status_json["next_action"].is_null());
     assert_eq!(status_json["identity"]["request"], spec["goal"]);
     assert_eq!(status_json["identity"]["profile"], spec["profile"]);
     assert_eq!(

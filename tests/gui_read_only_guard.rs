@@ -398,8 +398,11 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "data-testid=\"terminal-assurance-summary\"",
         "data-testid=\"terminal-status-summary\"",
         "terminalHeading(session)",
-        "verdictSummary(session)",
-        "assuranceSummary(session.assurance)",
+        "resultSummary(session)",
+        "reasonSummary(session)",
+        "nextActionSummary(session)",
+        "受入シートの詳細を表示",
+        "<h2>セッションファイル</h2>",
         "最終受け入れは記録されていません。",
         "追加実行せず終了",
         "data-testid=\"start-new-run\"",
@@ -1273,6 +1276,9 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "status:",
         "verdict:",
         "assurance:",
+        "assurance_reason:",
+        "stop_reason:",
+        "next_action:",
         "phases:",
         "event_count:",
         "acceptance_sheet:",
@@ -1282,7 +1288,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 13);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 16);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -1332,6 +1338,9 @@ fn trial_feedback_restores_sessions_and_uses_an_honest_terminal_title() {
         "url.searchParams.delete(\"sample\")",
         "session.gate === \"gate_3\" ? \"✔\" : \"✗\"",
         "document.title = `${marker} ${heading} | CommandAgent`",
+        "window.Notification.permission !== \"granted\"",
+        "!document.hidden",
+        "priorStage === \"gate_2\"",
         "clearSessionQuery()",
     ] {
         assert!(
@@ -1354,8 +1363,11 @@ fn trial_feedback_restores_sessions_and_uses_an_honest_terminal_title() {
         "reload_only_gets",
         "zero_total_hidden",
         "monitor_and_progress_separate",
-        "✗ すべての必須チェックには合格していません | CommandAgent",
+        "✗ 実行結果と次の一手を確認してください | CommandAgent",
         "!terminalTitle.includes(\"✔\")",
+        "notification_matches",
+        "acceptance_folded",
+        "terminal_section_order",
         "title_changed",
     ] {
         assert!(

@@ -2833,9 +2833,22 @@ a.runtime-badge:focus-visible {
   color: var(--muted-strong);
 }
 
-.verdict-card pre {
-  max-height: 30rem;
+.acceptance-sheet-details {
   margin: 1.25rem -1.25rem -1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.acceptance-sheet-details summary {
+  padding: 0.9rem 1.25rem;
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.verdict-card .acceptance-sheet-details pre {
+  max-height: 30rem;
+  margin: 0;
   overflow: auto;
   padding: 1.25rem;
   border-top: 1px solid var(--line);

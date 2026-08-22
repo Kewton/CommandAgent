@@ -200,6 +200,9 @@ export type PolledSession = {
   status: string;
   verdict: string | null;
   assurance: string | null;
+  assurance_reason: string | null;
+  stop_reason: string | null;
+  next_action: string | null;
   phases: PhaseStatus[];
   event_count: number;
   acceptance_sheet: string | null;
