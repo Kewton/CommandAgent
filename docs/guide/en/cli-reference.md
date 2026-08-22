@@ -88,6 +88,30 @@ internal integration surface and is intentionally not a public user flag.
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 
+## Interactive REPL controls
+
+Within one TUI session, `/model <id>` and `/provider <name>` change the
+executor selection, while `/profile <name>` changes the explicit profile.
+These settings apply to new Gate 1 cards and are shown by `/status`; an already
+rendered card keeps its frozen identity. Use grouped `/help` or
+`/help <command>` for runtime usage and examples. `/status` shows current
+execution before the remaining session configuration, `/last` repeats the most
+recent result, and `/clear` clears the terminal screen.
+
+`/confirm` always accepts the full hash printed on the latest pending Gate 1
+card. By default it also accepts a matching canonical `sha256:` prefix with at
+least eight hexadecimal digits, such as `/confirm sha256:77cd5e23`. Set
+`COMMANDAGENT_STRICT_CONFIRM=1` before starting CommandAgent to require the
+full hash. Prefixes are expanded to the frozen full hash before confirmation is
+persisted.
+
+REPL history is isolated beneath `--state-dir` at
+`workspace-history/<sha256-of-canonical-workspace>.txt`. Only the active
+workspace file is loaded, and history hints require two entered characters and
+fit on one terminal line. The former shared `<state-dir>/history.txt` is not
+loaded, migrated, modified, or deleted, so existing history is preserved
+without exposing it in another workspace.
+
 ## Defaults and precedence
 
 Only values declared with a Clap default are fixed before configuration
