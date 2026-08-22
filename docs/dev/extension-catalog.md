@@ -60,6 +60,92 @@ External `manifest.toml` and additive `overlay.toml` descriptors remain draft,
 hash-pinned, and capped at static assurance. They do not modify the compiled
 registry or self-admit.
 
+## Extend a task family
+
+`src/tui/boundary_shell/family_catalog.rs` is the canonical family catalog. A
+family is a closed typed identity, not a free-form classifier label. Each
+admitted catalog entry binds that identity to one admitted profile, one
+registered intent, and one formal band row. The `Unknown` variant is the
+fail-closed result for unrecognized input, not an admitted family.
+
+1. Establish the formal band row and its measurement provenance first. New
+   evidence belongs in a new run record; never edit historical records under
+   `workspace/management/runs/` to make a family appear established.
+2. Add one `TaskFamilyId` variant, include it in `TaskFamilyId::ALL`, and give
+   it one canonical `as_str()` spelling. If an old spelling must remain valid,
+   resolve it to the same identity in `parse()` rather than creating a second
+   family. Keep unknown tokens mapped to `Unknown`.
+3. Add exactly one `TASK_FAMILY_CATALOG` entry for each admitted
+   profile × intent × family combination. Use the profile descriptor's
+   canonical ID, a typed `IntentId`, and the exact formal `band_source` and
+   `band_row`; do not use an alias or a fabricated denominator.
+4. Add the matching `BAND_VALUES` entry in
+   `src/tui/boundary_shell/band_catalog.rs`. Synchronize
+   `workspace/management/scripts/task_family_vocabulary.py` and its owning
+   aggregate/test code so producer tokens still resolve bidirectionally to the
+   Rust identities. A historical producer spelling may remain as an alias, as
+   `stats` does for the canonical `generic` identity.
+5. Add bounded request/material observations in
+   `src/tui/boundary_shell/route.rs` when the new family can be selected
+   deterministically. The ambiguity classifier must select only from catalog
+   candidates and must continue to reject unregistered output. Update profile
+   manifest validation, extension-profile projection, and GUI/band projection
+   only where the new typed identity is actually consumed.
+6. Extend the catalog vocabulary, formal-row, exactly-one-band, alias,
+   deterministic-route, ambiguity-rejection, and profile-link tests. Add or
+   update the relevant fixture under `tests/corpus/apps/` so both the positive
+   route and honest unknown/ambiguous failure are represented.
+7. Run the focused family, band, routing, and producer-vocabulary checks, then
+   formatting, Clippy, and the full Rust suite because the catalog is shared by
+   CLI, TUI, GUI, manifests, and measurements.
+
+The family addition is complete only when its typed identity, formal band
+provenance, route, and measured value agree. Adding a classifier word, a band
+value, or a tool registration by itself does not extend the catalog.
+
+## Add an intent
+
+`src/planner/adjudication/contract.rs` owns the typed `IntentId` and closed
+`IntentContract` registry. An intent is an execution and evidence contract, not
+only a CLI token. Define its failure and assurance semantics before making it
+selectable.
+
+1. Freeze the intent contract and public contract reference: phase roles,
+   entry/exit requirements, expected outcomes, execution rules, evidence
+   lineage, assurance policy, and required profile hooks. Add the typed
+   `IntentId`, canonical `as_str()` value, `IntentContract`,
+   `intent_contract()` branch, and `registered_intents()` entry together;
+   unknown names must still return `None`.
+2. Add a strict declarative schema under `intents/<intent>.yaml` and a bounded
+   loader in `src/planner/intent_schema.rs`. YAML declares structure only;
+   Rust continues to own normalization, checkpoints, adjudication, and side
+   effects. Put new runtime/adjudication behavior in leaf modules and keep
+   `src/planner/runner.rs` and `src/minimal_loop/loop_run.rs` to minimal wiring.
+3. Update every typed ingress and projection, including the CLI `IntentArg`
+   and config conversion, goal inference, boundary-shell deterministic and
+   ambiguity parsing, profile-manifest parsing, extension-profile projection,
+   workflow conversion, and user-visible Gate/help text. Preserve existing
+   event names and schemas unless a separate migration authorizes a change.
+4. Admit concrete profile × intent × family combinations through
+   `TASK_FAMILY_CATALOG`, then add their formal `BAND_VALUES`. A new enum value
+   alone is not routable. Each admitted profile must implement the contract's
+   required hooks and evidence/assurance behavior; unsupported combinations
+   must fail closed rather than fall back to `create`.
+5. Update pack schema, vocabulary, compatibility, and floor checks so the new
+   intent is accepted only where its contract can be enforced. Do not weaken a
+   pack, verification, evidence, or release floor to admit it, and do not add a
+   tool merely because the intent exists.
+6. Add focused contract/schema tests, unknown-token rejection, CLI and
+   manifest parsing, deterministic/ambiguous routing, profile-hook coverage,
+   pack compatibility/floor coverage, evidence lineage, assurance, and
+   honest-failure tests. Add the relevant `tests/corpus/apps/` fixture and
+   update public EN/JA CLI/config documentation and snapshots together.
+7. Run the focused schema, contract, routing, profile, pack, and corpus checks,
+   then `cargo fmt --all -- --check`,
+   `cargo clippy --all-targets -- -D warnings`, and `cargo test`. Treat missing
+   profile hooks, evidence, formal bands, or negative coverage as incomplete,
+   not as documentation-only follow-up.
+
 ## Update guards without weakening them
 
 - Register every new execution/write boundary in
