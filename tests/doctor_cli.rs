@@ -33,6 +33,46 @@ fn run_doctor(workspace: &std::path::Path, key: Option<&str>) -> Output {
     command.output().unwrap()
 }
 
+fn run_preset_doctor(workspace: &std::path::Path, config: &str) -> Output {
+    let home = workspace.join("home");
+    let state = workspace.join("state");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(workspace.join(".commandagent")).unwrap();
+    std::fs::write(workspace.join(".commandagent/config.toml"), config).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--doctor",
+            "--json",
+            "--preset",
+            "selected",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--state-dir",
+            state.to_str().unwrap(),
+        ])
+        .env("HOME", home)
+        .env("PATH", "")
+        .env_remove("OPENAI_API_KEY")
+        .output()
+        .unwrap()
+}
+
+const COMPLETE_SELECTED_PRESET: &str = concat!(
+    "[preset.selected]\n",
+    "model = \"executor-test-model\"\n",
+    "provider = \"openai\"\n",
+    "planner_model = \"planner-test-model\"\n",
+    "planner_provider = \"openai\"\n",
+    "context_budget = 32768\n",
+    "chat_timeout_secs = 180\n",
+    "plan_preset = \"none\"\n",
+    "profile = \"generic\"\n",
+    "narration = \"quiet\"\n",
+    "footer = \"off\"\n",
+    "stream = \"off\"\n",
+);
+
 #[test]
 fn doctor_json_warn_only_exits_zero_and_redacts_credentials() {
     let workspace = tempfile::tempdir().unwrap();
@@ -119,6 +159,45 @@ fn doctor_reports_missing_keys_for_an_unresolvable_incomplete_preset() {
             .any(|key| key == "planner_model")
     );
     assert!(preset["message"].as_str().unwrap().contains("missing keys"));
+}
+
+#[test]
+fn doctor_preserves_other_preset_validation_error_without_reporting_selected_not_found() {
+    let workspace = tempfile::tempdir().unwrap();
+    let config = format!("{COMPLETE_SELECTED_PRESET}[preset.other]\nprovder = \"openai\"\n");
+    let output = run_preset_doctor(workspace.path(), &config);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let preset = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "config.preset")
+        .unwrap();
+    let message = preset["message"].as_str().unwrap();
+
+    assert!(!output.status.success());
+    assert!(message.contains("preset.other.provder"), "{message}");
+    assert!(message.contains("could not be inspected"), "{message}");
+    assert!(!message.contains("was not found"), "{message}");
+}
+
+#[test]
+fn doctor_reports_malformed_toml_as_syntax_error_instead_of_unknown_key() {
+    let workspace = tempfile::tempdir().unwrap();
+    let config = format!("{COMPLETE_SELECTED_PRESET}{{ malformed = \"toml\" }}\n");
+    let output = run_preset_doctor(workspace.path(), &config);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let config_file = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "config.file.workspace_commandagent")
+        .unwrap();
+    let message = config_file["message"].as_str().unwrap();
+
+    assert!(!output.status.success());
+    assert!(message.contains("invalid TOML syntax"), "{message}");
+    assert!(!message.contains("unknown config key"), "{message}");
 }
 
 #[test]

@@ -480,6 +480,7 @@ fn add_config_file_checks(
     resolution_failed: bool,
 ) {
     let inspection = crate::config::inspect_config_files(root, preset_name);
+    let inspection_errors = inspection.inspection_errors;
     const IDS: [&str; 4] = [
         "config.file.workspace_commandagent",
         "config.file.workspace_anvil",
@@ -519,7 +520,17 @@ fn add_config_file_checks(
     }
     if let Some(preset) = inspection.preset {
         let missing_keys = preset.missing_keys.join(", ");
-        let (status, message, remediation) = if !preset.found {
+        let (status, message, remediation) = if resolution_failed && !inspection_errors.is_empty() {
+            (
+                CheckStatus::Fail,
+                format!(
+                    "preset '{}' could not be inspected: {}",
+                    preset.name,
+                    inspection_errors.join("; ")
+                ),
+                Some("fix the reported config file error, then rerun --doctor".to_string()),
+            )
+        } else if !preset.found {
             (
                 CheckStatus::Fail,
                 format!("preset '{}' was not found", preset.name),
@@ -568,6 +579,7 @@ fn add_config_file_checks(
                 "found": preset.found,
                 "complete": preset.complete,
                 "missing_keys": preset.missing_keys,
+                "inspection_errors": inspection_errors,
             }),
         ));
     }
