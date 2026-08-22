@@ -837,9 +837,20 @@ async function runCase(smokeCase) {
     });
 
     if (gateOneOnly) {
+      const gateOneRecovery = await probeGateOneRecovery(page, {
+        goal: "Create a CLI --pattern filter command",
+        model,
+        pack: "",
+        plannerModel: model,
+        profile: "python-cli",
+        provider: "ollama",
+        token: trialCredential,
+      });
       const expectedNegativeConsoleErrors = consoleErrors.filter(
         (entry) =>
-          entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)",
+          ["status of 401", "status of 412", "status of 428"].some((status) =>
+            entry.includes(status),
+          ),
       );
       const unexpectedConsoleErrors = consoleErrors.filter(
         (entry) => !expectedNegativeConsoleErrors.includes(entry),
@@ -854,6 +865,7 @@ async function runCase(smokeCase) {
             desktop_1440: gateOneHashLayoutDesktop,
             mobile_390: gateOneHashLayoutMobile,
           },
+          recovery: gateOneRecovery,
           visible_text: gateOneText,
         },
         elapsed_seconds: (Date.now() - startedAt) / 1000,
@@ -867,8 +879,11 @@ async function runCase(smokeCase) {
           gateOneHashLayoutDesktop.ok &&
           gateOneHashLayoutMobile.ok &&
           gateOneLayout.ok &&
+          gateOneRecovery.ok &&
           deniedWithoutConfirmation.status === 428 &&
-          expectedNegativeConsoleErrors.length === 1 &&
+          ["status of 401", "status of 412", "status of 428"].every((status) =>
+            expectedNegativeConsoleErrors.some((entry) => entry.includes(status)),
+          ) &&
           unexpectedConsoleErrors.length === 0,
       };
     }
@@ -2373,6 +2388,149 @@ async function probeGateOneHashLayout(page, expectedViewportWidth) {
       ),
     viewport_width: viewportWidth,
   };
+}
+
+async function probeGateOneRecovery(page, expected) {
+  await page.locator("[data-testid='gate-one-edit']").click();
+  await page.locator("[data-testid='trial-active-stage'][data-stage='compose']").waitFor();
+  const editValues = await readTrialComposeValues(page);
+  const edit = {
+    proposal_discarded: (await page.locator("[data-testid='gate-one-card']").count()) === 0,
+    values: reportTrialComposeValues(editValues),
+    values_preserved: trialComposeValuesMatch(editValues, expected, true),
+  };
+
+  await page.locator("[data-testid='check-contract']").click();
+  await page.locator("[data-testid='gate-one-card']").waitFor();
+  await page.locator("[data-testid='gate-one-confirm']").check();
+  const reproposalResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+  });
+  await page.locator("[data-testid='gate-one-repropose']").click();
+  const reproposalResponse = await reproposalResponsePromise;
+  await page.locator("[data-testid='gate-one-card']").waitFor();
+  const repropose = {
+    confirmation_reset: !(await page.locator("[data-testid='gate-one-confirm']").isChecked()),
+    proposal_replaced: reproposalResponse.ok(),
+    response_status: reproposalResponse.status(),
+  };
+
+  const failureCases = [
+    {
+      code: "trial_confirmation_stale",
+      guidance: "やり直し",
+      status: 412,
+    },
+    {
+      code: "trial_confirmation_required",
+      guidance: "Gate 1",
+      status: 428,
+    },
+    {
+      code: "trial_token_invalid",
+      guidance: "トークン",
+      status: 401,
+    },
+  ];
+  const recoveries = [];
+  for (const [index, failure] of failureCases.entries()) {
+    const routePattern = "**/api/sessions";
+    const rejectLaunch = async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (
+        route.request().method() !== "POST" ||
+        !requestUrl.pathname.endsWith("/api/sessions")
+      ) {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        body: JSON.stringify({
+          code: failure.code,
+          error: `synthetic ${failure.code}`,
+        }),
+        contentType: "application/json",
+        status: failure.status,
+      });
+    };
+    await page.route(routePattern, rejectLaunch);
+    try {
+      await page.locator("[data-testid='gate-one-confirm']").check();
+      await page.locator("[data-testid='launch-session']").click();
+      await page.locator("[data-testid='trial-active-stage'][data-stage='compose']").waitFor();
+      const error = page.locator(".trial-compose > .trial-error[role='alert']");
+      await error.waitFor();
+      if (failure.status === 401) {
+        await page.waitForFunction(
+          () => document.querySelector("[data-testid='trial-token']")?.value === "",
+        );
+      }
+      const values = await readTrialComposeValues(page);
+      recoveries.push({
+        error: await error.innerText(),
+        guidance_visible: (await error.innerText()).includes(failure.guidance),
+        inputs_preserved: trialComposeValuesMatch(values, expected, failure.status !== 401),
+        proposal_discarded: (await page.locator("[data-testid='gate-one-card']").count()) === 0,
+        status: failure.status,
+        token_cleared: failure.status !== 401 || values.token === "",
+        values: reportTrialComposeValues(values),
+      });
+    } finally {
+      await page.unroute(routePattern, rejectLaunch);
+    }
+    if (index < failureCases.length - 1) {
+      await page.locator("[data-testid='check-contract']").click();
+      await page.locator("[data-testid='gate-one-card']").waitFor();
+    }
+  }
+
+  return {
+    edit,
+    recoveries,
+    repropose,
+    ok:
+      edit.proposal_discarded &&
+      edit.values_preserved &&
+      repropose.confirmation_reset &&
+      repropose.proposal_replaced &&
+      recoveries.length === failureCases.length &&
+      recoveries.every(
+        (recovery) =>
+          recovery.guidance_visible &&
+          recovery.inputs_preserved &&
+          recovery.proposal_discarded &&
+          recovery.token_cleared,
+      ),
+  };
+}
+
+async function readTrialComposeValues(page) {
+  return {
+    goal: await page.locator("[data-testid='trial-goal']").inputValue(),
+    model: await page.locator("[data-testid='trial-executor-model']").inputValue(),
+    pack: await page.locator("[data-testid='trial-pack']").inputValue(),
+    plannerModel: await page.locator("[data-testid='trial-planner-model']").inputValue(),
+    profile: await page.locator("[data-testid='trial-profile']").inputValue(),
+    provider: await page.locator("[data-testid='trial-provider']").inputValue(),
+    token: await page.locator("[data-testid='trial-token']").inputValue(),
+  };
+}
+
+function trialComposeValuesMatch(actual, expected, requireToken) {
+  return (
+    actual.goal === expected.goal &&
+    actual.model === expected.model &&
+    actual.pack === expected.pack &&
+    actual.plannerModel === expected.plannerModel &&
+    actual.profile === expected.profile &&
+    actual.provider === expected.provider &&
+    (!requireToken || actual.token === expected.token)
+  );
+}
+
+function reportTrialComposeValues({ token, ...values }) {
+  return { ...values, token_state: token === "" ? "cleared" : "present" };
 }
 
 async function mobileStageScroll(page, selector) {

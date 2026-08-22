@@ -128,6 +128,18 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     return true;
   }, []);
 
+  const discardProposal = useCallback(() => {
+    setProposal(null);
+    setConfirmed(false);
+  }, []);
+
+  const editProposal = useCallback(() => {
+    discardProposal();
+    setError(null);
+    setErrorReconnectSessionId(null);
+    setStage("compose");
+  }, [discardProposal, setStage]);
+
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => {
       if (field === "profile") return { ...current, profile: value as string, pack: null };
@@ -157,9 +169,13 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   async function checkContract() {
     const missing = missingContractField(spec, trialAccessReady);
     if (missing !== null) {
+      discardProposal();
+      setStage("compose");
       setError(missing);
       return;
     }
+    discardProposal();
+    setStage("compose");
     setBusy(true);
     setError(null);
     setErrorReconnectSessionId(null);
@@ -208,6 +224,13 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
         const currentLease = await fetchWorkspaceLease(trialToken).catch(() => null);
         if (currentLease !== null) setWorkspaceLease(currentLease);
       }
+      if (
+        reason instanceof GuiRequestError &&
+        [401, 412, 428].includes(reason.status)
+      ) {
+        discardProposal();
+        setStage("compose");
+      }
       recordError(reason);
     } finally {
       setBusy(false);
@@ -232,7 +255,8 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
 
   return {
     busy, checkContract, compatiblePacks, confirmed, error, errorReconnectSessionId,
-    gateOneRef, inspectWorkspaceLease, launchBlockReason: leaseLaunchBlockReason(workspaceLease),
+    editProposal, gateOneRef, inspectWorkspaceLease,
+    launchBlockReason: leaseLaunchBlockReason(workspaceLease),
     launchConfirmed, launchIdentityLocked, optionsError, proposal, providerChanged,
     reconnectSessionId, recordError, rejectTrialToken, resetForNewRun, selectedPack,
     selectedProfile, selectedProvider, setBusy, setConfirmed, setError,
