@@ -95,6 +95,8 @@ fn param<'a>(check: &'a CheckBinding, name: &str) -> Option<&'a str> {
 fn shell_command(check: &CheckBinding) -> Option<String> {
     match crate::planner::capability_catalog::resolve(&check.id, &check.params).ok()? {
         ResolvedCapability::ShellCheck(command) => Some(command),
-        ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => None,
+        ResolvedCapability::CommandCheck(_)
+        | ResolvedCapability::Internal(_)
+        | ResolvedCapability::Probe(_) => None,
     }
 }

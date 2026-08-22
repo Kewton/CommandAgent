@@ -3,7 +3,7 @@ use std::fmt;
 use toml::Value;
 use toml::value::Table;
 
-use crate::planner::verify;
+use crate::planner::{declarative_command_checks as command_checks, verify};
 use crate::tools::path_guard::validate_workspace_relative;
 
 mod cli;
@@ -17,6 +17,7 @@ pub use pack::PackInternalCheck;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityKind {
     ShellCheck,
+    CommandCheck,
     InternalCheck,
     Probe,
 }
@@ -25,6 +26,7 @@ impl CapabilityKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ShellCheck => "ShellCheck",
+            Self::CommandCheck => "CommandCheck",
             Self::InternalCheck => "InternalCheck",
             Self::Probe => "Probe",
         }
@@ -39,6 +41,7 @@ pub enum ParamType {
     PathList,
     GlobList,
     StringList,
+    CommandExpectation,
     Enum(&'static [&'static str]),
 }
 
@@ -51,6 +54,7 @@ impl ParamType {
             Self::PathList => "[path]".to_string(),
             Self::GlobList => "[glob]".to_string(),
             Self::StringList => "[string]".to_string(),
+            Self::CommandExpectation => "command_expectation".to_string(),
             Self::Enum(values) => format!("enum[{}]", values.join(",")),
         }
     }
@@ -75,6 +79,7 @@ pub struct CapabilitySpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCapability {
     ShellCheck(String),
+    CommandCheck(crate::planner::declarative_command_checks::DeclarativeCommandCheck),
     Internal(InternalCapability),
     Probe(ProbeCapability),
 }
@@ -140,12 +145,10 @@ impl fmt::Display for CatalogError {
                 f,
                 "invalid parameter `{parameter}` for capability `{id}`: {reason}"
             ),
-            Self::ProbeBindingUnimplemented { id } => {
-                write!(
-                    f,
-                    "probe capability `{id}` is registered but not bindable yet"
-                )
-            }
+            Self::ProbeBindingUnimplemented { id } => write!(
+                f,
+                "probe capability `{id}` is registered but not bindable yet"
+            ),
         }
     }
 }
@@ -227,7 +230,7 @@ static BASE_REGISTRY: [CapabilitySpec; 5] = [
 ];
 
 pub fn registry() -> &'static [CapabilitySpec] {
-    pack::combined_registry(ingest::registry(&BASE_REGISTRY))
+    command_checks::combined_registry(pack::combined_registry(ingest::registry(&BASE_REGISTRY)))
 }
 
 pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogError> {
@@ -273,6 +276,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
                 files: required_path_list(spec, params, "files")?,
             },
         )),
+        _ if command_checks::is_id(spec.id) => command_checks::resolve(params),
         _ if nextjs::is_id(spec.id) => nextjs::resolve(spec, params),
         _ if cli::is_id(spec.id) => cli::resolve(spec, params),
         _ if pack::is_id(spec.id) => pack::resolve(spec, params),

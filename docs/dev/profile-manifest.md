@@ -209,6 +209,32 @@ or extra parameter, wrong type, unsafe path, unsupported value, or registered
 but unimplemented adapter makes loading fail. There is no permissive fallback
 or deferred runtime validation.
 
+### Declarative command checks
+
+An external draft profile may bind the registered `command_check` capability
+for final acceptance only:
+
+```toml
+[[checks.command]]
+id = "command_check"
+params = { argv = ["test", "-s", "index.html"], cwd = "workspace", expect = { exit_code = 0, stdout_regex = "^$", max_bytes = 1024 } }
+```
+
+An operator-local pack for that draft profile may declare the same closed
+shape in `eval.yaml` at `final_acceptance`. `argv` is executed directly; it is
+not joined into a shell program. The registry rejects a `command` string,
+shell and inline-eval interpreters, setup or mutating commands, absolute and
+parent-relative paths, unknown fields, invalid regular expressions, and
+unbounded output settings. Execution always uses the workspace root, a fixed
+compiled timeout, the verifier environment policy, and bounded recorded
+stdout/stderr. Exit, regex, timeout, and output-bound failures remain honest
+acceptance failures.
+
+Each execution emits `declarative_command_check_result` and appends its result
+to the run summary. These results never add evidence or admission inputs. A
+passing draft profile therefore remains capped at `static` assurance with
+reason `profile_not_admitted`.
+
 `nextjs_manifest()` and the data loader embed TOML with `include_str!`, parse
 once through `OnceLock`, and fail immediately on an invalid repository
 manifest. Golden and direct compatibility tests compare the migrated plan,
@@ -338,7 +364,8 @@ features:
 
 Manifest v1 has no representation for:
 
-- free-form shell commands or command fragments;
+- free-form shell commands, shell strings, or command fragments (the closed
+  `command_check.argv` form above is the only external command declaration);
 - conditionals, predicates, loops, or profile-authored branching;
 - executable template selection, expansion, write, or repair logic;
 - capability implementations, probe dispatch, or validation weakening; or

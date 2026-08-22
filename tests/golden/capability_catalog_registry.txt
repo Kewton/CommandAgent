@@ -54,3 +54,7 @@ design_tokens_only | InternalCheck
 lint_config_present | InternalCheck
   - path: path required default=-
   - must_contain: [string] optional default=[]
+command_check | CommandCheck
+  - argv: [string] required default=-
+  - cwd: enum[workspace] required default=-
+  - expect: command_expectation required default=-

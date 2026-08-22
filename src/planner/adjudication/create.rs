@@ -611,7 +611,11 @@ pub(super) fn ultra_final_acceptance_report_inner(
     let profile_report = if !profile_invariant_report.is_pass() {
         profile_invariant_report
     } else {
-        runtime.verify_final(&config.workspace_root, &plan.goal)
+        runtime.verify_final_with_events(
+            &config.workspace_root,
+            &plan.goal,
+            config.eval_events_path.as_deref(),
+        )
     };
     let external_report = bound_contract.as_ref().map(|bound| {
         bound

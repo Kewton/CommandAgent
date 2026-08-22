@@ -185,18 +185,30 @@ impl ManifestDrivenProfile {
         }
     }
 
-    fn check_failures(&self, root: &Path, goal: &str) -> Vec<String> {
+    fn check_failures(
+        &self,
+        root: &Path,
+        goal: &str,
+        eval_events_path: Option<&Path>,
+    ) -> Vec<String> {
         let checks = match self.resolved_checks() {
             Ok(checks) => checks,
             Err(error) => return vec![format!("{} manifest checks are invalid: {error}", self.id)],
         };
         let mut failures = Vec::new();
+        let mut command_checks = Vec::new();
         for check in checks {
             match check.capability {
                 ResolvedCapability::ShellCheck(_) => {
                     // Shell checks enter the existing normalized verification
                     // boundary through `quality_expectations` below.
                 }
+                ResolvedCapability::CommandCheck(command) => command_checks.push(
+                    crate::planner::declarative_command_checks::CommandCheckBinding {
+                        id: check.id,
+                        check: command,
+                    },
+                ),
                 ResolvedCapability::Internal(InternalCapability::ScaffoldFilesPresent {
                     files,
                 }) => {
@@ -251,6 +263,16 @@ impl ManifestDrivenProfile {
                 }
             }
         }
+        failures.extend(
+            crate::planner::declarative_command_checks::run_and_record(
+                root,
+                &command_checks,
+                eval_events_path,
+                "draft_profile",
+                self.id,
+            )
+            .failure_reasons(),
+        );
         failures
     }
 }
@@ -295,6 +317,15 @@ impl DomainProfile for ManifestDrivenProfile {
     }
 
     fn verify_final(&self, root: &Path, goal: &str) -> VerificationReport {
+        self.verify_final_with_events(root, goal, None)
+    }
+
+    fn verify_final_with_events(
+        &self,
+        root: &Path,
+        goal: &str,
+        eval_events_path: Option<&Path>,
+    ) -> VerificationReport {
         let mut report = self
             .base_domain()
             .map(|base| base.verify_final(root, goal))
@@ -302,7 +333,7 @@ impl DomainProfile for ManifestDrivenProfile {
         for failure in self.artifact_failures(root) {
             report.push_profile_failure(failure);
         }
-        for failure in self.check_failures(root, goal) {
+        for failure in self.check_failures(root, goal, eval_events_path) {
             report.push_profile_failure(failure);
         }
         report
