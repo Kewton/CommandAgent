@@ -664,15 +664,15 @@ fn band_means_expose_catalog_keys_and_only_matching_measurements() {
     assert_eq!(response.status, 200, "{}", response.body);
     let rows = response.json();
     let rows = rows.as_array().unwrap();
-    let stats = rows
+    let generic = rows
         .iter()
-        .find(|row| row["profile"] == "python-cli" && row["family"] == "stats")
+        .find(|row| row["profile"] == "python-cli" && row["family"] == "generic")
         .unwrap();
-    assert_eq!(stats["intent"], "create");
-    assert_eq!(stats["duration_n"], 2);
-    assert_eq!(stats["average_duration_seconds"], 90.0);
+    assert_eq!(generic["intent"], "create");
+    assert_eq!(generic["duration_n"], 2);
+    assert_eq!(generic["average_duration_seconds"], 90.0);
     assert_eq!(
-        stats["source"],
+        generic["source"],
         "workspace/management/runs/band_summary_cli.md"
     );
     let filter = rows

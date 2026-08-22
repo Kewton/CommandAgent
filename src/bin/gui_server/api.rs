@@ -8,6 +8,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use commandagent::tui::boundary_shell::band_catalog::{BAND_VALUES, BandValue};
+use commandagent::tui::boundary_shell::family_catalog::TaskFamilyId;
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
@@ -566,8 +567,8 @@ fn band_durations(text: &str, band: &BandValue) -> Vec<f64> {
                 .and_then(|index| cells.get(index))
                 .map(String::as_str)
         };
-        if !field(&["Family", "Scenario"])
-            .is_some_and(|family| family.eq_ignore_ascii_case(band.family.as_str()))
+        if field(&["Family", "Scenario"])
+            .is_none_or(|family| TaskFamilyId::parse(family) != band.family)
         {
             continue;
         }
