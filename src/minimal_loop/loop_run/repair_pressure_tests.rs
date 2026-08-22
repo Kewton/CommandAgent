@@ -554,7 +554,7 @@ mod moved {
                 completion_tokens: None,
             }),
             Ok(read_reply("README.md")),
-            Ok(read_reply("hello.py")),
+            Ok(read_reply("README.md")),
         ]);
         let mut session = SessionSnapshot::new();
 
@@ -570,10 +570,13 @@ mod moved {
 
         assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert_eq!(outcome.tool_calls, 5);
+        assert!(outcome.iterations <= 8);
         assert!(outcome.final_text.contains("unverified"));
         assert!(outcome.changed_paths.contains(&"README.md".to_string()));
         assert!(outcome.changed_paths.contains(&"hello.py".to_string()));
         let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains("\"event\":\"tool_read_unchanged\""));
+        assert!(event_text.contains("\"completion_candidate\":true"));
         assert!(event_text.contains("\"reason\":\"post_write_read_confirmation_completed\""));
         assert!(!event_text.contains("model_stagnation:no_progress_recorded"));
     }

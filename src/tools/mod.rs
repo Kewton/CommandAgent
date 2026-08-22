@@ -8,5 +8,6 @@ pub mod hidden_path;
 pub mod path_guard;
 pub mod read;
 pub mod registry;
+mod repeated_read;
 pub mod workspace_policy;
 pub mod write;

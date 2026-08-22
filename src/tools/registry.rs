@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::bail;
 use serde::Serialize;
@@ -12,6 +13,7 @@ use super::path_guard::{
     WorkspacePathNormalizationKind, normalize_absolute_workspace_glob, normalize_workspace_path,
     resolve_existing, resolve_for_create,
 };
+use super::repeated_read::{COMPACT_HEAD_LINES, ReadDecision, RepeatedReadCache};
 use super::workspace_policy::{WorkspacePolicy, ensure_tool_path_allowed};
 
 #[derive(Debug, Clone)]
@@ -43,12 +45,14 @@ pub struct FunctionSpec {
 #[derive(Debug, Clone)]
 pub struct ToolRegistry {
     specs: Vec<ToolSpec>,
+    repeated_reads: Arc<Mutex<RepeatedReadCache>>,
 }
 
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self {
             specs: default_tool_specs(),
+            repeated_reads: Arc::new(Mutex::new(RepeatedReadCache::default())),
         }
     }
 }
@@ -85,6 +89,9 @@ impl ToolRegistry {
         }
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
+        if name != "Read" {
+            self.repeated_reads().note_non_read_call();
+        }
         match name {
             "Bash" => {
                 let mut command = required_string(arguments, "command")?.to_string();
@@ -137,20 +144,48 @@ impl ToolRegistry {
                 let raw = required_string(arguments, "path")?;
                 let path =
                     resolve_policy_checked_path(context, "Read", raw, PathResolution::Existing)?;
-                crate::tools::read::run(
-                    &context.root,
-                    &path,
-                    optional_usize(arguments, "start_line"),
-                    optional_usize(arguments, "end_line"),
-                    context.workspace_policy,
-                )
+                let start_line = optional_usize(arguments, "start_line");
+                let end_line = optional_usize(arguments, "end_line");
+                let decision = self
+                    .repeated_reads()
+                    .begin_read(&path, start_line, end_line);
+                match decision {
+                    ReadDecision::Unchanged(unchanged) => {
+                        eval_events::emit(
+                            context.eval_events_path.as_deref(),
+                            json!({
+                                "event": "tool_read_unchanged",
+                                "schema_version": "1",
+                                "path": unchanged.path,
+                                "repeat_count": unchanged.repeat_count,
+                                "identical_consecutive": unchanged.identical_consecutive,
+                                "completion_candidate": unchanged.completion_candidate,
+                                "compact_head_lines": COMPACT_HEAD_LINES,
+                            }),
+                        );
+                        Ok(unchanged.response)
+                    }
+                    ReadDecision::Full(pending) => {
+                        let output = crate::tools::read::run(
+                            &context.root,
+                            &path,
+                            start_line,
+                            end_line,
+                            context.workspace_policy,
+                        )?;
+                        self.repeated_reads().record_full_read(pending, &output);
+                        Ok(output)
+                    }
+                }
             }
             "Write" => {
                 let raw = required_string(arguments, "path")?;
                 let path =
                     resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?;
                 let content = required_string(arguments, "content")?;
-                crate::tools::write::run(&context.root, &path, content)
+                let output = crate::tools::write::run(&context.root, &path, content)?;
+                self.repeated_reads().note_successful_write(&path);
+                Ok(output)
             }
             "Edit" => {
                 let raw = required_string(arguments, "path")?;
@@ -173,6 +208,7 @@ impl ToolRegistry {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let output = crate::tools::edit::run(&context.root, &path, old, new, replace_all)?;
+                self.repeated_reads().note_successful_write(&path);
                 if output.contains("edit_anchor_salvaged") {
                     emit_edit_anchor_salvaged(context, &normalized, &output);
                 }
@@ -204,6 +240,12 @@ impl ToolRegistry {
             }
             other => bail!("unknown tool: {other}"),
         }
+    }
+
+    fn repeated_reads(&self) -> MutexGuard<'_, RepeatedReadCache> {
+        self.repeated_reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -700,6 +742,98 @@ mod tests {
             std::fs::read_to_string(dir.path().join("a/b.txt")).unwrap(),
             "ok"
         );
+    }
+
+    #[test]
+    fn repeated_unchanged_read_compacts_but_changed_file_returns_full_content() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: Some(events.clone()),
+            expected_paths: Vec::new(),
+        };
+        let content = (1..=25)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        registry
+            .execute(
+                "Write",
+                &json!({"path":"sample.txt","content":content}),
+                &context,
+            )
+            .unwrap();
+
+        let first = registry
+            .execute("Read", &json!({"path":"sample.txt"}), &context)
+            .unwrap();
+        let second = registry
+            .execute("Read", &json!({"path":"sample.txt"}), &context)
+            .unwrap();
+
+        assert!(first.contains("line 25"), "{first}");
+        assert!(!first.contains("unchanged since"), "{first}");
+        assert!(second.contains("unchanged since"), "{second}");
+        assert!(second.contains("completion candidate"), "{second}");
+        assert!(second.contains("line 20"), "{second}");
+        assert!(!second.contains("line 21"), "{second}");
+
+        std::fs::write(dir.path().join("sample.txt"), "changed\nfull response").unwrap();
+        let changed = registry
+            .execute("Read", &json!({"path":"sample.txt"}), &context)
+            .unwrap();
+        assert!(changed.contains("changed\nfull response"), "{changed}");
+        assert!(!changed.contains("unchanged since"), "{changed}");
+
+        let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains(r#""event":"tool_read_unchanged""#));
+        assert!(event_text.contains(r#""identical_consecutive":true"#));
+        assert!(event_text.contains(r#""completion_candidate":true"#));
+    }
+
+    #[test]
+    fn failed_edit_does_not_make_repeated_read_a_completion_candidate() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("sample.txt"), "content").unwrap();
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+        };
+        registry
+            .execute(
+                "Edit",
+                &json!({
+                    "path":"sample.txt",
+                    "old_string":"missing",
+                    "new_string":"replacement"
+                }),
+                &context,
+            )
+            .unwrap_err();
+
+        registry
+            .execute("Read", &json!({"path":"sample.txt"}), &context)
+            .unwrap();
+        let repeated = registry
+            .execute("Read", &json!({"path":"sample.txt"}), &context)
+            .unwrap();
+
+        assert!(repeated.contains("unchanged since"), "{repeated}");
+        assert!(!repeated.contains("completion candidate"), "{repeated}");
     }
 
     #[test]
