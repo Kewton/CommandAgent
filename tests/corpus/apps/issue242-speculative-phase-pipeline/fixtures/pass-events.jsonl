@@ -1,0 +1,5 @@
+{"current_phase_id":"phase-n","event":"speculative_phase_plan_started","next_phase_id":"phase-n-plus-one","reason":"verification_overlap","schema_version":"1"}
+{"event":"phase_verification_result","ok":true,"phase_id":"phase-n","phase_index":1,"phase_verification_mode":"intermediate_invariant","reason":"","schema_version":"1","total_phases":2}
+{"event":"ultra_phase_complete","final_phase":false,"ok":true,"phase_id":"phase-n","phase_index":1,"reason":"","schema_version":"1","stage":"complete","step_count":null,"total_phases":2}
+{"event":"ultra_phase_start","final_phase":true,"ok":null,"phase_id":"phase-n-plus-one","phase_index":2,"reason":"","schema_version":"1","stage":"start","step_count":null,"total_phases":2}
+{"current_phase_id":"phase-n","event":"speculative_phase_plan_adopted","next_phase_id":"phase-n-plus-one","reason":"gate_passed","schema_version":"1"}

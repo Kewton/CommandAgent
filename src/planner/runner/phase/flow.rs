@@ -1,4 +1,3 @@
-use super::effects::PhaseMachine;
 #[allow(unused_imports)]
 use super::{
     ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
@@ -64,6 +63,8 @@ mod investigation_before;
 mod phase_boundary;
 #[path = "../../ultra_plan_flow/phase_plan_resolution.rs"]
 mod phase_plan_resolution;
+#[path = "../../pipeline.rs"]
+mod pipeline;
 #[path = "../../ultra_plan_storage.rs"]
 mod ultra_plan_storage;
 pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
@@ -312,7 +313,7 @@ pub fn run_ultra_plan_with_ui(
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
     let mut setup_authority_state = UltraRunSetupAuthorityState::default();
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
-    let mut phase_machine = PhaseMachine::start()?;
+    let mut phase_machine = pipeline::PhaseRun::start()?;
     let phases = plan.phases.clone();
     for (index, phase) in phases.iter().enumerate() {
         let runtime = resolve_profile_runtime(&plan.profile);
@@ -344,7 +345,7 @@ pub fn run_ultra_plan_with_ui(
             &plan.intent,
             &phase.id,
         )?;
-        let step_plan_result = phase_plan_resolution::resolve(
+        let step_plan_result = phase_machine.resolve(
             planner,
             &phase_prompt,
             config,
@@ -563,10 +564,11 @@ pub fn run_ultra_plan_with_ui(
             None,
         );
         phase_machine.step_succeeded(final_phase)?;
+        phase_machine.start_next(planner, config, plan, &phases, index, &ultra_context);
         let mut invariant_report =
             verify_invariant_with_hooks(config, runtime, plan, &profile_snapshot);
         if !final_phase && !invariant_report.is_pass() {
-            phase_machine.invariant_needs_repair()?;
+            phase_machine.invariant_needs_repair(config)?;
             invariant_report = repair_intermediate_profile_invariant(
                 execution,
                 &mut ultra_session,

@@ -1,0 +1,4 @@
+{"current_phase_id":"phase-n","event":"speculative_phase_plan_started","next_phase_id":"phase-n-plus-one","reason":"verification_overlap","schema_version":"1"}
+{"current_phase_id":"phase-n","event":"speculative_phase_plan_discarded","next_phase_id":"phase-n-plus-one","reason":"verification_failed","schema_version":"1"}
+{"event":"phase_verification_result","ok":false,"phase_id":"phase-n","phase_index":1,"phase_verification_mode":"intermediate_invariant","reason":"profile invariant failed","schema_version":"1","total_phases":2}
+{"event":"ultra_phase_failed","final_phase":false,"ok":false,"phase_id":"phase-n","phase_index":1,"reason":"profile invariant failed","schema_version":"1","stage":"profile_invariant","step_count":null,"total_phases":2}
