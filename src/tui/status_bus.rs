@@ -393,6 +393,7 @@ pub fn provider_scope_label(scope: &str) -> &'static str {
     match scope {
         "planner_ultra" => "planning the overall plan",
         "planner_step" => "planning steps",
+        "classifier" => "classifying request before Gate 1",
         "executor" => "implementing",
         "repair" => "repairing",
         _ => "model turn",
@@ -609,6 +610,14 @@ mod tests {
 
         assert_eq!(snapshot.repair.as_ref().unwrap().attempt, 2);
         assert_eq!(snapshot.stage.as_deref(), Some("repairing step (2/2)"));
+    }
+
+    #[test]
+    fn classifier_scope_is_distinct_from_planning_before_gate_one() {
+        let label = provider_scope_label("classifier");
+
+        assert_eq!(label, "classifying request before Gate 1");
+        assert!(!label.contains("planning"));
     }
 
     #[test]

@@ -1538,6 +1538,15 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     ] {
         assert!(card_markdown.contains(expected), "{card_markdown}");
     }
+    assert!(!card_markdown.contains("/confirm"), "{card_markdown}");
+    assert!(
+        !card_markdown.contains("計画プリセット: profile"),
+        "{card_markdown}"
+    );
+    assert!(
+        card_markdown.contains("プリセット: profile 既定（選択したプロファイルの標準設定）"),
+        "{card_markdown}"
+    );
     assert_eq!(proposal_json["price"]["duration_n"], 3);
     assert_eq!(proposal_json["price"]["cost_n"], 0);
     assert_eq!(

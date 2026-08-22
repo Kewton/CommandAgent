@@ -141,7 +141,7 @@ fn classify_closed_candidates(
         },
         is_cancelled,
         CLASSIFIER_MAX_RESPONSE_BYTES,
-        provider_call::ProviderCallOverrides::classifier(config),
+        provider_call::ProviderCallOverrides::gate_one_classifier(config),
     )
     .result
     {

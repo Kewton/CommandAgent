@@ -6,9 +6,30 @@ use super::acceptance::{NextAction, TerminalPresentation};
 use super::confirmation::{ConfirmationIdentity, PackSelection};
 use super::pack_catalog;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GateOneSurface {
+    Cli,
+    Gui,
+}
+
 pub fn render_gate_one(
     identity: &ConfirmationIdentity,
     pack_locator: &PackLocator,
+) -> anyhow::Result<String> {
+    render_gate_one_for_surface(identity, pack_locator, GateOneSurface::Cli)
+}
+
+pub fn render_gate_one_for_gui(
+    identity: &ConfirmationIdentity,
+    pack_locator: &PackLocator,
+) -> anyhow::Result<String> {
+    render_gate_one_for_surface(identity, pack_locator, GateOneSurface::Gui)
+}
+
+fn render_gate_one_for_surface(
+    identity: &ConfirmationIdentity,
+    pack_locator: &PackLocator,
+    surface: GateOneSurface,
 ) -> anyhow::Result<String> {
     validate_complete_identity_with_locator(identity, pack_locator)?;
     let card_hash = identity.card_hash()?;
@@ -79,7 +100,13 @@ pub fn render_gate_one(
             "- 実行モデル: {} / {}",
             identity.pins.executor_provider, identity.pins.executor_model
         ),
-        format!("- 計画プリセット: {}", identity.pins.preset),
+        match surface {
+            GateOneSurface::Cli => format!("- 計画プリセット: {}", identity.pins.preset),
+            GateOneSurface::Gui => format!(
+                "- プリセット: {} 既定（選択したプロファイルの標準設定）",
+                identity.pins.preset
+            ),
+        },
     ]);
     render_pack(identity, pack_locator, &mut lines)?;
     let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
@@ -101,7 +128,12 @@ pub fn render_gate_one(
         String::new(),
         format!("- 確認 ID (内容が1つでも変わると ID も変わります): {card_hash}"),
         "これは提案であり、実行結果ではありません。".to_string(),
-        format!("実行前にこの ID と完全一致する内容を確認してください。CLI では /confirm {card_hash} を使用します。"),
+        match surface {
+            GateOneSurface::Cli => format!("実行前にこの ID と完全一致する内容を確認してください。CLI では /confirm {card_hash} を使用します。"),
+            GateOneSurface::Gui => {
+                "実行前にこの ID と完全一致する内容を確認してください。".to_string()
+            }
+        },
     ]);
     Ok(lines.join("\n"))
 }
@@ -220,9 +252,10 @@ pub fn render_gate_four(
         .iter()
         .map(|(action, enabled, reason)| {
             format!(
-                "- {}: {} — {}",
+                "- {}: {} — 操作: {} — {}",
                 action.as_str(),
                 if *enabled { "available" } else { "unavailable" },
+                next_action_operation(*action),
                 reason
             )
         })
@@ -337,12 +370,31 @@ fn recommended_gate_four_action(
 
 fn next_action_guidance(action: NextAction) -> &'static str {
     match action {
-        NextAction::Retry => "同じ構成で再実行し、Gate 1 で再確認",
-        NextAction::RecoveryCircle => "失敗証拠を引き継ぐ回復フローを Gate 1 で再確認",
-        NextAction::ElevatedModel => "上位モデルで再実行し、Gate 1 で再確認",
-        NextAction::PackChange => "互換 pack を選び、Gate 1 で再確認",
-        NextAction::HumanDirective => "追加指示を保存し、継続前に再確認",
-        NextAction::Close => "証拠を保存したまま終了",
+        NextAction::Retry => "同じ依頼を再入力し、新しい Gate 1 を確認",
+        NextAction::RecoveryCircle => {
+            "`/resume <run-id|yaml-path>` で失敗証拠を引き継ぎ、Gate 1 を確認"
+        }
+        NextAction::ElevatedModel => "`/exit` 後に上位モデルを指定して再起動し、同じ依頼を再入力",
+        NextAction::PackChange => "`/pack <id@version>` で互換 pack を選び、Gate 1 を確認",
+        NextAction::HumanDirective => "`/directive <instruction>` で追加指示を保存し、継続前に確認",
+        NextAction::Close => "`/exit` で証拠を保存したまま終了",
+    }
+}
+
+fn next_action_operation(action: NextAction) -> &'static str {
+    match action {
+        NextAction::Retry => "同じ依頼を再入力し、新しい Gate 1 を確認する",
+        NextAction::RecoveryCircle => {
+            "`/resume <run-id|yaml-path>` を入力し、回復用 Gate 1 を確認する"
+        }
+        NextAction::ElevatedModel => {
+            "`/exit` で終了し、上位モデルを指定して再起動後、同じ依頼を入力する"
+        }
+        NextAction::PackChange => "`/pack <id@version>` を入力し、新しい Gate 1 を確認する",
+        NextAction::HumanDirective => {
+            "`/directive <instruction>` を入力し、表示された確認 ID を確認する"
+        }
+        NextAction::Close => "`/exit` を入力し、追加実行せず終了する",
     }
 }
 
@@ -528,6 +580,31 @@ mod tests {
     }
 
     #[test]
+    fn gui_card_uses_the_cli_identity_without_exposing_cli_only_copy() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let identity = identity(PackSelection::None);
+        let locator = PackLocator::new(root);
+        let card_hash = identity.card_hash().unwrap();
+
+        let cli = render_gate_one(&identity, &locator).unwrap();
+        let gui = render_gate_one_for_gui(&identity, &locator).unwrap();
+
+        assert!(
+            cli.contains(&format!("CLI では /confirm {card_hash}")),
+            "{cli}"
+        );
+        assert!(cli.contains("- 計画プリセット: profile"), "{cli}");
+        assert!(gui.contains(&card_hash), "{gui}");
+        assert!(!gui.contains("/confirm"), "{gui}");
+        assert!(!gui.contains("計画プリセット: profile"), "{gui}");
+        assert!(
+            gui.contains("- プリセット: profile 既定（選択したプロファイルの標準設定）"),
+            "{gui}"
+        );
+        assert_eq!(identity.card_hash().unwrap(), card_hash);
+    }
+
+    #[test]
     fn missing_value_or_pack_pin_is_a_fixture_failure_not_a_shorter_card() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut missing_value = identity(PackSelection::None);
@@ -610,9 +687,24 @@ mod tests {
         let actions = [
             (NextAction::Retry, true, "human confirmation required"),
             (
+                NextAction::RecoveryCircle,
+                false,
+                "availability must be earned by workflow evidence",
+            ),
+            (
                 NextAction::ElevatedModel,
                 true,
                 "returns to Gate 1 with a new model pin",
+            ),
+            (
+                NextAction::PackChange,
+                true,
+                "alternative compatible admitted pack exists",
+            ),
+            (
+                NextAction::HumanDirective,
+                true,
+                "persisted confirmation required",
             ),
             (NextAction::Close, true, "records no further action"),
         ];
@@ -633,12 +725,25 @@ mod tests {
             vec![
                 "- 通過: コマンド、実行時受入、最終受入、リリースゲート",
                 "- 未実行: CLI 動作プローブ C1–C4（未実行のため保証は static）",
-                "- 次の一手: `elevated_model` — 上位モデルで再実行し、Gate 1 で再確認",
+                "- 次の一手: `elevated_model` — `/exit` 後に上位モデルを指定して再起動し、同じ依頼を再入力",
             ]
         );
         assert!(rendered.contains(&sheet));
         assert!(rendered.contains("## Section 5\n\ncli_probe_not_run"));
         assert!(rendered.contains("## Typed next actions"));
+        for operation in [
+            "retry: available — 操作: 同じ依頼を再入力し、新しい Gate 1 を確認する",
+            "recovery_circle: unavailable — 操作: `/resume <run-id|yaml-path>` を入力し、回復用 Gate 1 を確認する",
+            "elevated_model: available — 操作: `/exit` で終了し、上位モデルを指定して再起動後、同じ依頼を入力する",
+            "pack_change: available — 操作: `/pack <id@version>` を入力し、新しい Gate 1 を確認する",
+            "human_directive: available — 操作: `/directive <instruction>` を入力し、表示された確認 ID を確認する",
+            "close: available — 操作: `/exit` を入力し、追加実行せず終了する",
+        ] {
+            assert!(
+                rendered.contains(operation),
+                "missing {operation:?}: {rendered}"
+            );
+        }
     }
 
     #[test]
@@ -663,6 +768,8 @@ mod tests {
 
         assert!(rendered.contains("- 通過: なし（失敗内容は Section 5）"));
         assert!(rendered.contains("- 未実行: なし（失敗内容は Section 5）"));
-        assert!(rendered.contains("- 次の一手: `retry` — 同じ構成で再実行し、Gate 1 で再確認"));
+        assert!(
+            rendered.contains("- 次の一手: `retry` — 同じ依頼を再入力し、新しい Gate 1 を確認")
+        );
     }
 }
