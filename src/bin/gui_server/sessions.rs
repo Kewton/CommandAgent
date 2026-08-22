@@ -375,7 +375,7 @@ pub(super) async fn require_no_pending_directive(path: &FilePath) -> Result<(), 
 fn parse_events(text: &str) -> Result<Vec<Value>, SessionError> {
     text.lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).map_err(internal))
+        .map(|line| serde_json::from_str(line).map_err(invalid_events))
         .collect()
 }
 
@@ -479,7 +479,24 @@ pub(super) fn workspace_conflict(message: impl ToString) -> SessionError {
     } else {
         "trial_workspace_conflict"
     };
-    GuiError::new(StatusCode::CONFLICT, code, message)
+    let session_id = (code == "trial_workspace_recovery_required")
+        .then(|| message.rsplit_once(' ').map(|(_, id)| id))
+        .flatten()
+        .filter(|id| Uuid::parse_str(id).is_ok_and(|parsed| parsed.to_string() == *id))
+        .map(str::to_string);
+    let error = GuiError::new(StatusCode::CONFLICT, code, message);
+    match session_id {
+        Some(session_id) => error.with_session_id(session_id),
+        None => error,
+    }
+}
+
+fn invalid_events(error: impl ToString) -> SessionError {
+    GuiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "trial_session_events_invalid",
+        error.to_string(),
+    )
 }
 
 pub(super) fn internal(error: impl ToString) -> SessionError {

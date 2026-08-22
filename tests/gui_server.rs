@@ -1331,10 +1331,57 @@ fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
     confirmed["confirmation_hash"] = proposal["card_hash"].clone();
     let blocked = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(blocked.status, 409, "{}", blocked.body);
+    assert_eq!(
+        blocked.json(),
+        serde_json::json!({
+            "code": "trial_workspace_recovery_required",
+            "error": format!(
+                "trial workspace requires recovery for non-terminal session {session_id}"
+            ),
+            "session_id": session_id,
+        })
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_session_events_return_a_dedicated_error_code() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("terminal-commandagent");
+    write_terminal_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        assert_eq!(lease.status, 200, "{}", lease.body);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "delegated CLI did not finish");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let events_path = workspace.join(".anvil/runs").join(&id).join("events.jsonl");
+    std::fs::write(events_path, "not-json\n").unwrap();
+    let response = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(response.status, 500, "{}", response.body);
     assert_error(
-        &blocked,
-        "trial_workspace_recovery_required",
-        &format!("trial workspace requires recovery for non-terminal session {session_id}"),
+        &response,
+        "trial_session_events_invalid",
+        "expected ident at line 1 column 2",
     );
     server.stop();
 }
