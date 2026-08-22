@@ -567,6 +567,21 @@ def test_commandmate_send_command_selects_codex_agent() -> None:
     ]
 
 
+def test_commandmate_respond_command_targets_codex_instance() -> None:
+    module = load_script()
+
+    assert module.build_commandmate_respond_command(
+        "repo-issue-1", "hello", codex_agent_name="codex"
+    ) == [
+        "commandmatedev",
+        "respond",
+        "repo-issue-1",
+        "hello",
+        "--instance",
+        "codex",
+    ]
+
+
 def test_dispatch_commandmate_sends_only_worker_task() -> None:
     module = load_script()
     issue = module.Issue(
@@ -609,6 +624,56 @@ def test_dispatch_commandmate_sends_only_worker_task() -> None:
     assert "- Status: `passed`" in calls[0][3]
     assert calls[0][3] != "hello"
     assert results[0].commands == (" ".join(calls[0]),)
+
+
+def test_dispatch_commandmate_responds_when_worker_is_waiting_on_prompt() -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(
+            number=1,
+            title="Add worker task",
+            body="Implement the issue.\n\n## Acceptance Criteria\n- Done\n",
+        ),
+        "CommandAgent",
+        skip_enhance=True,
+    )
+    worktree = module.WorktreeResult(
+        issue_number=1,
+        branch_name="feature/issue-1-add-worker-task",
+        worktree_path=Path("/tmp/CommandAgent-issue-1-add-worker-task"),
+        status="created",
+        message="worktree created",
+    )
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:2] == ["commandmatedev", "send"]:
+            raise module.subprocess.CalledProcessError(
+                1,
+                args,
+                output="",
+                stderr="Error: worker is waiting on a prompt. Answer the prompt first.",
+            )
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    results = module.dispatch_commandmate(
+        [analysis],
+        [worktree],
+        dry_run=False,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        runner=fake_runner,
+    )
+
+    assert [call[:2] for call in calls] == [
+        ["commandmatedev", "send"],
+        ["commandmatedev", "respond"],
+    ]
+    assert calls[1][-2:] == ["--instance", "codex"]
+    assert results[0].status == "sent"
+    assert len(results[0].commands) == 2
 
 
 def test_dispatch_commandmate_reports_send_failure_as_blocked() -> None:

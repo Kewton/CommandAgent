@@ -1695,6 +1695,15 @@ def build_commandmate_send_command(
     return cmd
 
 
+def build_commandmate_respond_command(
+    worktree_id: str, prompt: str, *, codex_agent_name: str
+) -> list[str]:
+    cmd = ["commandmatedev", "respond", worktree_id, prompt]
+    if codex_agent_name:
+        cmd.extend(["--instance", codex_agent_name])
+    return cmd
+
+
 def build_commandmate_ls_command(
     *, branch_prefix: str | None = None, json_output: bool = True
 ) -> list[str]:
@@ -1746,13 +1755,15 @@ def dispatch_commandmate(
             if dependency_context is not None
             else direct_dependencies(analysis, dependency_analyses or analyses)
         )
+        prompt = build_worker_prompt(analysis, dependencies)
         task = build_commandmate_send_command(
             worktree_id,
-            build_worker_prompt(analysis, dependencies),
+            prompt,
             duration=duration,
             codex_agent_name=codex_agent_name,
         )
-        commands = (" ".join(task),)
+        command_log = [" ".join(task)]
+        responded = False
         if not dry_run:
             try:
                 runner(task, cwd=REPO_ROOT, check=True)
@@ -1762,18 +1773,44 @@ def dispatch_commandmate(
                     message = exc.stderr.strip()
                 elif exc.stdout:
                     message = exc.stdout.strip()
-                results.append(
-                    WorkerSessionResult(
-                        issue_number=analysis.issue.number,
-                        worktree_id=worktree_id,
-                        status="blocked",
-                        processing=None,
-                        running=None,
-                        message=message,
-                        commands=commands,
+                if "waiting on a prompt" not in message:
+                    results.append(
+                        WorkerSessionResult(
+                            issue_number=analysis.issue.number,
+                            worktree_id=worktree_id,
+                            status="blocked",
+                            processing=None,
+                            running=None,
+                            message=message,
+                            commands=tuple(command_log),
+                        )
                     )
+                    continue
+                respond = build_commandmate_respond_command(
+                    worktree_id, prompt, codex_agent_name=codex_agent_name
                 )
-                continue
+                command_log.append(" ".join(respond))
+                try:
+                    runner(respond, cwd=REPO_ROOT, check=True)
+                except subprocess.CalledProcessError as respond_exc:
+                    respond_message = (
+                        (respond_exc.stderr or respond_exc.stdout or "").strip()
+                        or str(respond_exc)
+                    )
+                    results.append(
+                        WorkerSessionResult(
+                            issue_number=analysis.issue.number,
+                            worktree_id=worktree_id,
+                            status="blocked",
+                            processing=None,
+                            running=None,
+                            message=respond_message,
+                            commands=tuple(command_log),
+                        )
+                    )
+                    continue
+                responded = True
+        commands = tuple(command_log)
         status = WorkerSessionResult(
             issue_number=analysis.issue.number,
             worktree_id=worktree_id,
@@ -1791,6 +1828,23 @@ def dispatch_commandmate(
                 commands=commands,
                 runner=runner,
             )
+            if status.status == "started-but-idle" and not responded:
+                respond = build_commandmate_respond_command(
+                    worktree_id, prompt, codex_agent_name=codex_agent_name
+                )
+                command_log.append(" ".join(respond))
+                try:
+                    runner(respond, cwd=REPO_ROOT, check=True)
+                except subprocess.CalledProcessError:
+                    pass
+                else:
+                    status = poll_worker_startup(
+                        analysis.issue.number,
+                        worktree_id,
+                        codex_agent_name=codex_agent_name,
+                        commands=tuple(command_log),
+                        runner=runner,
+                    )
         results.append(status)
     return results
 
