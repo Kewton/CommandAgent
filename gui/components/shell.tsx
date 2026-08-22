@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
 
-import { routePath, withBasePath, type GuiRoute } from "../lib/base-path";
+import { routePath, type GuiRoute } from "../lib/base-path";
 import { useRuntimeStatus, type RuntimeState } from "../lib/use-runtime-status";
 
 const RuntimeStatusContext = createContext<RuntimeState | null>(null);
@@ -42,7 +43,7 @@ export function Shell({ active, title, description, children }: ShellProps) {
     <RuntimeStatusContext.Provider value={runtime}>
       <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href={withBasePath(routePath("dashboard"))}>
+        <Link className="brand" href={routePath("dashboard")}>
           <span className="brand-mark" aria-hidden="true">
             CA
           </span>
@@ -50,7 +51,7 @@ export function Shell({ active, title, description, children }: ShellProps) {
             <strong>CommandAgent</strong>
             <small>運用オブザーバトリ</small>
           </span>
-        </a>
+        </Link>
         <div
           className="runtime-summary"
           data-session-state={sessionState}
@@ -71,14 +72,14 @@ export function Shell({ active, title, description, children }: ShellProps) {
               {sessionLabel}
             </span>
           ) : (
-            <a
+            <Link
               className={`runtime-badge session-${sessionState}`}
               data-testid="runtime-session-link"
-              href={withBasePath(routePath("try", runtimeSession.id))}
+              href={routePath("try", runtimeSession.id)}
             >
               <i />
               {sessionLabel}
-            </a>
+            </Link>
           )}
         </div>
       </header>
@@ -86,14 +87,15 @@ export function Shell({ active, title, description, children }: ShellProps) {
       <aside className="sidebar" aria-label="ダッシュボードのナビゲーション">
         <nav>
           {navigation.map((item) => (
-            <a
+            <Link
+              aria-current={item.route === active ? "page" : undefined}
               className={item.route === active ? "nav-link active" : "nav-link"}
-              href={withBasePath(routePath(item.route))}
+              href={routePath(item.route)}
               key={item.route}
             >
               <span>{item.index}</span>
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
       </aside>

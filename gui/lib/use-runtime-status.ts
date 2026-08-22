@@ -11,7 +11,7 @@ export type RuntimeState = {
   failed: boolean;
 };
 
-const REFRESH_INTERVAL_MS = 3_000;
+const REFRESH_INTERVAL_MS = 750;
 
 export function useRuntimeStatus(): RuntimeState {
   const [state, setState] = useState<RuntimeState>({ data: null, failed: false });

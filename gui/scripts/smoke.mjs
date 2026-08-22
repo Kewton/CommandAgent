@@ -538,6 +538,11 @@ async function runCase(smokeCase) {
       status_badges_are_plain_text: statusBadgesArePlainText,
       status_badges_are_japanese: statusBadgesAreJapanese,
     };
+    const shellNavigation = await probeShellNavigation(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
     const dashboardOk =
       response?.status() === 200 &&
       heading === "概要" &&
@@ -559,7 +564,8 @@ async function runCase(smokeCase) {
       runTotalCountText === expectedRunTotalCountText &&
       unknownStateWithinTarget &&
       statusBadgesArePlainText &&
-      statusBadgesAreJapanese;
+      statusBadgesAreJapanese &&
+      shellNavigation.ok;
     const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => {
       const directChildrenWithRole = (element, role) =>
         [...element.children].filter((child) => child.getAttribute("role") === role);
@@ -662,6 +668,7 @@ async function runCase(smokeCase) {
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
         dashboard,
+        shell_navigation: shellNavigation,
         api_checks: apiChecks,
         svg: map,
         links_use_base_path: linksUseBasePath,
@@ -712,6 +719,7 @@ async function runCase(smokeCase) {
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
         dashboard,
+        shell_navigation: shellNavigation,
         api_checks: apiChecks,
         svg: map,
         links_use_base_path: linksUseBasePath,
@@ -1244,6 +1252,7 @@ async function runCase(smokeCase) {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
       dashboard,
+      shell_navigation: shellNavigation,
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,
@@ -2594,6 +2603,98 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading, 
     headingMatches: heading === expectedHeading,
     title,
     titleMatches: title === expectedTitle,
+  };
+}
+
+async function probeShellNavigation(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const prefix = displayBasePath(basePath);
+  const routes = [
+    { id: "dashboard", href: prefix, heading: "概要", label: "概要" },
+    { id: "try", href: `${prefix}try/`, heading: "トライアル", label: "トライアル" },
+    { id: "assets", href: `${prefix}assets/`, heading: "拡張", label: "拡張" },
+    {
+      id: "run",
+      href: `${prefix}runs/?id=`,
+      heading: "リポジトリ実行記録",
+      label: "リポジトリ実行記録",
+    },
+    {
+      id: "measurements",
+      href: `${prefix}measurements/`,
+      heading: "計測",
+      label: "計測",
+    },
+  ];
+
+  try {
+    await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
+    const marker = `shell-navigation-${Date.now()}`;
+    await page.evaluate((value) => {
+      window.__commandagentShellNavigationMarker = value;
+    }, marker);
+
+    const observations = [await observeActiveShellRoute(page, routes[0], origin, marker)];
+    for (const route of [...routes.slice(1), routes[0]]) {
+      const link = page.locator(".sidebar .nav-link").filter({ hasText: route.label });
+      const renderedHref = await link.getAttribute("href");
+      await link.click();
+      const expected = new URL(route.href, origin);
+      await page.waitForFunction(
+        ({ heading, pathname, search }) =>
+          window.location.pathname === pathname &&
+          window.location.search === search &&
+          document.querySelector("h1")?.textContent?.trim() === heading,
+        { heading: route.heading, pathname: expected.pathname, search: expected.search },
+      );
+      observations.push({
+        ...(await observeActiveShellRoute(page, route, origin, marker)),
+        rendered_href_before_navigation: renderedHref,
+      });
+    }
+
+    const clientNavigationPreservedDocument = observations.every(
+      (observation) => observation.document_marker_preserved,
+    );
+    const ariaCurrentPage = observations.every(
+      (observation) => observation.aria_current_page,
+    );
+    const linksMatchBasePath = observations.every(
+      (observation) => observation.href_matches_base_path,
+    );
+    return {
+      routes: observations,
+      client_navigation_preserved_document: clientNavigationPreservedDocument,
+      aria_current_page: ariaCurrentPage,
+      links_match_base_path: linksMatchBasePath,
+      ok: clientNavigationPreservedDocument && ariaCurrentPage && linksMatchBasePath,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function observeActiveShellRoute(page, route, origin, marker) {
+  const activeLinks = page.locator(".sidebar .nav-link[aria-current='page']");
+  const activeCount = await activeLinks.count();
+  const activeText = activeCount === 1 ? await activeLinks.innerText() : "";
+  const activeHref = activeCount === 1 ? await activeLinks.getAttribute("href") : null;
+  const expectedHref = new URL(route.href, origin);
+  const renderedHref = activeHref === null ? null : new URL(activeHref, origin);
+  return {
+    route: route.id,
+    active_text: activeText,
+    active_href: activeHref,
+    expected_href: `${expectedHref.pathname}${expectedHref.search}`,
+    aria_current_page: activeCount === 1 && activeText.includes(route.label),
+    href_matches_base_path:
+      renderedHref !== null &&
+      renderedHref.pathname === expectedHref.pathname &&
+      renderedHref.search === expectedHref.search,
+    document_marker_preserved: await page.evaluate(
+      (value) => window.__commandagentShellNavigationMarker === value,
+      marker,
+    ),
   };
 }
 
