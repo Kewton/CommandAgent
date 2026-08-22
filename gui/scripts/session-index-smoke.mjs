@@ -229,12 +229,15 @@ async function probeLifecycle(browser, origin, basePath) {
     await page
       .locator("[data-testid='runtime-status'][data-session-state='running']")
       .waitFor({ timeout: 10_000 });
-    await delay(3_500);
+    await delay(1_000);
     const noPeriodicIndexPolling = indexCalls === initialIndexCalls && runtimeCalls >= 2;
     runtimeSession = null;
+    const terminalRefreshStartedAt = Date.now();
     await page
       .locator("[data-testid='runtime-status'][data-session-state='idle']")
       .waitFor({ timeout: 10_000 });
+    const terminalRefreshElapsedMs = Date.now() - terminalRefreshStartedAt;
+    const terminalRuntimeRefreshedWithinOneSecond = terminalRefreshElapsedMs <= 1_000;
     await waitFor(() => indexCalls > initialIndexCalls, "runtime running-to-idle refresh");
     const runtimeLeaseRefreshCalls = indexCalls;
 
@@ -390,6 +393,8 @@ async function probeLifecycle(browser, origin, basePath) {
       runtime_max_concurrent_requests: runtimeMaxConcurrentRequests,
       runtime_paused_while_hidden: runtimePausedWhileHidden,
       runtime_resumed_when_visible: runtimeResumedWhenVisible,
+      terminal_refresh_elapsed_ms: terminalRefreshElapsedMs,
+      terminal_runtime_refreshed_within_one_second: terminalRuntimeRefreshedWithinOneSecond,
       runtime_lease_refresh_calls: runtimeLeaseRefreshCalls,
       final_index_calls: indexCalls,
       no_periodic_index_polling: noPeriodicIndexPolling,
@@ -415,6 +420,7 @@ async function probeLifecycle(browser, origin, basePath) {
         runtimeMaxConcurrentRequests === 1 &&
         runtimePausedWhileHidden &&
         runtimeResumedWhenVisible &&
+        terminalRuntimeRefreshedWithinOneSecond &&
         terminalRowHighlighted &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&

@@ -919,6 +919,13 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     }
 
     let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
+    assert!(shell.contains("import Link from \"next/link\""));
+    assert_eq!(shell.matches("<Link").count(), 3);
+    assert!(
+        !shell.contains("<a "),
+        "shell navigation must stay client-side"
+    );
+    assert!(shell.contains("aria-current={item.route === active ? \"page\" : undefined}"));
     assert_eq!(
         shell
             .lines()
@@ -1791,6 +1798,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
 fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     let runtime = std::fs::read_to_string("gui/lib/use-runtime-status.ts").unwrap();
     for required in [
+        "const REFRESH_INTERVAL_MS = 750",
         "let requestInFlight = false",
         "document.visibilityState === \"hidden\"",
         "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
@@ -1832,6 +1840,8 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     assert!(measurements.contains("[reports.data, selectedPath]"));
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
+        "client_navigation_preserved_document",
+        "aria_current_page",
         "setDocumentVisibility(page, \"hidden\")",
         "setDocumentVisibility(page, \"visible\")",
         "selection_retained_after_visibility",
@@ -1839,6 +1849,17 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
         assert!(
             smoke.contains(required),
             "measurement visibility smoke is missing {required:?}"
+        );
+    }
+
+    let lifecycle_smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
+    for required in [
+        "terminal_refresh_elapsed_ms",
+        "terminal_runtime_refreshed_within_one_second",
+    ] {
+        assert!(
+            lifecycle_smoke.contains(required),
+            "runtime terminal-refresh smoke is missing {required:?}"
         );
     }
 
