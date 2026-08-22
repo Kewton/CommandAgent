@@ -88,13 +88,6 @@ pub(super) fn gate_one(
     let descriptor = descriptor_for_name(&spec.profile)
         .ok_or_else(|| unprocessable(format!("profile `{}` is not registered", spec.profile)))?;
     let profile = descriptor.id.clone();
-    if commandagent::planner::extension_profiles::find(descriptor.canonical).is_some()
-        && spec.pack.is_some()
-    {
-        return Err(unprocessable(
-            "draft profiles fix the pack selection to none".to_string(),
-        ));
-    }
     let deterministic = deterministic_route(RouteRequest {
         request: &spec.goal,
         workspace,

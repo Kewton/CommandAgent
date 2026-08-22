@@ -157,6 +157,35 @@ impl ConfirmationIdentity {
         if !matches!(pack, PackSelection::None) {
             bail!("draft profiles fix the pack selection to none");
         }
+        Self::from_validated_draft(request, workspace, route, pins, pack, profile)
+    }
+
+    pub fn new_draft_with_locator(
+        request: String,
+        workspace: &Path,
+        route: &RouteCandidate,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        profile: &crate::planner::extension_profiles::ExtensionProfile,
+        locator: &PackLocator,
+    ) -> anyhow::Result<Self> {
+        super::pack_catalog::validate_selection_with_locator(
+            route.profile.as_str(),
+            route.intent.as_str(),
+            &pack,
+            locator,
+        )?;
+        Self::from_validated_draft(request, workspace, route, pins, pack, profile)
+    }
+
+    fn from_validated_draft(
+        request: String,
+        workspace: &Path,
+        route: &RouteCandidate,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        profile: &crate::planner::extension_profiles::ExtensionProfile,
+    ) -> anyhow::Result<Self> {
         let workspace = workspace
             .canonicalize()
             .with_context(|| format!("canonicalize workspace {}", workspace.display()))?;
