@@ -1,3 +1,4 @@
+pub(crate) mod approval;
 pub mod args_recovery;
 pub mod bash;
 mod bash_write_guard;
