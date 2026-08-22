@@ -26,15 +26,19 @@ fixtures/full/events.jsonl = [
   "\"event\":\"ultra_final_acceptance\"",
   "\"verdict\":\"full\"",
   "\"assurance_level\":\"full\"",
+  "\"release_gate_status\":\"pass\"",
+  "\"verify_commands\":[\"cargo test --test smoke\"]",
   "\"caller_scope\":\"planner_step\"",
   "\"provider_reasoning_tokens\":40"
 ]
 fixtures/failed/events.jsonl = [
   "\"status\":\"failed\"",
   "\"assurance_level\":\"failed\"",
+  "\"next_action\":\"fix_command_failure\"",
   "\"failure_kind\":\"direct_cli_command_failed\""
 ]
 fixtures/static/events.jsonl = [
   "\"status\":\"completed\"",
-  "\"assurance_level\":\"static\""
+  "\"assurance_level\":\"static\"",
+  "\"release_gate_status\":\"not_applicable\""
 ]

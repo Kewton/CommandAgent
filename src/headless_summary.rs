@@ -4,12 +4,18 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::Config;
+use crate::eval_events::terminal_report;
+
+pub(crate) use crate::eval_events::terminal_report::TerminalStatus;
 
 const SCHEMA_VERSION: &str = "commandagent.headless-summary/v1";
 
 #[derive(Debug, Clone)]
 pub(crate) struct Source {
     events_path: Option<PathBuf>,
+    workspace_root: Option<PathBuf>,
+    terminal_status: Option<TerminalStatus>,
+    exit_code: Option<i32>,
     model_metadata: Option<ModelMetadata>,
     pack: Option<crate::cli_pack::ResolvedPack>,
 }
@@ -21,6 +27,9 @@ impl Source {
     ) -> Self {
         Self {
             events_path: config.eval_events_path.clone(),
+            workspace_root: Some(config.workspace_root.clone()),
+            terminal_status: None,
+            exit_code: None,
             model_metadata: Some(ModelMetadata {
                 executor_provider: config.provider.as_str().to_string(),
                 executor_model: config.model.clone(),
@@ -33,10 +42,25 @@ impl Source {
         }
     }
 
+    #[allow(dead_code)] // Staged API for Issue #221's interrupted-run consumer.
+    pub(crate) fn with_terminal_status(mut self, status: TerminalStatus) -> Self {
+        self.terminal_status = Some(status);
+        self
+    }
+
+    #[allow(dead_code)] // Staged API for Issue #221's exit-code consumer.
+    pub(crate) fn with_exit_code(mut self, exit_code: i32) -> Self {
+        self.exit_code = Some(exit_code);
+        self
+    }
+
     #[cfg(test)]
     fn from_events_path(path: impl Into<PathBuf>) -> Self {
         Self {
             events_path: Some(path.into()),
+            workspace_root: None,
+            terminal_status: None,
+            exit_code: None,
             model_metadata: None,
             pack: None,
         }
@@ -68,6 +92,13 @@ struct HeadlessSummary {
     provider_usage_by_role: Value,
     stop_class: Option<String>,
     directive_round: u64,
+    status: Option<&'static str>,
+    gate: Option<String>,
+    stop_reason: Option<String>,
+    next_action: Option<String>,
+    changed_files: Vec<String>,
+    verify_commands: Vec<String>,
+    exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     model_metadata: Option<ModelMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,7 +111,14 @@ pub(crate) fn render(source: &Source) -> String {
 
 fn project(source: &Source) -> HeadlessSummary {
     let events_path = source.events_path.as_deref();
-    let events = events_path.map(read_events).unwrap_or_default();
+    let events = terminal_report::read_events(events_path);
+    let report = terminal_report::project(
+        &events,
+        events_path,
+        source.workspace_root.as_deref(),
+        source.terminal_status,
+        source.exit_code,
+    );
     let terminal = latest_terminal(&events);
     let failed = terminal
         .and_then(|event| event.get("ok"))
@@ -132,17 +170,20 @@ fn project(source: &Source) -> HeadlessSummary {
             })
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
+        status: report.status.map(TerminalStatus::as_str),
+        gate: report.gate,
+        stop_reason: report.stop_reason,
+        next_action: report.next_action,
+        changed_files: report.changed_files,
+        verify_commands: report
+            .verifications
+            .into_iter()
+            .map(|observation| observation.command)
+            .collect(),
+        exit_code: report.exit_code,
         model_metadata: source.model_metadata.clone(),
         pack: source.pack.clone(),
     }
-}
-
-fn read_events(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect()
 }
 
 fn latest_terminal(events: &[Value]) -> Option<&Value> {
@@ -264,6 +305,16 @@ mod tests {
         assert!(value["provider_usage_by_role"]["executor"]["thinking_tokens"].is_null());
         assert!(value["stop_class"].is_null());
         assert_eq!(value["directive_round"], 0);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["gate"], "pass");
+        assert_eq!(value["stop_reason"], "completed");
+        assert_eq!(value["next_action"], "none");
+        assert_eq!(value["changed_files"], serde_json::json!([]));
+        assert_eq!(
+            value["verify_commands"],
+            serde_json::json!(["cargo test --test smoke"])
+        );
+        assert_eq!(value["exit_code"], 0);
     }
 
     #[test]
@@ -273,6 +324,15 @@ mod tests {
         assert_eq!(value["assurance"], "failed");
         assert_eq!(value["stop_class"], "direct_cli_command_failed");
         assert_eq!(value["directive_round"], 1);
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["gate"], "failed");
+        assert_eq!(value["stop_reason"], "verification failed");
+        assert_eq!(value["next_action"], "fix_command_failure");
+        assert_eq!(
+            value["verify_commands"],
+            serde_json::json!(["cargo test --test smoke"])
+        );
+        assert_eq!(value["exit_code"], 1);
     }
 
     #[test]
@@ -284,12 +344,17 @@ mod tests {
         assert!(value["provider_cost_usd"].is_null());
         assert_eq!(value["provider_usage_by_role"], serde_json::json!({}));
         assert!(value["stop_class"].is_null());
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["exit_code"], 0);
     }
 
     #[test]
     fn explicit_ollama_think_is_recorded_in_model_metadata() {
         let source = Source {
             events_path: Some(fixture("full")),
+            workspace_root: None,
+            terminal_status: None,
+            exit_code: None,
             model_metadata: Some(ModelMetadata {
                 executor_provider: "openai".to_string(),
                 executor_model: "gpt-5.6-luna".to_string(),
@@ -308,5 +373,37 @@ mod tests {
             true
         );
         assert_eq!(value["model_metadata"]["planner_model"], "qwen3.8:27b-mlx");
+    }
+
+    #[test]
+    fn v1_additive_terminal_fields_are_always_present() {
+        let value = summary("full");
+        for field in [
+            "status",
+            "gate",
+            "stop_reason",
+            "next_action",
+            "changed_files",
+            "verify_commands",
+            "exit_code",
+        ] {
+            assert!(
+                value.get(field).is_some(),
+                "missing additive v1 field {field}"
+            );
+        }
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn typed_terminal_override_supports_interrupted_headless_handoff() {
+        let source = Source::from_events_path(fixture("full"))
+            .with_terminal_status(TerminalStatus::Interrupted)
+            .with_exit_code(130);
+        let value: Value = serde_json::from_str(&render(&source)).unwrap();
+
+        assert_eq!(value["status"], "interrupted");
+        assert_eq!(value["exit_code"], 130);
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
     }
 }

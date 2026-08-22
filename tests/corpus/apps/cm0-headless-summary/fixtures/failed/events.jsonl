@@ -1,4 +1,5 @@
 {"event":"run_start","workspace_root":"/tmp/cm0/failed","provider":"ollama","model":"local-model","schema_version":"1"}
 {"event":"human_directive_continuation_started","directive_round":1,"schema_version":"1"}
-{"event":"tui_command_stop","ok":false,"status":"failed","assurance_level":"failed","failure_kind":"direct_cli_command_failed","time_profile_total_ms":3400,"schema_version":"1"}
-{"event":"run_stop","ok":false,"status":"failed","assurance_level":"failed","failure_kind":"process_failure","schema_version":"1"}
+{"event":"planner_fallback_plan","verify":["cargo test --test smoke"],"schema_version":"1"}
+{"event":"tui_command_stop","ok":false,"status":"failed","assurance_level":"failed","release_gate_status":"failed","stop_reason":"verification failed","next_action":"fix_command_failure","failure_kind":"direct_cli_command_failed","time_profile_total_ms":3400,"schema_version":"1"}
+{"event":"run_stop","ok":false,"status":"failed","assurance_level":"failed","release_gate_status":"failed","stop_reason":"verification failed","next_action":"fix_command_failure","failure_kind":"process_failure","schema_version":"1"}
