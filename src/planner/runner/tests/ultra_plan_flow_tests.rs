@@ -3456,6 +3456,7 @@ if __name__ == "__main__":
         );
         let mut planner = FakeClient::new(vec![
             AssistantReply::text(scaffold_plan),
+            AssistantReply::text(finish_plan.clone()),
             AssistantReply::text(finish_plan),
         ]);
         let package = nextjs_complete_package_json();
