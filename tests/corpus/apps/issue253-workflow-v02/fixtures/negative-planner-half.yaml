@@ -1,0 +1,8 @@
+workflow: invalid-planner-half
+version: 0.2
+entry: create
+nodes:
+  create: { intent: create, profile: generic, planner_model: small-planner }
+routes: []
+terminal: {}
+# planner_provider is deliberately absent.

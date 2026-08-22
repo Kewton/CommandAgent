@@ -1,0 +1,7 @@
+workflow: invalid-profile
+version: 0.2
+entry: create
+nodes:
+  create: { intent: create, profile: typo-profile }
+routes: []
+terminal: {}

@@ -1,4 +1,4 @@
-# Workflow Circle Contract & Schema (v0, fixed before D-3a implementation)
+# Workflow Circle Contract & Schema (v0–v0.2)
 
 Status: fixed (2026-07-21). 変更は明示的な契約改訂として台帳に記録する。
 
@@ -50,7 +50,13 @@ partial に相当する中間階層は設けない。部分的な進捗は各ノ
 evidence がそのまま記録として残る（洗浄の禁止: fix full は
 circle_full を意味しない）。
 
-## 7. workflow schema v0.1（構成のみ・振る舞いの記述を禁止）
+v0.2 で draft profile を含む円環は、各ノードで得た保証にかかわらず
+`circle_full` へ投影しない。`verify_origin` が全件成立しても既存の
+二値終端語彙を保ったまま `circle_failed` / `profile_not_admitted` として
+閉じる。これは draft の既存上限 `static` を円環終端でも再適用する
+admission cap であり、新しい中間保証の発明ではない。
+
+## 7. workflow schema v0.1 / v0.2（構成のみ・振る舞いの記述を禁止）
 
 改訂記録（2026-07-22）: v0→v0.1。改訂対象は本§7のノードexecutor構成
 のみであり、§1〜§6の裁定意味論は不変。既存v0定義は引き続き有効。
@@ -84,15 +90,65 @@ admission済みであること。model/providerはexecutorだけをノード単�
 指定する任意の組であり、片方だけの指定を拒否する。両方省略時は
 workflow起動時のグローバルmodel/providerをそのまま継承する。
 planner_model/planner_providerのノード指定はv0.1のスコープ外であり、
-未知キーとして拒否する。v0定義にmodel/providerを追加することも拒否し、
+version検証で拒否する。v0定義にmodel/providerを追加することも拒否し、
 当該構成はversion 0.1への明示改訂を要求する。
+
+### v0.2 差分
+
+改訂記録（2026-08-22、Issue #253）: v0.1→v0.2。改訂対象は登録済み
+draft profile と planner role のノード構成、および円環終端での admission
+cap のみである。v0/v0.1 YAML の解釈、既存 event 名・field、§2〜§5 の
+earned/lineage/verify_origin 意味論は不変。
+
+```yaml
+workflow: <id>
+version: 0.2
+entry: <node-id>
+nodes:
+  <node-id>: { intent: create|fix|investigate, profile: <profile-id>,
+               model: <executor-id>?, provider: ollama|lm-studio|openai|gemini?,
+               planner_model: <planner-id>?,
+               planner_provider: ollama|lm-studio|openai|gemini? }
+routes:
+  - { from: <node-id>, on: full|failed, when: <condition-id>?,
+      to: <node-id>, carry: [<carry-id>...] }
+terminal:
+  <node-id>: { on: full|failed, verdict: circle_full|circle_failed }
+```
+
+v0.2 の profile は compiled registry または起動時に読み込んだ extension
+registry に実在しなければならない。admitted と draft のどちらも指定できるが、
+未登録IDは draft とみなさず拒否する。draft を1つでも含む円環には §6 の
+`static` admission cap を適用する。executor の model/provider と planner の
+planner_model/planner_provider はそれぞれ独立した任意の組で、各組は両方指定
+または両方省略に限る。planner組は v0.2 のみで指定でき、省略時は workflow
+起動時の global planner_model/planner_provider のbyteをそのまま継承する。
+classifier のノード指定は v0.2 のスコープ外であり、未知キーとして拒否する。
+
+### condition 固定語彙の追加手順
+
+condition は v0.2 でも `recovery_yaml_present` のみである。語彙追加は次を
+すべて同一の明示的 schema 改訂で行う。どれかを欠く追加は受け入れない。
+
+1. 新しい schema version と Rust の typed `Condition` variant を追加し、旧version
+   では新語彙を拒否する。
+2. model/YAML が実行ロジックを供給しない deterministic leaf evaluator を追加する。
+   任意式、script、shell、alias、parameter付き述語は許可しない。
+3. 新語彙が成立・不成立となる positive execution test と、unknown token・旧version・
+   不正値を拒否する negative schema test を追加する。
+4. `tests/corpus/apps/` に positive/negative YAML と実行結果の fixture を追加し、
+   corpus regression で固定する。
+5. 本契約と `docs/dev/workflow-smoke-runbook.md` に証拠source、評価時点、失敗reason、
+   live smoke の確認方法を追記する。
 
 ## 8. 偽装耐性（conformance ネガティブテストの要求）
 - evidence を欠く verdict ラベルのみでの辺発火の拒否（E-B）
 - investigate→fix の lineage 断絶の拒否（§4）
 - verify_origin 集合の縮小・差し替えの拒否（§5）
 - epoch 逆転（過去evidenceの再利用）の拒否（E-C）
-- 未admissionセルをノードに含むworkflowの実行拒否（§7）
+- v0/v0.1 の未admissionセル、およびv0.2の未登録profile IDの実行拒否（§7）
+- draft を含むv0.2円環の `circle_full` 投影拒否（§6、§7）
+- planner model/provider半組、旧versionでのplanner組、未知conditionの拒否（§7）
 - fix full を circle_full として投影する洗浄の拒否（§6）
 
 ## 9. スコープ外（明示）

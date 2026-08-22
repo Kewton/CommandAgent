@@ -1,0 +1,9 @@
+workflow: invalid-condition
+version: 0.2
+entry: create
+nodes:
+  create: { intent: create, profile: generic }
+  investigate: { intent: investigate, profile: generic }
+routes:
+  - { from: create, on: failed, when: evidence_expression, to: investigate }
+terminal: {}

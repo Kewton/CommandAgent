@@ -22,6 +22,16 @@ commit must match `git rev-parse --short HEAD`, and the version must not contain
 `+dirty`. Stop before execution if any check differs. This prevents a stale
 PATH binary from silently changing the CLI contract.
 
+For schema v0.2, validate the exact workflow and extension root before consuming
+an origin attempt. The draft profile must resolve from that root, executor and
+planner overrides must each be complete provider/model pairs, and the workflow
+must not contain any condition outside the contract's closed vocabulary.
+
+```sh
+commandagent --extension-root <extension-root> --validate-profile <extension-root>/profiles/<draft-id>/manifest.toml
+grep -nE '^(version:|[[:space:]]+(planner_)?(model|provider):|[[:space:]]+when:)' <workflow-yaml>
+```
+
 ## Origin and execution
 
 Confirm the real failed-run layout before starting:
@@ -40,6 +50,12 @@ exit_code=$?
 end_epoch=$(date +%s)
 printf 'start_epoch %s\nend_epoch %s\nexit %s\n' "$start_epoch" "$end_epoch" "$exit_code"
 ```
+
+Pass the same configured `extension_root` (or `--extension-root`) used during
+preflight to the workflow run. For any v0.2 workflow containing a draft node,
+capture the terminal event and `evidence/workflow-circle.json` and require that
+neither reports `circle_full`; a verified closure is capped as
+`circle_failed` with reason `profile_not_admitted`.
 
 Do not monitor or interrupt an active smoke unless the task explicitly changes
 the protocol. After completion, archive the workflow events, circle evidence,

@@ -1,0 +1,10 @@
+workflow: recovery-circle-draft-terminal-cap
+version: 0.2
+entry: create
+nodes:
+  create: { intent: create, profile: static-site }
+  verify_origin: { intent: investigate, profile: data }
+routes:
+  - { from: create, on: failed, when: recovery_yaml_present, to: verify_origin, carry: [workspace, recovery_yaml] }
+terminal:
+  verify_origin: { on: full, verdict: circle_full }

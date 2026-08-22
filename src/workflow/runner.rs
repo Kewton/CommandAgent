@@ -256,6 +256,8 @@ pub(crate) struct NodeRunRequest {
     pub reproducer: Option<crate::planner::external_reproducer::ExternalReproducerBinding>,
     pub model: String,
     pub provider: Provider,
+    pub planner_model: Option<String>,
+    pub planner_provider: Option<Provider>,
     pub diagnosis: Option<String>,
 }
 
@@ -276,7 +278,7 @@ where
     if let Some(parent) = events.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let started = serde_json::json!({
+    let mut started = serde_json::json!({
         "event":"intent_resolved",
         "intent":request.intent,
         "workflow_node":request.node,
@@ -284,6 +286,7 @@ where
         "model":request.model,
         "provider":request.provider.as_str(),
     });
+    super::node_pins::add_to_event(&mut started, request);
     fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
     execute(request)?;
     Ok(())
@@ -411,6 +414,8 @@ mod tests {
             reproducer: None,
             model: "qwen/test".to_string(),
             provider: Provider::LmStudio,
+            planner_model: None,
+            planner_provider: None,
             diagnosis: None,
         };
 
@@ -419,5 +424,7 @@ mod tests {
         let event: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(events).unwrap()).unwrap();
         assert_eq!(event["provider"], "lm-studio");
+        assert!(event.get("planner_model").is_none());
+        assert!(event.get("planner_provider").is_none());
     }
 }

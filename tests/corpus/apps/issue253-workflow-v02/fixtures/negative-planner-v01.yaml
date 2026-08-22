@@ -1,0 +1,7 @@
+workflow: invalid-planner-version
+version: 0.1
+entry: create
+nodes:
+  create: { intent: create, profile: generic, planner_model: small-planner, planner_provider: gemini }
+routes: []
+terminal: {}
