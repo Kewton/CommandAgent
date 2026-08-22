@@ -2610,7 +2610,13 @@ async function setDocumentVisibility(page, visibilityState) {
 async function probePackWizard(page, browser, origin, basePath) {
   const prefix = displayBasePath(basePath);
   const assetsUrl = new URL(`${prefix}assets/`, origin).href;
+  let catalogRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === `${prefix}api/packs`) catalogRequests += 1;
+  });
   await page.goto(assetsUrl, { waitUntil: "networkidle" });
+  const assetsAccessibility = await probeAssetsAccessibility(page);
+  const authOff = await probePackWizardAuthOff(browser, origin, basePath);
   await page.evaluate(
     ({ key, token }) => window.sessionStorage.setItem(key, token),
     { key: trialTokenStorageKey(basePath), token: trialCredential },
@@ -2618,6 +2624,19 @@ async function probePackWizard(page, browser, origin, basePath) {
   await page.reload({ waitUntil: "networkidle" });
   await page.locator("[data-testid='pack-wizard-open']").click();
   await page.locator("[data-testid='pack-wizard-target']").waitFor();
+  await page.waitForFunction(
+    () => !document.querySelector("[data-testid='pack-wizard-profile']")?.hasAttribute("disabled"),
+  );
+  const expectedProfiles = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`trial options returned ${response.status}`);
+    const options = await response.json();
+    return options.profiles.map((option) => option.id);
+  }, new URL(`${prefix}api/trial-options`, origin).href);
+  const wizardProfiles = await page
+    .locator("[data-testid='pack-wizard-profile'] option")
+    .evaluateAll((options) => options.map((option) => option.value));
+  const profilesMatchTrial = JSON.stringify(wizardProfiles) === JSON.stringify(expectedProfiles);
   await page.getByRole("button", { name: "出発点を選ぶ" }).click();
   await page.locator("[data-testid='pack-wizard-nextjs-acme']").check();
   await page.getByRole("button", { name: "編集を開始" }).click();
@@ -2655,8 +2674,17 @@ async function probePackWizard(page, browser, origin, basePath) {
     displayedMembers["assist.yaml"] !== editedAssist;
   await page.locator(".pack-wizard-steps li:nth-child(4) button").click();
   await page.locator("[data-testid='pack-wizard-to-pin']").click();
+  const catalogRequestsBeforePin = catalogRequests;
   await page.locator("[data-testid='pack-wizard-pin-action']").click();
   await page.locator("[data-testid='pack-wizard-pinned']").waitFor();
+  const pinnedCatalogRow = page
+    .locator("[data-testid='extension-pack-row']")
+    .filter({ hasText: "nextjs-acme@1.0.0" });
+  await pinnedCatalogRow.waitFor();
+  const catalogRefreshedAfterPin =
+    catalogRequests > catalogRequestsBeforePin &&
+    (await pinnedCatalogRow.locator(".pack-source").innerText()) ===
+      "ローカル（未承認・帯域未計測）";
   const pinnedDetail = await page.evaluate(
     async ({ packUrl, token }) => {
       const response = await fetch(packUrl, {
@@ -2777,6 +2805,9 @@ async function probePackWizard(page, browser, origin, basePath) {
 
   return {
     active_after_failure: activeAfterFailure,
+    assets_accessibility: assetsAccessibility,
+    auth_off: authOff,
+    catalog_refreshed_after_pin: catalogRefreshedAfterPin,
     displayed_bytes_reconciled: displayedBytesReconciled,
     failure_focus_target: focusTarget,
     failure_text: issueText,
@@ -2793,9 +2824,16 @@ async function probePackWizard(page, browser, origin, basePath) {
     retired_next_version: retiredNextVersion,
     selected_pack: selectedPack,
     selector,
+    trial_profiles: expectedProfiles,
+    wizard_profiles: wizardProfiles,
+    wizard_profiles_match_trial: profilesMatchTrial,
     reverified_hash: reverifiedHash,
     verified_hash: verifiedHash,
     ok:
+      assetsAccessibility.ok &&
+      authOff.ok &&
+      catalogRefreshedAfterPin &&
+      profilesMatchTrial &&
       issueText.includes("assist.yaml") &&
       focusTarget === "pack-wizard-assist" &&
       activeAfterFailure === "pack-wizard-assist" &&
@@ -2816,6 +2854,202 @@ async function probePackWizard(page, browser, origin, basePath) {
       retiredNextDraftEditable &&
       retiredNextMembersCopied,
   };
+}
+
+async function probeAssetsAccessibility(page) {
+  const tabs = page.locator("[role='tab']");
+  await tabs.first().waitFor();
+  const tabSemantics = await tabs.evaluateAll((elements) =>
+    elements.map((element) => ({
+      controls: element.getAttribute("aria-controls"),
+      selected: element.getAttribute("aria-selected"),
+      tabIndex: element.getAttribute("tabindex"),
+    })),
+  );
+
+  const packsTab = page.locator("#asset-tab-packs");
+  await packsTab.focus();
+  await packsTab.press("ArrowRight");
+  const contractsSelected = await selectedAssetTab(page);
+  const disclosure = page.locator("#asset-panel-contracts .document-card > button").first();
+  await disclosure.waitFor();
+  const disclosureCollapsed = await disclosure.getAttribute("aria-expanded");
+  const disclosureControls = await disclosure.getAttribute("aria-controls");
+  const disclosureGlyphHidden =
+    (await disclosure.locator("i").getAttribute("aria-hidden")) === "true";
+  await disclosure.click();
+  const disclosureExpanded = await disclosure.getAttribute("aria-expanded");
+  const disclosureTargetExists =
+    disclosureControls !== null && (await page.locator(`#${disclosureControls}`).count()) === 1;
+
+  await page.addScriptTag({ content: axeSource });
+  const axe = [];
+  axe.push(await assetAxeResult(page, "contracts"));
+
+  await page.locator("#asset-tab-contracts").press("End");
+  const endSelected = await selectedAssetTab(page);
+  axe.push(await assetAxeResult(page, "suites"));
+
+  await page.locator("#asset-tab-suites").press("Home");
+  const homeSelected = await selectedAssetTab(page);
+  await page.locator("#asset-tab-packs").press("ArrowLeft");
+  const leftWrapped = await selectedAssetTab(page);
+  await page.locator("#asset-tab-suites").press("ArrowRight");
+  const rightWrapped = await selectedAssetTab(page);
+  axe.push(await assetAxeResult(page, "packs"));
+
+  const presence = await page
+    .locator("[data-testid='extension-pack-row'] footer > span")
+    .allInnerTexts();
+  const presenceUsesText =
+    presence.length > 0 &&
+    presence.every((value) => /^(✓|−)\s+(assist|eval)\.yaml: (あり|なし)$/.test(value.trim()));
+
+  return {
+    axe,
+    disclosure: {
+      collapsed: disclosureCollapsed,
+      controls: disclosureControls,
+      expanded: disclosureExpanded,
+      glyph_hidden: disclosureGlyphHidden,
+      target_exists: disclosureTargetExists,
+    },
+    keyboard: {
+      contracts_selected: contractsSelected,
+      end_selected: endSelected,
+      home_selected: homeSelected,
+      left_wrapped: leftWrapped,
+      right_wrapped: rightWrapped,
+    },
+    presence,
+    tab_semantics: tabSemantics,
+    ok:
+      tabSemantics.length === 3 &&
+      tabSemantics.every(
+        (item, index) =>
+          item.controls !== null &&
+          item.selected === (index === 0 ? "true" : "false") &&
+          item.tabIndex === (index === 0 ? "0" : "-1"),
+      ) &&
+      contractsSelected === "contracts" &&
+      endSelected === "suites" &&
+      homeSelected === "packs" &&
+      leftWrapped === "suites" &&
+      rightWrapped === "packs" &&
+      disclosureCollapsed === "false" &&
+      disclosureExpanded === "true" &&
+      disclosureGlyphHidden &&
+      disclosureTargetExists &&
+      presenceUsesText &&
+      axe.every((result) => result.violation_count === 0),
+  };
+}
+
+async function selectedAssetTab(page) {
+  return page.locator("[role='tab'][aria-selected='true']").evaluate((tab) =>
+    tab.id.replace("asset-tab-", ""),
+  );
+}
+
+async function assetAxeResult(page, tab) {
+  return page.evaluate(async (activeTab) => {
+    const result = await window.axe.run(document, {
+      runOnly: {
+        type: "rule",
+        values: [
+          "aria-allowed-attr",
+          "aria-allowed-role",
+          "aria-required-attr",
+          "aria-required-children",
+          "aria-required-parent",
+          "aria-valid-attr",
+          "aria-valid-attr-value",
+          "button-name",
+          "scrollable-region-focusable",
+        ],
+      },
+    });
+    return {
+      tab: activeTab,
+      violation_count: result.violations.length,
+      violations: result.violations.map((violation) => ({
+        id: violation.id,
+        targets: violation.nodes.flatMap((node) => node.target),
+      })),
+    };
+  }, tab);
+}
+
+async function probePackWizardAuthOff(browser, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  await page.route("**/api/runtime-status", (route) =>
+    route.fulfill({
+      body: JSON.stringify({
+        prerequisites: {
+          commandagent_binary: { detail: "ready", status: "ready" },
+          execution_root: { detail: "ready", status: "ready" },
+          trial_authentication: { detail: "disabled", status: "ready" },
+        },
+        session: null,
+        trial_available: true,
+        trial_token_auth_enabled: false,
+      }),
+      contentType: "application/json",
+      status: 200,
+    }),
+  );
+  await page.route("**/api/packs", async (route) => {
+    const response = await route.fetch();
+    const packs = await response.json();
+    if (packs.length > 0) packs[0] = { ...packs[0], warning: "synthetic catalog warning" };
+    await route.fulfill({ response, json: packs });
+  });
+
+  try {
+    const assetsUrl = new URL(`${prefix}assets/`, origin).href;
+    await page.goto(assetsUrl, { waitUntil: "networkidle" });
+    await page.evaluate(
+      ({ key }) => window.sessionStorage.setItem(key, "token-that-must-be-cleared"),
+      { key: trialTokenStorageKey(basePath) },
+    );
+    await page.reload({ waitUntil: "networkidle" });
+
+    const warningStatus = page.locator("[data-testid='pack-warning-status']");
+    await warningStatus.waitFor();
+    const warningStatusText = await warningStatus.innerText();
+    const warningNotes = await page.locator("[data-testid='pack-warning'][role='note']").count();
+    const warningAlerts = await page.locator("[data-testid='pack-warning'][role='alert']").count();
+
+    await page.locator("[data-testid='pack-wizard-open']").click();
+    await page.locator("[data-testid='pack-wizard-target']").waitFor();
+    await page.getByRole("button", { name: "出発点を選ぶ" }).click();
+    await page.getByRole("button", { name: "編集を開始" }).click();
+    const authDisabledNote = page.locator("[data-testid='pack-wizard-token-auth-disabled']");
+    await authDisabledNote.waitFor();
+    const tokenInputCount = await page.locator("[data-testid='pack-wizard-token']").count();
+    const storedToken = await page.evaluate(
+      ({ key }) => window.sessionStorage.getItem(key),
+      { key: trialTokenStorageKey(basePath) },
+    );
+
+    return {
+      disabled_note: await authDisabledNote.innerText(),
+      stored_token: storedToken,
+      token_input_count: tokenInputCount,
+      warning_alerts: warningAlerts,
+      warning_notes: warningNotes,
+      warning_status: warningStatusText,
+      ok:
+        tokenInputCount === 0 &&
+        storedToken === null &&
+        warningNotes === 1 &&
+        warningAlerts === 0 &&
+        warningStatusText === "1 件のパック警告があります。",
+    };
+  } finally {
+    await page.close();
+  }
 }
 
 async function readWizardMembers(page) {

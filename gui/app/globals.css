@@ -1159,17 +1159,18 @@ a.runtime-badge:focus-visible {
   color: var(--muted);
 }
 
-.pack-card footer .present::before,
-.pack-card footer .absent::before {
+.pack-card footer .pack-member-icon {
+  display: inline-block;
+  width: 1em;
   margin-right: 0.4rem;
-  content: "●";
+  text-align: center;
 }
 
-.pack-card footer .present::before {
+.pack-card footer .present .pack-member-icon {
   color: var(--success);
 }
 
-.pack-card footer .absent::before {
+.pack-card footer .absent .pack-member-icon {
   color: var(--line-bright);
 }
 
