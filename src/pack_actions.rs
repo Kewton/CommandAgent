@@ -47,14 +47,19 @@ fn list(cli: &Cli) -> anyhow::Result<()> {
         IntentArg::Fix => PackIntent::Fix,
         IntentArg::Investigate => PackIntent::Investigate,
     };
-    print!(
-        "{}",
-        render_list(
-            requested_profile,
-            intent.as_str(),
-            cli.extension_root.as_deref()
-        )?
-    );
+    let rendered = render_list(
+        requested_profile,
+        intent.as_str(),
+        cli.extension_root.as_deref(),
+    )?;
+    if rendered.lines().count() == 1 {
+        eprintln!(
+            "no compatible packs for {requested_profile} × {}",
+            intent.as_str()
+        );
+    } else {
+        print!("{rendered}");
+    }
     Ok(())
 }
 

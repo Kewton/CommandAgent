@@ -235,7 +235,8 @@ impl fmt::Display for ExtensionManifestError {
 impl std::error::Error for ExtensionManifestError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io { source, .. } => Some(source),
+            // I/O causes are already rendered inline with their paths.
+            Self::Io { .. } => None,
             Self::Manifest { source, .. } => Some(source.as_ref()),
             _ => None,
         }
