@@ -519,7 +519,13 @@ fn ignored_path(path: &str) -> bool {
     path.split('/').any(|component| {
         matches!(
             component,
-            ".git" | ".anvil" | "node_modules" | "target" | ".next" | "__pycache__"
+            ".git"
+                | ".commandagent"
+                | ".anvil"
+                | "node_modules"
+                | "target"
+                | ".next"
+                | "__pycache__"
         )
     })
 }

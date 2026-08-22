@@ -8,7 +8,8 @@ use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::planner::failure_vocabulary::ViolationId;
 
 pub(crate) const CHECK_ID: &str = "nextjs_testimony_binding";
-pub(crate) const EVIDENCE_RELATIVE_PATH: &str = ".anvil/evidence/nextjs-testimony-binding.json";
+pub(crate) const EVIDENCE_RELATIVE_PATH: &str =
+    ".commandagent/evidence/nextjs-testimony-binding.json";
 
 const MAX_CLAIMS: usize = 128;
 const MAX_NEAREST_MISS_CHARS: usize = 240;
@@ -424,12 +425,18 @@ fn observations(
     let readiness_path = resolve_evidence_path(
         root,
         browser_readiness_path,
-        ".anvil/evidence/browser-readiness.json",
+        &[
+            ".commandagent/evidence/browser-readiness.json",
+            ".anvil/evidence/browser-readiness.json",
+        ],
     );
     let interaction_path = resolve_evidence_path(
         root,
         interaction_evidence_path,
-        ".anvil/evidence/browser-interaction.json",
+        &[
+            ".commandagent/evidence/browser-interaction.json",
+            ".anvil/evidence/browser-interaction.json",
+        ],
     );
     let (readiness, readiness_ref) = read_json_if_file(root, readiness_path.as_deref())?;
     let (interaction, interaction_ref) = read_json_if_file(root, interaction_path.as_deref())?;
@@ -444,7 +451,11 @@ fn observations(
     })
 }
 
-fn resolve_evidence_path(root: &Path, supplied: Option<&str>, fallback: &str) -> Option<PathBuf> {
+fn resolve_evidence_path(
+    root: &Path,
+    supplied: Option<&str>,
+    fallbacks: &[&str],
+) -> Option<PathBuf> {
     supplied
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
@@ -456,8 +467,10 @@ fn resolve_evidence_path(root: &Path, supplied: Option<&str>, fallback: &str) ->
             }
         })
         .or_else(|| {
-            let path = root.join(fallback);
-            path.is_file().then_some(path)
+            fallbacks.iter().find_map(|fallback| {
+                let path = root.join(fallback);
+                path.is_file().then_some(path)
+            })
         })
 }
 

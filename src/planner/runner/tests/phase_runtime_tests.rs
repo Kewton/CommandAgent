@@ -1023,7 +1023,7 @@ fn profile_invariant_handoff_uses_final_import_evidence_not_stale_postcss() {
         },
         &evidence.failure_evidence,
     );
-    let repair_text = std::fs::read_dir(dir.path().join(".anvil/repairs"))
+    let repair_text = std::fs::read_dir(dir.path().join(".commandagent/repairs"))
         .unwrap()
         .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
         .find(|text| text.contains("profile_invariant_failure"))
@@ -1266,4 +1266,3 @@ fn plan_run_nextjs_game_docs_only_fails_inferred_capabilities() {
     assert!(event_text.contains("\"missing_evidence\""));
     assert!(event_text.contains("\"role\":\"acceptance_evidence\""));
 }
-

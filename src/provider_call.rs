@@ -299,6 +299,8 @@ where
     let model = request.model;
     let messages = request.messages;
     let tools = request.tools;
+    let trace_messages = messages;
+    let trace_tools = tools;
     let native_tools_enabled = request.native_tools_enabled;
     let display_scope = overrides
         .and_then(|overrides| overrides.display_scope)
@@ -354,7 +356,7 @@ where
     let mut next_progress_at = Duration::from_secs(60);
 
     if is_cancelled() {
-        return provider_aborted_by_user(
+        let outcome = provider_aborted_by_user(
             config,
             ProviderTurnTelemetryBase {
                 scope,
@@ -370,6 +372,17 @@ where
                 aborted_by_user: true,
             },
         );
+        record_provider_trace(
+            config,
+            scope,
+            &provider,
+            model,
+            trace_messages,
+            trace_tools,
+            native_tools_enabled,
+            &outcome.result,
+        );
+        return outcome;
     }
 
     let model = model.to_string();
@@ -411,7 +424,7 @@ where
 
     loop {
         if is_cancelled() {
-            return provider_aborted_by_user(
+            let outcome = provider_aborted_by_user(
                 config,
                 ProviderTurnTelemetryBase {
                     scope,
@@ -427,6 +440,17 @@ where
                     aborted_by_user: true,
                 },
             );
+            record_provider_trace(
+                config,
+                scope,
+                &provider,
+                &model,
+                trace_messages,
+                trace_tools,
+                native_tools_enabled,
+                &outcome.result,
+            );
+            return outcome;
         }
         let elapsed = started.elapsed();
         if elapsed >= timeout {
@@ -464,12 +488,23 @@ where
             if scope.is_planner() {
                 emit_provider_turn_timeout(config, scope, &provider, &model, elapsed);
             }
+            let result = Err(anyhow!(
+                "{}: provider call exceeded configured deadline of {}s",
+                scope.timeout_kind(),
+                config.chat_timeout_secs
+            ));
+            record_provider_trace(
+                config,
+                scope,
+                &provider,
+                &model,
+                trace_messages,
+                trace_tools,
+                native_tools_enabled,
+                &result,
+            );
             return ProviderCallOutcome {
-                result: Err(anyhow!(
-                    "{}: provider call exceeded configured deadline of {}s",
-                    scope.timeout_kind(),
-                    config.chat_timeout_secs
-                )),
+                result,
                 elapsed,
                 timed_out: true,
                 aborted_by_user: false,
@@ -507,6 +542,16 @@ where
                             None,
                             None,
                         ),
+                    );
+                    record_provider_trace(
+                        config,
+                        scope,
+                        &provider,
+                        &model,
+                        trace_messages,
+                        trace_tools,
+                        native_tools_enabled,
+                        &result,
                     );
                     return ProviderCallOutcome {
                         result,
@@ -552,6 +597,16 @@ where
                         response_metadata,
                     ),
                 );
+                record_provider_trace(
+                    config,
+                    scope,
+                    &provider,
+                    &model,
+                    trace_messages,
+                    trace_tools,
+                    native_tools_enabled,
+                    &result,
+                );
                 return ProviderCallOutcome {
                     result,
                     elapsed,
@@ -591,6 +646,22 @@ where
                         ok: false,
                     },
                 );
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("non-string panic payload");
+                let result = Err(anyhow!("provider call panicked: {message}"));
+                record_provider_trace(
+                    config,
+                    scope,
+                    &provider,
+                    &model,
+                    trace_messages,
+                    trace_tools,
+                    native_tools_enabled,
+                    &result,
+                );
                 std::panic::resume_unwind(payload);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -626,14 +697,50 @@ where
                         ok: false,
                     },
                 );
+                let result = Err(anyhow!("provider call worker disconnected"));
+                record_provider_trace(
+                    config,
+                    scope,
+                    &provider,
+                    &model,
+                    trace_messages,
+                    trace_tools,
+                    native_tools_enabled,
+                    &result,
+                );
                 return ProviderCallOutcome {
-                    result: Err(anyhow!("provider call worker disconnected")),
+                    result,
                     elapsed,
                     timed_out: false,
                     aborted_by_user: false,
                 };
             }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_provider_trace(
+    config: &Config,
+    scope: ProviderCallScope,
+    provider: &str,
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    result: &anyhow::Result<AssistantReply>,
+) {
+    if let Err(error) = crate::run_trace::record_provider_exchange(
+        config.eval_events_path.as_deref(),
+        scope.as_str(),
+        provider,
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        result,
+    ) {
+        eprintln!("warning: failed to write provider trace: {error:#}");
     }
 }
 
@@ -2091,6 +2198,38 @@ mod tests {
         assert!(events.contains("\"caller_scope\":\"planner_step\""));
         assert!(events.contains("\"finish_reason\":\"error\""));
         assert!(events.contains("\"ok\":false"));
+    }
+
+    #[test]
+    fn trace_flag_records_the_shared_provider_chokepoint() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("run/events.jsonl");
+        let config = test_config(tmp.path(), events_path, 30);
+        let _trace = crate::run_trace::install(true);
+        let mut client = TokenClient;
+
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            "trace-model",
+            &[ConversationMessage::user(
+                "trace sk-test-secret under /Users/alice/project",
+            )],
+            &[],
+            false,
+        );
+
+        assert!(outcome.result.is_ok());
+        let traces = std::fs::read_dir(tmp.path().join("run/trace"))
+            .unwrap()
+            .flatten()
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].contains("\"scope\": \"executor\""));
+        assert!(traces[0].contains("/Users/<user>/project"));
+        assert!(!traces[0].contains("sk-test-secret"));
     }
 
     #[test]

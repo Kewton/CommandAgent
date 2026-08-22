@@ -117,11 +117,14 @@ impl Default for SessionSnapshot {
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     root: PathBuf,
+    legacy_root: Option<PathBuf>,
 }
 
 impl SessionStore {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        let legacy_root = (root == crate::runtime_paths::default_state_dir())
+            .then(crate::runtime_paths::legacy_state_dir);
+        Self { root, legacy_root }
     }
 
     pub fn load_or_create(&self, resume: Option<&str>) -> anyhow::Result<SessionSnapshot> {
@@ -133,9 +136,23 @@ impl SessionStore {
 
     pub fn load(&self, id: &str) -> anyhow::Result<SessionSnapshot> {
         validate_resume_id(id)?;
-        let path = self.session_file(id);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read session {}", path.display()))?;
+        let primary = self.session_file(id);
+        let text = match std::fs::read_to_string(&primary) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(legacy_root) = self.legacy_root.as_deref() else {
+                    return Err(error)
+                        .with_context(|| format!("failed to read session {}", primary.display()));
+                };
+                let legacy = session_file(legacy_root, id);
+                std::fs::read_to_string(&legacy)
+                    .with_context(|| format!("failed to read session {}", legacy.display()))?
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read session {}", primary.display()));
+            }
+        };
         let value: Value = serde_json::from_str(&text).context("failed to parse session")?;
         validate_session_schema_version(&value)?;
         serde_json::from_value(value).context("failed to parse session")
@@ -157,8 +174,12 @@ impl SessionStore {
     }
 
     fn session_file(&self, id: &str) -> PathBuf {
-        self.session_dir(id).join("session.json")
+        session_file(&self.root, id)
     }
+}
+
+fn session_file(root: &Path, id: &str) -> PathBuf {
+    root.join("sessions").join(id).join("session.json")
 }
 
 fn default_session_schema_version() -> u32 {
@@ -250,9 +271,10 @@ mod tests {
     }
 
     #[test]
-    fn state_root_keeps_legacy_anvilminimal_namespace() {
+    fn state_root_uses_commandagent_namespace_and_keeps_legacy_peer() {
         let root = crate::config::default_state_dir();
-        assert!(root.ends_with("anvilminimal"));
+        assert!(root.ends_with("commandagent"));
+        assert!(crate::runtime_paths::legacy_state_dir().ends_with("anvilminimal"));
     }
 
     #[test]
@@ -292,5 +314,29 @@ mod tests {
             err.contains("unsupported session schema_version 999"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn default_store_reads_legacy_session_and_saves_to_canonical_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical = dir.path().join("commandagent");
+        let legacy = dir.path().join("anvilminimal");
+        let session = SessionSnapshot::new();
+        let legacy_dir = legacy.join("sessions").join(&session.id);
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_dir.join("session.json"),
+            serde_json::to_string(&session).unwrap(),
+        )
+        .unwrap();
+        let store = SessionStore {
+            root: canonical.clone(),
+            legacy_root: Some(legacy),
+        };
+
+        let loaded = store.load(&session.id).unwrap();
+        assert_eq!(loaded.id, session.id);
+        let saved = store.save(&loaded).unwrap();
+        assert!(saved.starts_with(canonical));
     }
 }

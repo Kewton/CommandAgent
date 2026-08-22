@@ -507,6 +507,8 @@ fn browser_evidence_candidate_paths(
     names: &[&str],
 ) -> Vec<PathBuf> {
     let mut dirs = extra_dirs.to_vec();
+    dirs.push(crate::runtime_paths::evidence_dir(root));
+    dirs.push(crate::runtime_paths::workspace_dir(root));
     dirs.push(root.join(".anvil").join("evidence"));
     dirs.push(root.join(".anvil"));
     dirs.push(root.to_path_buf());
@@ -1833,7 +1835,14 @@ fn collect_candidate_files(root: &Path) -> Vec<PathBuf> {
 fn should_skip_entry(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".anvil" | "target" | "node_modules" | ".next" | "dist" | "build"
+        ".git"
+            | ".commandagent"
+            | ".anvil"
+            | "target"
+            | "node_modules"
+            | ".next"
+            | "dist"
+            | "build"
     )
 }
 

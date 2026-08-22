@@ -19,12 +19,40 @@ pub fn prepare_workspace_history_path(
     state_dir: &Path,
     workspace_root: &Path,
 ) -> anyhow::Result<PathBuf> {
+    let legacy_state_dir = (state_dir == crate::runtime_paths::default_state_dir())
+        .then(crate::runtime_paths::legacy_state_dir);
+    prepare_workspace_history_path_with_legacy(
+        state_dir,
+        legacy_state_dir.as_deref(),
+        workspace_root,
+    )
+}
+
+fn prepare_workspace_history_path_with_legacy(
+    state_dir: &Path,
+    legacy_state_dir: Option<&Path>,
+    workspace_root: &Path,
+) -> anyhow::Result<PathBuf> {
     let path = workspace_history_path(state_dir, workspace_root)?;
     let parent = path
         .parent()
         .expect("workspace history path always has a parent");
     std::fs::create_dir_all(parent)
         .with_context(|| format!("create workspace history directory {}", parent.display()))?;
+    if !path.exists()
+        && let Some(legacy_state_dir) = legacy_state_dir
+    {
+        let legacy = workspace_history_path(legacy_state_dir, workspace_root)?;
+        if legacy.is_file() {
+            std::fs::copy(&legacy, &path).with_context(|| {
+                format!(
+                    "migrate workspace history {} to {}",
+                    legacy.display(),
+                    path.display()
+                )
+            })?;
+        }
+    }
     Ok(path)
 }
 
@@ -68,6 +96,35 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(legacy).unwrap(),
             "private legacy request\n"
+        );
+    }
+
+    #[test]
+    fn default_history_migrates_workspace_file_from_legacy_state_root() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().join("commandagent");
+        let legacy = root.path().join("anvilminimal");
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let legacy_path = workspace_history_path(&legacy, &workspace).unwrap();
+        std::fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_path, "legacy workspace request\n").unwrap();
+
+        let path =
+            prepare_workspace_history_path_with_legacy(&canonical, Some(&legacy), &workspace)
+                .unwrap();
+
+        assert_eq!(
+            path,
+            workspace_history_path(&canonical, &workspace).unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "legacy workspace request\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(legacy_path).unwrap(),
+            "legacy workspace request\n"
         );
     }
 }

@@ -1869,7 +1869,15 @@ fn assertion_excerpt(reason: &str) -> Option<String> {
 fn validate_contract_path(root: &Path, raw: &str) -> anyhow::Result<()> {
     validate_workspace_relative(raw)?;
     let path = Path::new(raw);
-    let blocked = [".anvil", ".git", "target", "node_modules", ".next", ".env"];
+    let blocked = [
+        ".commandagent",
+        ".anvil",
+        ".git",
+        "target",
+        "node_modules",
+        ".next",
+        ".env",
+    ];
     if path.components().any(|component| {
         component
             .as_os_str()

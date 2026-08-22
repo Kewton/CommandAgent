@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-62 application flags below. The hidden `--completion-contract-json <PATH>` is an
+65 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -61,11 +61,13 @@ internal integration surface and is intentionally not a public user flag.
 | `--run-ultra-plan` | `<RUN_ULTRA_PLAN>` path | none | Run an existing UltraPlan YAML file. | [Action exclusivity](#conflicts-and-combinations) |
 | `--validate-plan` | `<PATH>` | none | Validate a step-plan or UltraPlan YAML file without executing it; errors include line and column numbers. | [Plan YAML editing](plan-yaml.md) |
 | `--setup-interaction-probe` | none | off | Install or validate the managed Playwright interaction probe. | [Probe unavailable](troubleshooting.md#preflight-interaction-probe-unavailable) |
-| `--runs` | none | off | List recent runs for the current workspace without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
+| `--runs` | optional `<ID>` | off | List recent runs, or show one run by ID, without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
+| `--events` | none | off | Show the selected run's events in chronological order. Requires `--runs <ID>`. | [Troubleshooting](troubleshooting.md) |
+| `--filter` | `<phase\|tool\|provider>` | none | Filter a selected run's events by phase, tool, or provider. | [Troubleshooting](troubleshooting.md) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
-| `--json` | none | off | Render --doctor or --extensions output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--json` | none | off | Render --doctor, --extensions, or --runs output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--init-config` | none | off | Create `.commandagent/config.toml` from a starter template without overwriting an existing file. | [Config template](#config-template) |
@@ -77,6 +79,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
+| `--trace` | none | off | Opt in to scrubbed provider request and response traces under the active run directory. | [Troubleshooting](troubleshooting.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | Set the Ollama server base URL used by CommandAgent. | [Ollama host](providers.md#ollama-host-and-models) |
 | `--think` | `[=<true\|false\|low\|medium\|high>]` | omitted | Enable Ollama thinking for every Ollama provider role. A bare flag means `true`; explicit values require `=`, for example `--think=high`. | [Ollama thinking](providers.md#ollama-thinking) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | Set the LM Studio base URL; an optional trailing `/v1` is normalized. | [LM Studio server](providers.md#lm-studio-server-and-models) |
@@ -85,7 +88,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` integer | `600` if either role uses Ollama or LM Studio; otherwise `180` | Set connect and whole-request timeouts for provider calls. | [Resolved defaults](#important-resolved-defaults) |
 | `--chat-retries` | `<CHAT_RETRIES>` integer | `1` | Set retries after the initial provider attempt. | [Provider failures](troubleshooting.md#model-id-does-not-exist) |
 | `--stream` | `<on\|off>` | on for the TUI, off for direct actions | Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY. | [Top-level keys](configuration.md#top-level-keys) |
-| `--state-dir` | `<STATE_DIR>` path | `$XDG_STATE_HOME/anvilminimal`, otherwise `~/.local/state/anvilminimal` | Override saved session and REPL history storage. | [Paths](configuration.md#configuration-search-paths) |
+| `--state-dir` | `<STATE_DIR>` path | `$XDG_STATE_HOME/commandagent`, otherwise `~/.local/state/commandagent` | Override saved session and REPL history storage; the default loader retains the legacy `anvilminimal` fallback. | [Paths](configuration.md#configuration-search-paths) |
 | `--cwd` | `<CWD>` path | current directory | Set and canonicalize the active workspace before config discovery and execution. | [Paths](configuration.md#configuration-search-paths) |
 | `--fresh-session` | none | off | Ignore `--resume` and create a session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |

@@ -2550,7 +2550,10 @@ fn hook_source_path(path: &str) -> Option<String> {
     }
     validate_workspace_relative(&rel).ok()?;
     let lower = rel.to_ascii_lowercase();
-    if lower == ".anvil"
+    if lower == ".commandagent"
+        || lower.starts_with(".commandagent/")
+        || lower.contains("/.commandagent/")
+        || lower == ".anvil"
         || lower.starts_with(".anvil/")
         || lower.contains("/.anvil/")
         || lower == ".git"

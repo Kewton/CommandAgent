@@ -10,6 +10,8 @@ use crate::minimal_loop::verifier_env;
 
 pub const SETUP_TIMEOUT: Duration = Duration::from_secs(600);
 const NODE_DEPENDENCY_DECLARATIONS_FINGERPRINT: &str =
+    ".commandagent/node-dependency-declarations.fingerprint";
+const LEGACY_NODE_DEPENDENCY_DECLARATIONS_FINGERPRINT: &str =
     ".anvil/node-dependency-declarations.fingerprint";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -281,8 +283,15 @@ pub fn node_dependency_declarations_fingerprint_mismatch(root: &Path) -> bool {
     let Some(current) = node_dependency_declarations_fingerprint(root) else {
         return false;
     };
-    let Ok(stored) = std::fs::read_to_string(root.join(NODE_DEPENDENCY_DECLARATIONS_FINGERPRINT))
-    else {
+    let stored = std::fs::read_to_string(root.join(NODE_DEPENDENCY_DECLARATIONS_FINGERPRINT))
+        .or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                std::fs::read_to_string(root.join(LEGACY_NODE_DEPENDENCY_DECLARATIONS_FINGERPRINT))
+            } else {
+                Err(error)
+            }
+        });
+    let Ok(stored) = stored else {
         return false;
     };
     stored.trim() != current

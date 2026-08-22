@@ -1735,10 +1735,7 @@ pub(super) fn nextjs_dev_route_evidence_path(config: &Config) -> PathBuf {
     {
         return run_dir.join("browser-readiness.json");
     }
-    config
-        .workspace_root
-        .join(".anvil")
-        .join("browser-readiness.json")
+    crate::runtime_paths::workspace_dir(&config.workspace_root).join("browser-readiness.json")
 }
 
 pub(super) fn release_evidence_canvas_marker_is_false(path: &str) -> bool {
@@ -1868,6 +1865,8 @@ pub(super) fn release_evidence_candidate_paths(config: &Config, names: &[&str]) 
         }
     }
     for name in names {
+        out.push(crate::runtime_paths::evidence_dir(&config.workspace_root).join(name));
+        out.push(crate::runtime_paths::workspace_dir(&config.workspace_root).join(name));
         out.push(
             config
                 .workspace_root

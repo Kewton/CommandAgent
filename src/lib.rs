@@ -37,7 +37,9 @@ pub mod provider_call;
 pub mod provider_cli;
 pub mod providers;
 pub mod repl;
+mod run_trace;
 pub mod runs;
+pub mod runtime_paths;
 pub mod state;
 pub mod time_profile;
 pub mod tools;
@@ -68,6 +70,7 @@ pub fn run_with_provider_options(
     provider_options: config::ProviderCliOptions,
 ) -> anyhow::Result<()> {
     let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
+    let _trace = run_trace::install(cli.trace);
     if extension_inventory::run_if_requested(&cli)? {
         return Ok(());
     }
@@ -164,7 +167,7 @@ fn run_resolved_config_with_summary(
 ) -> anyhow::Result<()> {
     let _git_reporter = (!matches!(
         config.action,
-        Action::Runs | Action::UxDemo | Action::ModelProbe
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe
     ))
     .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
     cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
@@ -187,8 +190,11 @@ fn run_config(
     if let Action::Workflow(definition, origin) = &config.action {
         return workflow::orchestrator::run_workflow(&config, definition, origin);
     }
-    if matches!(config.action, Action::Runs) {
-        println!("{}", runs::render_runs_table(&config.workspace_root));
+    if let Action::Runs(request) = &config.action {
+        println!(
+            "{}",
+            runs::render_runs_request(&config.workspace_root, request)?
+        );
         return Ok(());
     }
     let _terminal_notification_guard = tui::terminal_notifications::install();
@@ -387,7 +393,7 @@ fn run_config(
             }
             Action::Workflow(..) => unreachable!("workflow action dispatched before match"),
             Action::UxDemo => tui::ux_demo::run(&config),
-            Action::Runs => Ok(()),
+            Action::Runs(_) => Ok(()),
         }
     })();
     if let Some(guard) = direct_command_guard.as_ref() {
@@ -604,7 +610,7 @@ impl Drop for DirectCommandCompletionGuard {
 
 fn direct_command_for_action(action: &Action) -> Option<&'static str> {
     match action {
-        Action::Repl | Action::Runs | Action::UxDemo => None,
+        Action::Repl | Action::Runs(_) | Action::UxDemo => None,
         Action::Prompt(_) => Some("--prompt"),
         Action::PlanSteps(_) => Some("--plan-steps"),
         Action::PlanRun(_) => Some("--plan-run"),
@@ -1072,7 +1078,7 @@ mod tests {
     fn workflow_child_execution_does_not_install_nested_panic_hook() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = config(dir.path().to_path_buf());
-        cfg.action = Action::Runs;
+        cfg.action = Action::Runs(crate::config::RunsRequest::default());
         cli_panic_boundary::reset_test_panic_hook_install_count();
 
         run_resolved_config_for_workflow(cfg).unwrap();
@@ -1619,7 +1625,8 @@ mod tests {
                 || err.to_string().contains("failed to"),
             "{err:?}"
         );
-        let runs_dir = dir.path().join(".anvil/runs");
+        let runs_dir = dir.path().join(".commandagent/runs");
+        assert!(!dir.path().join(".anvil").exists());
         let events_path = std::fs::read_dir(&runs_dir)
             .unwrap()
             .flatten()
@@ -1713,7 +1720,7 @@ mod tests {
             .get("recovery_note_path")
             .and_then(serde_json::Value::as_str)
             .unwrap();
-        assert!(recovery.starts_with(".anvil/repairs/repair-internal-panic-"));
+        assert!(recovery.starts_with(".commandagent/repairs/repair-internal-panic-"));
         assert!(dir.path().join(recovery).is_file());
         let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
         assert!(summary.contains("Status: failed"), "{summary}");

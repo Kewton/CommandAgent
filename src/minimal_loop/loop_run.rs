@@ -4349,7 +4349,14 @@ fn requested_artifact_path_allowed(root: &Path, raw: &str) -> bool {
         return false;
     }
     let path = Path::new(raw);
-    let blocked = [".anvil", ".git", "target", "node_modules", ".next"];
+    let blocked = [
+        ".commandagent",
+        ".anvil",
+        ".git",
+        "target",
+        "node_modules",
+        ".next",
+    ];
     if path.components().any(|component| {
         component
             .as_os_str()
@@ -6005,7 +6012,7 @@ export default function Page(){
         .to_string();
         assert!(err.contains("completion contract verify failed"), "{err}");
         assert!(
-            err.contains("/run-ultra-plan .anvil/plans/recovery-ultra-plan-minimal-loop-"),
+            err.contains("/run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-"),
             "{err}"
         );
         assert!(err.contains(".yaml"), "{err}");

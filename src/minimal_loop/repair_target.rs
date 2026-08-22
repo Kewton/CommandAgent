@@ -556,7 +556,8 @@ fn missing_required_evidence_keys(reason: &str) -> Vec<&str> {
 
 fn repair_change_is_related_to_task_artifact(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    if lower.starts_with(".anvil/")
+    if lower.starts_with(".commandagent/")
+        || lower.starts_with(".anvil/")
         || lower.starts_with(".git/")
         || lower.starts_with("docs/")
         || lower.ends_with(".md")

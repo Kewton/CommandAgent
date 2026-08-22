@@ -1587,6 +1587,46 @@ mod tests {
     }
 
     #[test]
+    fn missing_preset_environment_reference_is_a_failed_doctor_check() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.issue255_env]\nmodel = \"${COMMANDAGENT_ISSUE255_DOCTOR_MISSING_4A6C}\"\n",
+        )
+        .unwrap();
+        let cwd = dir.path().to_string_lossy().into_owned();
+        let state_dir = dir.path().join("state").to_string_lossy().into_owned();
+        let cli = <Cli as clap::Parser>::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--state-dir",
+            &state_dir,
+            "--preset",
+            "issue255_env",
+            "--doctor",
+        ]);
+
+        let report = diagnose_cli(&cli).unwrap();
+        let check = report
+            .checks
+            .iter()
+            .find(|check| check.id == "config.resolution")
+            .expect("configuration failure check");
+
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(
+            check
+                .message
+                .contains("COMMANDAGENT_ISSUE255_DOCTOR_MISSING_4A6C"),
+            "{}",
+            check.message
+        );
+        assert!(report.render_human().contains("✗ Configuration"));
+    }
+
+    #[test]
     fn credential_prefers_environment_and_never_exposes_value() {
         let dotenv = HashMap::from([("OPENAI_API_KEY".to_string(), "dotenv-secret".to_string())]);
         let check = credential_check_with(

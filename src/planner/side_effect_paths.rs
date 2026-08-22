@@ -4,8 +4,15 @@ pub const UNAMBIGUOUS_SIDE_EFFECT_PATHS: &[&str] =
     &["node_modules", ".next", "__pycache__", ".venv", "venv"];
 pub const AMBIGUOUS_SIDE_EFFECT_PATHS: &[&str] = &["dist", "build", "target", "coverage", "out"];
 
-const COMPLETION_CONTRACT_BLOCKED_PATHS: &[&str] =
-    &[".anvil", ".git", "target", "node_modules", ".next", ".env"];
+const COMPLETION_CONTRACT_BLOCKED_PATHS: &[&str] = &[
+    ".commandagent",
+    ".anvil",
+    ".git",
+    "target",
+    "node_modules",
+    ".next",
+    ".env",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SideEffectPathTier {

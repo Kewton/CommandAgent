@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
@@ -54,50 +55,49 @@ pub async fn list(
 ) -> Result<Json<SessionIndex>, SessionError> {
     let workspace = require_trial(&state, &headers, false)?;
     let lease = state.trial_workspace.lease_snapshot().map_err(internal)?;
-    let runs_root = workspace.join(".anvil/runs");
-    let mut entries = match tokio::fs::read_dir(&runs_root).await {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Json(SessionIndex {
-                sessions: Vec::new(),
-                lease,
-            }));
-        }
-        Err(error) => return Err(internal(format!("read {}: {error}", runs_root.display()))),
-    };
-
     let mut sessions = Vec::new();
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|error| internal(format!("read {}: {error}", runs_root.display())))?
-    {
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .await
-            .map_err(|error| internal(format!("inspect {}: {error}", path.display())))?;
-        if !file_type.is_dir() || file_type.is_symlink() {
-            continue;
-        }
-        let Some(id) = canonical_session_id(&entry.file_name().to_string_lossy()) else {
-            continue;
+    let mut seen = HashSet::new();
+    for runs_root in commandagent::runtime_paths::run_read_dirs(&workspace) {
+        let mut entries = match tokio::fs::read_dir(&runs_root).await {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(internal(format!("read {}: {error}", runs_root.display()))),
         };
-        let confirmation_root = path.join("state/boundary-confirmations");
-        if !has_confirmation_record(&confirmation_root).await {
-            continue;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|error| internal(format!("read {}: {error}", runs_root.display())))?
+        {
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .await
+                .map_err(|error| internal(format!("inspect {}: {error}", path.display())))?;
+            if !file_type.is_dir() || file_type.is_symlink() {
+                continue;
+            }
+            let Some(id) = canonical_session_id(&entry.file_name().to_string_lossy()) else {
+                continue;
+            };
+            let confirmation_root = path.join("state/boundary-confirmations");
+            if !has_confirmation_record(&confirmation_root).await {
+                continue;
+            }
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let events_path = path.join("events.jsonl");
+            let projection = session_projection(&events_path).await;
+            let started_epoch_seconds = started_epoch_seconds(&id, &path, &events_path).await;
+            sessions.push(SessionSummary {
+                id,
+                started_epoch_seconds,
+                modified_epoch_seconds: modified_epoch_seconds(&path, &events_path).await,
+                gate: projection.gate,
+                status: projection.status,
+                pack: confirmed_pack(&confirmation_root),
+            });
         }
-        let events_path = path.join("events.jsonl");
-        let projection = session_projection(&events_path).await;
-        let started_epoch_seconds = started_epoch_seconds(&id, &path, &events_path).await;
-        sessions.push(SessionSummary {
-            id,
-            started_epoch_seconds,
-            modified_epoch_seconds: modified_epoch_seconds(&path, &events_path).await,
-            gate: projection.gate,
-            status: projection.status,
-            pack: confirmed_pack(&confirmation_root),
-        });
     }
     let active_session = match &lease {
         LeaseSnapshot::Idle => None,

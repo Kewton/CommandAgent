@@ -65,6 +65,23 @@ pub enum IntentArg {
     Investigate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RunEventFilterArg {
+    Phase,
+    Tool,
+    Provider,
+}
+
+impl RunEventFilterArg {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Phase => "phase",
+            Self::Tool => "tool",
+            Self::Provider => "provider",
+        }
+    }
+}
+
 fn parse_positive_usize(value: &str) -> Result<usize, String> {
     let parsed = value
         .parse::<usize>()
@@ -88,7 +105,7 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
 ))]
 #[command(group(
     ArgGroup::new("json_action")
-        .args(["doctor", "extensions"])
+        .args(["doctor", "extensions", "runs"])
         .multiple(false)
 ))]
 pub struct Cli {
@@ -110,6 +127,7 @@ pub struct Cli {
     pub allow: Vec<crate::tools::allow_policy::AllowTarget>,
     #[arg(
         long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_preset_names),
         help_heading = "Planning and Verification",
         help = "Select a named `[preset.<name>]` assembled from configuration files."
     )]
@@ -343,11 +361,33 @@ pub struct Cli {
     pub setup_interaction_probe: bool,
     #[arg(
         long,
-        action = ArgAction::SetTrue,
+        value_name = "ID",
+        num_args = 0..=1,
+        conflicts_with_all = [
+            "extensions", "completions", "generate_man", "init_config", "validate_manifest",
+            "init_profile", "doctor"
+        ],
         help_heading = "Actions (use one)",
-        help = "List recent runs for the current workspace without creating provider clients."
+        help = "List recent runs, or show one run by ID, without creating provider clients."
     )]
-    pub runs: bool,
+    pub runs: Option<Option<String>>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires = "runs",
+        help_heading = "Display",
+        help = "Show the selected run's events in chronological order. Requires `--runs <ID>`."
+    )]
+    pub events: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "phase|tool|provider",
+        requires = "events",
+        help_heading = "Display",
+        help = "Filter a selected run's events by phase, tool, or provider."
+    )]
+    pub filter: Option<RunEventFilterArg>,
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -374,7 +414,7 @@ pub struct Cli {
         action = ArgAction::SetTrue,
         requires = "json_action",
         help_heading = "Display",
-        help = "Render --doctor or --extensions output as stable machine-readable JSON."
+        help = "Render --doctor, --extensions, or --runs output as stable machine-readable JSON."
     )]
     pub json: bool,
     #[arg(
@@ -476,6 +516,13 @@ pub struct Cli {
     pub summary_json: bool,
     #[arg(
         long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Opt in to scrubbed provider request and response traces under the active run directory."
+    )]
+    pub trace: bool,
+    #[arg(
+        long,
         default_value = "http://localhost:11434",
         help_heading = "Models and Providers",
         help = "Set the Ollama server base URL used by CommandAgent."
@@ -539,7 +586,7 @@ pub struct Cli {
     #[arg(
         long,
         help_heading = "Workspace and State",
-        help = "Override saved session and REPL history storage."
+        help = "Override saved session and REPL history storage; the default loader retains the legacy `anvilminimal` fallback."
     )]
     pub state_dir: Option<PathBuf>,
     #[arg(
@@ -861,6 +908,35 @@ mod tests {
     fn help_includes_runs() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--runs"));
+        assert!(help.contains("--events"));
+        assert!(help.contains("--filter"));
+        assert!(help.contains("--trace"));
+    }
+
+    #[test]
+    fn runs_accepts_optional_id_events_filter_and_json() {
+        let list = Cli::try_parse_from(["commandagent", "--runs"]).unwrap();
+        assert_eq!(list.runs, Some(None));
+
+        let detail = Cli::try_parse_from([
+            "commandagent",
+            "--runs",
+            "018f-run",
+            "--events",
+            "--filter",
+            "provider",
+            "--json",
+        ])
+        .unwrap();
+        assert_eq!(detail.runs, Some(Some("018f-run".to_string())));
+        assert!(detail.events);
+        assert_eq!(detail.filter, Some(RunEventFilterArg::Provider));
+        assert!(detail.json);
+
+        let trace = Cli::try_parse_from(["commandagent", "--trace", "--prompt", "debug"]).unwrap();
+        assert!(trace.trace);
+
+        assert!(Cli::try_parse_from(["commandagent", "--events"]).is_err());
     }
 
     #[test]

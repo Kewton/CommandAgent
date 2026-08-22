@@ -390,7 +390,11 @@ fn first_different_line(old_lines: &[&str], new_lines: &[&str]) -> Option<usize>
 
 fn snapshot_root(root: &Path, eval_events_path: Option<&Path>) -> Option<PathBuf> {
     let run_id = run_id_from_events_path(eval_events_path?)?;
-    Some(root.join(".anvil").join("snapshots").join(run_id))
+    Some(
+        crate::runtime_paths::workspace_dir(root)
+            .join("snapshots")
+            .join(run_id),
+    )
 }
 
 fn run_id_from_events_path(path: &Path) -> Option<String> {
@@ -448,7 +452,10 @@ fn safe_source_rel_path(raw: &str) -> Option<String> {
         return None;
     }
     let lower = rel.to_ascii_lowercase();
-    if lower == ".anvil"
+    if lower == ".commandagent"
+        || lower.starts_with(".commandagent/")
+        || lower.contains("/.commandagent/")
+        || lower == ".anvil"
         || lower.starts_with(".anvil/")
         || lower.contains("/.anvil/")
         || lower == "node_modules"
@@ -599,7 +606,7 @@ mod tests {
         assert_eq!(report.saved_paths, vec!["src/app/page.tsx"]);
         assert!(
             dir.path()
-                .join(".anvil/snapshots/test-run/src/app/page.tsx")
+                .join(".commandagent/snapshots/test-run/src/app/page.tsx")
                 .is_file()
         );
     }
@@ -717,7 +724,7 @@ mod tests {
         assert_eq!(report.skipped_paths, vec!["src/app/page.tsx"]);
         assert!(
             !dir.path()
-                .join(".anvil/snapshots/test-run/src/app/page.tsx")
+                .join(".commandagent/snapshots/test-run/src/app/page.tsx")
                 .exists()
         );
     }

@@ -2,10 +2,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::planner::failure_vocabulary::inspection_id;
+use crate::runtime_paths::WORKSPACE_DIR as R;
 
 use super::input_table::{self, InputTable};
 
-const GOAL_SCAN_SKIPS: [&str; 5] = [".anvil", ".git", ".next", "node_modules", "target"];
+const SCAN_SKIPS: [&str; 6] = [R, ".anvil", ".git", ".next", "node_modules", "target"];
 const NAME_INPUT_GUIDANCE: &str = "goalで入力を名指しせよ";
 
 pub(super) fn load(root: &Path, goal: Option<&str>) -> Result<InputTable, String> {
@@ -90,7 +91,7 @@ fn collect_tables(
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
             if skip_runtime_directories
-                && GOAL_SCAN_SKIPS.contains(&entry.file_name().to_string_lossy().as_ref())
+                && SCAN_SKIPS.contains(&entry.file_name().to_string_lossy().as_ref())
             {
                 continue;
             }

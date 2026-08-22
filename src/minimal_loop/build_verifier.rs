@@ -735,7 +735,7 @@ fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Opti
     if output.trim().is_empty() {
         return None;
     }
-    let dir = root.join(".anvil").join("evidence");
+    let dir = crate::runtime_paths::evidence_dir(root);
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }

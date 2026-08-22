@@ -504,7 +504,7 @@ fn bounded_find_listing_command() -> String {
 
 fn bounded_find_pruned_prefix() -> String {
     format!(
-        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .anvil \\) -prune -o",
+        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil \\) -prune -o",
         INSPECT_MAX_DEPTH
     )
 }
@@ -1121,12 +1121,18 @@ mod tests {
     #[test]
     fn bash_redacts_engine_metadata_from_workspace_root_ls() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".commandagent/runs")).unwrap();
         std::fs::create_dir_all(dir.path().join(".anvil/plans")).unwrap();
         std::fs::write(dir.path().join("visible.txt"), "ok").unwrap();
 
         let outcome =
             run_structured("ls -la", dir.path(), false, DEFAULT_TIMEOUT, || false).unwrap();
         assert!(outcome.stdout.contains("visible.txt"), "{}", outcome.stdout);
+        assert!(
+            !outcome.stdout.contains(".commandagent"),
+            "{}",
+            outcome.stdout
+        );
         assert!(!outcome.stdout.contains(".anvil"), "{}", outcome.stdout);
     }
 

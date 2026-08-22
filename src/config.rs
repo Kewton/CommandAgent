@@ -17,6 +17,7 @@ pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
 pub const DEFAULT_CONTEXT_BUDGET: usize = 65_536;
 pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
 pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
+    "extends",
     "pack",
     "model",
     "provider",
@@ -368,11 +369,19 @@ pub enum Action {
     UltraPlanRun(String),
     RunUltraPlan(PathBuf),
     SetupInteractionProbe,
-    Runs,
+    Runs(RunsRequest),
     UxDemo,
     ModelProbe,
     Doctor,
     Workflow(PathBuf, PathBuf),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunsRequest {
+    pub id: Option<String>,
+    pub events: bool,
+    pub filter: Option<String>,
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -495,6 +504,7 @@ fn sourced<T>(value: T, source: impl Into<String>) -> Sourced<T> {
 
 #[derive(Debug, Clone, Default)]
 struct PresetConfig {
+    extends: Option<Sourced<String>>,
     pack: Option<Sourced<String>>,
     model: Option<Sourced<String>>,
     provider: Option<Sourced<ProviderSelection>>,
@@ -1091,6 +1101,21 @@ fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<P
     let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
         return Ok(None);
     };
+    resolve_named_preset(root, name, &mut Vec::new()).map(Some)
+}
+
+fn resolve_named_preset(
+    root: &Path,
+    name: &str,
+    chain: &mut Vec<String>,
+) -> anyhow::Result<PresetConfig> {
+    if let Some(cycle_start) = chain.iter().position(|entry| entry == name) {
+        let mut cycle = chain[cycle_start..].to_vec();
+        cycle.push(name.to_string());
+        bail!("preset inheritance cycle: {}", cycle.join(" -> "));
+    }
+    chain.push(name.to_string());
+
     let mut found = false;
     let mut merged = PresetConfig::default();
     for path in config_paths(root) {
@@ -1114,7 +1139,13 @@ fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<P
             .join(", ");
         bail!("preset '{name}' not found in {paths} (key: preset.{name})");
     }
-    Ok(Some(merged))
+    if let Some(parent) = merged.extends.as_ref().map(|value| value.value.clone()) {
+        let inherited = resolve_named_preset(root, &parent, chain)
+            .with_context(|| format!("preset '{name}' extends '{parent}'"))?;
+        merge_inherited_preset(&mut merged, &inherited);
+    }
+    chain.pop();
+    Ok(merged)
 }
 
 fn preset_complete(preset: &PresetConfig) -> bool {
@@ -1141,6 +1172,11 @@ fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
 }
 
 fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
+    merge_preset_field(&mut target.extends, &source.extends);
+    merge_inherited_preset(target, source);
+}
+
+fn merge_inherited_preset(target: &mut PresetConfig, source: &PresetConfig) {
     merge_preset_field(&mut target.pack, &source.pack);
     merge_preset_field(&mut target.model, &source.model);
     merge_preset_field(&mut target.provider, &source.provider);
@@ -1328,6 +1364,12 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
         })
         .collect();
     let preset = preset_name.map(|name| {
+        if preset_found {
+            match resolve_named_preset(root, name, &mut Vec::new()) {
+                Ok(resolved) => merged = resolved,
+                Err(error) => inspection_errors.push(format!("{error:#}")),
+            }
+        }
         let missing_keys = preset_missing_keys(&merged);
         PresetInspection {
             name: name.to_string(),
@@ -1499,6 +1541,12 @@ fn parse_preset_key(
         );
     }
     match key {
+        "extends" => {
+            preset.extends = Some(sourced(
+                parse_string_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "pack" => {
             preset.pack = Some(sourced(
                 parse_string_value(path, line_no, &full_key, value)?,
@@ -1631,6 +1679,23 @@ pub(crate) fn selected_preset_pack(
     Ok(load_named_preset(root, name)?.and_then(|preset| preset.pack.map(|value| value.value)))
 }
 
+pub(crate) fn preset_names(root: &Path) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for path in config_paths(root) {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(value) = text.parse::<toml::Value>() else {
+            continue;
+        };
+        let Some(presets) = value.get("preset").and_then(toml::Value::as_table) else {
+            continue;
+        };
+        names.extend(presets.keys().cloned());
+    }
+    names.into_iter().collect()
+}
+
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
         if let Some(file) = parse_config_file_if_present(&path)?
@@ -1681,7 +1746,36 @@ fn parse_string_value(
             line_no
         );
     };
-    Ok(value.replace("\\\"", "\"").replace("\\\\", "\\"))
+    let value = value.replace("\\\"", "\"").replace("\\\\", "\\");
+    expand_env_references(&value).with_context(|| format!("{}:{} {key}", path.display(), line_no))
+}
+
+fn expand_env_references(value: &str) -> anyhow::Result<String> {
+    let mut output = String::new();
+    let mut remaining = value;
+    while let Some(start) = remaining.find("${") {
+        output.push_str(&remaining[..start]);
+        let reference = &remaining[start + 2..];
+        let Some(end) = reference.find('}') else {
+            bail!("contains an unterminated environment reference");
+        };
+        let name = &reference[..end];
+        let mut characters = name.chars();
+        let valid_start = characters
+            .next()
+            .is_some_and(|character| character == '_' || character.is_ascii_alphabetic());
+        if !valid_start
+            || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+        {
+            bail!("contains invalid environment reference '${{{name}}}'");
+        }
+        let resolved = std::env::var(name)
+            .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
+        output.push_str(&resolved);
+        remaining = &reference[end + 1..];
+    }
+    output.push_str(remaining);
+    Ok(output)
 }
 
 fn parse_provider_value(
@@ -1860,12 +1954,24 @@ fn parse_plan_preset_value(
 }
 
 fn parse_usize_value(path: &Path, line_no: usize, key: &str, value: &str) -> anyhow::Result<usize> {
+    let value = if value.starts_with('"') {
+        parse_string_value(path, line_no, key, value)?
+    } else {
+        expand_env_references(value)
+            .with_context(|| format!("{}:{} {key}", path.display(), line_no))?
+    };
     value
         .parse::<usize>()
         .with_context(|| format!("{}:{} {key} expects an integer", path.display(), line_no))
 }
 
 fn parse_u64_value(path: &Path, line_no: usize, key: &str, value: &str) -> anyhow::Result<u64> {
+    let value = if value.starts_with('"') {
+        parse_string_value(path, line_no, key, value)?
+    } else {
+        expand_env_references(value)
+            .with_context(|| format!("{}:{} {key}", path.display(), line_no))?
+    };
     value
         .parse::<u64>()
         .with_context(|| format!("{}:{} {key} expects an integer", path.display(), line_no))
@@ -1905,7 +2011,7 @@ pub fn action_goal(action: &Action) -> Option<&str> {
         | Action::RunPlan(_)
         | Action::RunUltraPlan(_)
         | Action::SetupInteractionProbe
-        | Action::Runs
+        | Action::Runs(_)
         | Action::UxDemo
         | Action::ModelProbe
         | Action::Doctor
@@ -1923,7 +2029,7 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
     count += cli.ultra_plan_run as usize;
     count += cli.run_ultra_plan.is_some() as usize;
     count += cli.setup_interaction_probe as usize;
-    count += cli.runs as usize;
+    count += cli.runs.is_some() as usize;
     count += cli.ux_demo as usize;
     count += cli.model_probe as usize;
     count += cli.doctor as usize;
@@ -1969,8 +2075,21 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
     if cli.setup_interaction_probe {
         return Ok(Action::SetupInteractionProbe);
     }
-    if cli.runs {
-        return Ok(Action::Runs);
+    if let Some(id) = &cli.runs {
+        let id = id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        if cli.events && id.is_none() {
+            bail!("--events requires --runs <ID>");
+        }
+        return Ok(Action::Runs(RunsRequest {
+            id,
+            events: cli.events,
+            filter: cli.filter.map(|filter| filter.as_str().to_string()),
+            json: cli.json,
+        }));
     }
     if cli.ux_demo {
         return Ok(Action::UxDemo);
@@ -1990,14 +2109,7 @@ fn required_goal(goal: Option<String>, action: &str) -> anyhow::Result<String> {
 }
 
 pub fn default_state_dir() -> PathBuf {
-    if let Some(xdg) = std::env::var_os("XDG_STATE_HOME") {
-        return PathBuf::from(xdg).join("anvilminimal");
-    }
-    let home = std::env::var_os("HOME").unwrap_or_else(|| ".".into());
-    PathBuf::from(home)
-        .join(".local")
-        .join("state")
-        .join("anvilminimal")
+    crate::runtime_paths::default_state_dir()
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {
@@ -2442,7 +2554,7 @@ tool_protocol = "native"
         ]);
         let config = Config::from_cli(cli).unwrap();
 
-        assert!(matches!(config.action, Action::Runs));
+        assert!(matches!(config.action, Action::Runs(_)));
         assert!(action_goal(&config.action).is_none());
     }
 
@@ -2458,16 +2570,16 @@ tool_protocol = "native"
         .unwrap();
         assert!(matches!(config.action, Action::Doctor));
 
-        let error = Config::from_cli(Cli::parse_from([
+        let error = Cli::try_parse_from([
             "commandagent",
             "--cwd",
             dir.path().to_str().unwrap(),
             "--doctor",
             "--runs",
-        ]))
+        ])
         .unwrap_err()
         .to_string();
-        assert!(error.contains("only one action selector"), "{error}");
+        assert!(error.contains("cannot be used with"), "{error}");
     }
 
     #[test]
@@ -3409,6 +3521,107 @@ profile = "nextjs"
         assert!(
             err.contains("ollama|lm-studio|openai|openai-compatible|gemini"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn preset_extends_inherits_one_parent_and_preserves_field_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            r#"
+[preset.issue255_base]
+model = "base-model"
+provider = "ollama"
+planner_model = "base-planner"
+planner_provider = "ollama"
+context_budget = 32768
+
+[preset.issue255_child]
+extends = "issue255_base"
+model = "child-model"
+profile = "generic"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "issue255_child",
+        ]))
+        .unwrap();
+
+        assert_eq!(config.model, "child-model");
+        assert_eq!(config.field_sources.model, "preset:issue255_child");
+        assert_eq!(config.planner_model, "base-planner");
+        assert_eq!(config.field_sources.planner_model, "preset:issue255_base");
+        assert_eq!(config.context_budget, 32_768);
+    }
+
+    #[test]
+    fn preset_extends_rejects_cycles_with_the_full_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.issue255_a]\nextends = \"issue255_b\"\n[preset.issue255_b]\nextends = \"issue255_a\"\n",
+        )
+        .unwrap();
+
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "issue255_a",
+        ]))
+        .unwrap_err();
+        let error = format!("{error:#}");
+
+        assert!(
+            error.contains("issue255_a -> issue255_b -> issue255_a"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn preset_environment_references_expand_and_missing_values_are_named() {
+        let home = std::env::var("HOME").expect("HOME for config tests");
+        assert_eq!(
+            expand_env_references("model-${HOME}").unwrap(),
+            format!("model-{home}")
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.issue255_env]\nmodel = \"model-${HOME}\"\nprovider = \"ollama\"\n",
+        )
+        .unwrap();
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "issue255_env",
+        ]))
+        .unwrap();
+        assert_eq!(config.model, format!("model-{home}"));
+
+        let error = expand_env_references("${COMMANDAGENT_ISSUE255_MISSING_ENV_7D9F}")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("COMMANDAGENT_ISSUE255_MISSING_ENV_7D9F"),
+            "{error}"
         );
     }
 

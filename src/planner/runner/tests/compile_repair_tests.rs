@@ -938,7 +938,7 @@ fn compile_error_recovery_handoff_orders_fix_compile_error_first() {
     )
     .expect("recovery handoff");
 
-    let repair_text = std::fs::read_dir(dir.path().join(".anvil/repairs"))
+    let repair_text = std::fs::read_dir(dir.path().join(".commandagent/repairs"))
         .unwrap()
         .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
         .find(|text| text.contains("Failure evidence:"))

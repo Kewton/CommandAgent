@@ -7,7 +7,7 @@
     "assurance_level": "full",
     "assurance_reason": "",
     "profile_behavior_probe_status": "pass",
-    "profile_behavior_probe_evidence_path": ".anvil/evidence/python-cli-behavior.json"
+    "profile_behavior_probe_evidence_path": ".commandagent/evidence/python-cli-behavior.json"
   },
   "headless_summary": {
     "assurance": "full",

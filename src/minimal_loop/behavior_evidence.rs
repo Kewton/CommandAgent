@@ -563,6 +563,8 @@ fn read_behavior_observation(root: &Path, extra_dirs: &[PathBuf]) -> Option<Beha
 
 fn interaction_evidence_candidate_paths(root: &Path, extra_dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut dirs = extra_dirs.to_vec();
+    dirs.push(crate::runtime_paths::evidence_dir(root));
+    dirs.push(crate::runtime_paths::workspace_dir(root));
     dirs.push(root.join(".anvil").join("evidence"));
     dirs.push(root.join(".anvil"));
     dirs.push(root.to_path_buf());

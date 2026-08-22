@@ -397,7 +397,7 @@ pub fn prepare_continuation(
         )?;
         continuation_plan_bytes_with_history(&source_bytes, directive, &history)?
     };
-    let directory = workspace.join(".anvil").join("plans");
+    let directory = crate::runtime_paths::plans_dir(workspace);
     std::fs::create_dir_all(&directory)
         .with_context(|| format!("create continuation plan directory {}", directory.display()))?;
     let hash_token = directive.hash().trim_start_matches("sha256:");
@@ -738,7 +738,7 @@ mod tests {
         assert!(
             continuation
                 .plan_workspace_path
-                .starts_with(".anvil/plans/")
+                .starts_with(".commandagent/plans/")
         );
         let derived_bytes = std::fs::read(&continuation.plan_path).unwrap();
         assert_eq!(

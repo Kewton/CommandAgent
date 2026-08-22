@@ -13,7 +13,8 @@ use crate::planner::profiles::python_cli::runtime::{
 const CLI_PROBE_NOT_RUN: &str = "cli_probe_not_run";
 const CLI_CLAIMS_ABSENT: &str = "cli_claims_absent";
 const CLI_ASSURANCE_FAILED: &str = "cli_assurance_failed";
-const FALLBACK_BEHAVIOR_EVIDENCE_PATH: &str = ".anvil/evidence/python-cli-behavior.json";
+const FALLBACK_BEHAVIOR_EVIDENCE_PATH: &str = ".commandagent/evidence/python-cli-behavior.json";
+const LEGACY_FALLBACK_BEHAVIOR_EVIDENCE_PATH: &str = ".anvil/evidence/python-cli-behavior.json";
 
 #[derive(Deserialize)]
 struct FallbackBehaviorEvidence {
@@ -120,7 +121,8 @@ fn terminal_completion_assurance(
         && final_acceptance == "full_success"
         && release_gate == "pass"
         && profile_behavior_probe_status == "pass"
-        && profile_behavior_probe_evidence_path == FALLBACK_BEHAVIOR_EVIDENCE_PATH
+        && (profile_behavior_probe_evidence_path == FALLBACK_BEHAVIOR_EVIDENCE_PATH
+            || profile_behavior_probe_evidence_path == LEGACY_FALLBACK_BEHAVIOR_EVIDENCE_PATH)
         && passing_fallback_behavior_evidence(root)
     {
         return (CliAssurance::Full, "");
@@ -130,6 +132,13 @@ fn terminal_completion_assurance(
 
 fn passing_fallback_behavior_evidence(root: &Path) -> bool {
     let evidence = std::fs::read(root.join(FALLBACK_BEHAVIOR_EVIDENCE_PATH))
+        .or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                std::fs::read(root.join(LEGACY_FALLBACK_BEHAVIOR_EVIDENCE_PATH))
+            } else {
+                Err(error)
+            }
+        })
         .ok()
         .and_then(|bytes| serde_json::from_slice::<FallbackBehaviorEvidence>(&bytes).ok());
     let Some(evidence) = evidence else {

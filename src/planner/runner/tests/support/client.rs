@@ -1,5 +1,5 @@
 fn assert_single_recovery_ultra_plan(root: &Path) -> UltraPlan {
-    let plans_dir = root.join(".anvil/plans");
+    let plans_dir = root.join(".commandagent/plans");
     assert!(
         plans_dir.is_dir(),
         "missing plans dir: {}",
@@ -472,4 +472,3 @@ impl ChatClient for EchoGoalPlanner {
         Ok(AssistantReply::text(serde_json::to_string(&plan).unwrap()))
     }
 }
-

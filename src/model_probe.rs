@@ -269,7 +269,8 @@ pub fn run_with_output_dir(
     seed_scratch_workspace(&scratch.path)?;
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("failed to create {}", output_dir.display()))?;
-    let events_path = scratch.path.join(".anvil/model-probe/events.jsonl");
+    let events_path =
+        crate::runtime_paths::workspace_dir(&scratch.path).join("model-probe/events.jsonl");
     if let Some(parent) = events_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1416,7 +1417,7 @@ fn render_map<T: std::fmt::Display>(map: &BTreeMap<String, T>) -> String {
 
 fn default_model_profiles_dir(config: &Config) -> anyhow::Result<PathBuf> {
     if let Some(home) = std::env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".anvil/model-profiles"));
+        return Ok(PathBuf::from(home).join(".commandagent/model-profiles"));
     }
     Ok(config.state_dir.join("model-profiles"))
 }

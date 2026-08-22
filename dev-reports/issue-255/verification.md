@@ -1,0 +1,22 @@
+# Verification: Issue #255
+
+- Status: `passed`
+- `cargo test --lib preset`: `passed`
+- `cargo test --lib runs_`: `passed`
+- `cargo test --lib trace_is_opt_in_and_scrubs_prompt_reply_and_home_paths`: `passed`
+- `cargo test --lib provider_call::tests::trace_flag_records_the_shared_provider_chokepoint`: `passed`
+- `cargo test --lib state::tests`: `passed`
+- `cargo test --lib tui::history::tests`: `passed`
+- `cargo test --lib bash_redacts_engine_metadata_from_workspace_root_ls`: `passed`
+- `cargo test --test corpus_regression`: `passed`
+- `cargo test --test doc_drift`: `passed`
+- `cargo test --test generality_guardrails`: `passed`
+- `cargo test --test gui_read_only_guard`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server malformed_session_events_return_a_dedicated_error_code -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server confirmed_session_delegates_with_cli_event_bytes_unchanged -- --exact --nocapture`: `passed`
+- `RUSTFLAGS="-D warnings" CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle -- --exact --nocapture`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`

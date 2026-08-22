@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use super::workspace_policy::WorkspacePolicy;
 
-pub const ENGINE_PRIVATE_COMPONENT: &str = ".anvil";
+pub const ENGINE_PRIVATE_COMPONENT: &str = ".commandagent";
+pub const LEGACY_ENGINE_PRIVATE_COMPONENT: &str = ".anvil";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HiddenPathAccess {
@@ -78,8 +79,12 @@ pub fn referenced_path(root: &Path, text: &str) -> Option<String> {
 
 fn has_private_component(path: &Path) -> bool {
     path.components().any(|component| {
-        matches!(component, Component::Normal(value) if value == ENGINE_PRIVATE_COMPONENT)
+        matches!(component, Component::Normal(value) if is_engine_private_component(value))
     })
+}
+
+pub fn is_engine_private_component(component: &std::ffi::OsStr) -> bool {
+    component == ENGINE_PRIVATE_COMPONENT || component == LEGACY_ENGINE_PRIVATE_COMPONENT
 }
 
 fn normalize_display_path(path: &Path) -> String {

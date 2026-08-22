@@ -2532,7 +2532,7 @@ pub(super) fn generated_completion_contract_path(config: &Config, scope: &str) -
     {
         return parent.join(filename);
     }
-    config.workspace_root.join(".anvil").join(filename)
+    crate::runtime_paths::workspace_dir(&config.workspace_root).join(filename)
 }
 
 pub(super) fn display_path_for_event(root: &Path, path: &Path) -> String {

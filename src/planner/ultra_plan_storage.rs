@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn save_ultra_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<PathBuf> {
-    let dir = root.join(".anvil").join("plans");
+    let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("ultra-plan-{}.yaml", uuid::Uuid::now_v7()));
     std::fs::write(

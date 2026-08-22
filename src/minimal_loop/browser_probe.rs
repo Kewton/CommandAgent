@@ -609,9 +609,7 @@ fn finish_with_cleanup(
 }
 
 pub fn browser_readiness_evidence_path(root: &Path) -> PathBuf {
-    root.join(".anvil")
-        .join("evidence")
-        .join("browser-readiness.json")
+    crate::runtime_paths::evidence_dir(root).join("browser-readiness.json")
 }
 
 fn write_browser_readiness_evidence(root: &Path, observation: &BrowserReadinessObservation) {

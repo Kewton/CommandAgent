@@ -51,7 +51,11 @@ fn python_cli_src_package_plan_run_binds_full_probe_to_terminal_summaries() {
     assert_eq!(result, "plan-run complete: 1 steps");
     assert!(!dir.path().join(runtime::EVIDENCE_PATH).exists());
     let behavior: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(dir.path().join(".anvil/evidence/python-cli-behavior.json")).unwrap(),
+        &std::fs::read(
+            dir.path()
+                .join(".commandagent/evidence/python-cli-behavior.json"),
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(behavior["status"], "pass");

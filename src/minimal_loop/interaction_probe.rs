@@ -16,7 +16,8 @@ const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVISION_TIMEOUT: Duration = Duration::from_secs(180);
 const PROBE_SCRIPT_NAME: &str = "browser-interaction-probe.cjs";
-const MANAGED_INTERACTION_PROBE_REL: &[&str] = &[".anvil", "tools", "interaction-probe"];
+const MANAGED_INTERACTION_PROBE_REL: &[&str] = &[".commandagent", "tools", "interaction-probe"];
+const LEGACY_MANAGED_INTERACTION_PROBE_REL: &[&str] = &[".anvil", "tools", "interaction-probe"];
 pub const INTERACTION_PROBE_SETUP_REMEDIATION: &str = "run /setup-interaction-probe (or commandagent --setup-interaction-probe) to enable interaction release checks";
 const PLAYWRIGHT_BROWSER_BINARIES_REMEDIATION: &str = INTERACTION_PROBE_SETUP_REMEDIATION;
 
@@ -281,15 +282,20 @@ fn playwright_availability_from_programs_with_home(
     {
         return ProbeAvailability::Available(resolution);
     }
-    if let Some(home) = home
-        && let Some(resolution) = resolve_playwright_module(
-            root,
-            node_program,
-            Some(&managed_interaction_probe_node_modules_dir(home)),
-            "managed_interaction_probe",
-        )
-    {
-        return ProbeAvailability::Available(resolution);
+    if let Some(home) = home {
+        for node_modules in [
+            managed_interaction_probe_node_modules_dir(home),
+            legacy_managed_interaction_probe_tool_dir(home).join("node_modules"),
+        ] {
+            if let Some(resolution) = resolve_playwright_module(
+                root,
+                node_program,
+                Some(&node_modules),
+                "managed_interaction_probe",
+            ) {
+                return ProbeAvailability::Available(resolution);
+            }
+        }
     }
     if let Some(global_root) = npm_global_root(root, npm_program)
         && let Some(resolution) =
@@ -484,6 +490,12 @@ fn managed_interaction_probe_tool_dir(home: &Path) -> PathBuf {
         .fold(home.to_path_buf(), |path, part| path.join(part))
 }
 
+fn legacy_managed_interaction_probe_tool_dir(home: &Path) -> PathBuf {
+    LEGACY_MANAGED_INTERACTION_PROBE_REL
+        .iter()
+        .fold(home.to_path_buf(), |path, part| path.join(part))
+}
+
 fn managed_interaction_probe_node_modules_dir(home: &Path) -> PathBuf {
     managed_interaction_probe_tool_dir(home).join("node_modules")
 }
@@ -588,9 +600,7 @@ fn run_command_stdout(command: &mut std::process::Command) -> Option<String> {
 }
 
 pub fn browser_interaction_evidence_path(root: &Path) -> PathBuf {
-    root.join(".anvil")
-        .join("evidence")
-        .join("browser-interaction.json")
+    crate::runtime_paths::evidence_dir(root).join("browser-interaction.json")
 }
 
 pub fn probe_browser_interaction_against_running_server(

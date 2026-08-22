@@ -237,7 +237,7 @@ fn save_recovery_note(
     context: &PanicBoundaryContext,
     diagnostic: &PanicDiagnostic,
 ) -> anyhow::Result<PathBuf> {
-    let dir = context.workspace_root.join(".anvil").join("repairs");
+    let dir = crate::runtime_paths::repairs_dir(&context.workspace_root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-internal-panic-{}.md", uuid::Uuid::now_v7()));
     let message = crate::eval_events::render_stop_reason_text(&diagnostic.message);
@@ -549,7 +549,7 @@ mod tests {
             .get("recovery_note_path")
             .and_then(Value::as_str)
             .unwrap();
-        assert!(recovery_path.starts_with(".anvil/repairs/repair-internal-panic-"));
+        assert!(recovery_path.starts_with(".commandagent/repairs/repair-internal-panic-"));
         let note = std::fs::read_to_string(dir.path().join(recovery_path)).unwrap();
         assert!(note.contains("Reason: internal_panic"), "{note}");
         assert!(
@@ -617,7 +617,7 @@ mod tests {
             events[0].get("event").and_then(Value::as_str),
             Some("normal_marker")
         );
-        assert!(!dir.path().join(".anvil/repairs").exists());
+        assert!(!dir.path().join(".commandagent/repairs").exists());
     }
 
     #[test]

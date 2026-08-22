@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -52,14 +53,21 @@ pub struct ResumePlan {
 }
 
 pub fn recent_runs(root: &Path, cap: usize) -> Vec<RunInventoryItem> {
-    let runs_dir = root.join(".anvil").join("runs");
-    let Ok(entries) = std::fs::read_dir(&runs_dir) else {
-        return Vec::new();
-    };
-    let mut candidates = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| run_inventory_item(root, &entry.path()))
-        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    let mut candidates = Vec::new();
+    for runs_dir in crate::runtime_paths::run_read_dirs(root) {
+        let Ok(entries) = std::fs::read_dir(runs_dir) else {
+            continue;
+        };
+        for item in entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| run_inventory_item(root, &entry.path()))
+        {
+            if seen.insert(item.id.clone()) {
+                candidates.push(item);
+            }
+        }
+    }
     candidates.sort_by(|a, b| {
         run_sort_key(&b.events_path)
             .cmp(&run_sort_key(&a.events_path))
@@ -103,6 +111,243 @@ pub fn render_runs_table_with_current(root: &Path, current_events_path: Option<&
     lines.join("\n")
 }
 
+pub fn render_runs_request(
+    root: &Path,
+    request: &crate::config::RunsRequest,
+) -> anyhow::Result<String> {
+    let Some(id) = request.id.as_deref() else {
+        return if request.json {
+            render_runs_list_json(root)
+        } else {
+            Ok(render_runs_table(root))
+        };
+    };
+    validate_run_selector(id)?;
+    let run = find_run(root, id).ok_or_else(|| anyhow::anyhow!("run '{id}' was not found"))?;
+    if request.events {
+        let events = filtered_events(&run.events_path, request.filter.as_deref())?;
+        if request.json {
+            render_run_events_json(root, &run, request.filter.as_deref(), &events)
+        } else {
+            Ok(render_run_events(&run, request.filter.as_deref(), &events))
+        }
+    } else if request.json {
+        render_run_detail_json(root, &run)
+    } else {
+        Ok(render_run_detail(root, &run))
+    }
+}
+
+fn render_runs_list_json(root: &Path) -> anyhow::Result<String> {
+    let runs = recent_runs(root, 100)
+        .iter()
+        .map(|run| run_json(root, run))
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": "commandagent.runs/v1",
+        "view": "list",
+        "total": runs.len(),
+        "runs": runs,
+    }))
+    .context("failed to serialize runs JSON")
+}
+
+fn render_run_detail(root: &Path, run: &RunInventoryItem) -> String {
+    let mut lines = vec![
+        format!("Run {}", run.id),
+        format!("Started: {}", run.started_at),
+        format!("Status: {}", run.status),
+        format!("Assurance: {}", run.assurance),
+        format!(
+            "Phases: {}",
+            phase_display(run.completed_phases, run.total_phases)
+        ),
+        format!("Stop reason: {}", run.stop_reason),
+        format!("Recovery: {}", run.recovery),
+        format!(
+            "Events: {}",
+            workspace_relative_display(root, &run.events_path)
+        ),
+        format!("Trace files: {}", trace_file_count(run)),
+    ];
+    if let Some(summary) = read_run_summary(run) {
+        lines.push(String::new());
+        lines.push("Summary".to_string());
+        lines.push(summary.trim().to_string());
+    }
+    lines.join("\n")
+}
+
+fn render_run_detail_json(root: &Path, run: &RunInventoryItem) -> anyhow::Result<String> {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": "commandagent.runs/v1",
+        "view": "detail",
+        "run": run_json(root, run),
+        "summary": read_run_summary(run),
+    }))
+    .context("failed to serialize run detail JSON")
+}
+
+fn render_run_events(run: &RunInventoryItem, filter: Option<&str>, events: &[Value]) -> String {
+    let mut lines = vec![format!(
+        "Events for {}{}",
+        run.id,
+        filter
+            .map(|filter| format!(" (filter={filter})"))
+            .unwrap_or_default()
+    )];
+    for (index, event) in events.iter().enumerate() {
+        let name = event
+            .get("event")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let timestamp = latest_text(event, &["timestamp", "started_at", "created_at"])
+            .unwrap_or_else(|| "-".to_string());
+        let context = event_context(event);
+        let context_suffix = if context.is_empty() {
+            String::new()
+        } else {
+            format!("  {context}")
+        };
+        lines.push(format!(
+            "{:04} {} {}{}",
+            index + 1,
+            timestamp,
+            name,
+            context_suffix
+        ));
+    }
+    if events.is_empty() {
+        lines.push("No matching events.".to_string());
+    }
+    lines.join("\n")
+}
+
+fn render_run_events_json(
+    root: &Path,
+    run: &RunInventoryItem,
+    filter: Option<&str>,
+    events: &[Value],
+) -> anyhow::Result<String> {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": "commandagent.runs/v1",
+        "view": "events",
+        "run": run_json(root, run),
+        "filter": filter,
+        "total": events.len(),
+        "events": events,
+    }))
+    .context("failed to serialize run events JSON")
+}
+
+fn run_json(root: &Path, run: &RunInventoryItem) -> Value {
+    serde_json::json!({
+        "id": run.id,
+        "short_id": run.short_id,
+        "started_at": run.started_at,
+        "status": run.status,
+        "assurance": run.assurance,
+        "completed_phases": run.completed_phases,
+        "total_phases": run.total_phases,
+        "stop_reason": run.stop_reason,
+        "recovery": run.recovery,
+        "recovery_ultra_plan_path": run.recovery_ultra_plan_path,
+        "events_path": workspace_relative_display(root, &run.events_path),
+        "trace_files": trace_file_count(run),
+    })
+}
+
+fn filtered_events(path: &Path, filter: Option<&str>) -> anyhow::Result<Vec<Value>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read run events {}", path.display()))?;
+    let mut events = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let event = serde_json::from_str::<Value>(line).with_context(|| {
+            format!("failed to parse run event {}:{}", path.display(), index + 1)
+        })?;
+        if filter.is_none_or(|filter| event_matches_filter(&event, filter)) {
+            events.push(event);
+        }
+    }
+    Ok(events)
+}
+
+fn event_matches_filter(event: &Value, filter: &str) -> bool {
+    let name = event
+        .get("event")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    match filter {
+        "phase" => {
+            name.contains("phase")
+                || event.get("phase_id").is_some()
+                || event.get("failed_phase_id").is_some()
+        }
+        "tool" => name.contains("tool") || event.get("tool_name").is_some(),
+        "provider" => {
+            name.contains("provider")
+                || event.get("provider").is_some()
+                || event.get("caller_scope").is_some()
+        }
+        _ => false,
+    }
+}
+
+fn event_context(event: &Value) -> String {
+    let mut fields = Vec::new();
+    for key in [
+        "phase_id",
+        "step_id",
+        "tool_name",
+        "caller_scope",
+        "provider",
+        "model",
+        "status",
+        "stop_reason",
+        "reason",
+    ] {
+        if let Some(value) = event.get(key) {
+            let rendered = value
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| value.to_string());
+            if !rendered.trim().is_empty() {
+                fields.push(format!("{key}={}", fit_columns(&rendered, 80)));
+            }
+        }
+    }
+    fields.join(" ")
+}
+
+fn read_run_summary(run: &RunInventoryItem) -> Option<String> {
+    std::fs::read_to_string(run.events_path.parent()?.join("summary.md")).ok()
+}
+
+fn trace_file_count(run: &RunInventoryItem) -> usize {
+    run.events_path
+        .parent()
+        .and_then(|dir| std::fs::read_dir(dir.join("trace")).ok())
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().is_file())
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+fn validate_run_selector(value: &str) -> anyhow::Result<()> {
+    if value.is_empty()
+        || !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        || value.contains("..")
+    {
+        bail!("invalid run ID '{value}'");
+    }
+    Ok(())
+}
+
 pub fn newest_run_with_recovery(root: &Path) -> Option<RunInventoryItem> {
     recent_runs(root, 50)
         .into_iter()
@@ -114,7 +359,7 @@ pub fn find_run(root: &Path, id_or_prefix: &str) -> Option<RunInventoryItem> {
     if needle.is_empty() {
         return None;
     }
-    recent_runs(root, 100)
+    recent_runs(root, usize::MAX)
         .into_iter()
         .find(|run| run.id == needle || run.short_id == needle || run.id.starts_with(needle))
 }
@@ -832,6 +1077,109 @@ mod tests {
     }
 
     #[test]
+    fn run_inventory_prefers_canonical_namespace_and_reads_legacy_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        write_observability_run(dir.path(), ".anvil", "legacy-only", "failed", &[]);
+        write_observability_run(dir.path(), ".anvil", "shared-run", "failed", &[]);
+        write_observability_run(dir.path(), ".commandagent", "shared-run", "completed", &[]);
+
+        let runs = recent_runs(dir.path(), 10);
+        assert_eq!(runs.len(), 2);
+        let shared = runs.iter().find(|run| run.id == "shared-run").unwrap();
+        assert_eq!(shared.status, "completed");
+        assert!(
+            shared
+                .events_path
+                .starts_with(dir.path().join(".commandagent"))
+        );
+        assert!(runs.iter().any(|run| run.id == "legacy-only"));
+    }
+
+    #[test]
+    fn runs_detail_events_filters_and_json_share_one_projection() {
+        let dir = tempfile::tempdir().unwrap();
+        write_observability_run(
+            dir.path(),
+            ".commandagent",
+            "018f-observe",
+            "failed",
+            &[
+                json!({"event":"ultra_phase_start","phase_id":"implement","timestamp":"t1"}),
+                json!({"event":"provider_turn_duration","caller_scope":"executor","provider":"ollama","model":"m","status":"failed","timestamp":"t2"}),
+                json!({"event":"tool_call","tool_name":"Read","timestamp":"t3"}),
+            ],
+        );
+        let run_dir = dir.path().join(".commandagent/runs/018f-observe");
+        std::fs::write(
+            run_dir.join("summary.md"),
+            "Status: failed\nStop reason: boom\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(run_dir.join("trace")).unwrap();
+        std::fs::write(run_dir.join("trace/provider-a.json"), "{}\n").unwrap();
+
+        let detail = render_runs_request(
+            dir.path(),
+            &crate::config::RunsRequest {
+                id: Some("018f-observe".to_string()),
+                ..crate::config::RunsRequest::default()
+            },
+        )
+        .unwrap();
+        assert!(detail.contains("Run 018f-observe"), "{detail}");
+        assert!(detail.contains("Trace files: 1"), "{detail}");
+        assert!(detail.contains("Stop reason: boom"), "{detail}");
+
+        let request = crate::config::RunsRequest {
+            id: Some("018f-observe".to_string()),
+            events: true,
+            filter: Some("provider".to_string()),
+            json: true,
+        };
+        let rendered = render_runs_request(dir.path(), &request).unwrap();
+        let value: Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(value["schema_version"], "commandagent.runs/v1");
+        assert_eq!(value["view"], "events");
+        assert_eq!(value["total"], 1);
+        assert_eq!(value["events"][0]["event"], "provider_turn_duration");
+
+        let list = render_runs_request(
+            dir.path(),
+            &crate::config::RunsRequest {
+                json: true,
+                ..crate::config::RunsRequest::default()
+            },
+        )
+        .unwrap();
+        let list: Value = serde_json::from_str(&list).unwrap();
+        assert_eq!(list["view"], "list");
+        assert_eq!(list["total"], 1);
+    }
+
+    #[test]
+    fn runs_request_rejects_path_traversal_and_malformed_event_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let request = crate::config::RunsRequest {
+            id: Some("../escape".to_string()),
+            ..crate::config::RunsRequest::default()
+        };
+        assert!(render_runs_request(dir.path(), &request).is_err());
+
+        let run_dir = dir.path().join(".commandagent/runs/bad-events");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::write(run_dir.join("events.jsonl"), "not-json\n").unwrap();
+        let request = crate::config::RunsRequest {
+            id: Some("bad-events".to_string()),
+            events: true,
+            ..crate::config::RunsRequest::default()
+        };
+        let error = render_runs_request(dir.path(), &request)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("failed to parse run event"), "{error}");
+    }
+
+    #[test]
     fn runs_table_marks_current_and_bounds_concise_rows_to_100_columns() {
         let dir = tempfile::tempdir().unwrap();
         let events_path = dir.path().join(".anvil/runs/018f2222-current/events.jsonl");
@@ -1054,5 +1402,30 @@ phases:
         first["recovery_ultra_plan_path"] = json!(recovery_path);
         second["recovery_ultra_plan_path"] = json!(recovery_path);
         std::fs::write(run_dir.join("events.jsonl"), format!("{first}\n{second}\n")).unwrap();
+    }
+
+    fn write_observability_run(
+        root: &Path,
+        namespace: &str,
+        run_id: &str,
+        status: &str,
+        additional: &[Value],
+    ) {
+        let run_dir = root.join(namespace).join("runs").join(run_id);
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let mut events = additional.to_vec();
+        events.push(json!({
+            "event": "run_stop",
+            "ok": status == "completed",
+            "status": status,
+            "assurance_level": "full",
+            "stop_reason": if status == "completed" { "completed" } else { "boom" }
+        }));
+        let text = events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(run_dir.join("events.jsonl"), format!("{text}\n")).unwrap();
     }
 }

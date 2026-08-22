@@ -1647,7 +1647,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     for required in [
         "const MAX_SESSIONS: usize = 100",
         "require_trial(&state, &headers, false)",
-        "workspace.join(\".anvil/runs\")",
+        "runtime_paths::run_read_dirs(&workspace)",
+        "let mut seen = HashSet::new()",
         "has_confirmation_record",
         ".lease_snapshot()",
         "started_epoch_seconds",

@@ -255,10 +255,13 @@ Named presets can be stored in either of these canonical files:
 
 The matching `.anvil/config.toml` files remain supported as legacy fallbacks.
 CommandAgent reads these files but does **not** create them or populate presets
-automatically. Live run, plan, and repair artifacts continue to use their
-existing `.anvil/` paths.
+automatically. New runs, plans, repairs, and evidence use the matching
+`.commandagent/` subdirectories, and default session state uses the platform
+`commandagent` state directory. Existing `.anvil/` runtime inputs and
+`anvilminimal` session state remain readable during migration.
 
-A preset is selected with `commandagent --preset <name>`. See the
+A preset is selected with `commandagent --preset <name>` and may use one
+`extends` parent plus `${ENV_NAME}` references. See the
 [configuration guide](docs/guide/en/configuration.md) for the supported
 fields and precedence rules.
 
