@@ -1,0 +1,6 @@
+{"case":"issue-238","turn":1,"event":"tool_execute","name":"Write","status":"ok","path":"hello.py"}
+{"case":"issue-238","turn":2,"event":"tool_execute","name":"Read","status":"ok","path":"hello.py","result":"full"}
+{"case":"issue-238","turn":3,"event":"tool_read_unchanged","schema_version":"1","path":"hello.py","repeat_count":1,"identical_consecutive":true,"completion_candidate":true,"compact_head_lines":20}
+{"case":"issue-238","turn":3,"event":"tool_execute","name":"Read","status":"ok","path":"hello.py","result":"compact"}
+{"case":"issue-238","turn":3,"event":"loop_stop","reason":"post_write_read_confirmation_completed","verification":"unverified","confirmation_batches":2,"read_paths":["hello.py"],"changed_paths":["hello.py"],"tool_calls":3}
+{"case":"issue-238","event":"run_outcome","status":"completed","turns":3,"turn_limit":8}

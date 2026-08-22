@@ -1,0 +1,46 @@
+case_id = "issue238-repeated-read-completion"
+source = "Issue #238 unchanged identical Read compaction and bounded completion regression"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["tool_read_unchanged", "post_write_read_confirmation_completed", "completed", "turn_limit:8"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/repeated-read-completion.jsonl = [
+  "\"event\":\"tool_read_unchanged\"",
+  "\"identical_consecutive\":true",
+  "\"completion_candidate\":true",
+  "\"compact_head_lines\":20",
+  "\"reason\":\"post_write_read_confirmation_completed\"",
+  "\"status\":\"completed\"",
+  "\"turns\":3",
+  "\"turn_limit\":8"
+]
+
+[fixture_ordered]
+fixtures/repeated-read-completion.jsonl = [
+  "\"turn\":1",
+  "\"name\":\"Write\"",
+  "\"turn\":2",
+  "\"name\":\"Read\"",
+  "\"turn\":3",
+  "\"event\":\"tool_read_unchanged\"",
+  "\"reason\":\"post_write_read_confirmation_completed\"",
+  "\"status\":\"completed\""
+]
