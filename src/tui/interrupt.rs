@@ -166,6 +166,7 @@ impl InterruptMonitor {
                 self.dummy_force_flag.store(false, Ordering::SeqCst);
             }
         }
+        crate::tui::status_bus::publish_interrupt_cleared();
     }
 
     fn pause(&mut self) {
@@ -411,6 +412,20 @@ mod tests {
         monitor.reset();
         assert!(!monitor.interrupted());
         assert!(!monitor.force_interrupted());
+    }
+
+    #[test]
+    fn interrupt_reset_clears_the_shared_status_projection() {
+        let _test_guard = crate::tui::status_bus::lock_global_for_test();
+        let (publisher, subscriber) = crate::tui::status_bus::channel();
+        let _status_guard = crate::tui::status_bus::install_global(publisher.clone());
+        assert!(publisher.publish(crate::tui::status_bus::StatusEvent::ForceFinalizeRequested));
+
+        InterruptMonitor::new_preset(true).reset();
+
+        let snapshot = subscriber.snapshot();
+        assert!(!snapshot.interrupt_requested);
+        assert!(!snapshot.force_finalize_requested);
     }
 
     #[test]

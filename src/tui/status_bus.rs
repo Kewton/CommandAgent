@@ -132,6 +132,7 @@ pub enum StatusEvent {
     },
     InterruptRequested,
     ForceFinalizeRequested,
+    InterruptCleared,
 }
 
 #[derive(Debug)]
@@ -295,7 +296,9 @@ fn apply_event(status: &mut RuntimeStatus, event: StatusEvent) {
             status.command = None;
         }
         StatusEvent::Repair { attempt, max, kind } => {
-            status.stage = Some(format!("repairing {kind} ({attempt}/{max})"));
+            let attempt = crate::tui::repair_display::bounded_attempt(attempt, max);
+            let progress = crate::tui::repair_display::progress_label(attempt, max);
+            status.stage = Some(format!("repairing {kind} ({progress})"));
             status.repair = Some(RepairStatus { attempt, max, kind });
         }
         StatusEvent::Stage { label } => {
@@ -310,6 +313,10 @@ fn apply_event(status: &mut RuntimeStatus, event: StatusEvent) {
         StatusEvent::ForceFinalizeRequested => {
             status.interrupt_requested = true;
             status.force_finalize_requested = true;
+        }
+        StatusEvent::InterruptCleared => {
+            status.interrupt_requested = false;
+            status.force_finalize_requested = false;
         }
     }
 }
@@ -416,6 +423,10 @@ pub fn publish_interrupt_requested() -> bool {
 
 pub fn publish_force_finalize_requested() -> bool {
     publish_global(StatusEvent::ForceFinalizeRequested)
+}
+
+pub fn publish_interrupt_cleared() -> bool {
+    publish_global(StatusEvent::InterruptCleared)
 }
 
 pub fn publish_eval_projection(event: &Value) -> bool {
@@ -571,6 +582,33 @@ mod tests {
 
         assert!(snapshot.interrupt_requested);
         assert!(snapshot.force_finalize_requested);
+    }
+
+    #[test]
+    fn bus_clears_completed_interrupt_state() {
+        let (publisher, subscriber) = channel();
+
+        assert!(publisher.publish(StatusEvent::ForceFinalizeRequested));
+        assert!(publisher.publish(StatusEvent::InterruptCleared));
+        let snapshot = subscriber.snapshot();
+
+        assert!(!snapshot.interrupt_requested);
+        assert!(!snapshot.force_finalize_requested);
+    }
+
+    #[test]
+    fn bus_caps_repair_progress_at_the_display_limit() {
+        let (publisher, subscriber) = channel();
+
+        assert!(publisher.publish(StatusEvent::Repair {
+            attempt: 4,
+            max: 2,
+            kind: "step".to_string(),
+        }));
+        let snapshot = subscriber.snapshot();
+
+        assert_eq!(snapshot.repair.as_ref().unwrap().attempt, 2);
+        assert_eq!(snapshot.stage.as_deref(), Some("repairing step (2/2)"));
     }
 
     #[test]
