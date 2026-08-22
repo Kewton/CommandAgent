@@ -65,6 +65,7 @@ pub fn run_with_provider_options(
     cli: Cli,
     provider_options: config::ProviderCliOptions,
 ) -> anyhow::Result<()> {
+    let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
     if pack_actions::run_if_requested(&cli)? {
         return Ok(());
     }
@@ -146,6 +147,11 @@ pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
 }
 
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {
+    let _git_reporter = (!matches!(
+        config.action,
+        Action::Runs | Action::UxDemo | Action::ModelProbe
+    ))
+    .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
     cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone()))
 }
 

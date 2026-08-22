@@ -13,3 +13,12 @@
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo test`: `passed`
 - `git diff --check`: `passed`
+
+## Post-base-sync recovery
+
+- Merged `origin/develop` after prerequisite PRs landed and resolved the four
+  overlapping wiring/documentation conflicts without weakening any gate.
+- `cargo test --test doc_drift`: `passed` with the implementation-derived
+  public CLI flag count fixed at 61.
+- `cargo test`: `passed` with the existing pyenv shims prepended to `PATH`; this
+  supplies PyYAML while retaining the repository's Node and Rust toolchains.

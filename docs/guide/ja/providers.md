@@ -6,6 +6,22 @@ CommandAgent は実行役割と planner 役割を分けられます。`--provide
 `--planner-provider` と `--planner-model` は planning を設定します。プロバイダが同じ場合、
 上書きしなければ planner は実行モデルを継承します。
 
+## 役割別の model 選択
+
+parameter 数だけから役割別の推奨を決めないでください。固定の
+[役割別 model probe](model-probe.md#役割別の計測手順)で executor、planner、classifier を
+組として測り、その後に必須 smoke と full scenario check を実行します。classifier には model 用の
+CLI flag がないため、選択 preset の `classifier_model` と `classifier_provider` で設定します。
+
+2026-08-22 に実測した exact local Ollama setup で推奨できる開始構成は、executor と planner に
+`qwen3.8:27b-mlx`、classifier に `qwen3.5:4b` を使う組です。4B classifier は対象 arm の
+4/4 task を完了し、最終 hybrid で 176〜304 ms でした。小型 planner は推奨しません。warm 9B は
+27B より遅く、4B は planner JSON 契約が 1/2 でした。
+[実測記録と exact model digest](../model-probe-results/2026-08-22-local-role-pairs.md)を参照してください。
+
+これは digest、host、context、build に依存する probe/smoke の開始点であり、built-in default や
+universal quality tier ではありません。いずれかが変わった場合は採用前に再計測してください。
+
 ## プロバイダ対応表
 
 | プロバイダ | CLI 値 | 必要なキー | 取得／セットアップ先 | CommandAgent の endpoint | 設定方法 |

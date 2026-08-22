@@ -24,19 +24,19 @@ Recommended route / 推奨順路:
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
   Trial, Gate 1, and result reading
 - [Extensions](../user/gui-extensions.md) — supply lifecycle, names, and review
-- [CLI reference](en/cli-reference.md) — all 60 public flags, defaults, and
+- [CLI reference](en/cli-reference.md) — all 61 public flags, defaults, and
   conflicts
 - [Plan YAML editing](en/plan-yaml.md) — commented templates, offline
   validation, next commands, and recovery diffs
-- [Slash commands](en/slash-commands.md) — all 19 accepted command names,
+- [Slash commands](en/slash-commands.md) — all 24 accepted command names,
   inline flags, file expansion, and profile inference
 - [Configuration](en/configuration.md) — precedence, presets, paths, legacy
   files, and environment variables
 - [Providers](en/providers.md) — Ollama, LM Studio, OpenAI, and Gemini setup
 - [Troubleshooting](en/troubleshooting.md) — common startup, provider, and TUI
   problems
-- [Model behavior probe](model-probe.md) — the bounded provider/model
-  measurement workflow
+- [Model behavior probe](en/model-probe.md) — the bounded role-specific
+  provider/model measurement workflow
 
 Start with the [project README](../../README.md) for installation and a short
 walkthrough. Read the [security model](../../SECURITY.md) before enabling
@@ -50,15 +50,15 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   最初の 1 周、exact pack A/B
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
 - [拡張](../user/gui-extensions.md) — 供給ライフサイクル、命名、レビュー
-- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 60 フラグ、既定値、排他関係
+- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 61 フラグ、既定値、排他関係
 - [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、
   recovery 差分
-- [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 19 コマンド名、インラインフラグ、
+- [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 24 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数
 - [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
 - [トラブルシューティング](ja/troubleshooting.md) — 起動時、プロバイダ、TUI の一般的な問題
-- [モデル動作プローブ](model-probe.md) — プロバイダ／モデルを限定的に測定する手順
+- [モデル動作プローブ](ja/model-probe.md) — 役割別のプロバイダ／モデルを限定的に測定する手順
 
 インストールと短いチュートリアルは[プロジェクト README](../../README.ja.md)から始めてください。
 `--yes` を有効にする前や新しいワークスペースで使う前に、

@@ -2,6 +2,7 @@
 {"event":"score_checkpoint","vector":{"score":92.5},"schema_version":"1"}
 {"event":"provider_turn_duration","caller_scope":"planner_step","duration_ms":4500,"prompt_eval_count":700,"eval_count":120,"provider_reasoning_tokens":40,"prompt_eval_duration":1000000000,"eval_duration":2500000000,"load_duration":500000000,"total_duration":4000000000,"schema_version":"1"}
 {"event":"provider_turn_duration","caller_scope":"executor","duration_ms":8000,"prompt_eval_count":1100,"eval_count":240,"prompt_eval_duration":2000000000,"eval_duration":5000000000,"load_duration":1000000000,"total_duration":8000000000,"schema_version":"1"}
+{"event":"step_short_circuited","phase_scope":"verification","verify_commands":["cargo test --test smoke"],"verification_summary":{"status":"pass"},"schema_version":"1"}
 {"event":"ultra_final_acceptance","verdict":"full","assurance_level":"full","schema_version":"1"}
-{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"full","failure_kind":"","time_profile_total_ms":12500,"provider_cost_usd":0.0123,"schema_version":"1"}
-{"event":"run_stop","ok":true,"status":"completed","assurance_level":"full","schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"full","release_gate_status":"pass","stop_reason":"completed","next_action":"none","failure_kind":"","time_profile_total_ms":12500,"provider_cost_usd":0.0123,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"full","release_gate_status":"pass","stop_reason":"completed","next_action":"none","schema_version":"1"}

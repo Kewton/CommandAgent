@@ -48,6 +48,8 @@ pub struct AppState {
     pub static_root: PathBuf,
     pub base_path: String,
     pub commandagent_bin: PathBuf,
+    pub ollama_host: String,
+    pub lm_studio_host: String,
     pub extension_root: Option<PathBuf>,
     pub trial_access: trial_access::TrialAccess,
     pub trial_workspace: workspace_policy::TrialWorkspace,
@@ -72,6 +74,18 @@ struct Arguments {
     trial_token_auth: TrialTokenAuthArg,
     #[arg(long)]
     commandagent_bin: Option<PathBuf>,
+    #[arg(
+        long,
+        default_value = "http://localhost:11434",
+        help = "Set the Ollama server base URL used for model discovery and delegated runs."
+    )]
+    ollama_host: String,
+    #[arg(
+        long,
+        default_value = "http://localhost:1234",
+        help = "Set the LM Studio base URL used for model discovery and delegated runs."
+    )]
+    lm_studio_host: String,
     #[arg(long, conflicts_with = "check")]
     init: bool,
     #[arg(long)]
@@ -98,6 +112,14 @@ async fn main() -> anyhow::Result<()> {
     if arguments.init {
         initialize_defaults(&mut arguments)?;
     }
+    let ollama_host = trial_options::normalize_model_host(
+        &arguments.ollama_host,
+        commandagent::config::Provider::Ollama,
+    )?;
+    let lm_studio_host = trial_options::normalize_model_host(
+        &arguments.lm_studio_host,
+        commandagent::config::Provider::LmStudio,
+    )?;
     if arguments.check || arguments.init {
         let report = preflight::Report::run(&arguments);
         let passed = report.passed();
@@ -163,6 +185,8 @@ async fn main() -> anyhow::Result<()> {
         static_root: arguments.static_dir,
         base_path: base_path.clone(),
         commandagent_bin,
+        ollama_host,
+        lm_studio_host,
         extension_root: extension_root.clone(),
         trial_access,
         trial_workspace,
@@ -322,6 +346,11 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/reports", get(api::reports))
         .route("/api/reports/view", get(api::report_content))
         .route("/api/trial-options", get(trial_options::get))
+        .route(
+            "/api/provider-models",
+            get(trial_options::get_provider_models),
+        )
+        .route("/api/band-means", get(api::band_means))
         .route("/api/pack-options", get(trial_options::get_packs))
         .route(
             "/api/extensions/packs",

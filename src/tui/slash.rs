@@ -194,6 +194,11 @@ pub enum SlashCommandKind {
     Help,
     Confirm,
     Status,
+    Model,
+    Provider,
+    Profile,
+    Clear,
+    Last,
     Doctor,
     Packs,
     Pack,
@@ -224,8 +229,8 @@ pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
         name: "/help",
         aliases: &[],
-        help_usage: "/help",
-        description: "show this command list",
+        help_usage: "/help [command]",
+        description: "show grouped commands or detailed command help",
         kind: SlashCommandKind::Help,
     },
     SlashCommandSpec {
@@ -241,6 +246,41 @@ pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
         help_usage: "/status",
         description: "show effective configuration and readiness",
         kind: SlashCommandKind::Status,
+    },
+    SlashCommandSpec {
+        name: "/model",
+        aliases: &[],
+        help_usage: "/model <id>",
+        description: "set the executor model for new Gate 1 cards",
+        kind: SlashCommandKind::Model,
+    },
+    SlashCommandSpec {
+        name: "/provider",
+        aliases: &[],
+        help_usage: "/provider <name>",
+        description: "set the executor provider for new Gate 1 cards",
+        kind: SlashCommandKind::Provider,
+    },
+    SlashCommandSpec {
+        name: "/profile",
+        aliases: &[],
+        help_usage: "/profile <name>",
+        description: "set the profile for new Gate 1 cards",
+        kind: SlashCommandKind::Profile,
+    },
+    SlashCommandSpec {
+        name: "/clear",
+        aliases: &[],
+        help_usage: "/clear",
+        description: "clear the terminal screen",
+        kind: SlashCommandKind::Clear,
+    },
+    SlashCommandSpec {
+        name: "/last",
+        aliases: &[],
+        help_usage: "/last",
+        description: "show the most recent REPL result again",
+        kind: SlashCommandKind::Last,
     },
     SlashCommandSpec {
         name: "/doctor",
@@ -434,14 +474,28 @@ pub fn handle_command(
     );
     ui.render_command_receipt(&receipt)?;
     match command.kind {
-        SlashCommandKind::Help => return Ok(render_help()),
+        SlashCommandKind::Help => {
+            if words.len() > 2 {
+                bail!("usage: /help [command]");
+            }
+            return words
+                .get(1)
+                .map_or_else(|| Ok(render_help()), |topic| render_command_help(topic));
+        }
         SlashCommandKind::Confirm => {
             bail!(
                 "/confirm is available only after a Gate 1 card; type a plain-text request first"
             );
         }
         SlashCommandKind::Status => {
-            return Ok(crate::tui::presentation::render_status_card(&config));
+            return Ok(render_ordered_status(&config));
+        }
+        SlashCommandKind::Model
+        | SlashCommandKind::Provider
+        | SlashCommandKind::Profile
+        | SlashCommandKind::Clear
+        | SlashCommandKind::Last => {
+            bail!("{} is available only in the interactive REPL", command.name);
         }
         SlashCommandKind::Doctor => {
             return Ok(crate::doctor::diagnose(&config).render_human());
@@ -595,6 +649,11 @@ pub fn handle_command(
             SlashCommandKind::Help
             | SlashCommandKind::Confirm
             | SlashCommandKind::Status
+            | SlashCommandKind::Model
+            | SlashCommandKind::Provider
+            | SlashCommandKind::Profile
+            | SlashCommandKind::Clear
+            | SlashCommandKind::Last
             | SlashCommandKind::Doctor
             | SlashCommandKind::Packs
             | SlashCommandKind::Pack
@@ -658,11 +717,21 @@ pub fn handle_command(
 
 pub fn render_help() -> String {
     let mut lines = vec!["Commands:".to_string()];
-    lines.extend(
-        SLASH_COMMANDS
-            .iter()
-            .map(|spec| format!("{} - {}", spec.help_usage, spec.description)),
-    );
+    for (group, title) in [
+        (HelpGroup::Session, "Session"),
+        (HelpGroup::Configuration, "Configuration"),
+        (HelpGroup::Planning, "Planning and execution"),
+        (HelpGroup::Recovery, "Recovery and inspection"),
+        (HelpGroup::Diagnostics, "Diagnostics"),
+    ] {
+        lines.push(format!("{title}:"));
+        lines.extend(
+            SLASH_COMMANDS
+                .iter()
+                .filter(|spec| help_group(spec.kind) == group)
+                .map(|spec| format!("{} - {}", spec.help_usage, spec.description)),
+        );
+    }
     lines.push(
         "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback."
             .to_string(),
@@ -680,6 +749,139 @@ pub fn render_help() -> String {
             .to_string(),
     );
     lines.join("\n")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpGroup {
+    Session,
+    Configuration,
+    Planning,
+    Recovery,
+    Diagnostics,
+}
+
+fn help_group(kind: SlashCommandKind) -> HelpGroup {
+    match kind {
+        SlashCommandKind::Help
+        | SlashCommandKind::Status
+        | SlashCommandKind::Clear
+        | SlashCommandKind::Last
+        | SlashCommandKind::Exit => HelpGroup::Session,
+        SlashCommandKind::Model
+        | SlashCommandKind::Provider
+        | SlashCommandKind::Profile
+        | SlashCommandKind::Packs
+        | SlashCommandKind::Pack => HelpGroup::Configuration,
+        SlashCommandKind::Confirm
+        | SlashCommandKind::PlanSteps
+        | SlashCommandKind::PlanRun
+        | SlashCommandKind::RunPlan
+        | SlashCommandKind::UltraPlan
+        | SlashCommandKind::UltraPlanRun
+        | SlashCommandKind::RunUltraPlan => HelpGroup::Planning,
+        SlashCommandKind::Plan | SlashCommandKind::Runs | SlashCommandKind::Resume => {
+            HelpGroup::Recovery
+        }
+        SlashCommandKind::Doctor
+        | SlashCommandKind::SetupInteractionProbe
+        | SlashCommandKind::ModelProbe => HelpGroup::Diagnostics,
+    }
+}
+
+pub fn render_command_help(topic: &str) -> anyhow::Result<String> {
+    let topic = topic.trim();
+    let canonical = if topic.starts_with('/') {
+        topic.to_string()
+    } else {
+        format!("/{topic}")
+    };
+    let Some(spec) = slash_command_spec(&canonical) else {
+        bail!("unknown help topic `{topic}`; use /help to list commands");
+    };
+    let aliases = if spec.aliases.is_empty() {
+        String::new()
+    } else {
+        format!("\nAliases: {}", spec.aliases.join(", "))
+    };
+    Ok(format!(
+        "### {}\nUsage: {}\n{}{}\nExample: {}",
+        spec.name,
+        spec.help_usage,
+        spec.description,
+        aliases,
+        help_example(spec.kind),
+    ))
+}
+
+fn help_example(kind: SlashCommandKind) -> &'static str {
+    match kind {
+        SlashCommandKind::Help => "/help model",
+        SlashCommandKind::Confirm => "/confirm sha256:77cd5e23",
+        SlashCommandKind::Status => "/status",
+        SlashCommandKind::Model => "/model gpt-5.6-terra",
+        SlashCommandKind::Provider => "/provider openai",
+        SlashCommandKind::Profile => "/profile nextjs",
+        SlashCommandKind::Clear => "/clear",
+        SlashCommandKind::Last => "/last",
+        SlashCommandKind::Doctor => "/doctor",
+        SlashCommandKind::Packs => "/packs",
+        SlashCommandKind::Pack => "/pack cli-assist@1.1.0",
+        SlashCommandKind::Runs => "/runs",
+        SlashCommandKind::Resume => "/resume",
+        SlashCommandKind::Plan => "/plan",
+        SlashCommandKind::PlanSteps => "/plan-steps Add focused tests",
+        SlashCommandKind::PlanRun => "/plan-run Add focused tests",
+        SlashCommandKind::RunPlan => "/run-plan .anvil/plans/step.yaml",
+        SlashCommandKind::UltraPlan => "/ultra-plan Build an accessible app",
+        SlashCommandKind::UltraPlanRun => "/ultra-plan-run Build an accessible app",
+        SlashCommandKind::RunUltraPlan => "/run-ultra-plan .anvil/plans/ultra.yaml",
+        SlashCommandKind::SetupInteractionProbe => "/setup-interaction-probe",
+        SlashCommandKind::ModelProbe => "/model-probe",
+        SlashCommandKind::Exit => "/exit",
+    }
+}
+
+fn render_ordered_status(config: &Config) -> String {
+    let rendered = crate::tui::presentation::render_status_card(config);
+    order_status_card(&rendered)
+}
+
+fn order_status_card(rendered: &str) -> String {
+    let mut lines = rendered.lines();
+    let heading = lines.next().unwrap_or("### Status");
+    let remaining = lines.collect::<Vec<_>>();
+    let split = remaining
+        .iter()
+        .position(|line| line.starts_with("- Model:"))
+        .unwrap_or(remaining.len());
+    let (active, configuration) = remaining.split_at(split);
+    let mut ordered = vec![heading.to_string(), "#### Current execution".to_string()];
+    if active.is_empty() {
+        ordered.extend([
+            "- Current phase: idle".to_string(),
+            "- Current step: none".to_string(),
+            "- Current scope: idle".to_string(),
+            "- Active command: none".to_string(),
+        ]);
+    } else {
+        for prefix in ["- Current phase:", "- Current step:", "- Current scope:"] {
+            ordered.extend(
+                active
+                    .iter()
+                    .filter(|line| line.starts_with(prefix))
+                    .map(|line| (*line).to_string()),
+            );
+        }
+        ordered.extend(
+            active
+                .iter()
+                .filter(|line| !line.starts_with("- Current "))
+                .map(|line| (*line).to_string()),
+        );
+    }
+    ordered.push("#### Session configuration".to_string());
+    ordered.extend(configuration.iter().map(|line| (*line).to_string()));
+    ordered.join("\n")
 }
 
 fn confirm_resume(config: &Config, resume: &crate::runs::ResumePlan) -> anyhow::Result<()> {
@@ -1228,7 +1430,18 @@ mod tests {
     fn help_lists_discovery_commands_and_interrupt_semantics() {
         let help = render_help();
         for expected in [
+            "Session:",
+            "Configuration:",
+            "Planning and execution:",
+            "Recovery and inspection:",
+            "Diagnostics:",
+            "/help [command] - show grouped commands or detailed command help",
             "/confirm <hash> - confirm and execute the reviewed Gate 1 card",
+            "/model <id> - set the executor model for new Gate 1 cards",
+            "/provider <name> - set the executor provider for new Gate 1 cards",
+            "/profile <name> - set the profile for new Gate 1 cards",
+            "/clear - clear the terminal screen",
+            "/last - show the most recent REPL result again",
             "/ultra-plan-run <goal> - generate and run an UltraPlan",
             "/plan-run <goal> - generate and run a step plan",
             "/plan - show the active plan and current activity",
@@ -1251,7 +1464,7 @@ mod tests {
 
     #[test]
     fn slash_registry_is_the_help_and_alias_source() {
-        assert_eq!(SLASH_COMMANDS.len(), 18);
+        assert_eq!(SLASH_COMMANDS.len(), 23);
         let help = render_help();
         for command in SLASH_COMMANDS {
             assert!(
@@ -1264,6 +1477,40 @@ mod tests {
             slash_command_spec("/quit").map(|command| command.name),
             Some("/exit")
         );
+    }
+
+    #[test]
+    fn detailed_help_accepts_bare_or_slash_command_topics() {
+        let bare = render_command_help("model").unwrap();
+        let slash = render_command_help("/model").unwrap();
+        assert_eq!(bare, slash);
+        assert!(bare.contains("### /model"), "{bare}");
+        assert!(bare.contains("Usage: /model <id>"), "{bare}");
+        assert!(bare.contains("Example: /model gpt-5.6-terra"), "{bare}");
+
+        let alias = render_command_help("quit").unwrap();
+        assert!(alias.contains("### /exit"), "{alias}");
+        assert!(alias.contains("Aliases: /quit"), "{alias}");
+        assert!(render_command_help("missing").is_err());
+    }
+
+    #[test]
+    fn ordered_status_puts_current_execution_before_configuration() {
+        let status = order_status_card(
+            "### Status\n- Active command: /ultra-plan-run\n- Active Goal: app\n- Current phase: 2/3 implement\n- Current step: write [implement]\n- Current scope: implementing\n- Model: executor (flag)\n- Provider: ollama (flag)",
+        );
+        let current = status.find("#### Current execution").unwrap();
+        let phase = status.find("- Current phase: 2/3 implement").unwrap();
+        let active = status.find("- Active command: /ultra-plan-run").unwrap();
+        let configuration = status.find("#### Session configuration").unwrap();
+        let model = status.find("- Model:").unwrap();
+        assert!(
+            current < phase && phase < active && active < configuration && configuration < model
+        );
+
+        let idle = order_status_card("### Status\n- Model: executor (flag)");
+        assert!(idle.contains("- Current phase: idle"), "{idle}");
+        assert!(idle.contains("- Active command: none"), "{idle}");
     }
 
     #[test]

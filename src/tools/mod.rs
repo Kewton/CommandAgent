@@ -1,11 +1,14 @@
+pub mod allow_policy;
 pub(crate) mod approval;
 pub mod args_recovery;
 pub mod bash;
 mod bash_write_guard;
 pub mod edit;
+pub mod git_state;
 pub mod glob;
 pub mod grep;
 pub mod hidden_path;
+pub mod offline_policy;
 pub mod path_guard;
 pub mod read;
 pub mod registry;

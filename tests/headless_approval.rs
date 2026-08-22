@@ -1,6 +1,6 @@
 use std::process::{Command, Output};
 
-const WARNING: &str = "warning: --prompt is non-interactive because stdin is not a TTY; mutating tools cannot be approved without --yes. Rerun with --yes only in a trusted workspace if changes are required.";
+const WARNING: &str = "warning: --prompt is non-interactive because stdin is not a TTY; mutating tools require an explicit --allow policy or --yes. Use --yes only in a trusted workspace.";
 
 fn run_headless_prompt(auto_approve: bool) -> Output {
     let workspace = tempfile::tempdir().unwrap();

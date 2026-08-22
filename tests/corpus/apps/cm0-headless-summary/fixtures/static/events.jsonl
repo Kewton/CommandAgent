@@ -1,3 +1,3 @@
 {"event":"run_start","workspace_root":"/tmp/cm0/static","provider":"ollama","model":"local-model","schema_version":"1"}
-{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"static","failure_kind":"","time_profile_total_ms":800,"schema_version":"1"}
-{"event":"run_stop","ok":true,"status":"completed","assurance_level":"static","schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","failure_kind":"","time_profile_total_ms":800,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","schema_version":"1"}
