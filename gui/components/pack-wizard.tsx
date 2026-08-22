@@ -561,8 +561,14 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
           {lifecycle === "pinned" && (
             <div className="pack-pinned-state" data-testid="pack-wizard-pinned" role="status">
               <strong>pinned — 編集不可</strong>
-              <p>ファイルと pin は固定されました。Trial はこの id@version と hash を再取得します。</p>
-              <a className="pack-trial-link" data-testid="pack-wizard-trial-link" href={trialHref}>Trial で使う ↗</a>
+              {intent === "create" ? (
+                <>
+                  <p>ファイルと pin は固定されました。Trial はこの id@version と hash を再取得します。</p>
+                  <a className="pack-trial-link" data-testid="pack-wizard-trial-link" href={trialHref}>Trial で使う ↗</a>
+                </>
+              ) : (
+                <p>ファイルと pin は固定されました。この intent は現在の Trial では選択できません。</p>
+              )}
               <details className="pack-retire-panel">
                 <summary>この version を退役させる</summary>
                 <p>退役は取り消せません。bytes、pin、journal は保存され、Trial では選択できなくなります。</p>

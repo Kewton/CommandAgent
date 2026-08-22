@@ -26,6 +26,7 @@ const fixtureRoot = resolve(
     join(repositoryRoot, "tests/corpus/apps/test0725_cli_elev_003/fixtures"),
 );
 const model = valueArgument(arguments_, "--model") ?? "qwen3:8b";
+const japaneseSampleGoal = "--pattern で行を絞り込む CLI コマンドを作ってください";
 const trialCredential = process.env.GUI_TRIAL_TOKEN ?? randomBytes(32).toString("hex");
 const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ?? 1_800_000);
 const expectedNextjsAcmeHash = "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0";
@@ -634,11 +635,20 @@ async function runCase(smokeCase) {
       pack: await page.locator("[data-testid='trial-pack']").inputValue(),
       primer: await page.locator("[data-testid='gate-one-primer']").innerText(),
     };
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='trial-executor-model']").fill(model);
+    await page.locator("[data-testid='trial-planner-model']").fill(model);
+    await page.locator("[data-testid='check-contract']").click();
+    const sampleGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
+    const sampleIdentityUnchanged =
+      sampleGateOne.includes("新しい機能を作成 (create)") &&
+      sampleGateOne.includes("絞り込み (filter)");
     const samplePresetOk =
-      samplePreset.goal === "Create a CLI --pattern filter command" &&
+      samplePreset.goal === japaneseSampleGoal &&
       samplePreset.profile === "python-cli" &&
       samplePreset.pack === "cli-assist@1.0.0" &&
-      samplePreset.primer.includes("Gate 1 は CLI 実行前の確認です");
+      samplePreset.primer.includes("Gate 1 は CLI 実行前の確認です") &&
+      sampleIdentityUnchanged;
     await page.goBack({ waitUntil: "networkidle" });
     await gettingStarted.waitFor();
     await page.locator("[data-testid='getting-started-close']").click();
@@ -652,12 +662,22 @@ async function runCase(smokeCase) {
       dashboardHelpCopy &&
       samplePresetOk &&
       dismissalPersistsInTab;
+    const trialComposeRegression = await probeTrialComposeRegression(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
     dashboard.getting_started = {
       mapped_help_copy_visible: dashboardHelpCopy,
       prerequisite_statuses: prerequisiteStatuses,
       sample_preset: samplePreset,
+      sample_gate_one: {
+        identity_is_create_filter: sampleIdentityUnchanged,
+        visible_text: sampleGateOne,
+      },
       dismissal_persists_in_tab: dismissalPersistsInTab,
     };
+    dashboard.trial_compose_regression = trialComposeRegression;
 
     await page.screenshot({
       fullPage: true,
@@ -681,6 +701,7 @@ async function runCase(smokeCase) {
           dashboardAccessible &&
           dashboardPassesAxe &&
           gettingStartedOk &&
+          trialComposeRegression.ok &&
           consoleErrors.length === 0,
       };
     }
@@ -707,6 +728,7 @@ async function runCase(smokeCase) {
       dashboardAccessible &&
       dashboardPassesAxe &&
       gettingStartedOk &&
+      trialComposeRegression.ok &&
       assets.status === 200 &&
       assets.headingMatches &&
       assets.titleMatches &&
@@ -1855,6 +1877,176 @@ async function probeRunSelectionOwnership(page, runSummaries) {
   }
 }
 
+async function probeTrialComposeRegression(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  const discoveredModels = ["exact-local-model", "second-local-model"];
+  const incompatibleSelector = "synthetic-fix-only@1.0.0";
+  const providerRequests = [];
+  try {
+    await page.route("**/api/provider-models?*", async (route) => {
+      const provider = new URL(route.request().url()).searchParams.get("provider");
+      providerRequests.push(provider);
+      if (provider === "ollama") {
+        await route.fulfill({
+          body: JSON.stringify(discoveredModels),
+          contentType: "application/json",
+          status: 200,
+        });
+      } else {
+        await route.fulfill({
+          body: JSON.stringify({ code: "synthetic_discovery_failure" }),
+          contentType: "application/json",
+          status: 503,
+        });
+      }
+    });
+    await page.route("**/api/packs", async (route) => {
+      const response = await route.fetch();
+      const packs = await response.json();
+      packs.push({
+        expected_hash: "sha256:synthetic-fix-only",
+        has_assist: true,
+        has_eval: true,
+        hash_matches_pin: true,
+        id: "synthetic-fix-only",
+        intent: "fix",
+        observed_hash: "sha256:synthetic-fix-only",
+        path: "synthetic/synthetic-fix-only/1.0.0",
+        pin: "sha256:synthetic-fix-only",
+        profile: "nextjs",
+        retired: false,
+        shadowing_repository: false,
+        source: "local",
+        source_label: "ローカル（合成テスト）",
+        trial_eligible: true,
+        version: "1.0.0",
+        warning: null,
+      });
+      await route.fulfill({ response, json: packs });
+    });
+    await page.route("**/api/pack-options", async (route) => {
+      const response = await route.fetch();
+      const options = await response.json();
+      options.packs.push({
+        hash: "sha256:synthetic-fix-only",
+        id: "synthetic-fix-only",
+        intent: "fix",
+        point: "synthetic-fix",
+        profile: "nextjs",
+        source: "local",
+        source_label: "ローカル（合成テスト）",
+        version: "1.0.0",
+      });
+      await route.fulfill({ response, json: options });
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}assets/`, origin).href, { waitUntil: "networkidle" });
+    const incompatibleRow = page
+      .locator("[data-testid='extension-pack-row']")
+      .filter({ hasText: incompatibleSelector });
+    await incompatibleRow.waitFor();
+    const incompatibleCatalogLinkHidden =
+      (await incompatibleRow.locator("[data-testid='pack-trial-link']").count()) === 0;
+
+    const trialUrl = new URL(`${prefix}try/`, origin);
+    trialUrl.searchParams.set("pack", incompatibleSelector);
+    await page.goto(trialUrl.href, { waitUntil: "networkidle" });
+    const packWarning = page.locator("[data-testid='trial-pack-preselection-warning']");
+    await packWarning.waitFor();
+    const incompatiblePack = {
+      selected_value: await page.locator("[data-testid='trial-pack']").inputValue(),
+      profile: await page.locator("[data-testid='trial-profile']").inputValue(),
+      warning: await packWarning.innerText(),
+    };
+
+    const datalist = page.locator("#trial-provider-model-options option");
+    await datalist.first().waitFor({ state: "attached" });
+    const candidateValues = await datalist.evaluateAll((options) =>
+      options.map((option) => option.value),
+    );
+    const executor = page.locator("[data-testid='trial-executor-model']");
+    const planner = page.locator("[data-testid='trial-planner-model']");
+    const inputLists = {
+      executor: await executor.getAttribute("list"),
+      planner: await planner.getAttribute("list"),
+    };
+    await executor.fill("unknown-local-model");
+    await planner.fill("unknown-local-model");
+    const unknownWarnings = {
+      executor: await page.locator("[data-testid='trial-executor-model-warning']").innerText(),
+      planner: await page.locator("[data-testid='trial-planner-model-warning']").innerText(),
+    };
+    await executor.fill(discoveredModels[0]);
+    await planner.fill(discoveredModels[0]);
+    const exactCandidatesClearWarnings =
+      (await page.locator("[data-testid$='-model-warning']").count()) === 0;
+
+    await page.locator("[data-testid='trial-provider']").selectOption("lm-studio");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#trial-provider-model-options option").length === 0,
+    );
+    await executor.fill("manual-fallback-model");
+    await planner.fill("manual-fallback-model");
+    const failedDiscoveryAllowsManualEntry =
+      (await page.locator("[data-testid$='-model-warning']").count()) === 0;
+    await page.locator("[data-testid='trial-provider']").selectOption("openai");
+    await page.waitForTimeout(50);
+    const cloudProviderSkippedDiscovery = !providerRequests.includes("openai");
+
+    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    const requestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return request.method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    const responsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    await page.locator("[data-testid='check-contract']").click();
+    const [proposalRequest, proposalResponse] = await Promise.all([
+      requestPromise,
+      responsePromise,
+    ]);
+    const proposalBody = proposalRequest.postDataJSON();
+    const incompatiblePackNormalized =
+      incompatiblePack.selected_value === "" &&
+      incompatiblePack.profile === "python-cli" &&
+      incompatiblePack.warning.includes("現在の profile / intent では選べません") &&
+      proposalBody.pack === null &&
+      proposalResponse.status() === 200;
+
+    return {
+      cloud_provider_skipped_discovery: cloudProviderSkippedDiscovery,
+      discovered_candidates: candidateValues,
+      exact_candidates_clear_warnings: exactCandidatesClearWarnings,
+      failed_discovery_allows_manual_entry: failedDiscoveryAllowsManualEntry,
+      incompatible_catalog_link_hidden: incompatibleCatalogLinkHidden,
+      incompatible_pack: incompatiblePack,
+      incompatible_pack_normalized: incompatiblePackNormalized,
+      input_lists: inputLists,
+      proposal_pack: proposalBody.pack,
+      proposal_status: proposalResponse.status(),
+      provider_requests: providerRequests,
+      unknown_warnings: unknownWarnings,
+      ok:
+        incompatibleCatalogLinkHidden &&
+        incompatiblePackNormalized &&
+        JSON.stringify(candidateValues) === JSON.stringify(discoveredModels) &&
+        inputLists.executor === "trial-provider-model-options" &&
+        inputLists.planner === "trial-provider-model-options" &&
+        unknownWarnings.executor.includes("取得済みの候補にありません") &&
+        unknownWarnings.planner.includes("取得済みの候補にありません") &&
+        exactCandidatesClearWarnings &&
+        failedDiscoveryAllowsManualEntry &&
+        cloudProviderSkippedDiscovery,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
 async function probeTrialFeedback(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const sessionId = "0198b9c8-fab8-7000-8000-000000000069";
@@ -2023,7 +2215,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
       ok:
         elapsedChanged &&
         elapsedPreservedAfterReconnect &&
-        sampleGoal === "Create a CLI --pattern filter command" &&
+        sampleGoal === japaneseSampleGoal &&
         sampleConsumedBeforeReload &&
         reloadAutomaticallyReconnected &&
         reloadOnlyGets &&

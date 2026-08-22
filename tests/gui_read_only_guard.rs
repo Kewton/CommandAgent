@@ -375,6 +375,10 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "option.source_label",
         "data-testid=\"trial-profile-description\"",
         "data-testid=\"trial-provider-model-hint\"",
+        "data-testid=\"trial-executor-model-warning\"",
+        "data-testid=\"trial-planner-model-warning\"",
+        "id=\"trial-provider-model-options\"",
+        "apiPath(\"provider-models\"",
         "data-testid=\"gate-one-primer\"",
         "プロバイダーを変更しても実行モデルは自動更新されません。",
         "契約を確認する前に、目標を入力してください。",
@@ -1050,6 +1054,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "{pack.source_label}",
         "{pack.expected_hash ?? \"未固定\"}",
         "{pack.observed_hash ?? \"算出不可\"}",
+        "pack.trial_eligible && pack.intent === \"create\"",
         "Trial で使う",
         "routePath(\"try\")",
     ] {
@@ -1063,6 +1068,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
     for required in [
         "packPreselectionApplied",
         "new URLSearchParams(window.location.search).get(\"pack\")",
+        "candidate.intent === \"create\"",
         "profile: option.profile, pack: selector",
     ] {
         assert!(
@@ -1074,6 +1080,9 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "probeExtensionCatalog(page)",
+        "probeTrialComposeRegression(",
+        "proposalBody.pack === null",
+        "incompatibleCatalogLinkHidden",
         "sourceLabels.includes(\"承認済み\")",
         "sourceLabels.includes(\"リポジトリ（未承認）\")",
         "selectedPack === selector",
@@ -1111,6 +1120,7 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
     let wizard = std::fs::read_to_string("gui/components/pack-wizard.tsx").unwrap();
     for required in [
         "対象セル",
+        "intent === \"create\" ? (",
         "出発点",
         "編集",
         "検証",

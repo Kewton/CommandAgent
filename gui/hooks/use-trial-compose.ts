@@ -72,7 +72,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     if (parameters.get("sample") === "python-cli") {
       setSpec((current) => ({
         ...current,
-        goal: "Create a CLI --pattern filter command",
+        goal: "--pattern で行を絞り込む CLI コマンドを作ってください",
         profile: "python-cli",
         pack: "cli-assist@1.0.0",
       }));
@@ -109,11 +109,15 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     packPreselectionApplied.current = true;
     const selector = new URLSearchParams(window.location.search).get("pack");
     const option = packOptions.packs.find(
-      (candidate) => `${candidate.id}@${candidate.version}` === selector,
+      (candidate) =>
+        candidate.intent === "create" && `${candidate.id}@${candidate.version}` === selector,
     );
-    if (selector !== null && option !== undefined) {
+    if (selector === null) return;
+    if (option !== undefined) {
       setSpec((current) => ({ ...current, profile: option.profile, pack: selector }));
+      return;
     }
+    setSpec((current) => ({ ...current, pack: null }));
   }, [packOptions]);
 
   const updateTrialToken = useCallback((value: string) => {
