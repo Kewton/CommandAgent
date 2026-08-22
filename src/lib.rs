@@ -147,6 +147,11 @@ fn run_config(config: Config) -> anyhow::Result<()> {
     let _presentation_guard = tui::presentation::install(&config);
     emit_run_start(&config);
     let direct_command_guard = DirectCommandCompletionGuard::start(&config);
+    if let Some(warning) =
+        tools::approval::startup_warning(&config.action, config.yes, tui::terminal::stdin_is_tty())
+    {
+        eprintln!("{warning}");
+    }
     #[cfg(test)]
     cli_panic_boundary::inject_test_fault_if_requested();
     let result = (|| -> anyhow::Result<()> {

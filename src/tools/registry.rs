@@ -80,8 +80,12 @@ impl ToolRegistry {
         G: Fn() -> bool,
     {
         enforce_mode(name, context.mode)?;
-        if is_mutating(name) && !context.auto_approve && !context.interactive_approval {
-            bail!("approval required for {name}; rerun with --yes or use interactive approval");
+        if is_mutating(name) {
+            super::approval::require_tool_approval(
+                name,
+                context.auto_approve,
+                context.interactive_approval,
+            )?;
         }
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
