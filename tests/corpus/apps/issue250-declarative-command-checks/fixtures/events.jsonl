@@ -1,0 +1,2 @@
+{"argv":["test","-s","index.html"],"check_id":"command_check","cwd":"workspace","event":"declarative_command_check_result","owner_id":"static-site","source":"draft_profile","status":"passed"}
+{"argv":["test","-f","index.html"],"check_id":"command_check","cwd":"workspace","event":"declarative_command_check_result","owner_id":"static-validation@1.0.0","source":"local_pack","status":"passed"}

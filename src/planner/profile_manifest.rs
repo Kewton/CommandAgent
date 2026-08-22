@@ -116,6 +116,16 @@ impl ManifestV1 {
         for (binding, checks) in &self.checks {
             let mut entries = Vec::with_capacity(checks.len());
             for (index, check) in checks.iter().enumerate() {
+                if check.id == crate::planner::declarative_command_checks::ID
+                    && check.phases.is_some()
+                {
+                    return Err(ManifestError::Invalid {
+                        field: "checks.<binding>[].phases",
+                        reason:
+                            "command_check is registered only for final acceptance; omit phases"
+                                .to_string(),
+                    });
+                }
                 let capability =
                     capability_catalog::resolve(&check.id, &check.params).map_err(|source| {
                         ManifestError::CheckBinding {

@@ -1,0 +1,17 @@
+schema_version: commandagent.pack.eval/v0
+pack:
+  id: static-validation
+  version: 1.0.0
+  profile: static-site
+  intent: create
+checks:
+  - id: command_check
+    at:
+      kind: final_acceptance
+    params:
+      argv: [test, -f, index.html]
+      cwd: workspace
+      expect:
+        exit_code: 0
+        stdout_regex: '^$'
+        max_bytes: 1024

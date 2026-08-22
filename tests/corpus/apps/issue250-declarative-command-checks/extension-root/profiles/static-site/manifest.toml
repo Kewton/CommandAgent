@@ -1,0 +1,16 @@
+[metadata]
+id = "static-site"
+display_name = "Static site"
+schema_version = "v2"
+task_family = "Quiz"
+[plan]
+intent = "create"
+phases = [{ id = "implementation", prompt = "Create the requested static site for {goal}." }]
+[artifacts]
+required = ["index.html"]
+[guidance.variants.static_site]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Keep the site self-contained and produce index.html." }
+[[checks.command]]
+id = "command_check"
+params = { argv = ["test", "-s", "index.html"], cwd = "workspace", expect = { exit_code = 0, stdout_regex = "^$", max_bytes = 1024 } }

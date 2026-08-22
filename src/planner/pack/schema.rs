@@ -321,7 +321,7 @@ impl CheckBinding {
         )?;
         if matches!(
             self.id.as_str(),
-            "path_layout_conforms" | "design_tokens_only" | "lint_config_present"
+            "path_layout_conforms" | "design_tokens_only" | "lint_config_present" | "command_check"
         ) && self.at != CheckAt::FinalAcceptance
         {
             return Err(format!(
@@ -682,7 +682,17 @@ pub(super) fn yaml_to_toml(value: &Value) -> Result<toml::Value, String> {
             .map(yaml_to_toml)
             .collect::<Result<Vec<_>, _>>()
             .map(toml::Value::Array),
-        _ => Err("pack params accept only strings, integers, and sequences".to_string()),
+        Value::Mapping(values) => {
+            let mut table = toml::value::Table::new();
+            for (name, value) in values {
+                let Value::String(name) = name else {
+                    return Err("pack param mapping keys must be strings".to_string());
+                };
+                table.insert(name.clone(), yaml_to_toml(value)?);
+            }
+            Ok(toml::Value::Table(table))
+        }
+        _ => Err("pack params accept only strings, integers, sequences, and mappings".to_string()),
     }
 }
 

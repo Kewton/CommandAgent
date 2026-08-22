@@ -408,6 +408,14 @@ fn validate_additions(overlay: &OverlayV1, base: &ManifestV1) -> Result<(), Stri
                 return Err(format!("check binding `{binding}` must declare a check"));
             }
             for check in entries {
+                if check.id == crate::planner::declarative_command_checks::ID
+                    && check.phases.is_some()
+                {
+                    return Err(
+                        "command_check is registered only for final acceptance; omit phases"
+                            .to_string(),
+                    );
+                }
                 reject_collision(&base_ids, &check.id, "check capability id")?;
                 if !overlay_check_ids.insert(check.id.clone()) {
                     return Err(format!("duplicate overlay check capability `{}`", check.id));

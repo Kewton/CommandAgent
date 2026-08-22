@@ -149,6 +149,14 @@ fn run_final_acceptance_checks(
         return Ok(None);
     };
     let pack = load_selected(selection, profile, intent)?;
+    run_final_acceptance_checks_for_pack(root, events_path, &pack)
+}
+
+fn run_final_acceptance_checks_for_pack(
+    root: &Path,
+    events_path: Option<&Path>,
+    pack: &LoadedPack,
+) -> anyhow::Result<Option<RuntimePackCheckSummary>> {
     let Some(eval) = &pack.eval else {
         return Ok(Some(RuntimePackCheckSummary {
             passed: true,
@@ -168,11 +176,31 @@ fn run_final_acceptance_checks(
         }
         let capability = crate::planner::capability_catalog::resolve(binding.id.as_str(), &params)
             .map_err(anyhow::Error::msg)?;
-        let crate::planner::capability_catalog::ResolvedCapability::Internal(
-            crate::planner::capability_catalog::InternalCapability::Pack(check),
-        ) = capability
-        else {
-            continue;
+        let check = match capability {
+            crate::planner::capability_catalog::ResolvedCapability::CommandCheck(check) => {
+                check_count += 1;
+                let owner = format!("{}@{}", pack.id(), pack.identity.version);
+                let summary = crate::planner::declarative_command_checks::run_and_record(
+                    root,
+                    &[
+                        crate::planner::declarative_command_checks::CommandCheckBinding {
+                            id: binding.id.as_str().to_string(),
+                            check,
+                        },
+                    ],
+                    events_path,
+                    "local_pack",
+                    &owner,
+                );
+                if !summary.passed && primary_reason.is_none() {
+                    primary_reason = summary.primary_reason();
+                }
+                continue;
+            }
+            crate::planner::capability_catalog::ResolvedCapability::Internal(
+                crate::planner::capability_catalog::InternalCapability::Pack(check),
+            ) => check,
+            _ => continue,
         };
         check_count += 1;
         let result = match super::checks::execute(root, &check) {
@@ -739,5 +767,70 @@ mod tests {
         );
         let emitted = std::fs::read_to_string(events).unwrap();
         assert_eq!(emitted.matches(r#""status":"failed""#).count(), 3);
+    }
+
+    #[test]
+    fn draft_local_pack_command_check_records_result_and_summary() {
+        let extension = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/issue250-declarative-command-checks/extension-root");
+        let identity = super::super::PackIdentity {
+            id: "static-validation".to_string(),
+            version: "1.0.0".to_string(),
+            profile: PackProfile::Draft("static-site"),
+            intent: PackIntent::Create,
+        };
+        let params = serde_yaml::from_str(
+            "argv: [test, -f, index.html]\ncwd: workspace\nexpect:\n  exit_code: 0\n  stdout_regex: '^$'\n  max_bytes: 1024\n",
+        )
+        .unwrap();
+        let pack = LoadedPack {
+            identity: identity.clone(),
+            hash: "sha256:test-command-check".to_string(),
+            assist: None,
+            eval: Some(super::super::EvalPackDocument {
+                pack: identity,
+                checks: vec![super::super::CheckBinding {
+                    id: serde_yaml::from_str("command_check").unwrap(),
+                    at: super::super::schema::CheckAt::FinalAcceptance,
+                    extraction: Vec::new(),
+                    normalizers: Vec::new(),
+                    params,
+                }],
+                schemas: Vec::new(),
+                score: None,
+            }),
+            materials: Default::default(),
+        };
+        super::super::conform(&pack).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "index.html", "<title>Green Tea</title>");
+        let events = root.path().join("run/events.jsonl");
+
+        let summary = run_final_acceptance_checks_for_pack(root.path(), Some(&events), &pack)
+            .unwrap()
+            .unwrap();
+        assert!(summary.passed);
+        assert_eq!(summary.check_count, 1);
+        let emitted = std::fs::read_to_string(&events).unwrap();
+        assert!(emitted.contains(r#""event":"declarative_command_check_result""#));
+        assert!(emitted.contains(r#""source":"local_pack""#));
+        let rendered =
+            std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(rendered.contains("local_pack `static-validation@1.0.0`"));
+        assert!(rendered.contains("1/1 passed"));
+
+        let eval =
+            std::fs::read_to_string(extension.join("packs/static-validation/1.0.0/eval.yaml"))
+                .unwrap();
+        let escaped = eval
+            .replace("profile: static-site", "profile: nextjs")
+            .replace(
+                "argv: [test, -f, index.html]",
+                "argv: [sh, -c, 'test -f index.html']",
+            );
+        let error = super::super::parse_bytes(None, Some(escaped.as_bytes()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("shell interpreters"), "{error}");
     }
 }

@@ -228,6 +228,15 @@ pub trait DomainProfile: Sync {
         VerificationReport::pass()
     }
 
+    fn verify_final_with_events(
+        &self,
+        root: &Path,
+        goal: &str,
+        _eval_events_path: Option<&Path>,
+    ) -> VerificationReport {
+        self.verify_final(root, goal)
+    }
+
     fn verify_invariant(
         &self,
         _root: &Path,

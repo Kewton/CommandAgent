@@ -49,6 +49,13 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         audit: audit_bounded_execution_chokepoints,
     },
     ProtectionRule {
+        category: "declarative_command_check_boundary",
+        site_predicate: "draft-profile and local-pack command checks",
+        required_wrapper: "verify policy / normalized env / bounded process",
+        allowlist: &["src/planner/declarative_command_checks.rs"],
+        audit: audit_declarative_command_check_boundary,
+    },
+    ProtectionRule {
         category: "fetch_network_boundary",
         site_predicate: "network fetch transport and dispatch",
         required_wrapper: "fetch_probe / bounded_process",
@@ -161,6 +168,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         "compile_output_source_of_truth",
         "verify_normalization_boundary",
         "bounded_execution_chokepoints",
+        "declarative_command_check_boundary",
         "fetch_network_boundary",
         "provider_timeout_enforcement",
         "workspace_policy_tool_paths",
@@ -317,6 +325,29 @@ fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, rule: &ProtectionRu
             {
                 in_test_mod = true;
             }
+        }
+    }
+    violations
+}
+
+fn audit_declarative_command_check_boundary(
+    corpus: &AuditCorpus,
+    rule: &ProtectionRule,
+) -> Vec<String> {
+    let path = rule.allowlist[0];
+    let source = corpus.file(path);
+    let mut violations = Vec::new();
+    for required in [
+        "normalize_verify_command(&rendered)",
+        "verifier_env::normalized_command_at_root",
+        "bounded_process::run_with_timeout",
+        "const FIXED_TIMEOUT:",
+        "shell interpreters are not registered",
+        "must stay workspace-relative",
+        "command output exceeded max_bytes",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
         }
     }
     violations

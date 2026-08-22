@@ -1,6 +1,7 @@
 pub mod adjudication;
 pub mod capability_catalog;
 pub mod contract_attribute_repair;
+pub(crate) mod declarative_command_checks;
 pub mod extension_profiles;
 pub(crate) mod external_reproducer;
 pub(crate) mod failure_vocabulary;

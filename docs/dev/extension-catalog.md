@@ -6,7 +6,10 @@ supply and naming are documented in [`docs/user/gui-extensions.md`](../user/gui-
 ## Add a pack source or check
 
 Pack YAML is declarative and may reference only registered capabilities. Never
-register a free-form shell or logic-bearing template.
+register a free-form shell or logic-bearing template. The registered
+`command_check` is the narrow exception for external draft profiles: it takes
+direct `argv`, literal `cwd: workspace`, and a typed expectation table, while
+rejecting shell strings and interpreter-eval escape hatches.
 
 1. Add the typed capability implementation in the appropriate leaf module
    under `src/planner/capability_catalog/`, or use the existing pack/data/CLI
@@ -16,7 +19,10 @@ register a free-form shell or logic-bearing template.
    parameters closed; unknown values must fail.
 3. If it is a guidance source, bind it through pack vocabulary/schema and a
    bounded renderer. If it is a check, bind it through the typed internal
-   check executor. Do not put logic in YAML or Markdown.
+   check executor. Draft-profile `command_check` declarations must additionally
+   pass the compiled verify policy, workspace confinement, fixed timeout, and
+   output bound in `declarative_command_checks`. Do not put logic in YAML or
+   Markdown.
 4. Add the vocabulary/schema rejection tests first, then positive resolver and
    execution tests. Update `tests/golden/` when exact rendered output or a
    manifest hash is an intentional contract change.

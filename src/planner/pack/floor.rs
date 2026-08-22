@@ -98,7 +98,11 @@ fn validate_additive(
     identity: &PackIdentity,
     binding: &CheckBinding,
 ) -> Result<FloorCheck, ConformanceError> {
-    if identity.profile != PackProfile::Nextjs || identity.intent != PackIntent::Create {
+    if !matches!(
+        identity.profile,
+        PackProfile::Nextjs | PackProfile::Draft(_)
+    ) || identity.intent != PackIntent::Create
+    {
         return Err(ConformanceError::FloorViolation(format!(
             "check `{}` is not part of the registered {} × {} contract floor",
             binding.id.as_str(),
@@ -116,12 +120,19 @@ fn validate_additive(
         )));
     }
     let capability = resolve_binding(binding)?;
-    if !matches!(
-        capability,
-        Some(ResolvedCapability::Internal(
-            crate::planner::capability_catalog::InternalCapability::Pack(_)
-        ))
-    ) {
+    let registered_addition = match identity.profile {
+        PackProfile::Nextjs => matches!(
+            &capability,
+            Some(ResolvedCapability::Internal(
+                crate::planner::capability_catalog::InternalCapability::Pack(_)
+            ))
+        ),
+        PackProfile::Draft(_) => {
+            matches!(&capability, Some(ResolvedCapability::CommandCheck(_)))
+        }
+        _ => false,
+    };
+    if !registered_addition {
         return Err(ConformanceError::FloorViolation(format!(
             "check `{}` is not registered as an additive pack check",
             binding.id.as_str()

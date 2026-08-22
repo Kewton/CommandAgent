@@ -207,6 +207,7 @@ impl CheckId {
             "path_layout_conforms",
             "design_tokens_only",
             "lint_config_present",
+            "command_check",
         ];
         let profile_registered = PROFILE_IDS.contains(&value)
             && crate::planner::capability_catalog::registry()
