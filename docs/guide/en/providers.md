@@ -7,6 +7,26 @@ CommandAgent supports separate executor and planner roles. `--provider` and
 configure planning. If the provider roles match, the planner inherits the
 executor model unless it is overridden.
 
+## Choose models by role
+
+Do not infer a role recommendation from parameter count alone. Measure the
+executor, planner, and classifier together with the fixed
+[role-pair model probe](model-probe.md#role-pair-procedure), then run the
+required smoke and full-scenario checks. The classifier has no CLI model flag;
+set `classifier_model` and `classifier_provider` in the selected preset.
+
+For the exact local Ollama setup measured on 2026-08-22, the supported starting
+combination is `qwen3.8:27b-mlx` for executor and planner plus `qwen3.5:4b` for
+the classifier. The 4B classifier completed 4/4 observed classifier tasks in
+the relevant arms and took 176–304 ms in the final hybrid. A smaller planner is
+not recommended from that evidence: warm 9B was slower than 27B, and 4B met the
+planner JSON contract in only 1/2 observations. See the [measured record and
+exact model digests](../model-probe-results/2026-08-22-local-role-pairs.md).
+
+This is a digest-, host-, context-, and build-specific probe/smoke starting
+point, not a built-in default or a universal quality tier. Re-measure before
+adoption when any of those inputs changes.
+
 ## Provider matrix
 
 | Provider | CLI value | Required key | Obtain/setup | CommandAgent endpoint | Configuration |

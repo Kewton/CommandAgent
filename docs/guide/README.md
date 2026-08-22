@@ -35,8 +35,8 @@ Recommended route / 推奨順路:
 - [Providers](en/providers.md) — Ollama, LM Studio, OpenAI, and Gemini setup
 - [Troubleshooting](en/troubleshooting.md) — common startup, provider, and TUI
   problems
-- [Model behavior probe](model-probe.md) — the bounded provider/model
-  measurement workflow
+- [Model behavior probe](en/model-probe.md) — the bounded role-specific
+  provider/model measurement workflow
 
 Start with the [project README](../../README.md) for installation and a short
 walkthrough. Read the [security model](../../SECURITY.md) before enabling
@@ -58,7 +58,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数
 - [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
 - [トラブルシューティング](ja/troubleshooting.md) — 起動時、プロバイダ、TUI の一般的な問題
-- [モデル動作プローブ](model-probe.md) — プロバイダ／モデルを限定的に測定する手順
+- [モデル動作プローブ](ja/model-probe.md) — 役割別のプロバイダ／モデルを限定的に測定する手順
 
 インストールと短いチュートリアルは[プロジェクト README](../../README.ja.md)から始めてください。
 `--yes` を有効にする前や新しいワークスペースで使う前に、
