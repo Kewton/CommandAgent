@@ -19,6 +19,25 @@ pub struct BandValue {
     pub full_meaning: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BandDurationEstimate {
+    pub profile: &'static str,
+    pub intent: IntentId,
+    pub family: TaskFamilyId,
+    pub sample_count: u16,
+    pub total_seconds: u64,
+}
+
+impl BandDurationEstimate {
+    pub fn average_seconds(self) -> f64 {
+        self.total_seconds as f64 / f64::from(self.sample_count)
+    }
+
+    pub fn average_minutes(self) -> f64 {
+        self.average_seconds() / 60.0
+    }
+}
+
 const NEXTJS_MEANING: &str = "build + real-browser route, interaction, and state-change evidence; T1 testimony binding is active, with violations failing and claims_absent/unrecognized prose recorded without promotion.";
 const DATA_MEANING: &str = "pipeline execution plus E1 inspection, E2 claim binding, E3 rerun consistency, and E4 schema conformance; testimony binding is active as E2.";
 const CLI_MEANING: &str = "C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.";
@@ -185,6 +204,56 @@ pub const BAND_VALUES: &[BandValue] = &[
     ),
 ];
 
+// These are the formal duration rows used by GUI Gate 1 at this catalog
+// measurement. Keeping the frozen totals here makes the CLI estimate available
+// outside the CommandAgent source checkout without reparsing evidence files.
+pub const BAND_DURATION_ESTIMATES: &[BandDurationEstimate] = &[
+    duration(
+        PYTHON_CLI_PROFILE_ID,
+        IntentId::Create,
+        TaskFamilyId::Stats,
+        3,
+        1_896,
+    ),
+    duration(
+        PYTHON_CLI_PROFILE_ID,
+        IntentId::Create,
+        TaskFamilyId::Filter,
+        3,
+        1_843,
+    ),
+    duration(
+        INGEST_PROFILE_ID,
+        IntentId::Create,
+        TaskFamilyId::List,
+        3,
+        83,
+    ),
+    duration(
+        INGEST_PROFILE_ID,
+        IntentId::Create,
+        TaskFamilyId::Table,
+        3,
+        109,
+    ),
+];
+
+const fn duration(
+    profile: &'static str,
+    intent: IntentId,
+    family: TaskFamilyId,
+    sample_count: u16,
+    total_seconds: u64,
+) -> BandDurationEstimate {
+    BandDurationEstimate {
+        profile,
+        intent,
+        family,
+        sample_count,
+        total_seconds,
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "a band row is a fixed ten-field displayed identity"
@@ -225,6 +294,28 @@ pub fn value_for(
         .find(|value| value.profile == profile && value.intent == intent && value.family == family)
 }
 
+pub fn duration_for(
+    profile: &str,
+    intent: IntentId,
+    family: TaskFamilyId,
+) -> Option<&'static BandDurationEstimate> {
+    BAND_DURATION_ESTIMATES.iter().find(|estimate| {
+        estimate.profile == profile && estimate.intent == intent && estimate.family == family
+    })
+}
+
+pub fn duration_for_labels(
+    profile: &str,
+    intent: &str,
+    family: &str,
+) -> Option<&'static BandDurationEstimate> {
+    BAND_DURATION_ESTIMATES.iter().find(|estimate| {
+        estimate.profile == profile
+            && estimate.intent.as_str() == intent
+            && estimate.family.as_str() == family
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +336,40 @@ mod tests {
             assert!(!matches[0].full_meaning.is_empty());
             assert!(matches[0].denominator > 0);
         }
+    }
+
+    #[test]
+    fn duration_estimates_are_positive_unique_registered_band_rows() {
+        for (index, estimate) in BAND_DURATION_ESTIMATES.iter().enumerate() {
+            assert!(estimate.sample_count > 0, "{estimate:?}");
+            assert!(estimate.total_seconds > 0, "{estimate:?}");
+            assert!(
+                value_for(estimate.profile, estimate.intent, estimate.family).is_some(),
+                "{estimate:?}"
+            );
+            assert!(
+                BAND_DURATION_ESTIMATES[index + 1..].iter().all(|other| (
+                    other.profile,
+                    other.intent,
+                    other.family
+                ) != (
+                    estimate.profile,
+                    estimate.intent,
+                    estimate.family
+                )),
+                "duplicate duration estimate: {estimate:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn duration_lookup_preserves_measured_and_unmeasured_bands() {
+        let stats =
+            duration_for(PYTHON_CLI_PROFILE_ID, IntentId::Create, TaskFamilyId::Stats).unwrap();
+        assert_eq!(stats.sample_count, 3);
+        assert_eq!(stats.total_seconds, 1_896);
+        assert!((stats.average_minutes() - 10.533_333).abs() < 0.000_001);
+
+        assert!(duration_for(NEXTJS_PROFILE_ID, IntentId::Create, TaskFamilyId::Quiz).is_none());
     }
 }
