@@ -328,7 +328,7 @@ pub fn render_status_card(config: &Config) -> String {
         format!("- Model: {} ({})", config.model, config.field_sources.model),
         format!(
             "- Provider: {} ({})",
-            provider_label(config.provider),
+            config.provider_label(crate::config::ProviderRole::Executor),
             config.field_sources.provider
         ),
         format!(
@@ -337,7 +337,7 @@ pub fn render_status_card(config: &Config) -> String {
         ),
         format!(
             "- Planner provider: {} ({})",
-            provider_label(config.planner_provider),
+            config.provider_label(crate::config::ProviderRole::Planner),
             config.field_sources.planner_provider
         ),
         format!(
@@ -1088,10 +1088,6 @@ fn status_scope(runtime: Option<&crate::tui::status_bus::RuntimeStatus>) -> Stri
     runtime.stage.clone().unwrap_or_else(|| "idle".to_string())
 }
 
-fn provider_label(provider: crate::config::Provider) -> &'static str {
-    provider.as_str()
-}
-
 fn narration_label(mode: NarrationMode) -> &'static str {
     match mode {
         NarrationMode::Normal => "normal",
@@ -1625,6 +1621,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "planner".to_string(),
             classifier_provider: Provider::Gemini,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

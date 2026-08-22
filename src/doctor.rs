@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::Cli;
-use crate::config::{Config, OllamaThink, OpenAiApi, Provider};
+use crate::config::{Config, OllamaThink, OpenAiApi, Provider, ProviderCliOptions, ProviderRole};
 use crate::minimal_loop::interaction_probe::{
     INTERACTION_PROBE_SETUP_REMEDIATION, ProbeAvailability,
 };
@@ -130,8 +130,15 @@ impl DoctorReport {
 }
 
 pub fn run_cli(cli: Cli) -> anyhow::Result<()> {
+    run_cli_with_provider_options(cli, ProviderCliOptions::default())
+}
+
+pub fn run_cli_with_provider_options(
+    cli: Cli,
+    provider_options: ProviderCliOptions,
+) -> anyhow::Result<()> {
     let render_json = cli.json;
-    let report = diagnose_cli(&cli)?;
+    let report = diagnose_cli_with_provider_options(&cli, provider_options)?;
     if render_json {
         println!("{}", report.render_json()?);
     } else {
@@ -144,6 +151,13 @@ pub fn run_cli(cli: Cli) -> anyhow::Result<()> {
 }
 
 pub fn diagnose_cli(cli: &Cli) -> anyhow::Result<DoctorReport> {
+    diagnose_cli_with_provider_options(cli, ProviderCliOptions::default())
+}
+
+pub fn diagnose_cli_with_provider_options(
+    cli: &Cli,
+    provider_options: ProviderCliOptions,
+) -> anyhow::Result<DoctorReport> {
     let requested_root = cli
         .cwd
         .clone()
@@ -151,7 +165,7 @@ pub fn diagnose_cli(cli: &Cli) -> anyhow::Result<DoctorReport> {
     let root = requested_root
         .canonicalize()
         .unwrap_or_else(|_| requested_root.clone());
-    let resolved = Config::from_cli(cli.clone());
+    let resolved = Config::from_cli_with_provider_options(cli.clone(), provider_options);
     let fallback_state_dir = cli
         .state_dir
         .clone()
@@ -339,7 +353,7 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         checks,
         "config.provider",
         "Provider",
-        provider_label(config.provider),
+        config.provider_label(ProviderRole::Executor),
         &config.field_sources.provider,
     );
     add_setting_check(
@@ -353,7 +367,7 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         checks,
         "config.planner_provider",
         "Planner provider",
-        provider_label(config.planner_provider),
+        config.provider_label(ProviderRole::Planner),
         &config.field_sources.planner_provider,
     );
     checks.push(context_budget_check(
@@ -602,15 +616,28 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
     }
 
     let lm_studio_roles = [
-        ("executor", config.provider, config.model.as_str()),
+        (
+            "executor",
+            ProviderRole::Executor,
+            config.provider,
+            config.model.as_str(),
+        ),
         (
             "planner",
+            ProviderRole::Planner,
             config.planner_provider,
             config.planner_model.as_str(),
         ),
     ]
     .into_iter()
-    .filter_map(|(role, provider, model)| (provider == Provider::LmStudio).then_some((role, model)))
+    .filter_map(|(name, role, provider, model)| {
+        (provider == Provider::LmStudio
+            && !config
+                .openai_compatible
+                .as_ref()
+                .is_some_and(|compatible| compatible.applies_to(role)))
+        .then_some((name, model))
+    })
     .collect::<Vec<_>>();
     if !lm_studio_roles.is_empty() {
         let api_token =
@@ -635,6 +662,66 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             &config.lm_studio_host,
             api_token,
             &lm_studio_roles,
+        ));
+    }
+
+    if let Some(compatible) = &config.openai_compatible {
+        let roles = [
+            ("executor", ProviderRole::Executor, config.model.as_str()),
+            (
+                "planner",
+                ProviderRole::Planner,
+                config.planner_model.as_str(),
+            ),
+            (
+                "classifier",
+                ProviderRole::Classifier,
+                config.classifier_model.as_str(),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, role, model)| compatible.applies_to(role).then_some((name, model)))
+        .collect::<Vec<_>>();
+        let api_token = compatible
+            .api_key_env
+            .as_deref()
+            .and_then(|name| std::env::var(name).ok())
+            .filter(|value| !value.trim().is_empty());
+        checks.push(DoctorCheck::new(
+            "provider.openai_compatible.api_key",
+            "provider",
+            "OpenAI-compatible key",
+            if compatible.api_key_env.is_some() && api_token.is_none() {
+                CheckStatus::Fail
+            } else {
+                CheckStatus::Pass
+            },
+            compatible.api_key_env.as_deref().map_or_else(
+                || "not configured (optional for unauthenticated servers)".to_string(),
+                |name| {
+                    if api_token.is_some() {
+                        format!("configured in process environment variable {name}")
+                    } else {
+                        format!("{name} is not set in the process environment")
+                    }
+                },
+            ),
+            compatible.api_key_env.as_deref().and_then(|name| {
+                api_token
+                    .is_none()
+                    .then(|| format!("set {name} in the process environment or remove api_key_env"))
+            }),
+            json!({
+                "configured": api_token.is_some(),
+                "environment_variable": compatible.api_key_env,
+                "source": "process_environment",
+            }),
+        ));
+        checks.extend(openai_compatible_checks(
+            &compatible.base_url,
+            compatible.api_key_env.clone(),
+            api_token,
+            &roles,
         ));
     }
 
@@ -1015,6 +1102,91 @@ fn lm_studio_checks(
     }
 }
 
+fn openai_compatible_checks(
+    base_url: &str,
+    api_key_env: Option<String>,
+    api_token: Option<String>,
+    roles: &[(&str, &str)],
+) -> Vec<DoctorCheck> {
+    let client = crate::providers::lm_studio::LmStudioClient::new_openai_compatible(
+        base_url.to_string(),
+        api_key_env.clone(),
+        api_token,
+        OLLAMA_TIMEOUT.as_secs(),
+        1,
+        0,
+        OpenAiApi::ChatCompletions,
+        None,
+    );
+    match client.and_then(|client| client.list_models()) {
+        Ok(models) => {
+            let mut checks = vec![DoctorCheck::new(
+                "provider.openai_compatible.reachable",
+                "provider",
+                "OpenAI-compatible",
+                CheckStatus::Pass,
+                format!(
+                    "{base_url}/v1/models reachable; {} visible model(s)",
+                    models.len()
+                ),
+                None,
+                json!({ "base_url": base_url, "reachable": true, "model_count": models.len() }),
+            )];
+            for (role, model) in roles {
+                let present = models.iter().any(|candidate| candidate == model);
+                checks.push(DoctorCheck::new(
+                    format!("provider.openai_compatible.{role}_model"),
+                    "provider",
+                    format!("OpenAI-compatible {role} model"),
+                    if present {
+                        CheckStatus::Pass
+                    } else {
+                        CheckStatus::Fail
+                    },
+                    if present {
+                        format!("{model} is visible in /v1/models")
+                    } else {
+                        format!("{model} is absent from /v1/models")
+                    },
+                    (!present).then(|| {
+                        format!(
+                            "serve '{model}' at the configured base URL or choose a visible model"
+                        )
+                    }),
+                    json!({ "role": role, "model": model, "present": present }),
+                ));
+            }
+            checks
+        }
+        Err(error) => {
+            let message = single_line(format!("{error:#}"));
+            let authentication_failed = message.contains("401") || message.contains("403");
+            vec![DoctorCheck::new(
+                "provider.openai_compatible.reachable",
+                "provider",
+                "OpenAI-compatible",
+                CheckStatus::Fail,
+                format!("{base_url}/v1/models unreachable ({message})"),
+                Some(if authentication_failed {
+                    api_key_env.map_or_else(
+                        || "configure server authentication or verify that the endpoint permits unauthenticated access".to_string(),
+                        |name| format!("set {name} in the process environment to a valid API key"),
+                    )
+                } else {
+                    "start the server and verify --base-url, networking, and firewall settings"
+                        .to_string()
+                }),
+                json!({
+                    "base_url": base_url,
+                    "reachable": false,
+                    "authentication_failed": authentication_failed,
+                    "error": message,
+                }),
+            )]
+        }
+    }
+}
+
 fn credential_check_with(
     key: &str,
     id: &str,
@@ -1344,10 +1516,6 @@ fn source_class(source: &str) -> &'static str {
     } else {
         "default"
     }
-}
-
-fn provider_label(provider: Provider) -> &'static str {
-    provider.as_str()
 }
 
 fn status_label(status: CheckStatus) -> &'static str {

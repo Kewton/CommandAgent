@@ -19,7 +19,7 @@
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-58 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+60 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -36,7 +36,9 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--pack-pin` | `<DIR>` | なし | green conformance 後に `pack.sha256` を作成し、同一 pin は変更せず、古い pin は拒否します。 | [排他関係](#排他関係と組み合わせ) |
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini`、`openai-compatible` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--base-url` | `<URL>` | なし | 汎用 OpenAI 互換プロバイダの base URL を設定します。末尾の `/v1` は正規化されます。 | [汎用 OpenAI 互換 server](providers.md#汎用-openai-互換-server) |
+| `--api-key-env` | `<NAME>` | なし | OpenAI 互換 bearer token を読み取る、このプロセスの環境変数名を設定します。 | [汎用 OpenAI 互換 server](providers.md#汎用-openai-互換-server) |
 | `--api` | `<chat-completions\|responses>` | `chat-completions` | OpenAI互換API面を明示選択します。モデル名から暗黙選択しません。 | [preset](configuration.md#preset) |
 | `--tool-protocol` | `<native\|text>` | プロバイダ能力の既定値 | native function tools または既存text/XML tool protocolを明示選択します。 | [preset](configuration.md#preset) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
@@ -45,7 +47,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--workflow` | `<PATH>` | なし | 宣言的な workflow-circle 定義を実行します。`--intent` とは排他です。 | [例](#例) |
 | `--origin` | `<PATH>` | なし | `--workflow` に、既存の失敗した origin run のワークスペースを渡します。 | [例](#例) |
 | `--planner-model` | `<PLANNER_MODEL>` | プロバイダが同じなら実行モデル | planner モデル ID を設定します。planner と実行のプロバイダが異なる場合は必須です。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini`、`openai-compatible` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
 | `--prompt` | `<PROMPT>` | なし | TUI に入らず、minimal loop のプロンプトを 1 件実行します。 | [例](#例) |
 | `--plan-steps` | なし | オフ | 末尾のゴールに対する step plan を生成して保存します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--plan-run` | なし | オフ | 末尾のゴールから step plan を生成して実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |

@@ -1,4 +1,4 @@
-use crate::config::{Config, Provider};
+use crate::config::{Config, ProviderRole};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiStatus {
@@ -15,7 +15,7 @@ impl UiStatus {
     pub fn from_config(config: &Config) -> Self {
         Self {
             mode: "act".to_string(),
-            provider: provider_label(config.provider).to_string(),
+            provider: config.provider_label(ProviderRole::Executor).to_string(),
             model: config.model.clone(),
             context_budget: config.context_budget,
             yes: config.yes,
@@ -117,10 +117,6 @@ fn display_or_missing(value: &str) -> &str {
     } else {
         value
     }
-}
-
-fn provider_label(provider: Provider) -> &'static str {
-    provider.as_str()
 }
 
 #[cfg(test)]

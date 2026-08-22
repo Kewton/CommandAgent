@@ -396,6 +396,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         planner_think: Some(commandagent::config::OllamaThink::False),
         classifier_model: "unused".to_string(),
         classifier_provider: Provider::Openai,
+        openai_compatible: None,
         ollama_host: "http://127.0.0.1:11434".to_string(),
         ollama_think: None,
         lm_studio_host: "http://localhost:1234".to_string(),
@@ -685,6 +686,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         classifier_model: commandagent::env_compat::var("COMMANDAGENT_GEMINI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gemini-3.5-flash".to_string()),
         classifier_provider: Provider::Gemini,
+        openai_compatible: None,
         ollama_host: "http://127.0.0.1:11434".to_string(),
         ollama_think: None,
         lm_studio_host: "http://localhost:1234".to_string(),
@@ -945,6 +947,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         planner_think: Some(commandagent::config::OllamaThink::False),
         classifier_model: "unused".to_string(),
         classifier_provider: provider,
+        openai_compatible: None,
         ollama_host: "http://127.0.0.1:11434".to_string(),
         ollama_think: None,
         lm_studio_host: "http://localhost:1234".to_string(),

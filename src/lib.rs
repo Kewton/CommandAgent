@@ -33,6 +33,7 @@ mod pack_actions;
 pub mod planner;
 pub mod preflight;
 pub mod provider_call;
+pub mod provider_cli;
 pub mod providers;
 pub mod repl;
 pub mod runs;
@@ -57,6 +58,13 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    run_with_provider_options(cli, config::ProviderCliOptions::default())
+}
+
+pub fn run_with_provider_options(
+    cli: Cli,
+    provider_options: config::ProviderCliOptions,
+) -> anyhow::Result<()> {
     if pack_actions::run_if_requested(&cli)? {
         return Ok(());
     }
@@ -105,11 +113,11 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         return Ok(());
     }
     if cli.doctor {
-        return doctor::run_cli(cli);
+        return doctor::run_cli_with_provider_options(cli, provider_options);
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
-    let config = Config::from_cli(cli)?;
+    let config = Config::from_cli_with_provider_options(cli, provider_options)?;
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -709,9 +717,9 @@ fn emit_run_start(config: &Config) {
         json!({
             "event": "run_start",
             "workspace_root": eval_events::body_snippet(&config.workspace_root.display().to_string()),
-            "provider": config.provider.as_str(),
+            "provider": config.provider_label(config::ProviderRole::Executor),
             "model": eval_events::body_snippet(&config.model),
-            "planner_provider": config.planner_provider.as_str(),
+            "planner_provider": config.provider_label(config::ProviderRole::Planner),
             "planner_model": eval_events::body_snippet(&config.planner_model),
             "chat_timeout_secs": config.chat_timeout_secs,
             "chat_timeout_source": config.chat_timeout_source,
@@ -963,6 +971,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "m".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

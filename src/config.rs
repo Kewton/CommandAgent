@@ -20,6 +20,8 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "pack",
     "model",
     "provider",
+    "base_url",
+    "api_key_env",
     "api",
     "tool_protocol",
     "planner_model",
@@ -52,6 +54,59 @@ pub enum Provider {
     LmStudio,
     Openai,
     Gemini,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderCliOptions {
+    pub executor_openai_compatible: bool,
+    pub planner_openai_compatible: bool,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderRole {
+    Executor,
+    Planner,
+    Classifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenAiCompatibleConfig {
+    pub base_url: String,
+    pub api_key_env: Option<String>,
+    executor: bool,
+    planner: bool,
+    classifier: bool,
+}
+
+impl OpenAiCompatibleConfig {
+    pub fn applies_to(&self, role: ProviderRole) -> bool {
+        match role {
+            ProviderRole::Executor => self.executor,
+            ProviderRole::Planner => self.planner,
+            ProviderRole::Classifier => self.classifier,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderSelection {
+    BuiltIn(Provider),
+    OpenAiCompatible,
+}
+
+impl ProviderSelection {
+    const fn provider(self) -> Provider {
+        match self {
+            Self::BuiltIn(provider) => provider,
+            Self::OpenAiCompatible => Provider::LmStudio,
+        }
+    }
+
+    const fn is_openai_compatible(self) -> bool {
+        matches!(self, Self::OpenAiCompatible)
+    }
 }
 
 impl Provider {
@@ -362,6 +417,7 @@ pub struct Config {
     pub planner_think: Option<OllamaThink>,
     pub classifier_model: String,
     pub classifier_provider: Provider,
+    pub openai_compatible: Option<OpenAiCompatibleConfig>,
     pub ollama_host: String,
     pub ollama_think: Option<OllamaThink>,
     pub lm_studio_host: String,
@@ -441,14 +497,16 @@ fn sourced<T>(value: T, source: impl Into<String>) -> Sourced<T> {
 struct PresetConfig {
     pack: Option<Sourced<String>>,
     model: Option<Sourced<String>>,
-    provider: Option<Sourced<Provider>>,
+    provider: Option<Sourced<ProviderSelection>>,
+    base_url: Option<Sourced<String>>,
+    api_key_env: Option<Sourced<String>>,
     openai_api: Option<Sourced<OpenAiApi>>,
     tool_protocol: Option<Sourced<ToolProtocol>>,
     planner_model: Option<Sourced<String>>,
-    planner_provider: Option<Sourced<Provider>>,
+    planner_provider: Option<Sourced<ProviderSelection>>,
     planner_think: Option<Sourced<OllamaThink>>,
     classifier_model: Option<Sourced<String>>,
-    classifier_provider: Option<Sourced<Provider>>,
+    classifier_provider: Option<Sourced<ProviderSelection>>,
     context_budget: Option<Sourced<usize>>,
     chat_timeout_secs: Option<Sourced<u64>>,
     prompt_layout: Option<Sourced<PromptLayout>>,
@@ -493,6 +551,22 @@ pub(crate) struct ConfigInspection {
 }
 
 impl Config {
+    pub fn provider_label(&self, role: ProviderRole) -> &'static str {
+        if self
+            .openai_compatible
+            .as_ref()
+            .is_some_and(|config| config.applies_to(role))
+        {
+            "openai-compatible"
+        } else {
+            match role {
+                ProviderRole::Executor => self.provider.as_str(),
+                ProviderRole::Planner => self.planner_provider.as_str(),
+                ProviderRole::Classifier => self.classifier_provider.as_str(),
+            }
+        }
+    }
+
     pub fn streaming_enabled(&self) -> bool {
         self.streaming_enabled_for_tty(
             crate::tui::terminal::stdin_is_tty(),
@@ -552,6 +626,13 @@ impl Config {
     }
 
     pub fn from_cli(cli: Cli) -> anyhow::Result<Self> {
+        Self::from_cli_with_provider_options(cli, ProviderCliOptions::default())
+    }
+
+    pub fn from_cli_with_provider_options(
+        cli: Cli,
+        provider_options: ProviderCliOptions,
+    ) -> anyhow::Result<Self> {
         let workspace_root = cli
             .cwd
             .clone()
@@ -579,9 +660,18 @@ impl Config {
             .unwrap_or_else(|| sourced(DEFAULT_MODEL.to_string(), "default"));
         let provider = cli
             .provider
-            .map(|value| sourced(Provider::from(value), "flag"))
+            .map(|value| {
+                sourced(
+                    if provider_options.executor_openai_compatible {
+                        ProviderSelection::OpenAiCompatible
+                    } else {
+                        ProviderSelection::BuiltIn(Provider::from(value))
+                    },
+                    "flag",
+                )
+            })
             .or_else(|| preset.as_ref().and_then(|preset| preset.provider.clone()))
-            .unwrap_or_else(|| sourced(Provider::Ollama, "default"));
+            .unwrap_or_else(|| sourced(ProviderSelection::BuiltIn(Provider::Ollama), "default"));
         let openai_api = cli
             .openai_api
             .map(|value| sourced(OpenAiApi::from(value), "flag"))
@@ -597,7 +687,16 @@ impl Config {
             });
         let planner_provider = cli
             .planner_provider
-            .map(|value| sourced(Provider::from(value), "flag"))
+            .map(|value| {
+                sourced(
+                    if provider_options.planner_openai_compatible {
+                        ProviderSelection::OpenAiCompatible
+                    } else {
+                        ProviderSelection::BuiltIn(Provider::from(value))
+                    },
+                    "flag",
+                )
+            })
             .or_else(|| {
                 preset
                     .as_ref()
@@ -630,13 +729,17 @@ impl Config {
             })
             .unwrap_or_else(|| sourced(OllamaThink::False, "default"));
         if ollama_think.is_some()
-            && provider.value != Provider::Ollama
-            && planner_provider.value != Provider::Ollama
+            && provider.value.provider() != Provider::Ollama
+            && planner_provider.value.provider() != Provider::Ollama
         {
             bail!("--think requires provider or planner_provider to be ollama");
         }
-        validate_openai_model(provider.value, &model.value, "executor")?;
-        validate_openai_model(planner_provider.value, &planner_model.value, "planner")?;
+        validate_openai_model(provider.value.provider(), &model.value, "executor")?;
+        validate_openai_model(
+            planner_provider.value.provider(),
+            &planner_model.value,
+            "planner",
+        )?;
         let classifier_provider = preset
             .as_ref()
             .and_then(|preset| preset.classifier_provider.clone())
@@ -654,10 +757,52 @@ impl Config {
             );
         };
         validate_openai_model(
-            classifier_provider.value,
+            classifier_provider.value.provider(),
             &classifier_model.value,
             "classifier",
         )?;
+        let openai_compatible_roles = (
+            provider.value.is_openai_compatible(),
+            planner_provider.value.is_openai_compatible(),
+            classifier_provider.value.is_openai_compatible(),
+        );
+        let any_openai_compatible =
+            openai_compatible_roles.0 || openai_compatible_roles.1 || openai_compatible_roles.2;
+        if !any_openai_compatible
+            && (provider_options.base_url.is_some() || provider_options.api_key_env.is_some())
+        {
+            bail!(
+                "--base-url and --api-key-env require provider or planner_provider to be openai-compatible"
+            );
+        }
+        let configured_base_url = provider_options.base_url.clone().or_else(|| {
+            preset
+                .as_ref()
+                .and_then(|preset| preset.base_url.as_ref())
+                .map(|value| value.value.clone())
+        });
+        let configured_api_key_env = provider_options.api_key_env.clone().or_else(|| {
+            preset
+                .as_ref()
+                .and_then(|preset| preset.api_key_env.as_ref())
+                .map(|value| value.value.clone())
+        });
+        let openai_compatible = if any_openai_compatible {
+            let base_url = configured_base_url
+                .context("openai-compatible requires --base-url or preset key base_url")?;
+            let api_key_env = configured_api_key_env
+                .map(|value| validate_api_key_env_name(&value))
+                .transpose()?;
+            Some(OpenAiCompatibleConfig {
+                base_url: normalize_openai_compatible_base_url(&base_url)?,
+                api_key_env,
+                executor: openai_compatible_roles.0,
+                planner: openai_compatible_roles.1,
+                classifier: openai_compatible_roles.2,
+            })
+        } else {
+            None
+        };
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -806,17 +951,18 @@ impl Config {
             offline: cli.offline,
             context_budget: context_budget.value,
             model: model.value,
-            provider: provider.value,
+            provider: provider.value.provider(),
             openai_api: openai_api.value,
             tool_protocol: tool_protocol.map(|value| value.value),
             prompt_layout: prompt_layout.value,
             plan_preset: plan_preset.value,
             intent_override: cli.intent.map(IntentId::from),
             planner_model: planner_model.value,
-            planner_provider: planner_provider.value,
+            planner_provider: planner_provider.value.provider(),
             planner_think: Some(planner_think.value),
             classifier_model: classifier_model.value,
-            classifier_provider: classifier_provider.value,
+            classifier_provider: classifier_provider.value.provider(),
+            openai_compatible,
             ollama_host: cli.ollama_host,
             ollama_think,
             lm_studio_host: normalize_lm_studio_host(&cli.lm_studio_host)?,
@@ -998,6 +1144,8 @@ fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
     merge_preset_field(&mut target.pack, &source.pack);
     merge_preset_field(&mut target.model, &source.model);
     merge_preset_field(&mut target.provider, &source.provider);
+    merge_preset_field(&mut target.base_url, &source.base_url);
+    merge_preset_field(&mut target.api_key_env, &source.api_key_env);
     merge_preset_field(&mut target.openai_api, &source.openai_api);
     merge_preset_field(&mut target.tool_protocol, &source.tool_protocol);
     merge_preset_field(&mut target.planner_model, &source.planner_model);
@@ -1369,6 +1517,18 @@ fn parse_preset_key(
                 source,
             ))
         }
+        "base_url" => {
+            preset.base_url = Some(sourced(
+                parse_string_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
+        "api_key_env" => {
+            preset.api_key_env = Some(sourced(
+                parse_string_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "api" => {
             preset.openai_api = Some(sourced(
                 parse_openai_api_value(path, line_no, &full_key, value)?,
@@ -1529,18 +1689,55 @@ fn parse_provider_value(
     line_no: usize,
     key: &str,
     value: &str,
-) -> anyhow::Result<Provider> {
+) -> anyhow::Result<ProviderSelection> {
     match parse_string_value(path, line_no, key, value)?.as_str() {
-        "ollama" => Ok(Provider::Ollama),
-        "lm-studio" => Ok(Provider::LmStudio),
-        "openai" => Ok(Provider::Openai),
-        "gemini" => Ok(Provider::Gemini),
+        "ollama" => Ok(ProviderSelection::BuiltIn(Provider::Ollama)),
+        "lm-studio" => Ok(ProviderSelection::BuiltIn(Provider::LmStudio)),
+        "openai" => Ok(ProviderSelection::BuiltIn(Provider::Openai)),
+        "gemini" => Ok(ProviderSelection::BuiltIn(Provider::Gemini)),
+        "openai-compatible" => Ok(ProviderSelection::OpenAiCompatible),
         _ => bail!(
-            "{}:{} {key} expects provider ollama|lm-studio|openai|gemini",
+            "{}:{} {key} expects provider ollama|lm-studio|openai|openai-compatible|gemini",
             path.display(),
             line_no
         ),
     }
+}
+
+pub(crate) fn normalize_openai_compatible_base_url(value: &str) -> anyhow::Result<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        bail!("--base-url must not be empty");
+    }
+    let normalized = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
+    let parsed = reqwest::Url::parse(normalized)
+        .with_context(|| format!("invalid --base-url URL `{value}`"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        bail!("--base-url must use http or https");
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        bail!(
+            "--base-url must not contain credentials; use --api-key-env for server authentication"
+        );
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        bail!("--base-url must not contain a query or fragment");
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_api_key_env_name(value: &str) -> anyhow::Result<String> {
+    let value = value.trim();
+    let mut characters = value.chars();
+    let valid_start = characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic());
+    if !valid_start
+        || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+    {
+        bail!("--api-key-env expects an environment variable name such as VLLM_API_KEY");
+    }
+    Ok(value.to_string())
 }
 
 fn parse_ollama_think_value(
@@ -1676,14 +1873,15 @@ fn parse_u64_value(path: &Path, line_no: usize, key: &str, value: &str) -> anyho
 
 fn resolve_chat_timeout(
     override_secs: Option<u64>,
-    provider: Provider,
-    planner_provider: Provider,
-    classifier_provider: Provider,
+    provider: ProviderSelection,
+    planner_provider: ProviderSelection,
+    classifier_provider: ProviderSelection,
 ) -> (u64, String) {
     if let Some(secs) = override_secs {
         return (secs, "override:cli".to_string());
     }
-    if provider.is_local() || planner_provider.is_local() || classifier_provider.is_local() {
+    let is_local = |selection: ProviderSelection| matches!(selection, ProviderSelection::BuiltIn(provider) if provider.is_local());
+    if is_local(provider) || is_local(planner_provider) || is_local(classifier_provider) {
         (
             LOCAL_PROVIDER_CHAT_TIMEOUT_SECS,
             "default:local_provider".to_string(),
@@ -2504,6 +2702,155 @@ tool_protocol = "native"
     }
 
     #[test]
+    fn generic_cli_provider_resolves_role_labels_and_normalized_base_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--provider",
+            "openai-compatible",
+            "--model",
+            "served-model",
+            "--base-url",
+            "http://127.0.0.1:8000/v1/",
+            "--api-key-env",
+            "VLLM_API_KEY",
+        ])
+        .unwrap();
+
+        let config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+
+        assert_eq!(config.provider, Provider::LmStudio);
+        assert_eq!(config.planner_provider, Provider::LmStudio);
+        assert_eq!(
+            config.provider_label(ProviderRole::Executor),
+            "openai-compatible"
+        );
+        assert_eq!(
+            config.provider_label(ProviderRole::Planner),
+            "openai-compatible"
+        );
+        let compatible = config.openai_compatible.as_ref().unwrap();
+        assert_eq!(compatible.base_url, "http://127.0.0.1:8000");
+        assert_eq!(compatible.api_key_env.as_deref(), Some("VLLM_API_KEY"));
+        assert_eq!(config.chat_timeout_secs, REMOTE_PROVIDER_CHAT_TIMEOUT_SECS);
+        assert_eq!(config.chat_timeout_source, "default:remote_provider");
+    }
+
+    #[test]
+    fn preset_accepts_generic_provider_for_all_roles_and_keeps_diagnostics_strict() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        let path = dir.path().join(".commandagent/config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[preset.gateway]
+model = "executor"
+provider = "openai-compatible"
+base_url = "https://gateway.example.test/v1"
+api_key_env = "GATEWAY_TOKEN"
+planner_model = "planner"
+planner_provider = "openai-compatible"
+classifier_model = "classifier"
+classifier_provider = "openai-compatible"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "gateway",
+        ]))
+        .unwrap();
+        let compatible = config.openai_compatible.as_ref().unwrap();
+        assert_eq!(compatible.base_url, "https://gateway.example.test");
+        assert!(compatible.applies_to(ProviderRole::Executor));
+        assert!(compatible.applies_to(ProviderRole::Planner));
+        assert!(compatible.applies_to(ProviderRole::Classifier));
+
+        std::fs::write(
+            &path,
+            "[preset.gateway]\nprovider = \"openai-compatible\"\nbase_url = \"https://gateway.example.test\"\nbase_urll = \"typo\"\n",
+        )
+        .unwrap();
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "gateway",
+        ]))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("unknown config key 'preset.gateway.base_urll'"));
+    }
+
+    #[test]
+    fn generic_provider_rejects_missing_or_unsafe_endpoint_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        for (extra, expected) in [
+            (vec![], "requires --base-url"),
+            (
+                vec!["--base-url", "file:///tmp/server"],
+                "must use http or https",
+            ),
+            (
+                vec!["--base-url", "http://user:secret@localhost:8000"],
+                "must not contain credentials",
+            ),
+            (
+                vec!["--base-url", "http://localhost:8000?token=secret"],
+                "must not contain a query or fragment",
+            ),
+        ] {
+            let mut arguments = vec![
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--provider",
+                "openai-compatible",
+                "--model",
+                "served-model",
+            ];
+            arguments.extend(extra);
+            let parsed = crate::provider_cli::parse_from(arguments).unwrap();
+            let error = Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            "http://localhost:8000",
+            "--api-key-env",
+            "NOT-A-NAME",
+        ])
+        .unwrap();
+        let error = Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("expects an environment variable name"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn remote_chat_timeout_defaults_to_remote_provider_budget() {
         let cli = Cli::parse_from([
             "commandagent",
@@ -3059,7 +3406,10 @@ profile = "nextjs"
 
         assert!(err.contains(".anvil/config.toml"), "{err}");
         assert!(err.contains("preset.bad.provider"), "{err}");
-        assert!(err.contains("ollama|lm-studio|openai|gemini"), "{err}");
+        assert!(
+            err.contains("ollama|lm-studio|openai|openai-compatible|gemini"),
+            "{err}"
+        );
     }
 
     #[test]

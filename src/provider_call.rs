@@ -324,7 +324,8 @@ where
                 config.ollama_think
             }
         });
-    let think = (provider == Provider::Ollama.as_str())
+    let think = worker_client
+        .supports_ollama_think()
         .then_some(configured_think)
         .flatten();
     let stream = on_chunk.is_some()
@@ -645,16 +646,19 @@ fn worker_client_with_overrides(
     let Some(overrides) = overrides else {
         return Ok(client.boxed_clone());
     };
-    if client.label() != config.planner_provider.as_str() {
+    if client.label() != config.provider_label(crate::config::ProviderRole::Planner) {
         return Ok(client.boxed_clone());
     }
 
     let mut call_config = config.clone();
-    call_config.provider = overrides.provider;
-    call_config.model = model.to_string();
+    call_config.classifier_provider = overrides.provider;
+    call_config.classifier_model = model.to_string();
     call_config.ollama_think = overrides.think;
     call_config.num_predict = overrides.num_predict;
-    crate::providers::client_from_config(&call_config, false)
+    crate::providers::client_from_config_for_role(
+        &call_config,
+        crate::config::ProviderRole::Classifier,
+    )
 }
 
 fn enforce_response_limit(
@@ -1304,6 +1308,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "m".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
@@ -1750,6 +1755,78 @@ mod tests {
         assert!(events.contains("\"classification\":\"aborted_by_user\""));
         assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
         assert!(!events.contains("\"event\":\"provider_turn_timeout\""));
+    }
+
+    #[test]
+    fn openai_compatible_mock_call_preserves_provider_cancellation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = vec![0_u8; 16 * 1024];
+            let read = stream.read(&mut request).expect("request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /v1/chat/completions "));
+            std::thread::sleep(Duration::from_secs(2));
+            let body = r#"{"id":"chatcmpl-delayed","model":"served-model","choices":[{"message":{"content":"late"}}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .expect("response");
+        });
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--provider",
+            "openai-compatible",
+            "--model",
+            "served-model",
+            "--base-url",
+            &format!("http://{address}"),
+        ])
+        .expect("generic CLI");
+        let mut config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                .expect("generic config");
+        config.eval_events_path = Some(events_path.clone());
+        config.chat_timeout_secs = 30;
+        config.chat_timeout_source = "override:test".to_string();
+        let mut client = crate::providers::client_from_config(&config, false).expect("client");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let thread_cancelled = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            thread_cancelled.store(true, Ordering::SeqCst);
+        });
+
+        let started = Instant::now();
+        let outcome = chat_with_cancel(
+            client.as_mut(),
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: &config.model,
+                messages: &[ConversationMessage::user("wait")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || cancelled.load(Ordering::SeqCst),
+        );
+
+        assert!(outcome.aborted_by_user);
+        assert!(!outcome.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let events = std::fs::read_to_string(&events_path).expect("events");
+        assert!(events.contains("\"provider\":\"openai-compatible\""));
+        assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
+        assert!(!events.contains("\"event\":\"provider_turn_timeout\""));
+        server.join().expect("server");
     }
 
     #[test]

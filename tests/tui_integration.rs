@@ -35,6 +35,7 @@ fn config(root: PathBuf) -> Config {
         planner_think: Some(commandagent::config::OllamaThink::False),
         classifier_model: "pm".to_string(),
         classifier_provider: Provider::Gemini,
+        openai_compatible: None,
         ollama_host: "http://localhost:11434".to_string(),
         ollama_think: None,
         lm_studio_host: "http://localhost:1234".to_string(),

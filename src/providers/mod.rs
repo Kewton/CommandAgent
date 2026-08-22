@@ -5,6 +5,7 @@ pub mod lm_studio;
 pub mod ollama;
 pub mod openai;
 mod openai_chat_completions;
+pub mod openai_compatible;
 mod openai_responses;
 pub mod parsing;
 pub(crate) mod startup;
@@ -15,7 +16,7 @@ pub(crate) mod xml_repair;
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, Provider};
+use crate::config::{Config, Provider, ProviderRole};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::registry::ToolSpec;
 
@@ -70,6 +71,9 @@ pub trait ChatClient: Send {
     fn allows_xml_fallback(&self) -> bool {
         false
     }
+    fn supports_ollama_think(&self) -> bool {
+        false
+    }
     fn take_response_timing(&mut self) -> Option<ResponseTiming> {
         None
     }
@@ -102,10 +106,33 @@ pub trait ChatClient: Send {
 }
 
 pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<dyn ChatClient>> {
-    let provider = if planner {
-        config.planner_provider
-    } else {
-        config.provider
+    client_from_config_for_role(
+        config,
+        if planner {
+            ProviderRole::Planner
+        } else {
+            ProviderRole::Executor
+        },
+    )
+}
+
+pub(crate) fn client_from_config_for_role(
+    config: &Config,
+    role: ProviderRole,
+) -> anyhow::Result<Box<dyn ChatClient>> {
+    if config
+        .openai_compatible
+        .as_ref()
+        .is_some_and(|compatible| compatible.applies_to(role))
+    {
+        return Ok(Box::new(
+            openai_compatible::OpenAiCompatibleClient::from_openai_compatible_env(config, role)?,
+        ));
+    }
+    let provider = match role {
+        ProviderRole::Executor => config.provider,
+        ProviderRole::Planner => config.planner_provider,
+        ProviderRole::Classifier => config.classifier_provider,
     };
     match provider {
         Provider::Ollama => Ok(Box::new(
@@ -116,7 +143,7 @@ pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<
                 config.chat_retries,
             )?
             .with_context_budget(config.context_budget)
-            .with_think(if planner {
+            .with_think(if role == ProviderRole::Planner {
                 config.planner_think
             } else {
                 config.ollama_think
