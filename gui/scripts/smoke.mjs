@@ -1391,6 +1391,7 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
   await page.waitForFunction(
     () => document.querySelectorAll(".report-list button").length > 1,
   );
+  const initialReportCount = await reportButtons.count();
   const selectedReportPath = await reportButtons.nth(1).locator("small").innerText();
   await reportButtons.nth(1).click();
   await page.waitForFunction(
@@ -1410,6 +1411,39 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
     .locator(".report-list button.active small")
     .innerText();
   const selectionRetainedAfterVisibility = retainedReportPath === selectedReportPath;
+  const reportFilter = page.locator("[data-testid='report-filter']");
+  const reportFilterCount = page.locator("[data-testid='report-filter-count']");
+  await reportFilter.fill(selectedReportPath);
+  await page.waitForFunction(
+    (path) => {
+      const reports = [...document.querySelectorAll(".report-list button")];
+      return reports.length === 1 && reports[0]?.querySelector("small")?.textContent === path;
+    },
+    selectedReportPath,
+  );
+  const filterMatchesPath =
+    (await reportButtons.nth(0).locator("small").innerText()) === selectedReportPath;
+  const filteredCountText = await reportFilterCount.innerText();
+  await reportFilter.fill("__issue_185_no_match__");
+  const reportNoMatchLabelVisible = await page
+    .locator(".report-index .state-code", { hasText: "該当なし" })
+    .isVisible();
+  const emptyCountText = await reportFilterCount.innerText();
+  await reportFilter.fill("");
+  await page.waitForFunction(
+    (count) => document.querySelectorAll(".report-list button").length === count,
+    initialReportCount,
+  );
+  const restoredCountText = await reportFilterCount.innerText();
+  const selectionRetainedAfterFilter =
+    (await page.locator(".report-list button.active small").innerText()) === selectedReportPath;
+  const reportFilterOk =
+    filterMatchesPath &&
+    filteredCountText === `1 / ${initialReportCount}` &&
+    reportNoMatchLabelVisible &&
+    emptyCountText === `0 / ${initialReportCount}` &&
+    restoredCountText === `${initialReportCount} / ${initialReportCount}` &&
+    selectionRetainedAfterFilter;
   const measurementHeadings = await page.locator("main h1, main h2, main h3").evaluateAll(
     (headings) => headings.map((heading) => ({
       level: Number(heading.tagName.slice(1)),
@@ -1422,11 +1456,32 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
   await page.setViewportSize({ width: 390, height: 844 });
   const mapFrame = page.locator("[data-testid='measurement-map-frame']");
   await mapFrame.waitFor();
-  const mobileMap = await mapFrame.evaluate((frame) => ({
-    client_width: frame.clientWidth,
-    horizontally_scrollable: frame.scrollWidth > frame.clientWidth,
-    scroll_width: frame.scrollWidth,
-  }));
+  const mobileMap = await mapFrame.evaluate((frame) => {
+    const image = frame.querySelector("img");
+    if (image === null) throw new Error("Measurement map image is missing");
+    const frameBounds = frame.getBoundingClientRect();
+    const imageBounds = image.getBoundingClientRect();
+    const style = getComputedStyle(frame);
+    const hasHorizontalOverflow = frame.scrollWidth > frame.clientWidth + 1;
+    const hasVerticalOverflow = frame.scrollHeight > frame.clientHeight + 1;
+    return {
+      client_height: frame.clientHeight,
+      client_width: frame.clientWidth,
+      fits_single_viewport:
+        frameBounds.width <= window.innerWidth && frameBounds.height <= window.innerHeight,
+      fits_without_axis_scroll: !hasHorizontalOverflow && !hasVerticalOverflow,
+      has_horizontal_overflow: hasHorizontalOverflow,
+      has_vertical_overflow: hasVerticalOverflow,
+      image_fits_frame:
+        imageBounds.width <= frame.clientWidth + 1 && imageBounds.height <= frame.clientHeight + 1,
+      image_height: imageBounds.height,
+      image_width: imageBounds.width,
+      overflow_x: style.overflowX,
+      overflow_y: style.overflowY,
+      scroll_height: frame.scrollHeight,
+      scroll_width: frame.scrollWidth,
+    };
+  });
   const mobilePageFits = await page.evaluate(
     () => document.documentElement.scrollWidth <= window.innerWidth,
   );
@@ -1592,6 +1647,15 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
       headings: measurementHeadings,
       selection_retained_after_visibility: selectionRetainedAfterVisibility,
     },
+    report_filter: {
+      count_restored: restoredCountText === `${initialReportCount} / ${initialReportCount}`,
+      empty_count: emptyCountText,
+      filter_matches_path: filterMatchesPath,
+      filtered_count: filteredCountText,
+      initial_count: initialReportCount,
+      no_match_label_visible: reportNoMatchLabelVisible,
+      selection_retained_after_filter: selectionRetainedAfterFilter,
+    },
     run_selection: {
       count: indexCountText,
       count_matches_index_total: indexCountText === expectedIndexCountText,
@@ -1622,6 +1686,7 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
       measurements.headingMatches &&
       measurements.titleMatches &&
       selectionRetainedAfterVisibility &&
+      reportFilterOk &&
       measurementHeadingOrderValid &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
@@ -1640,7 +1705,11 @@ async function probeReadOnlyUi(page, origin, basePath, runIndex, caseId) {
       initialPressed === "true" &&
       toggledPressed === "false" &&
       restoredPressed === "true" &&
-      mobileMap.horizontally_scrollable &&
+      mobileMap.fits_single_viewport &&
+      mobileMap.fits_without_axis_scroll &&
+      mobileMap.image_fits_frame &&
+      mobileMap.overflow_x === "hidden" &&
+      mobileMap.overflow_y === "hidden" &&
       mobilePageFits &&
       fullSizeLinkPresent,
   };
