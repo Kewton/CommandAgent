@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import {
   CHANGED_POLL_INTERVAL_MS,
@@ -12,7 +20,7 @@ import {
 } from "../lib/trial-monitor";
 import { fetchSession, fetchSessionPoll } from "../lib/trial-api";
 import type { CreatedSession, PolledSession } from "../lib/types";
-import { replaceSessionQuery, type ScreenStage } from "./use-trial-compose";
+import type { ScreenStage } from "./use-trial-compose";
 
 type MonitorState = {
   attempt: number;
@@ -52,12 +60,18 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     trialAccessReady, trialToken,
   } = props;
   const executionRef = useRef<HTMLElement>(null);
+  const automaticReconnectAttempt = useRef<string | null>(null);
   const [created, setCreated] = useState<CreatedSession | null>(null);
   const [session, setSession] = useState<PolledSession | null>(null);
   const [gateTwoStartedAt, setGateTwoStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
   const [sessionIndexRevision, setSessionIndexRevision] = useState(0);
+
+  useLayoutEffect(() => {
+    const id = requestedSessionId();
+    if (id !== null) replaceMonitoredSessionQuery(id);
+  }, []);
 
   useEffect(() => {
     if (
@@ -135,10 +149,36 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     return () => window.clearInterval(timer);
   }, [gateTwoStartedAt, stage]);
 
+  useEffect(() => {
+    const id = requestedSessionId();
+    if (stage !== "compose" || id === null || !trialAccessReady) return;
+    const attempt = reconnectAttemptKey(id, trialToken);
+    if (automaticReconnectAttempt.current === attempt) return;
+    automaticReconnectAttempt.current = attempt;
+    void reconnectExisting(id).then((restored) => {
+      if (!restored && automaticReconnectAttempt.current === attempt) {
+        automaticReconnectAttempt.current = null;
+      }
+    });
+  }, [reconnectSessionId, stage, trialAccessReady, trialToken]);
+
+  useEffect(() => {
+    if (stage !== "terminal" || session === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = document.querySelector("[data-testid='terminal-result-heading']")
+        ?.textContent?.trim();
+      if (heading === undefined || heading === "") return;
+      const marker = session.gate === "gate_3" ? "✔" : "✗";
+      document.title = `${marker} ${heading} | CommandAgent`;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [session, stage]);
+
   function acceptLaunch(value: CreatedSession) {
     setCreated(value);
     setReconnectSessionId(value.id);
-    replaceSessionQuery(value.id);
+    replaceMonitoredSessionQuery(value.id);
+    automaticReconnectAttempt.current = reconnectAttemptKey(value.id, trialToken);
     setSession(null);
     setMonitor(initialMonitor);
     const startedAt = epochMilliseconds(value.started_epoch_seconds) ?? Date.now();
@@ -148,7 +188,7 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     setStage("gate_2");
   }
 
-  async function reconnectExisting(requestedId?: string) {
+  async function reconnectExisting(requestedId?: string): Promise<boolean> {
     const id = (requestedId ?? reconnectSessionId).trim();
     if (id === "" || !trialAccessReady) {
       setError(
@@ -156,7 +196,7 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
           ? "再接続するセッション ID を入力してください。"
           : "実行時の Trial アクセストークンを入力してください。",
       );
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -173,7 +213,8 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
       });
       setReconnectSessionId(value.id);
       setErrorReconnectSessionId(null);
-      replaceSessionQuery(value.id);
+      replaceMonitoredSessionQuery(value.id);
+      automaticReconnectAttempt.current = reconnectAttemptKey(value.id, trialToken);
       setMonitor({
         attempt: 0,
         guidance: null,
@@ -187,10 +228,12 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
       setElapsedSeconds(elapsedSince(startedAt));
       setSessionIndexRevision((current) => current + 1);
       setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
+      return true;
     } catch (reason) {
       const failure = monitorFailure(reason);
       rejectTrialToken(reason, trialToken);
       setError(failure.guidance);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -207,6 +250,8 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     setSession(null);
     setGateTwoStartedAt(null);
     setElapsedSeconds(0);
+    automaticReconnectAttempt.current = null;
+    clearSessionQuery();
   }
 
   const currentPhase = useMemo(() => {
@@ -234,4 +279,30 @@ function epochMilliseconds(epochSeconds: number): number | null {
 
 function elapsedSince(startedAt: number): number {
   return Math.max(0, Math.floor((Date.now() - startedAt) / 1_000));
+}
+
+function requestedSessionId(): string | null {
+  const value = new URLSearchParams(window.location.search).get("session")?.trim();
+  return value === undefined || value === "" ? null : value;
+}
+
+function reconnectAttemptKey(id: string, token: string): string {
+  return `${id}\n${token.trim()}`;
+}
+
+function replaceMonitoredSessionQuery(id: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("session", id);
+  url.searchParams.delete("sample");
+  replaceLocationQuery(url);
+}
+
+function clearSessionQuery() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("session");
+  replaceLocationQuery(url);
+}
+
+function replaceLocationQuery(url: URL) {
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }

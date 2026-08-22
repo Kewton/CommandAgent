@@ -1008,18 +1008,25 @@ async function runCase(smokeCase) {
       path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
     });
 
+    const expectedStorageKey = trialTokenStorageKey(smokeCase.serverBasePath);
     const reconnectCallStart = apiCalls.length;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
       indexedSession.locator("[data-testid='session-reconnect-link']").click(),
     ]);
+    await page.locator("[data-testid='terminal-gate']").waitFor();
     const sessionLinkCalls = apiCalls.slice(reconnectCallStart);
     const sessionLinkIssuedNoPost = sessionLinkCalls.every((call) => call.method !== "POST");
     const reloadSessionQuery = new URL(page.url()).searchParams.get("session");
-    const reloadRestoredToken =
-      (await page.locator("[data-testid='trial-token']").inputValue()) === trialCredential;
-    await page.locator("[data-testid='trial-token']").fill(`${trialCredential}-wrong`);
-    await page.locator("[data-testid='reconnect-session-button']").click();
+    const reloadRestoredToken = await page.evaluate(
+      ({ key, token }) => sessionStorage.getItem(key) === token,
+      { key: expectedStorageKey, token: trialCredential },
+    );
+    await page.evaluate(
+      ({ key, token }) => sessionStorage.setItem(key, `${token}-wrong`),
+      { key: expectedStorageKey, token: trialCredential },
+    );
+    await page.reload({ waitUntil: "networkidle" });
     const authorizationGuidance = await page.locator(".trial-error[role='alert']").innerText();
     await page.waitForFunction(
       () => document.querySelector("[data-testid='trial-token']")?.value === "",
@@ -1028,7 +1035,6 @@ async function runCase(smokeCase) {
       () => !Object.values(sessionStorage).some((value) => value.includes("-wrong")),
     );
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
-    await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const reconnectCalls = apiCalls.slice(reconnectCallStart);
     const reconnectMethods = reconnectCalls.map((call) => call.method);
@@ -1039,7 +1045,6 @@ async function runCase(smokeCase) {
       sessionStorageEntries: Object.entries(sessionStorage),
       url: window.location.href,
     }));
-    const expectedStorageKey = trialTokenStorageKey(smokeCase.serverBasePath);
     const tokenStayedTabScoped =
       !browserStorage.url.includes(trialCredential) &&
       browserStorage.localStorageValues.every((value) => !value.includes(trialCredential)) &&
@@ -1076,11 +1081,13 @@ async function runCase(smokeCase) {
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
     const lifecycleUrl = new URL(trialUrl);
     lifecycleUrl.searchParams.set("session", sessionId);
+    const lifecycleReconnectStart = apiCalls.length;
     await page.goto(lifecycleUrl.href, { waitUntil: "networkidle" });
-    await page.locator("[data-testid='reconnect-session']").fill(sessionId);
-    await page.locator("[data-testid='trial-token']").fill(trialCredential);
-    await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='terminal-gate']").waitFor();
+    const lifecycleReconnectCalls = apiCalls.slice(lifecycleReconnectStart);
+    const lifecycleReconnectOnlyGets =
+      lifecycleReconnectCalls.length >= 1 &&
+      lifecycleReconnectCalls.every((call) => call.method === "GET");
     await page.waitForTimeout(1_000);
     await page.locator("[data-testid='close-session']").click();
     await page.locator("[data-testid='closed-session']").waitFor();
@@ -1235,6 +1242,7 @@ async function runCase(smokeCase) {
       conflictReconnectId === sessionId &&
       conflictSessionQuery === sessionId &&
       conflictDispatchCount === 1 &&
+      lifecycleReconnectOnlyGets &&
       mobile.ok &&
       layoutChecks.every((check) => check.ok) &&
       expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 428")) &&
@@ -1347,6 +1355,8 @@ async function runCase(smokeCase) {
         only_gets: reconnectOnlyGets,
         storage_key: expectedStorageKey,
         token_stayed_tab_scoped: tokenStayedTabScoped,
+        lifecycle_calls: lifecycleReconnectCalls,
+        lifecycle_only_gets: lifecycleReconnectOnlyGets,
       },
       conflict_reconnect: {
         guidance: conflictGuidance,
@@ -1756,6 +1766,8 @@ async function probeTrialFeedback(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const sessionId = "0198b9c8-fab8-7000-8000-000000000069";
   const startedEpochSeconds = Date.parse("2026-08-16T00:00:00Z") / 1_000;
+  const userGoal = "Synthetic Gate 2 feedback probe";
+  const sessionRequests = [];
   let phaseTotal = 0;
   let terminal = false;
   try {
@@ -1763,6 +1775,9 @@ async function probeTrialFeedback(browser, origin, basePath) {
     await page.route("**/api/**", async (route) => {
       const request = route.request();
       const pathname = new URL(request.url()).pathname;
+      if (pathname.includes("/api/sessions")) {
+        sessionRequests.push({ method: request.method(), pathname });
+      }
       if (pathname.endsWith("/api/trial-workspace")) {
         await route.fulfill({
           contentType: "application/json",
@@ -1807,8 +1822,11 @@ async function probeTrialFeedback(browser, origin, basePath) {
     });
 
     const prefix = displayBasePath(basePath);
-    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
-    await page.locator("[data-testid='trial-goal']").fill("Synthetic Gate 2 feedback probe");
+    const trialUrl = new URL(`${prefix}try/`, origin);
+    trialUrl.searchParams.set("sample", "python-cli");
+    await page.goto(trialUrl.href, { waitUntil: "networkidle" });
+    const sampleGoal = await page.locator("[data-testid='trial-goal']").inputValue();
+    await page.locator("[data-testid='trial-goal']").fill(userGoal);
     await page.locator("[data-testid='trial-token']").fill("synthetic-feedback-token");
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
@@ -1841,24 +1859,20 @@ async function probeTrialFeedback(browser, origin, basePath) {
     const feedbackAfterMonitor =
       await page.locator("[data-testid='monitor-state'] + [data-testid='execution-feedback']").count();
 
-    const sessionQueryBeforeReload = new URL(page.url()).searchParams.get("session");
+    const launchedUrl = new URL(page.url());
+    const sessionQueryBeforeReload = launchedUrl.searchParams.get("session");
+    const sampleConsumedBeforeReload = !launchedUrl.searchParams.has("sample");
+    const reloadRequestStart = sessionRequests.length;
     await page.reload({ waitUntil: "networkidle" });
-    await page.waitForFunction(
-      ({ expectedId, expectedToken }) => {
-        const token = document.querySelector("[data-testid='trial-token']");
-        const reconnect = document.querySelector("[data-testid='reconnect-session-button']");
-        return (
-          new URL(window.location.href).searchParams.get("session") === expectedId &&
-          token instanceof HTMLInputElement &&
-          token.value === expectedToken &&
-          reconnect instanceof HTMLButtonElement &&
-          !reconnect.disabled
-        );
-      },
-      { expectedId: sessionId, expectedToken: "synthetic-feedback-token" },
-    );
-    await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
+    const reloadSessionRequests = sessionRequests.slice(reloadRequestStart);
+    const reloadOnlyGets =
+      reloadSessionRequests.length >= 1 &&
+      reloadSessionRequests.every((request) => request.method === "GET");
+    const reloadedUrl = new URL(page.url());
+    const reloadAutomaticallyReconnected =
+      reloadedUrl.searchParams.get("session") === sessionId &&
+      !reloadedUrl.searchParams.has("sample");
     const reconnectedIdentity = await readTrialRunIdentity(page);
     const reconnectedElapsed = page.locator("[data-testid='elapsed-time']");
     const elapsedAfterReconnect = Number(
@@ -1875,13 +1889,16 @@ async function probeTrialFeedback(browser, origin, basePath) {
     await page.clock.runFor(1_100);
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const terminalIdentity = await readTrialRunIdentity(page);
-    await page.waitForFunction((title) => document.title !== title, runningTitle);
+    const expectedTerminalTitle =
+      "✗ すべての必須チェックには合格していません | CommandAgent";
+    await page.waitForFunction((title) => document.title === title, expectedTerminalTitle);
     const terminalTitle = await page.title();
     const elapsedChanged =
       elapsedAfter >= elapsedBefore + 2 && elapsedTextAfter !== elapsedTextBefore;
     const titleChanged =
       terminalTitle !== runningTitle &&
-      terminalTitle === "✔ すべての必須チェックに合格しました — CommandAgent";
+      terminalTitle === expectedTerminalTitle &&
+      !terminalTitle.includes("✔");
     return {
       elapsed_before_seconds: elapsedBefore,
       elapsed_after_seconds: elapsedAfter,
@@ -1890,6 +1907,11 @@ async function probeTrialFeedback(browser, origin, basePath) {
       elapsed_changed: elapsedChanged,
       elapsed_after_reconnect_seconds: elapsedAfterReconnect,
       elapsed_preserved_after_reconnect: elapsedPreservedAfterReconnect,
+      sample_goal_before_edit: sampleGoal,
+      sample_consumed_before_reload: sampleConsumedBeforeReload,
+      reload_automatically_reconnected: reloadAutomaticallyReconnected,
+      reload_requests: reloadSessionRequests,
+      reload_only_gets: reloadOnlyGets,
       zero_total_hidden: zeroTotalHidden,
       phase_text: phaseText,
       phase_uses_total: phaseText === "フェーズ 2 / 5",
@@ -1908,6 +1930,10 @@ async function probeTrialFeedback(browser, origin, basePath) {
       ok:
         elapsedChanged &&
         elapsedPreservedAfterReconnect &&
+        sampleGoal === "Create a CLI --pattern filter command" &&
+        sampleConsumedBeforeReload &&
+        reloadAutomaticallyReconnected &&
+        reloadOnlyGets &&
         meanPreservedAfterReconnect &&
         zeroTotalHidden &&
         phaseText === "フェーズ 2 / 5" &&
@@ -2172,10 +2198,10 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
     id: sessionId,
     started_epoch_seconds: startedEpochSeconds,
     average_duration_seconds: 612,
-    gate: terminal ? "gate_3" : "gate_2",
-    status: terminal ? "completed" : "running",
-    verdict: terminal ? "pass" : null,
-    assurance: terminal ? "full" : null,
+    gate: terminal ? "gate_4" : "gate_2",
+    status: terminal ? "failed" : "running",
+    verdict: terminal ? "failed" : null,
+    assurance: terminal ? "failed" : null,
     phases: [
       { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
       {
@@ -2187,8 +2213,8 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
       },
     ],
     event_count: terminal ? 8 : 3,
-    acceptance_sheet: terminal ? "# Synthetic acceptance\\n\\nPASS" : null,
-    section5: terminal ? "PASS" : null,
+    acceptance_sheet: terminal ? "# Synthetic acceptance\\n\\nFAIL" : null,
+    section5: terminal ? "FAIL" : null,
     events_path: `.anvil/runs/${sessionId}/events.jsonl`,
     identity: syntheticFeedbackProposal().identity,
   };

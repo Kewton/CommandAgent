@@ -328,16 +328,26 @@ async function probeLifecycle(browser, origin, basePath) {
       "session deep link changed",
     );
     const runtimeMaxConcurrentRequests = maxConcurrentRuntimeCalls;
+    const requestOffset = sessionRequests.length;
+    const beforeReconnect = indexCalls;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
       reconnectLink.click(),
     ]);
-    await page.waitForFunction(
-      (token) => document.querySelector("[data-testid='trial-token']")?.value === token,
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await waitFor(() => indexCalls > beforeReconnect, "automatic reconnect success refresh");
+    const automaticReconnectRestoredResult =
+      new URL(page.url()).searchParams.get("session") === createdSessionId;
+    const storageKey = await page.evaluate(
+      (token) => Object.entries(sessionStorage).find(([, value]) => value === token)?.[0] ?? null,
       trialToken,
     );
-    await page.locator("[data-testid='trial-token']").fill(rejectedTrialToken);
-    await page.locator("[data-testid='reconnect-session-button']").click();
+    assert(storageKey !== null, "Trial token storage key was not retained after reconnect");
+    await page.evaluate(
+      ({ key, token }) => sessionStorage.setItem(key, token),
+      { key: storageKey, token: rejectedTrialToken },
+    );
+    await page.reload({ waitUntil: "networkidle" });
     await page.waitForFunction(
       () => document.querySelector("[data-testid='trial-token']")?.value === "",
     );
@@ -345,14 +355,7 @@ async function probeLifecycle(browser, origin, basePath) {
       () => !Object.values(sessionStorage).some((value) => value.includes("-wrong")),
     );
     await page.locator("[data-testid='trial-token']").fill(trialToken);
-    const retryButtonEnabled = await page
-      .locator("[data-testid='reconnect-session-button']")
-      .isEnabled();
-    const requestOffset = sessionRequests.length;
-    const beforeReconnect = indexCalls;
-    await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='terminal-gate']").waitFor();
-    await waitFor(() => indexCalls > beforeReconnect, "reconnect success refresh");
     const reconnectRequests = sessionRequests.slice(requestOffset);
     const reconnectGetOnly =
       reconnectRequests.length > 0 && reconnectRequests.every((request) => request.method === "GET");
@@ -367,13 +370,19 @@ async function probeLifecycle(browser, origin, basePath) {
       (await runtimeLink.getAttribute("href")) === expectedRuntimeHref,
       "runtime session badge did not use the base-path-safe Trial link",
     );
+    const runtimeRequestOffset = sessionRequests.length;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       runtimeLink.click(),
     ]);
+    await page.locator("[data-testid='terminal-gate']").waitFor();
     const runtimeBadgeNavigated =
       new URL(page.url()).pathname === new URL(expectedRuntimeHref, origin).pathname &&
       new URL(page.url()).searchParams.get("session") === createdSessionId;
+    const runtimeReconnectRequests = sessionRequests.slice(runtimeRequestOffset);
+    const runtimeBadgeReconnected =
+      runtimeReconnectRequests.length > 0 &&
+      runtimeReconnectRequests.every((request) => request.method === "GET");
 
     return {
       initial_index_calls: initialIndexCalls,
@@ -393,14 +402,16 @@ async function probeLifecycle(browser, origin, basePath) {
       visibility_revalidated: visibilityRevalidated,
       reconnect_requests: reconnectRequests,
       reconnect_get_only: reconnectGetOnly,
+      automatic_reconnect_restored_result: automaticReconnectRestoredResult,
       rejected_token_removed: rejectedTokenRemoved,
-      retry_button_enabled: retryButtonEnabled,
       runtime_badge_navigated: runtimeBadgeNavigated,
+      runtime_badge_reconnected: runtimeBadgeReconnected,
+      runtime_reconnect_requests: runtimeReconnectRequests,
       ok:
         noPeriodicIndexPolling &&
         reconnectGetOnly &&
+        automaticReconnectRestoredResult &&
         rejectedTokenRemoved &&
-        retryButtonEnabled &&
         runtimeMaxConcurrentRequests === 1 &&
         runtimePausedWhileHidden &&
         runtimeResumedWhenVisible &&
@@ -409,7 +420,8 @@ async function probeLifecycle(browser, origin, basePath) {
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
         visibilityRevalidated &&
-        runtimeBadgeNavigated,
+        runtimeBadgeNavigated &&
+        runtimeBadgeReconnected,
     };
   } finally {
     await page.close();
