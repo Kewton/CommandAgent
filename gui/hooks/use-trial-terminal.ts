@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { describeError } from "../lib/errors";
+import { elapsedLabel } from "../lib/format";
 import {
   confirmDirective as confirmSessionDirective,
   createDirective as requestDirective,
@@ -43,6 +44,9 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     terminalHeading, trialToken,
   } = props;
   const terminalRef = useRef<HTMLElement>(null);
+  const priorStageRef = useRef<ScreenStage>(stage);
+  const preTerminalTitleRef = useRef<string | null>(null);
+  const notifiedTerminalRef = useRef<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
   const [artifacts, setArtifacts] = useState<DocumentSummary[]>([]);
@@ -67,9 +71,22 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   }, [created, rejectTrialToken, trialToken]);
 
   useEffect(() => {
-    if (stage !== "terminal" || session === null) return;
-    const previousTitle = document.title;
-    document.title = `✔ ${terminalHeading(session)} — CommandAgent`;
+    const priorStage = priorStageRef.current;
+    priorStageRef.current = stage;
+    if (stage !== "terminal" || session === null) {
+      preTerminalTitleRef.current = document.title;
+      return;
+    }
+    const heading = terminalHeading(session);
+    const marker = session.gate === "gate_3" ? "✔" : "✗";
+    const previousTitle = preTerminalTitleRef.current ?? document.title;
+    document.title = `${marker} ${heading} | CommandAgent`;
+
+    const notificationKey = `${session.id}:${session.event_count}`;
+    if (priorStage === "gate_2" && notifiedTerminalRef.current !== notificationKey) {
+      notifiedTerminalRef.current = notificationKey;
+      notifyCompletion(session, heading);
+    }
     return () => { document.title = previousTitle; };
   }, [session, stage, terminalHeading]);
 
@@ -152,4 +169,22 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     readArtifact, readEvents, resetForLaunch, resetForNewRun, setDirective,
     setDirectiveText, setStage, terminalRef,
   };
+}
+
+function notifyCompletion(session: PolledSession, heading: string) {
+  if (
+    !document.hidden || typeof window.Notification === "undefined" ||
+    window.Notification.permission !== "granted"
+  ) return;
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor(Date.now() / 1_000 - session.started_epoch_seconds),
+  );
+  try {
+    new window.Notification(`CommandAgent: ${session.gate === "gate_3" ? "Gate 3" : "Gate 4"}`, {
+      body: `${heading} 所要時間 ${elapsedLabel(elapsedSeconds)}`,
+    });
+  } catch {
+    // Notification support can disappear with browser or OS policy changes.
+  }
 }

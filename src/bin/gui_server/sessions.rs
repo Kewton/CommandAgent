@@ -39,6 +39,9 @@ pub struct PolledSession {
     status: String,
     verdict: Option<String>,
     assurance: Option<String>,
+    assurance_reason: Option<String>,
+    stop_reason: Option<String>,
+    next_action: Option<String>,
     phases: Vec<PhaseStatus>,
     event_count: usize,
     acceptance_sheet: Option<String>,
@@ -89,6 +92,7 @@ pub async fn status(
     let terminal = terminal_index.map(|index| &events[index]);
     let run_stop = latest_event(&events, "run_stop");
     let terminal_seen = terminal_is_current && (terminal.is_some() || run_stop.is_some());
+    let terminal_details = current_terminal_details(&events, continuation_index, terminal_seen);
     let command_succeeded = terminal
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
@@ -136,6 +140,9 @@ pub async fn status(
         status: status.to_string(),
         verdict,
         assurance,
+        assurance_reason: terminal_details.assurance_reason,
+        stop_reason: terminal_details.stop_reason,
+        next_action: terminal_details.next_action,
         phases: phase_statuses(&events),
         event_count: events.len(),
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
@@ -146,6 +153,60 @@ pub async fn status(
     let mut response = Json(session).into_response();
     insert_status_headers(&mut response, &etag);
     Ok(response)
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TerminalDetails {
+    assurance_reason: Option<String>,
+    stop_reason: Option<String>,
+    next_action: Option<String>,
+}
+
+fn current_terminal_details(
+    events: &[Value],
+    continuation_index: Option<usize>,
+    terminal_seen: bool,
+) -> TerminalDetails {
+    if !terminal_seen {
+        return TerminalDetails::default();
+    }
+    let current_event_start = continuation_index.map_or(0, |index| index + 1);
+    project_terminal_details(&events[current_event_start..])
+}
+
+fn project_terminal_details(events: &[Value]) -> TerminalDetails {
+    let terminal =
+        latest_event(events, "run_stop").or_else(|| latest_event(events, "tui_command_stop"));
+    TerminalDetails {
+        assurance_reason: terminal
+            .and_then(|event| non_empty_string(event, "assurance_reason"))
+            .or_else(|| {
+                latest_event(events, "ultra_final_acceptance")
+                    .and_then(|event| non_empty_string(event, "assurance_reason"))
+            })
+            .map(str::to_string),
+        stop_reason: terminal
+            .and_then(|event| {
+                non_empty_string(event, "stop_reason")
+                    .or_else(|| non_empty_string(event, "primary_reason"))
+                    .or_else(|| non_empty_string(event, "failure_kind"))
+            })
+            .map(str::to_string),
+        next_action: terminal
+            .and_then(|event| {
+                non_empty_string(event, "next_action")
+                    .or_else(|| non_empty_string(event, "recovery_next_action"))
+            })
+            .or_else(|| {
+                latest_event(events, "ultra_final_acceptance")
+                    .and_then(|event| non_empty_string(event, "next_action"))
+            })
+            .or_else(|| {
+                latest_event(events, "plan_final_contract")
+                    .and_then(|event| non_empty_string(event, "next_action"))
+            })
+            .map(str::to_string),
+    }
 }
 
 fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
@@ -394,6 +455,10 @@ fn latest_event_index(events: &[Value], name: &str) -> Option<usize> {
 
 fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+fn non_empty_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    string(value, key).filter(|value| !value.trim().is_empty())
 }
 
 pub(super) fn require_session_id(id: &str) -> Result<(), SessionError> {
@@ -661,5 +726,94 @@ mod tests {
         assert_eq!(phases[0].total, 5);
         assert_eq!(phases[0].stage, "recovery_prompt_saved");
         assert_eq!(phases[0].status, "failed");
+    }
+
+    #[test]
+    fn terminal_details_project_recorded_result_without_changing_it() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_final_acceptance",
+                "assurance_reason": "cli_probe_not_run",
+                "next_action": "repair_release_gate_failure"
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "assurance_reason": "cli_probe_not_run",
+                "stop_reason": "completed",
+                "next_action": "fix_command_failure"
+            }),
+            serde_json::json!({
+                "event": "run_stop",
+                "assurance_reason": "cli_probe_not_run",
+                "stop_reason": "verification failed",
+                "recovery_next_action": "resume_or_rerun_command"
+            }),
+        ];
+
+        assert_eq!(
+            project_terminal_details(&events),
+            TerminalDetails {
+                assurance_reason: Some("cli_probe_not_run".to_string()),
+                stop_reason: Some("verification failed".to_string()),
+                next_action: Some("resume_or_rerun_command".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_details_use_current_acceptance_fallbacks_only() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_final_acceptance",
+                "assurance_reason": "acceptance_not_full_success",
+                "next_action": "repair_release_gate_failure"
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "primary_reason": "release gate failed"
+            }),
+        ];
+
+        assert_eq!(
+            project_terminal_details(&events),
+            TerminalDetails {
+                assurance_reason: Some("acceptance_not_full_success".to_string()),
+                stop_reason: Some("release gate failed".to_string()),
+                next_action: Some("repair_release_gate_failure".to_string()),
+            }
+        );
+        assert_eq!(project_terminal_details(&[]), TerminalDetails::default());
+    }
+
+    #[test]
+    fn terminal_details_do_not_leak_a_prior_directive_round() {
+        let events = vec![
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "assurance_reason": "stale_reason",
+                "stop_reason": "stale stop",
+                "next_action": "stale_action"
+            }),
+            serde_json::json!({"event": "human_directive_continuation_started"}),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "assurance_reason": "cli_probe_not_run",
+                "stop_reason": "current stop",
+                "next_action": "fix_command_failure"
+            }),
+        ];
+
+        assert_eq!(
+            current_terminal_details(&events, Some(1), true),
+            TerminalDetails {
+                assurance_reason: Some("cli_probe_not_run".to_string()),
+                stop_reason: Some("current stop".to_string()),
+                next_action: Some("fix_command_failure".to_string()),
+            }
+        );
+        assert_eq!(
+            current_terminal_details(&events, Some(1), false),
+            TerminalDetails::default()
+        );
     }
 }

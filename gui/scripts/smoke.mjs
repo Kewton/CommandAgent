@@ -59,6 +59,21 @@ const helpMapEntries = [
     source: "gui/components/trial-compose.tsx",
   },
   {
+    copy: "実行結果と次の一手を確認してください",
+    owner: "gui-trial.md#gate-34-read-the-result",
+    source: "gui/components/trial-terminal.tsx",
+  },
+  {
+    copy: "独立した CLI 動作プローブは実行されていません。",
+    owner: "gui-trial.md#gate-34-read-the-result",
+    source: "gui/components/trial-terminal.tsx",
+  },
+  {
+    copy: "受入シートの詳細を表示",
+    owner: "gui-trial.md#gate-34-read-the-result",
+    source: "gui/components/trial-terminal.tsx",
+  },
+  {
     copy: "固定済みパックが見つかりません。",
     owner: "gui-extensions.md#extensions-catalog",
     source: "gui/app/assets/page.tsx",
@@ -961,7 +976,7 @@ async function runCase(smokeCase) {
       .innerText();
     const expectedTerminalHeading = finalApi.body.gate === "gate_3"
       ? "すべての必須チェックに合格しました"
-      : "すべての必須チェックには合格していません";
+      : "実行結果と次の一手を確認してください";
     const terminalHeadingIsPlain = terminalHeading === expectedTerminalHeading &&
       terminalHeading !== finalApi.body.assurance;
     const terminalVerdictSummary = await page
@@ -1224,10 +1239,13 @@ async function runCase(smokeCase) {
       terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
+      ["assurance_reason", "stop_reason", "next_action"].every((field) =>
+        Object.hasOwn(finalApi.body, field)
+      ) &&
       terminalHeadingIsPlain &&
       terminalText.includes("結果") &&
-      terminalText.includes("保証水準") &&
-      terminalText.includes("状態") &&
+      terminalText.includes(finalApi.body.gate === "gate_3" ? "判定理由" : "原因") &&
+      terminalText.includes("次の一手") &&
       terminalVerdictSummary.includes("最終受け入れ") &&
       terminalAssuranceSummary.length > 0 &&
       terminalStatusSummary.length > 0 &&
@@ -1864,6 +1882,20 @@ async function probeTrialFeedback(browser, origin, basePath) {
   let phaseTotal = 0;
   let terminal = false;
   try {
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+      window.__commandagentCompletionNotifications = [];
+      class CompletionNotification {
+        static permission = "granted";
+        constructor(title, options = {}) {
+          window.__commandagentCompletionNotifications.push({ body: options.body ?? "", title });
+        }
+      }
+      Object.defineProperty(window, "Notification", {
+        configurable: true,
+        value: CompletionNotification,
+      });
+    });
     await page.clock.install({ time: new Date("2026-08-16T00:00:00Z") });
     await page.route("**/api/**", async (route) => {
       const request = route.request();
@@ -1983,9 +2015,32 @@ async function probeTrialFeedback(browser, origin, basePath) {
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const terminalIdentity = await readTrialRunIdentity(page);
     const expectedTerminalTitle =
-      "✗ すべての必須チェックには合格していません | CommandAgent";
+      "✗ 実行結果と次の一手を確認してください | CommandAgent";
     await page.waitForFunction((title) => document.title === title, expectedTerminalTitle);
     const terminalTitle = await page.title();
+    const terminalResult = await page.locator("[data-testid='terminal-verdict-summary']").innerText();
+    const terminalReason = await page.locator("[data-testid='terminal-assurance-summary']").innerText();
+    const terminalNextAction = await page.locator("[data-testid='terminal-status-summary']").innerText();
+    const acceptanceFolded = !(await page
+      .locator("[data-testid='terminal-acceptance-details']")
+      .evaluate((details) => details.open));
+    await page.locator("[data-testid='trial-session-files']").waitFor();
+    const terminalSectionOrder = await page.evaluate(() => {
+      const result = document.querySelector(".verdict-card");
+      const action = document.querySelector(".next-action-card");
+      const files = document.querySelector("[data-testid='trial-session-files']");
+      if (result === null || action === null || files === null) return false;
+      return Boolean(result.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        Boolean(action.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    const completionNotifications = await page.evaluate(
+      () => window.__commandagentCompletionNotifications ?? [],
+    );
+    const notificationMatches =
+      completionNotifications.length === 1 &&
+      completionNotifications[0].title === "CommandAgent: Gate 4" &&
+      completionNotifications[0].body.includes("実行結果と次の一手を確認してください") &&
+      completionNotifications[0].body.includes("所要時間");
     const elapsedChanged =
       elapsedAfter >= elapsedBefore + 2 && elapsedTextAfter !== elapsedTextBefore;
     const titleChanged =
@@ -2020,6 +2075,13 @@ async function probeTrialFeedback(browser, origin, basePath) {
       running_title: runningTitle,
       terminal_title: terminalTitle,
       title_changed: titleChanged,
+      terminal_result: terminalResult,
+      terminal_reason: terminalReason,
+      terminal_next_action: terminalNextAction,
+      acceptance_folded: acceptanceFolded,
+      terminal_section_order: terminalSectionOrder,
+      completion_notifications: completionNotifications,
+      notification_matches: notificationMatches,
       ok:
         elapsedChanged &&
         elapsedPreservedAfterReconnect &&
@@ -2036,6 +2098,14 @@ async function probeTrialFeedback(browser, origin, basePath) {
         syntheticFeedbackIdentityMatches(gateTwoIdentity) &&
         syntheticFeedbackIdentityMatches(reconnectedIdentity) &&
         syntheticFeedbackIdentityMatches(terminalIdentity) &&
+        terminalResult.includes("実行は完了しました") &&
+        terminalResult.includes("最終受け入れは合格") &&
+        terminalReason.includes("静的な証跡") &&
+        terminalReason.includes("独立した CLI 動作プローブは実行されていません") &&
+        terminalNextAction.includes("リリースゲートの不合格を修正") &&
+        acceptanceFolded &&
+        terminalSectionOrder &&
+        notificationMatches &&
         titleChanged,
     };
   } finally {
@@ -2292,9 +2362,12 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
     started_epoch_seconds: startedEpochSeconds,
     average_duration_seconds: 612,
     gate: terminal ? "gate_4" : "gate_2",
-    status: terminal ? "failed" : "running",
-    verdict: terminal ? "failed" : null,
-    assurance: terminal ? "failed" : null,
+    status: terminal ? "completed" : "running",
+    verdict: terminal ? "full_success" : null,
+    assurance: terminal ? "static" : null,
+    assurance_reason: terminal ? "cli_probe_not_run" : null,
+    stop_reason: terminal ? "completed" : null,
+    next_action: terminal ? "repair_release_gate_failure" : null,
     phases: [
       { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
       {
