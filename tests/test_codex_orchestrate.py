@@ -676,6 +676,66 @@ def test_dispatch_commandmate_responds_when_worker_is_waiting_on_prompt() -> Non
     assert len(results[0].commands) == 2
 
 
+def test_dispatch_commandmate_retries_send_when_prompt_disappears() -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(
+            number=1,
+            title="Add worker task",
+            body="Implement the issue.\n\n## Acceptance Criteria\n- Done\n",
+        ),
+        "CommandAgent",
+        skip_enhance=True,
+    )
+    worktree = module.WorktreeResult(
+        issue_number=1,
+        branch_name="feature/issue-1-add-worker-task",
+        worktree_path=Path("/tmp/CommandAgent-issue-1-add-worker-task"),
+        status="created",
+        message="worktree created",
+    )
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:2] == ["commandmatedev", "send"] and len(calls) == 1:
+            raise module.subprocess.CalledProcessError(
+                1,
+                args,
+                output="",
+                stderr="Error: worker is waiting on a prompt. Answer the prompt first.",
+            )
+        if args[:2] == ["commandmatedev", "respond"]:
+            raise module.subprocess.CalledProcessError(
+                1,
+                args,
+                output="",
+                stderr=(
+                    "Warning: Response may not have been applied. "
+                    "Reason: prompt_no_longer_active"
+                ),
+            )
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    results = module.dispatch_commandmate(
+        [analysis],
+        [worktree],
+        dry_run=False,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        runner=fake_runner,
+    )
+
+    assert [call[:2] for call in calls] == [
+        ["commandmatedev", "send"],
+        ["commandmatedev", "respond"],
+        ["commandmatedev", "send"],
+    ]
+    assert results[0].status == "sent"
+    assert len(results[0].commands) == 3
+
+
 def test_dispatch_commandmate_reports_send_failure_as_blocked() -> None:
     module = load_script()
     issue = module.Issue(

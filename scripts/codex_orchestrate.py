@@ -1797,19 +1797,41 @@ def dispatch_commandmate(
                         (respond_exc.stderr or respond_exc.stdout or "").strip()
                         or str(respond_exc)
                     )
-                    results.append(
-                        WorkerSessionResult(
-                            issue_number=analysis.issue.number,
-                            worktree_id=worktree_id,
-                            status="blocked",
-                            processing=None,
-                            running=None,
-                            message=respond_message,
-                            commands=tuple(command_log),
+                    if "prompt_no_longer_active" not in respond_message:
+                        results.append(
+                            WorkerSessionResult(
+                                issue_number=analysis.issue.number,
+                                worktree_id=worktree_id,
+                                status="blocked",
+                                processing=None,
+                                running=None,
+                                message=respond_message,
+                                commands=tuple(command_log),
+                            )
                         )
-                    )
-                    continue
-                responded = True
+                        continue
+                    command_log.append(" ".join(task))
+                    try:
+                        runner(task, cwd=REPO_ROOT, check=True)
+                    except subprocess.CalledProcessError as retry_exc:
+                        retry_message = (
+                            (retry_exc.stderr or retry_exc.stdout or "").strip()
+                            or str(retry_exc)
+                        )
+                        results.append(
+                            WorkerSessionResult(
+                                issue_number=analysis.issue.number,
+                                worktree_id=worktree_id,
+                                status="blocked",
+                                processing=None,
+                                running=None,
+                                message=retry_message,
+                                commands=tuple(command_log),
+                            )
+                        )
+                        continue
+                else:
+                    responded = True
         commands = tuple(command_log)
         status = WorkerSessionResult(
             issue_number=analysis.issue.number,
