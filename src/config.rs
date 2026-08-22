@@ -489,6 +489,7 @@ pub(crate) struct PresetInspection {
 pub(crate) struct ConfigInspection {
     pub paths: Vec<ConfigPathInspection>,
     pub preset: Option<PresetInspection>,
+    pub inspection_errors: Vec<String>,
 }
 
 impl Config {
@@ -1145,6 +1146,7 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     let preset_name = preset_name.map(str::trim).filter(|name| !name.is_empty());
     let mut merged = PresetConfig::default();
     let mut preset_found = false;
+    let mut inspection_errors = Vec::new();
     let paths = config_paths(root)
         .into_iter()
         .map(|path| match parse_config_file_if_present(&path) {
@@ -1166,11 +1168,15 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
                 exists: false,
                 parse_error: None,
             },
-            Err(error) => ConfigPathInspection {
-                path,
-                exists: true,
-                parse_error: Some(format!("{error:#}")),
-            },
+            Err(error) => {
+                let error = format!("{error:#}");
+                inspection_errors.push(error.clone());
+                ConfigPathInspection {
+                    path,
+                    exists: true,
+                    parse_error: Some(error),
+                }
+            }
         })
         .collect();
     let preset = preset_name.map(|name| {
@@ -1182,7 +1188,11 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
             missing_keys,
         }
     });
-    ConfigInspection { paths, preset }
+    ConfigInspection {
+        paths,
+        preset,
+        inspection_errors,
+    }
 }
 
 fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile>> {
@@ -1194,6 +1204,8 @@ fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile
 }
 
 fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
+    text.parse::<toml::Table>()
+        .with_context(|| format!("{} contains invalid TOML syntax", path.display()))?;
     let mut file = ConfigFile::default();
     let mut section = ConfigSection::Top;
     for (index, raw_line) in text.lines().enumerate() {
