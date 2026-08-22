@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { apiPath } from "./base-path";
 import { describeError, responseError } from "./errors";
@@ -11,12 +11,18 @@ type ResourceState<T> = {
   loading: boolean;
 };
 
-export function useResource<T>(resource: string): ResourceState<T> {
+type RefreshableResourceState<T> = ResourceState<T> & {
+  refresh: () => void;
+};
+
+export function useResource<T>(resource: string): RefreshableResourceState<T> {
+  const [revision, setRevision] = useState(0);
   const [state, setState] = useState<ResourceState<T>>({
     data: null,
     error: null,
     loading: true,
   });
+  const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +89,7 @@ export function useResource<T>(resource: string): ResourceState<T> {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [resource]);
+  }, [resource, revision]);
 
-  return state;
+  return { ...state, refresh };
 }

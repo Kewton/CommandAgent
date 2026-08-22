@@ -1055,7 +1055,25 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
 #[test]
 fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
     let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
-    assert!(page.contains("<PackWizard />"));
+    for required in [
+        "<PackWizard onCatalogChange={packs.refresh} />",
+        "role=\"tablist\"",
+        "role=\"tab\"",
+        "aria-selected={tab === item}",
+        "role=\"tabpanel\"",
+        "case \"ArrowRight\"",
+        "case \"ArrowLeft\"",
+        "aria-expanded={open}",
+        "<i aria-hidden=\"true\">",
+        "data-testid=\"pack-warning-status\" role=\"status\"",
+        "data-testid=\"pack-warning\" role=\"note\"",
+        "{name}: {present ? \"あり\" : \"なし\"}",
+    ] {
+        assert!(
+            page.contains(required),
+            "extension page is missing synchronized or accessible behavior {required:?}"
+        );
+    }
 
     let wizard = std::fs::read_to_string("gui/components/pack-wizard.tsx").unwrap();
     for required in [
@@ -1080,6 +1098,11 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "disabled={immutable}",
         "data-testid=\"pack-wizard-trial-link\"",
         "data-testid=\"pack-wizard-new-version\"",
+        "useResource<TrialOptions>(\"trial-options\")",
+        "profileOptions.data.profiles.map",
+        "trial_token_auth_enabled !== false",
+        "data-testid=\"pack-wizard-token-auth-disabled\"",
+        "onCatalogChange?.()",
         "新しい version を作る",
         "ローカル（未承認・帯域未計測）",
         "retired — 終端状態",
@@ -1109,6 +1132,18 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         );
     }
 
+    let resource = std::fs::read_to_string("gui/lib/use-resource.ts").unwrap();
+    for required in [
+        "refresh: () => void",
+        "setRevision",
+        "return { ...state, refresh }",
+    ] {
+        assert!(
+            resource.contains(required),
+            "resource hook is missing explicit refresh behavior {required:?}"
+        );
+    }
+
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "--wizard-only",
@@ -1120,6 +1155,12 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "pinnedNextVersionStaged",
         "retiredNextDraftEditable",
         "selectedPack === selector",
+        "profilesMatchTrial",
+        "catalogRefreshedAfterPin",
+        "probeAssetsAccessibility",
+        "probePackWizardAuthOff",
+        "warningAlerts === 0",
+        "violation_count === 0",
     ] {
         assert!(
             smoke.contains(required),

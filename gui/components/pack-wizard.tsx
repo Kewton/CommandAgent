@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useShellRuntimeStatus } from "./shell";
 import { routePath, withBasePath } from "../lib/base-path";
 import { describeError, GuiRequestError } from "../lib/errors";
 import {
@@ -19,14 +20,10 @@ import {
   type PackWizardFiles,
 } from "../lib/pack-wizard-presets";
 import { persistTrialToken, restoreTrialToken } from "../lib/trial-token-storage";
+import type { TrialOptions } from "../lib/types";
+import { useResource } from "../lib/use-resource";
 
 const steps = ["対象セル", "出発点", "編集", "検証", "pin"] as const;
-const profiles = [
-  { id: "nextjs", label: "Next.js" },
-  { id: "python-cli", label: "Python CLI" },
-  { id: "data", label: "Data" },
-  { id: "ingest", label: "Ingest" },
-] as const;
 const intents = [
   { id: "create", label: "create" },
   { id: "fix", label: "fix" },
@@ -42,7 +39,9 @@ type WizardIssue = {
   message: string;
 };
 
-export function PackWizard() {
+export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }) {
+  const runtime = useShellRuntimeStatus();
+  const profileOptions = useResource<TrialOptions>("trial-options");
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<WizardStep>(0);
   const [maxStep, setMaxStep] = useState<WizardStep>(0);
@@ -58,6 +57,7 @@ export function PackWizard() {
   const [issues, setIssues] = useState<WizardIssue[]>([]);
   const [busy, setBusy] = useState(false);
   const [retireAcknowledged, setRetireAcknowledged] = useState(false);
+  const tokenAuthEnabled = runtime?.data?.trial_token_auth_enabled !== false;
   const immutable = lifecycle === "pinned" || lifecycle === "retired";
   const selector = `${id}@${version}`;
   const exampleAvailable = profile === "nextjs" && intent === "create";
@@ -69,6 +69,24 @@ export function PackWizard() {
   useEffect(() => {
     setToken(restoreTrialToken());
   }, []);
+
+  useEffect(() => {
+    if (runtime?.data?.trial_token_auth_enabled === false) {
+      setToken("");
+      persistTrialToken("");
+    }
+  }, [runtime?.data?.trial_token_auth_enabled]);
+
+  useEffect(() => {
+    const availableProfiles = profileOptions.data?.profiles;
+    if (
+      availableProfiles !== undefined &&
+      availableProfiles.length > 0 &&
+      !availableProfiles.some((option) => option.id === profile)
+    ) {
+      setProfile(availableProfiles[0].id);
+    }
+  }, [profile, profileOptions.data?.profiles]);
 
   useEffect(() => {
     if (!exampleAvailable && startingPoint === "nextjs-acme") setStartingPoint("blank");
@@ -206,6 +224,7 @@ export function PackWizard() {
     try {
       await pinExtensionPack(token, id, version, report.hash);
       setLifecycle("pinned");
+      onCatalogChange?.();
     } catch (reason) {
       const recoveredLifecycle = immutableLifecycleFromConflict(reason);
       if (recoveredLifecycle !== null) setLifecycle(recoveredLifecycle);
@@ -223,6 +242,7 @@ export function PackWizard() {
       await retireExtensionPack(token, id, version);
       setLifecycle("retired");
       setRetireAcknowledged(false);
+      onCatalogChange?.();
     } catch (reason) {
       const recoveredLifecycle = immutableLifecycleFromConflict(reason);
       if (recoveredLifecycle !== null) setLifecycle(recoveredLifecycle);
@@ -307,12 +327,21 @@ export function PackWizard() {
               profile
               <select
                 data-testid="pack-wizard-profile"
-                disabled={immutable}
+                disabled={immutable || profileOptions.data === null}
                 onChange={(event) => setProfile(event.target.value)}
                 value={profile}
               >
-                {profiles.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                {profileOptions.data === null ? (
+                  <option value={profile}>許可済みプロファイルを読み込み中…</option>
+                ) : (
+                  profileOptions.data.profiles.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
               </select>
+              {profileOptions.error !== null && (
+                <small className="trial-field-hint">プロファイル候補を読み込めませんでした: {profileOptions.error}</small>
+              )}
             </label>
             <label>
               intent
@@ -398,23 +427,29 @@ export function PackWizard() {
               />
             </label>
           </div>
-          <label className="pack-wizard-token">
-            Trial access token
-            <input
-              autoCapitalize="none"
-              autoComplete="off"
-              data-testid="pack-wizard-token"
-              id="pack-wizard-token"
-              onChange={(event) => {
-                setToken(event.target.value);
-                persistTrialToken(event.target.value);
-              }}
-              spellCheck={false}
-              type="password"
-              value={token}
-            />
-            <small>トークン認証が有効なときだけ必要です。現在の tab と base path にだけ保存します。</small>
-          </label>
+          {tokenAuthEnabled ? (
+            <label className="pack-wizard-token">
+              Trial access token
+              <input
+                autoCapitalize="none"
+                autoComplete="off"
+                data-testid="pack-wizard-token"
+                id="pack-wizard-token"
+                onChange={(event) => {
+                  setToken(event.target.value);
+                  persistTrialToken(event.target.value);
+                }}
+                spellCheck={false}
+                type="password"
+                value={token}
+              />
+              <small>現在の tab と base path にだけ保存します。</small>
+            </label>
+          ) : (
+            <p className="source-note" data-testid="pack-wizard-token-auth-disabled">
+              Trial トークン認証はサーバー設定で無効です。
+            </p>
+          )}
           <div className="pack-wizard-editors">
             <label>
               assist.yaml
