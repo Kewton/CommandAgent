@@ -71,9 +71,9 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
     },
     ProtectionRule {
         category: "workspace_policy_tool_paths",
-        site_predicate: "ToolRegistry path arguments",
-        required_wrapper: "resolve_policy_checked_path / ensure_tool_path_allowed",
-        allowlist: &["src/tools/registry.rs"],
+        site_predicate: "built-in and extension tool path arguments",
+        required_wrapper: "resolve_policy_checked_path / normalize_existing_workspace_path / ensure_tool_path_allowed",
+        allowlist: &["src/tools/registry.rs", "src/tools/extension.rs"],
         audit: audit_workspace_policy_tool_paths,
     },
     ProtectionRule {
@@ -463,6 +463,25 @@ fn audit_workspace_policy_tool_paths(corpus: &AuditCorpus, _: &ProtectionRule) -
             violations.push(format!(
                 "ToolRegistry path resolver bypasses policy helper: {raw_resolver}"
             ));
+        }
+    }
+    let extension = corpus.file("src/tools/extension.rs");
+    if extension.is_empty() {
+        violations.push("src/tools/extension.rs is missing from audit corpus".to_string());
+    } else {
+        let helper =
+            function_body(extension, "normalize_existing_workspace_path").unwrap_or_default();
+        for required in [
+            "normalize_workspace_path(",
+            "hidden_path::ensure_reference_allowed(",
+            "resolve_existing(",
+            "ensure_tool_path_allowed(",
+        ] {
+            if !helper.contains(required) {
+                violations.push(format!(
+                    "extension workspace path helper is missing `{required}`"
+                ));
+            }
         }
     }
     violations
