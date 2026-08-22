@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-59 application flags below. The hidden `--completion-contract-json <PATH>` is an
+61 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -39,7 +39,9 @@ internal integration surface and is intentionally not a public user flag.
 | `--pack-pin` | `<DIR>` | none | Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin. | [Conflicts](#conflicts-and-combinations) |
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, `gemini`, or `openai-compatible` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--base-url` | `<URL>` | none | Set the base URL for the generic OpenAI-compatible provider; an optional trailing `/v1` is normalized. | [OpenAI-compatible servers](providers.md#generic-openai-compatible-servers) |
+| `--api-key-env` | `<NAME>` | none | Read an optional OpenAI-compatible bearer token from this process-environment variable. | [OpenAI-compatible servers](providers.md#generic-openai-compatible-servers) |
 | `--api` | `<chat-completions\|responses>` | `chat-completions` | Explicitly select the OpenAI-compatible API surface; model names never select it implicitly. | [Presets](configuration.md#presets) |
 | `--tool-protocol` | `<native\|text>` | provider capability default | Explicitly select native function tools or the established text/XML tool protocol. | [Presets](configuration.md#presets) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
@@ -48,7 +50,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--workflow` | `<PATH>` | none | Run a declarative workflow-circle definition. Mutually exclusive with `--intent`. | [Examples](#examples) |
 | `--origin` | `<PATH>` | none | Supply the existing failed origin run workspace for `--workflow`. | [Examples](#examples) |
 | `--planner-model` | `<PLANNER_MODEL>` | executor model when providers match | Set the planner model ID. Required when planner and executor providers differ. | [Provider roles](providers.md#provider-matrix) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `lm-studio`, `openai`, `gemini`, or `openai-compatible` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
 | `--prompt` | `<PROMPT>` | none | Run one minimal-loop prompt instead of entering the TUI. | [Examples](#examples) |
 | `--plan-steps` | none | off | Generate and save a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
 | `--plan-run` | none | off | Generate and run a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |

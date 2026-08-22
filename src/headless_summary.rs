@@ -31,9 +31,13 @@ impl Source {
             terminal_status: None,
             exit_code: None,
             model_metadata: Some(ModelMetadata {
-                executor_provider: config.provider.as_str().to_string(),
+                executor_provider: config
+                    .provider_label(crate::config::ProviderRole::Executor)
+                    .to_string(),
                 executor_model: config.model.clone(),
-                planner_provider: config.planner_provider.as_str().to_string(),
+                planner_provider: config
+                    .provider_label(crate::config::ProviderRole::Planner)
+                    .to_string(),
                 planner_model: config.planner_model.clone(),
                 ollama_think: config.ollama_think.map(crate::config::OllamaThink::as_str),
                 ollama_think_request_field_present: config.ollama_think.is_some(),

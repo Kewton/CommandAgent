@@ -28,6 +28,7 @@ universal quality tier ではありません。いずれかが変わった場合
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | ローカルサーバーでは不要 | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`、既定値 `http://localhost:11434`。`/api/chat` を付加 | `--provider ollama --model <model-id>` |
 | LM Studio | `lm-studio` | 既定では不要。サーバー認証時は `LM_STUDIO_API_TOKEN` | [LM Studio local server](https://lmstudio.ai/docs/developer/core/server) | `--lm-studio-host`、既定値 `http://localhost:1234`。OpenAI 互換の `/v1` ルートを付加 | `--provider lm-studio --model <model-id>` |
+| 汎用 OpenAI 互換 | `openai-compatible` | 既定では不要。認証時は `--api-key-env` で指定したプロセス環境変数 | server または gateway のドキュメント | 明示した `--base-url`。末尾の任意の `/v1` は正規化 | `--provider openai-compatible --base-url <url> --model <model-id>` |
 | OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com`。明示 `--api chat-completions`（既定）または `--api responses` | プロセス環境のみ |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Google AI Studio で Gemini API キーを作成](https://aistudio.google.com/app/apikey) | 固定の Google Generative Language endpoint | プロセス環境またはワークスペース `.env` |
 
@@ -45,6 +46,10 @@ workspace の `.env` からの指定は意図的に拒否します。`GEMINI_API
 `LM_STUDIO_API_TOKEN` は任意で、プロセス環境だけから読みます。既定の認証なしローカル
 サーバーでは未設定のままにし、LM Studio の Require Authentication を有効にした場合だけ
 設定してください。
+
+汎用 provider は key の値を引数や preset から受け付けません。`--api-key-env <NAME>` または
+preset の `api_key_env = "NAME"` には任意のプロセス環境変数名だけを指定します。認証なし
+server では省略してください。
 
 ### シェル環境
 
@@ -123,6 +128,39 @@ tool は既定で有効です。構造化 tool call が安定しないモデル�
 
 現在、LM Studio provider turn は非ストリーミング経路を使います。REPL で `--stream on` でも
 機能は維持されますが、出力は provider turn 完了後に描画されます。
+
+## 汎用 OpenAI 互換 server
+
+vLLM、llama.cpp、Ollama の OpenAI 互換 endpoint、または互換性のある社内 gateway では汎用
+provider を使います。server root または `/v1` URL を指定すると、末尾の任意の `/v1` を正規化し、
+選択した Chat Completions または Responses route を付加します。既定は Chat Completions です。
+
+```bash
+export VLLM_API_KEY="<secret>" # 認証なし server では省略
+commandagent --provider openai-compatible \
+  --base-url http://localhost:8000/v1 \
+  --api-key-env VLLM_API_KEY \
+  --model <served-model-id>
+```
+
+secret を保存せず、同じ設定を preset に置けます。
+
+```toml
+[preset.gateway]
+model = "<served-model-id>"
+provider = "openai-compatible"
+base_url = "https://gateway.example.com/v1"
+api_key_env = "GATEWAY_API_KEY"
+```
+
+base URL は HTTP または HTTPS に限定し、credential、query、fragment を含められません。診断には
+設定した環境変数名を記録しますが、その値は redact され event に書き込まれません。native function
+tool と既存の検証済み text/XML fallback を利用できます。互換 server または model が structured
+tool call を安定して実装しない場合は `--tool-protocol text` を使ってください。provider turn は
+非ストリーミングで、既存の Escape/Ctrl-C provider cancellation 境界は維持されます。
+
+LM Studio は同じ transport を既存の `lm-studio`、`--lm-studio-host`、
+`LM_STUDIO_API_TOKEN` 名で使います。これらは後方互換のまま維持され、汎用形式へ自動変換されません。
 
 ## Ollama のホストとモデル
 

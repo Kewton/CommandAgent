@@ -296,6 +296,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "m".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

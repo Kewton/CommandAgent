@@ -1,6 +1,8 @@
 use std::io::{self, IsTerminal};
 
-use crate::config::{Config, Provider};
+use crate::config::Config;
+#[cfg(test)]
+use crate::config::Provider;
 
 const MIN_BANNER_WIDTH: u16 = 50;
 const NEON_GRADIENT_256: [u8; 5] = [51, 39, 93, 201, 21];
@@ -90,11 +92,11 @@ pub(crate) fn render_startup_banner_for_locale(
         "model={} ({}) provider={} ({}) planner={} ({}) planner_provider={} ({})\n",
         sanitize_banner_text(&config.model),
         sanitize_banner_text(&config.field_sources.model),
-        provider_label(config.provider),
+        config.provider_label(crate::config::ProviderRole::Executor),
         sanitize_banner_text(&config.field_sources.provider),
         sanitize_banner_text(&config.planner_model),
         sanitize_banner_text(&config.field_sources.planner_model),
-        provider_label(config.planner_provider),
+        config.provider_label(crate::config::ProviderRole::Planner),
         sanitize_banner_text(&config.field_sources.planner_provider),
     ));
     out.push_str(&format!(
@@ -136,10 +138,6 @@ pub(crate) fn render_startup_banner_for_locale(
     out.push_str(crate::tui::repl_output::FIRST_RUN_HELP_LINE);
     out.push('\n');
     crate::tui::glyphs::for_locale(&out, use_utf8)
-}
-
-fn provider_label(provider: Provider) -> &'static str {
-    provider.as_str()
 }
 
 fn narration_label(mode: crate::config::NarrationMode) -> &'static str {
@@ -195,6 +193,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "pm".to_string(),
             classifier_provider: Provider::Gemini,
+            openai_compatible: None,
             ollama_host: "http://localhost:11434".to_string(),
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

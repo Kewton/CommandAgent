@@ -23,6 +23,7 @@ CLI フラグ > 選択した preset のフィールド > トップレベル設�
 | `footer` | `--no-footer` または `--footer` > preset > トップレベルキー > `on` |
 | `stream` | `--stream` > preset > トップレベルキー > REPL ではオン、直接アクションではオフ |
 | `model`、`provider`、`context_budget`、`chat_timeout_secs` | CLI > preset > 組み込み／プロバイダ依存の既定値 |
+| `base_url`、`api_key_env` | CLI > preset。`openai-compatible` のみが使用し、base URL は必須 |
 | `api` | `--api` > preset > `chat_completions`（OpenAI と LM Studio） |
 | `tool_protocol` | CLI > preset > プロバイダ能力の既定値 |
 | `planner_model`、`planner_provider` | CLI > preset > 実行役割から継承。異なるプロバイダには planner model が必要 |
@@ -59,21 +60,23 @@ timeout の既定値は、executor、planner、classifier のいずれかが Oll
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 18 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 20 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
 | --- | --- | --- |
 | `pack` | exact な `"id@MAJOR.MINOR.PATCH"` selector | pack なし |
 | `model` | model ID 文字列 | `qwen3.6:27b-coding-nvfp4` |
-| `provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | `"ollama"` |
+| `provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"openai-compatible"`、`"gemini"` | `"ollama"` |
+| `base_url` | credential、query、fragment を含まない HTTP(S) URL | `openai-compatible` では必須 |
+| `api_key_env` | プロセス環境変数名 | bearer 認証なし |
 | `api` | `"chat_completions"` または `"responses"` | `"chat_completions"` |
 | `tool_protocol` | `"native"` または `"text"` | プロバイダ能力の既定値 |
 | `planner_model` | model ID 文字列 | プロバイダが同じなら実行モデル。それ以外は必須 |
-| `planner_provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | 実行プロバイダ |
+| `planner_provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"openai-compatible"`、`"gemini"` | 実行プロバイダ |
 | `planner_think` | `"true"`、`"false"`、`"low"`、`"medium"`、`"high"` | `"false"` |
 | `classifier_model` | model ID 文字列 | プロバイダが同じなら planner model。それ以外は必須 |
-| `classifier_provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | planner provider |
+| `classifier_provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"openai-compatible"`、`"gemini"` | planner provider |
 | `context_budget` | 非負のプラットフォームサイズ整数 | `65536` |
 | `chat_timeout_secs` | 非負の 64 bit 整数 | プロバイダ依存の `600` または `180` |
 | `profile` | profile 文字列 | 推論後に `"generic"` |
@@ -124,11 +127,12 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 `stream` の 11 フィールドが揃った時点で早期停止します。
 
 `prompt_layout`、`api`、`tool_protocol`、`pack`、`planner_think`、
-`classifier_model`、`classifier_provider` は受け付けるキーですが、この完全性判定には**含まれません**。優先度の高い preset が
+`classifier_model`、`classifier_provider`、`base_url`、`api_key_env` は受け付けるキーですが、
+この完全性判定には**含まれません**。優先度の高い preset が
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 18 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 20 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 

@@ -11,6 +11,7 @@ pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> 
     }
     let mut warnings = ollama_warnings(config);
     warnings.extend(lm_studio_warnings(config));
+    warnings.extend(openai_compatible_warnings(config));
     warnings
 }
 
@@ -90,6 +91,54 @@ fn lm_studio_warnings(config: &Config) -> Vec<String> {
     }
 }
 
+fn openai_compatible_warnings(config: &Config) -> Vec<String> {
+    let Some(compatible) = &config.openai_compatible else {
+        return Vec::new();
+    };
+    let models = configured_openai_compatible_models(config);
+    if models.is_empty() {
+        return Vec::new();
+    }
+    let api_token = compatible
+        .api_key_env
+        .as_deref()
+        .map(crate::config::load_process_api_key)
+        .transpose();
+    let result = api_token.and_then(|api_token| {
+        crate::providers::lm_studio::LmStudioClient::new_openai_compatible(
+            compatible.base_url.clone(),
+            compatible.api_key_env.clone(),
+            api_token,
+            STARTUP_PROBE_TIMEOUT.as_secs(),
+            1,
+            0,
+            crate::config::OpenAiApi::ChatCompletions,
+            None,
+        )
+        .and_then(|client| client.list_models())
+    });
+    match result {
+        Ok(visible) => {
+            let visible = visible.into_iter().collect::<BTreeSet<_>>();
+            models
+                .difference(&visible)
+                .map(|model| {
+                    let model = single_line(model);
+                    format!(
+                        "warning: OpenAI-compatible model `{model}` is not visible at {}. Verify the served model ID, then run `commandagent --doctor`.",
+                        single_line(&compatible.base_url)
+                    )
+                })
+                .collect()
+        }
+        Err(error) => vec![format!(
+            "warning: OpenAI-compatible server is unreachable at {} ({error}). Verify `--base-url`, then run `commandagent --doctor`; continuing.",
+            single_line(&compatible.base_url),
+            error = single_line(&error.to_string())
+        )],
+    }
+}
+
 fn should_probe(config: &Config, stdin_is_terminal: bool) -> bool {
     stdin_is_terminal && !config.offline && matches!(config.action, Action::Repl)
 }
@@ -107,11 +156,44 @@ fn configured_ollama_models(config: &Config) -> BTreeSet<String> {
 
 fn configured_lm_studio_models(config: &Config) -> BTreeSet<String> {
     [
-        (config.provider, config.model.as_str()),
-        (config.planner_provider, config.planner_model.as_str()),
+        (
+            crate::config::ProviderRole::Executor,
+            config.provider,
+            config.model.as_str(),
+        ),
+        (
+            crate::config::ProviderRole::Planner,
+            config.planner_provider,
+            config.planner_model.as_str(),
+        ),
     ]
     .into_iter()
-    .filter(|(provider, _)| *provider == Provider::LmStudio)
+    .filter(|(role, provider, _)| {
+        *provider == Provider::LmStudio
+            && !config
+                .openai_compatible
+                .as_ref()
+                .is_some_and(|compatible| compatible.applies_to(*role))
+    })
+    .map(|(_, _, model)| model.to_string())
+    .collect()
+}
+
+fn configured_openai_compatible_models(config: &Config) -> BTreeSet<String> {
+    [
+        (crate::config::ProviderRole::Executor, config.model.as_str()),
+        (
+            crate::config::ProviderRole::Planner,
+            config.planner_model.as_str(),
+        ),
+    ]
+    .into_iter()
+    .filter(|(role, _)| {
+        config
+            .openai_compatible
+            .as_ref()
+            .is_some_and(|compatible| compatible.applies_to(*role))
+    })
     .map(|(_, model)| model.to_string())
     .collect()
 }
@@ -162,6 +244,7 @@ mod tests {
             planner_think: Some(crate::config::OllamaThink::False),
             classifier_model: "planner:latest".to_string(),
             classifier_provider: Provider::Ollama,
+            openai_compatible: None,
             ollama_host: host,
             ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),

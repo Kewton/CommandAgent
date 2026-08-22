@@ -87,6 +87,10 @@ impl ChatClient for OllamaClient {
         true
     }
 
+    fn supports_ollama_think(&self) -> bool {
+        true
+    }
+
     fn take_response_timing(&mut self) -> Option<ResponseTiming> {
         self.last_response_timing.take()
     }

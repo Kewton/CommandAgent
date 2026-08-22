@@ -525,16 +525,20 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             let proposal = crate::tui::boundary_shell::ambiguity::propose_route(
                 deterministic,
                 &parsed_request.request,
-                provider_name(config.planner_provider),
+                config.provider_label(crate::config::ProviderRole::Planner),
                 &config.planner_model,
                 &mut *planner,
                 &config,
                 &|| ui.interrupted(),
             );
             let pins = crate::tui::boundary_shell::confirmation::ExecutionPins {
-                planner_provider: provider_name(config.planner_provider).to_string(),
+                planner_provider: config
+                    .provider_label(crate::config::ProviderRole::Planner)
+                    .to_string(),
                 planner_model: config.planner_model.clone(),
-                executor_provider: provider_name(config.provider).to_string(),
+                executor_provider: config
+                    .provider_label(crate::config::ProviderRole::Executor)
+                    .to_string(),
                 executor_model: config.model.clone(),
                 preset: "profile".to_string(),
             };
@@ -901,10 +905,6 @@ fn render_terminal(
             ),
         ],
     )
-}
-
-fn provider_name(provider: crate::config::Provider) -> &'static str {
-    provider.as_str()
 }
 
 fn render_command_result(
