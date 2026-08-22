@@ -1,0 +1,14 @@
+source = "Issue #239 measured 2026-08-20 baseline"
+baseline_planner_tokens = 10800
+baseline_model_owned_phases = ["cli-scaffold", "cli-implementation", "cli-validation"]
+synthesized_model_owned_phases = ["cli-implementation"]
+minimum_reduction_percent = 30
+
+setup_phase = "cli-scaffold"
+setup_step_kind = "setup"
+setup_expected_paths = ["pyproject.toml", "src/greet/main.py"]
+implementation_phase = "cli-implementation"
+implementation_step_kind = "implement"
+verify_phase = "cli-validation"
+verify_step_kind = "verify"
+verify_command = "python3 -m compileall -q src"

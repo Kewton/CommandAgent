@@ -15,9 +15,10 @@ use crate::minimal_loop::dependency_setup::{
 };
 use crate::minimal_loop::verifier_env;
 use crate::planner::profile::{
-    DomainProfile, ProfileBehaviorProbeReport, ProfileBuildOracle, ProfileQualityExpectations,
-    ProfileSnapshot, profile_failure,
+    DomainProfile, ProfileBehaviorProbeReport, ProfileBuildOracle, ProfileDeterministicStepPlan,
+    ProfileQualityExpectations, ProfileSnapshot, profile_failure,
 };
+use crate::planner::ultra_plan::UltraPlan;
 use crate::planner::verify::{
     NormalizedVerifyCommand, VerificationReport, normalize_verify_command,
 };
@@ -29,7 +30,7 @@ pub(crate) mod readme_verify;
 pub mod runtime;
 
 const DEFAULT_PACKAGE: &str = "app";
-const COMPILE_COMMAND: &str = "python3 -m compileall -q src";
+pub(crate) const COMPILE_COMMAND: &str = "python3 -m compileall -q src";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct PythonCliProfile;
@@ -47,7 +48,8 @@ impl DomainProfile for PythonCliProfile {
     }
 
     fn expected_scaffold_paths(&self, root: &Path, goal: &str) -> Vec<String> {
-        scaffold_paths(root, Some(goal))
+        crate::planner::python_cli_plan_synthesis::phase_expected_paths(root, goal)
+            .unwrap_or_else(|| scaffold_paths(root, Some(goal)))
     }
 
     fn setup_scaffold_paths(&self, root: &Path) -> Vec<String> {
@@ -90,9 +92,29 @@ impl DomainProfile for PythonCliProfile {
         let entrypoint = explicit_goal_package(goal)
             .map(|package| format!("src/{package}/main.py"))
             .unwrap_or_else(|| "src/<package>/main.py".to_string());
-        Some(format!(
+        let mut guidance = format!(
             "For the python-cli profile, create one small Python CLI package with pyproject.toml and {entrypoint}. Derive the package from an explicit requested .py filename; otherwise preserve the existing project identity or use app. Do not create a second default package. Keep deterministic verification separate from dependency setup. The CLI must read stdin or args and print non-empty output that changes when input changes.",
-        ))
+        );
+        if let Some(implementation_only) =
+            crate::planner::python_cli_plan_synthesis::implementation_only_guidance(goal)
+        {
+            guidance.push(' ');
+            guidance.push_str(implementation_only);
+        }
+        Some(guidance)
+    }
+
+    fn deterministic_step_plan(
+        &self,
+        phase_prompt: &str,
+        root: &Path,
+        goal: &str,
+    ) -> Option<ProfileDeterministicStepPlan> {
+        crate::planner::python_cli_plan_synthesis::deterministic_step_plan(phase_prompt, root, goal)
+    }
+
+    fn preset_ultra_plan(&self, goal: &str, style: &str, intent: &str) -> Option<UltraPlan> {
+        manifest::preset_ultra_plan(goal, style, intent)
     }
 
     fn runtime_contract(&self, _intent: &str, _goal: &str) -> String {
@@ -110,6 +132,11 @@ impl DomainProfile for PythonCliProfile {
     }
 
     fn quality_expectations(&self, root: &Path, goal: &str) -> ProfileQualityExpectations {
+        if let Some(expectations) =
+            crate::planner::python_cli_plan_synthesis::phase_quality_expectations(root, goal)
+        {
+            return expectations;
+        }
         ProfileQualityExpectations {
             required_artifacts: scaffold_paths(root, Some(goal)),
             preferred_verify: vec![COMPILE_COMMAND.to_string()],
@@ -409,6 +436,10 @@ fn scaffold_paths(root: &Path, goal: Option<&str>) -> Vec<String> {
         "pyproject.toml".to_string(),
         format!("src/{}/main.py", package_name(root, goal)),
     ]
+}
+
+pub(crate) fn contract_scaffold_paths(root: &Path, goal: &str) -> Vec<String> {
+    scaffold_paths(root, Some(goal))
 }
 
 pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Result<Vec<String>> {

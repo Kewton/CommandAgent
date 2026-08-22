@@ -32,6 +32,7 @@ pub(crate) mod profile_behavior;
 pub mod profile_descriptor;
 pub mod profile_manifest;
 pub(crate) mod profile_preset;
+pub(crate) mod python_cli_plan_synthesis;
 pub mod repair;
 mod repair_target_selection;
 pub mod repair_targeting;
