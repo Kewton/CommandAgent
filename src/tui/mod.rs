@@ -9,6 +9,7 @@ pub mod input_queue;
 pub mod interrupt;
 pub mod markdown;
 pub mod presentation;
+pub(crate) mod repair_display;
 pub mod repl;
 pub mod repl_output;
 pub mod slash;

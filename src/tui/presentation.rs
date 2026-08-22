@@ -496,17 +496,18 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 .get("repair_attempt")
                 .or_else(|| event.get("attempt"))
                 .and_then(Value::as_u64)
-                .unwrap_or(1);
+                .unwrap_or(1) as usize;
             let max = event
                 .get("max_repair_turns")
                 .or_else(|| event.get("max"))
                 .and_then(Value::as_u64)
-                .unwrap_or(2);
+                .unwrap_or(2) as usize;
             let target = text(event, "repair_target")
                 .or_else(|| text(event, "target"))
                 .unwrap_or_else(|| "repair".to_string());
             Some(format!(
-                "↻ repair {attempt}/{max}: {}",
+                "↻ repair {}: {}",
+                crate::tui::repair_display::progress_label(attempt, max),
                 fit_display_line(&target, 96)
             ))
         }
@@ -515,17 +516,18 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 .get("repair_attempt")
                 .or_else(|| event.get("attempt"))
                 .and_then(Value::as_u64)
-                .unwrap_or(1);
+                .unwrap_or(1) as usize;
             let max = event
                 .get("max_repair_turns")
                 .or_else(|| event.get("max"))
                 .and_then(Value::as_u64)
-                .unwrap_or(2);
+                .unwrap_or(2) as usize;
             let target = text(event, "repair_target")
                 .or_else(|| text(event, "target"))
                 .unwrap_or_else(|| "final acceptance".to_string());
             Some(format!(
-                "↻ repair {attempt}/{max}: {}",
+                "↻ repair {}: {}",
+                crate::tui::repair_display::progress_label(attempt, max),
                 fit_display_line(&target, 96)
             ))
         }
@@ -646,11 +648,23 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
         }
         "provider_turn_aborted_by_user" => Some("✗ provider aborted by user".to_string()),
         "dependency_build_lifecycle" => {
-            let status = text(event, "status").unwrap_or_else(|| "dependency".to_string());
-            Some(format!("→ npm install {status}"))
+            let status = text(event, "status")
+                .or_else(|| text(event, "setup_status"))
+                .unwrap_or_else(|| "dependency".to_string());
+            if dependency_lifecycle_is_python(event) {
+                Some(format!("→ Python dependency setup {status}"))
+            } else {
+                Some(format!("→ npm install {status}"))
+            }
         }
         _ => None,
     }
+}
+
+fn dependency_lifecycle_is_python(event: &Value) -> bool {
+    ["profile", "setup_kind"].into_iter().any(|key| {
+        text(event, key).is_some_and(|value| value.to_ascii_lowercase().contains("python"))
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1353,6 +1367,61 @@ mod tests {
                 "ok empty response recovered after 2 retries",
                 "~ plan quality retry 1: missing verification",
             ]
+        );
+    }
+
+    #[test]
+    fn activity_repair_progress_never_exceeds_its_display_limit() {
+        for event in [
+            json!({
+                "event": "step_verify_repair",
+                "repair_attempt": 4,
+                "max_repair_turns": 2,
+                "repair_target": "step"
+            }),
+            json!({
+                "event": "final_acceptance_repair_start",
+                "repair_attempt": 3,
+                "max_repair_turns": 2,
+                "repair_target": "acceptance"
+            }),
+        ] {
+            let rendered = render_activity_line(&event).unwrap();
+
+            assert!(rendered.contains("repair 2/2"), "{rendered}");
+            assert!(!rendered.contains("4/2"), "{rendered}");
+            assert!(!rendered.contains("3/2"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn activity_uses_python_dependency_text_for_python_projects() {
+        for event in [
+            json!({
+                "event": "dependency_build_lifecycle",
+                "profile": "python-cli",
+                "setup_status": "passed"
+            }),
+            json!({
+                "event": "dependency_build_lifecycle",
+                "setup_kind": "python_cli_dependencies",
+                "setup_status": "blocked"
+            }),
+        ] {
+            let rendered = render_activity_line(&event).unwrap();
+
+            assert!(rendered.contains("Python dependency setup"), "{rendered}");
+            assert!(!rendered.to_ascii_lowercase().contains("npm"), "{rendered}");
+        }
+
+        assert_eq!(
+            render_activity_line(&json!({
+                "event": "dependency_build_lifecycle",
+                "profile": "nextjs",
+                "status": "passed"
+            }))
+            .as_deref(),
+            Some("→ npm install passed")
         );
     }
 

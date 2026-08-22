@@ -263,7 +263,7 @@ fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
 
 #[test]
 #[ignore]
-fn tui_pty_planner_stream_interrupt_cleans_spinner_and_footer() {
+fn tui_pty_planner_stream_interrupt_cleans_spinner_footer_and_status() {
     if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
         .ok()
         .as_deref()
@@ -322,6 +322,18 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_and_footer() {
     assert!(
         text.contains("\x1b[r") && text.contains("commandagent>"),
         "footer/raw terminal cleanup did not restore the prompt after Esc. output={text:?}"
+    );
+    let status_output = text
+        .rsplit_once("### Status")
+        .map(|(_, suffix)| suffix)
+        .unwrap_or_else(|| panic!("post-interrupt /status output was missing. output={text:?}"));
+    assert!(
+        !status_output.contains("[stopping: aborting current operation"),
+        "stopping footer survived into the post-interrupt /status command. output={text:?}"
+    );
+    assert!(
+        !status_output.contains("Current scope: interrupt requested"),
+        "interrupt scope survived into the post-interrupt /status command. output={text:?}"
     );
 }
 
@@ -821,6 +833,10 @@ fn run_stream_script(
         if interrupt {
             stdin.write_all(b"\x1b")?;
             stdin.flush()?;
+            thread::sleep(Duration::from_millis(500));
+            stdin.write_all(b"/status\n")?;
+            stdin.flush()?;
+            thread::sleep(Duration::from_secs(1));
         }
         thread::sleep(Duration::from_millis(500));
         stdin.write_all(b"/exit\n")?;

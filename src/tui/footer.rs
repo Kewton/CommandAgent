@@ -368,7 +368,7 @@ pub(crate) fn build_live_footer_lines_for_locale(
         let elapsed = now.elapsed_secs_since(command.started_at);
         secondary.push(format!(
             "cmd {} {}/{}",
-            command.excerpt,
+            footer_command_label(&command.excerpt),
             crate::tui::elapsed::format_elapsed(elapsed),
             crate::tui::elapsed::format_elapsed(command.cap_secs)
         ));
@@ -389,11 +389,10 @@ pub(crate) fn build_live_footer_lines_for_locale(
         ));
     }
     if let Some(repair) = &runtime.repair {
-        if repair.max == 0 {
-            secondary.push(format!("repair {}", repair.attempt));
-        } else {
-            secondary.push(format!("repair {}/{}", repair.attempt, repair.max));
-        }
+        secondary.push(format!(
+            "repair {}",
+            crate::tui::repair_display::progress_label(repair.attempt, repair.max)
+        ));
     }
     if runtime.time_totals.total_secs() > 0 {
         secondary.push(format!(
@@ -437,6 +436,19 @@ pub(crate) fn build_live_footer_lines_for_locale(
             }
         })
         .collect()
+}
+
+fn footer_command_label(excerpt: &str) -> &str {
+    if is_interaction_probe_availability_command(excerpt) {
+        "checking interaction probe"
+    } else {
+        excerpt
+    }
+}
+
+fn is_interaction_probe_availability_command(excerpt: &str) -> bool {
+    excerpt.contains("require.resolve('playwright')")
+        || (excerpt.contains("npm") && excerpt.contains("\"root\" \"-g\""))
 }
 
 pub fn build_input_queue_line(
@@ -1147,6 +1159,55 @@ mod tests {
         );
 
         assert_eq!(lines, vec!["cmd \"npm\" \"run\" \"build\" 7s/30s"]);
+    }
+
+    #[test]
+    fn live_footer_hides_interaction_probe_availability_commands() {
+        for excerpt in [
+            "cd \"/private/workspace\" && env -u NODE_ENV -u NODE_OPTIONS NEXT_TELEMETRY_DISABLED=\"1\" \"node\" \"-e\" \"const path=require.resolve('playwright'); console.log(path)\"",
+            "cd \"/private/workspace\" && \"npm\" \"root\" \"-g\"",
+        ] {
+            let runtime = RuntimeStatus {
+                command: Some(status_bus::CommandStatus {
+                    excerpt: excerpt.to_string(),
+                    cap_secs: 5,
+                    started_at: StatusTime::ZERO,
+                }),
+                ..RuntimeStatus::default()
+            };
+
+            let lines = build_live_footer_lines(
+                &status(None),
+                &runtime,
+                StatusTime::from_secs(1),
+                140,
+                false,
+            );
+            let rendered = lines.join("\n");
+
+            assert_eq!(rendered, "cmd checking interaction probe 1s/5s");
+            assert!(!rendered.contains("/private/workspace"), "{rendered}");
+            assert!(!rendered.contains("NEXT_TELEMETRY_DISABLED"), "{rendered}");
+            assert!(!rendered.contains("require.resolve"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn live_footer_caps_repair_progress_at_the_display_limit() {
+        let runtime = RuntimeStatus {
+            repair: Some(status_bus::RepairStatus {
+                attempt: 4,
+                max: 2,
+                kind: "step".to_string(),
+            }),
+            ..RuntimeStatus::default()
+        };
+
+        let lines = build_live_footer_lines(&status(None), &runtime, StatusTime::ZERO, 120, false);
+        let rendered = lines.join("\n");
+
+        assert!(rendered.contains("repair 2/2"), "{rendered}");
+        assert!(!rendered.contains("4/2"), "{rendered}");
     }
 
     #[test]
