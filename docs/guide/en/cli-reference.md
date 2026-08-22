@@ -21,14 +21,15 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-58 application flags below. The hidden `--completion-contract-json <PATH>` is an
+59 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
 
 | Flag | Argument | Default when omitted | Description | Related |
 | --- | --- | --- | --- | --- |
-| `--yes` | none | off | Auto-approve mutating tools and resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace. | [Busy ports](troubleshooting.md#preflight-port-n-is-busy) |
+| `--yes` | none | off | Allow every tool and skip resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace. | [Busy ports](troubleshooting.md#preflight-port-n-is-busy) |
+| `--allow` | `<read\|write\|bash:verify>` | legacy read access and per-mutation approval | Allow only the selected tool classes; repeat or comma-separate read, write, and bash:verify. Selected mutations are auto-approved, while omitted classes are blocked. | [Security model](../../../SECURITY.md) |
 | `--preset` | `<PRESET>` | none | Select a named `[preset.<name>]` assembled from configuration files. | [Presets](configuration.md#presets) |
 | `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
 | `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
@@ -70,7 +71,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
-| `--offline` | none | off | Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider. | [Providers](providers.md) |
+| `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | Set the Ollama server base URL used by CommandAgent. | [Ollama host](providers.md#ollama-host-and-models) |
@@ -108,6 +109,9 @@ See [Configuration](configuration.md) for the exact per-field layers.
 
 - `--footer` and `--no-footer` are a Clap-level conflict and cannot be used
   together.
+- `--allow` accepts `read`, `write`, and `bash:verify` as repeated or
+  comma-separated values. Once supplied, omitted tool classes are blocked;
+  `--yes` is the backward-compatible all-tools alias.
 - Only one action selector may be used. This is checked after parsing and fails
   with `only one action selector can be used at a time`.
 - `--packs`, `--pack-verify`, and `--pack-pin` are Clap-level direct actions.

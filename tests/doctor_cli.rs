@@ -113,6 +113,56 @@ fn doctor_json_failure_exits_nonzero_and_still_emits_report() {
 }
 
 #[test]
+fn doctor_json_reports_the_exact_offline_scope() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    let state = workspace.path().join("state");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--doctor",
+            "--json",
+            "--offline",
+            "--provider",
+            "openai",
+            "--planner-provider",
+            "openai",
+            "--model",
+            "executor-test-model",
+            "--planner-model",
+            "planner-test-model",
+            "--cwd",
+            workspace.path().to_str().unwrap(),
+            "--state-dir",
+            state.to_str().unwrap(),
+        ])
+        .env("HOME", home)
+        .env("PATH", "")
+        .env_remove("OPENAI_API_KEY")
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let offline = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "mode.offline")
+        .unwrap();
+
+    assert_eq!(offline["status"], "pass");
+    assert_eq!(offline["details"]["enabled"], true);
+    assert_eq!(offline["details"]["runtime_dependency_setup_blocked"], true);
+    assert_eq!(offline["details"]["provider_requests_blocked"], false);
+    assert!(
+        offline["message"]
+            .as_str()
+            .unwrap()
+            .contains("provider/API requests remain enabled")
+    );
+}
+
+#[test]
 fn doctor_reports_missing_keys_for_an_unresolvable_incomplete_preset() {
     let workspace = tempfile::tempdir().unwrap();
     let home = workspace.path().join("home");

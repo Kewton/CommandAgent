@@ -91,9 +91,18 @@ pub struct Cli {
         long,
         action = ArgAction::SetTrue,
         help_heading = "Workspace and State",
-        help = "Auto-approve mutating tools and resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace."
+        help = "Allow every tool and skip resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace."
     )]
     pub yes: bool,
+    #[arg(
+        long,
+        value_name = "read|write|bash:verify",
+        value_delimiter = ',',
+        action = ArgAction::Append,
+        help_heading = "Workspace and State",
+        help = "Allow only the selected tool classes; repeat or comma-separate read, write, and bash:verify. Selected mutations are auto-approved, while omitted classes are blocked."
+    )]
+    pub allow: Vec<crate::tools::allow_policy::AllowTarget>,
     #[arg(
         long,
         help_heading = "Planning and Verification",
@@ -429,7 +438,7 @@ pub struct Cli {
         long,
         action = ArgAction::SetTrue,
         help_heading = "Workspace and State",
-        help = "Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider."
+        help = crate::tools::offline_policy::CLI_HELP
     )]
     pub offline: bool,
     #[arg(
@@ -576,6 +585,39 @@ mod tests {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("recognized Bash writes remain workspace-confined"));
         assert!(help.contains("Use only in a trusted workspace"));
+    }
+
+    #[test]
+    fn allow_parses_repeated_and_comma_delimited_policy() {
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--allow",
+            "read,write",
+            "--allow",
+            "bash:verify",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            cli.allow,
+            [
+                crate::tools::allow_policy::AllowTarget::Read,
+                crate::tools::allow_policy::AllowTarget::Write,
+                crate::tools::allow_policy::AllowTarget::BashVerify,
+            ]
+        );
+        assert!(Cli::try_parse_from(["commandagent", "--allow", "bash"]).is_err());
+    }
+
+    #[test]
+    fn offline_help_states_the_enforcement_boundary() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("npm/pnpm/yarn/cargo install"), "{help}");
+        assert!(help.contains("Provider/API requests"), "{help}");
+        assert!(
+            help.contains("other network-capable commands are unaffected"),
+            "{help}"
+        );
     }
 
     #[test]
