@@ -84,6 +84,7 @@ pub struct ProviderCallOverrides {
     provider: Provider,
     think: Option<OllamaThink>,
     num_predict: usize,
+    display_scope: Option<&'static str>,
 }
 
 impl ProviderCallOverrides {
@@ -92,7 +93,14 @@ impl ProviderCallOverrides {
             provider: config.classifier_provider,
             think: Some(OllamaThink::False),
             num_predict: config.num_predict.min(CLASSIFIER_NUM_PREDICT_CAP),
+            display_scope: None,
         }
+    }
+
+    pub fn gate_one_classifier(config: &Config) -> Self {
+        let mut overrides = Self::classifier(config);
+        overrides.display_scope = Some("classifier");
+        overrides
     }
 }
 
@@ -292,6 +300,9 @@ where
     let messages = request.messages;
     let tools = request.tools;
     let native_tools_enabled = request.native_tools_enabled;
+    let display_scope = overrides
+        .and_then(|overrides| overrides.display_scope)
+        .unwrap_or_else(|| scope.as_str());
     let mut worker_client = match worker_client_with_overrides(client, config, model, overrides) {
         Ok(client) => client,
         Err(error) => {
@@ -332,9 +343,9 @@ where
         native_tools_enabled,
         config.prompt_layout.as_str(),
     );
-    crate::tui::status_bus::publish_provider_started(scope.as_str(), config.chat_timeout_secs);
+    crate::tui::status_bus::publish_provider_started(display_scope, config.chat_timeout_secs);
     crate::tui::presentation::emit_provider_turn_started(
-        scope.as_str(),
+        display_scope,
         model,
         config.chat_timeout_secs,
     );
@@ -515,7 +526,7 @@ where
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 if result.is_ok() {
                     crate::tui::presentation::emit_provider_turn_completed(
-                        scope.as_str(),
+                        display_scope,
                         elapsed.as_secs(),
                     );
                 }

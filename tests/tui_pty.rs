@@ -45,6 +45,51 @@ fn tui_pty_smoke() {
 
 #[test]
 #[ignore]
+fn tui_pty_labels_gate_one_classifier_without_planning_wording() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join("state");
+    let (host, classified, stop, server) = start_classifier_ollama();
+    let output = run_classifier_script(
+        env!("CARGO_BIN_EXE_commandagent"),
+        tmp.path(),
+        &state_dir,
+        &host,
+        classified,
+    )
+    .expect("script(1) PTY helper and fake classifier must be available");
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "output={text:?}");
+    let classifier = text
+        .find("classifying request before Gate 1")
+        .unwrap_or_else(|| panic!("classifier label was not rendered. output={text:?}"));
+    let gate_one = text
+        .find("Gate 1 — 実行前の確認")
+        .unwrap_or_else(|| panic!("Gate 1 card was not rendered. output={text:?}"));
+    assert!(classifier < gate_one, "output={text:?}");
+    assert!(
+        !text[..gate_one].contains("planning"),
+        "pre-Gate 1 output claimed planning had started. output={text:?}"
+    );
+    assert!(
+        text.contains("request classification ready"),
+        "classifier completion was not rendered. output={text:?}"
+    );
+}
+
+#[test]
+#[ignore]
 fn tui_pty_warns_when_ollama_is_stopped_and_keeps_prompt_usable() {
     if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
         .ok()
@@ -1493,6 +1538,107 @@ fn start_tags_only_ollama() -> (String, thread::JoinHandle<()>) {
         .unwrap();
     });
     (host, server)
+}
+
+fn start_classifier_ollama() -> (
+    String,
+    mpsc::Receiver<()>,
+    Arc<AtomicBool>,
+    thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let (classified_tx, classified_rx) = mpsc::sync_channel(1);
+    let server = thread::spawn(move || {
+        while !thread_stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let request = read_http_request(&mut stream);
+                    let body = if request.starts_with("GET /api/tags ") {
+                        r#"{"models":[{"name":"m"}]}"#.to_string()
+                    } else {
+                        thread::sleep(Duration::from_millis(700));
+                        serde_json::json!({
+                            "message": {
+                                "role": "assistant",
+                                "content": r#"{"profile":"python-cli","intent":"create","family":"filter"}"#
+                            },
+                            "done": true
+                        })
+                        .to_string()
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                    if !request.starts_with("GET /api/tags ") {
+                        let _ = classified_tx.try_send(());
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    (host, classified_rx, stop, server)
+}
+
+fn run_classifier_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    classified: mpsc::Receiver<()>,
+) -> std::io::Result<std::process::Output> {
+    let command_line = queue_command_line(bin, cwd, state_dir, host);
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    stdin.write_all(b"create a CLI\n")?;
+    stdin.flush()?;
+    if classified.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+    } else {
+        thread::sleep(Duration::from_millis(900));
+        stdin.write_all(b"/exit\n")?;
+        stdin.flush()?;
+    }
+    drop(stdin);
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
 }
 
 fn shell_quote(value: &str) -> String {

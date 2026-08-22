@@ -13,7 +13,7 @@ use commandagent::tui::boundary_shell::confirmation::{
     ConfirmationIdentity, ExecutionPins, PackSelection,
 };
 use commandagent::tui::boundary_shell::pack_catalog;
-use commandagent::tui::boundary_shell::presentation::render_gate_one;
+use commandagent::tui::boundary_shell::presentation::render_gate_one_for_gui;
 use commandagent::tui::boundary_shell::route::{
     DeterministicResolution, ExplicitRouteBinding, RouteRequest, deterministic_route,
 };
@@ -164,7 +164,7 @@ pub(super) fn gate_one(
         .begin_gate_one_with_locator(proposal, spec.goal.clone(), workspace, pins, pack, &locator)
         .map_err(unprocessable)?
         .clone();
-    let card = render_gate_one(&identity, &locator).map_err(internal)?;
+    let card = render_gate_one_for_gui(&identity, &locator).map_err(internal)?;
     Ok((shell, identity, card))
 }
 

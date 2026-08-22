@@ -185,6 +185,9 @@ pub fn render_provider_turn_started(
         "planner_ultra" => {
             format!("→ planning the overall plan ({model}, up to {deadline_secs}s)")
         }
+        "classifier" => {
+            format!("→ classifying request before Gate 1 ({model}, up to {deadline_secs}s)")
+        }
         "executor" => format!("→ implementing (model turn: {model}, up to {deadline_secs}s)"),
         "repair" => {
             if let Some(target) = &context.repair_target {
@@ -208,6 +211,7 @@ pub fn render_provider_turn_completed(scope: &str, duration_secs: u64) -> String
     match scope {
         "planner_ultra" => format!("✓ overall plan ready ({duration_secs}s)"),
         "planner_step" => format!("✓ step plan ready ({duration_secs}s)"),
+        "classifier" => format!("✓ request classification ready ({duration_secs}s)"),
         "executor" => format!("✓ implementation turn finished ({duration_secs}s)"),
         "repair" => format!("✓ repair turn finished ({duration_secs}s)"),
         _ => format!("✓ model turn finished ({duration_secs}s)"),
@@ -1483,6 +1487,10 @@ mod tests {
             "→ implementing (model turn: qwen3.6, up to 600s)"
         );
         assert_eq!(
+            render_provider_turn_started("classifier", "qwen3.6:27b-coding-nvfp4", 600, &context),
+            "→ classifying request before Gate 1 (qwen3.6, up to 600s)"
+        );
+        assert_eq!(
             render_provider_turn_started("repair", "qwen3.6:27b-coding-nvfp4", 600, &context),
             "→ repairing: browser readiness (qwen3.6, up to 600s)"
         );
@@ -1493,6 +1501,10 @@ mod tests {
         assert_eq!(
             render_provider_turn_completed("planner_step", 98),
             "✓ step plan ready (98s)"
+        );
+        assert_eq!(
+            render_provider_turn_completed("classifier", 2),
+            "✓ request classification ready (2s)"
         );
 
         let ascii = [
