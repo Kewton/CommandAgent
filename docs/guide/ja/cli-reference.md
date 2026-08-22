@@ -12,14 +12,15 @@
 直接コマンドを実行するにはアクション選択フラグを 1 つ使い、TUI を使う場合はすべて省略します。
 アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
-`--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、`--doctor` です。
+`--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、
+`--doctor`、`--extensions` です。
 オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
 `--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
 アクションの `--validate-manifest` と `--init-profile` も、help の
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-61 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+62 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -32,6 +33,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
 | `--extension-root` | `<DIR>` | トップレベル `extension_root`、その後なし | ローカル pack と `profiles/<id>/manifest.toml` の draft profile を読み込みます。外部 profile は draft に強制され exact-byte hash で固定されます。 | [Pack 選択](configuration.md#pack-選択) |
+| `--extensions` | なし | オフ | extension root 配下の profile、overlay、pack、利用可否の理由、journal の最終記録を一覧表示します。 | [排他関係](#排他関係と組み合わせ) |
 | `--packs` | なし | オフ | compatible な承認済み pack と `--extension-root` 配下の conformant な pack を供給元付きで一覧表示します。`--profile` と `--intent` が必要です。 | [排他関係](#排他関係と組み合わせ) |
 | `--pack-verify` | `<DIR>` | なし | 1 個の pack directory を strict conformance 検査し、`pack_conformance` と同じ JSON report を表示します。 | [排他関係](#排他関係と組み合わせ) |
 | `--pack-pin` | `<DIR>` | なし | green conformance 後に `pack.sha256` を作成し、同一 pin は変更せず、古い pin は拒否します。 | [排他関係](#排他関係と組み合わせ) |
@@ -62,7 +64,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
 | `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
-| `--json` | なし | オフ | `--doctor` の出力を安定した機械可読 JSON として表示します。`--doctor` が必要です。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--json` | なし | オフ | `--doctor` または `--extensions` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--init-config` | なし | オフ | 既存ファイルを上書きせず、雛形から `.commandagent/config.toml` を作成します。 | [設定雛形](#設定雛形) |
@@ -135,6 +137,9 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 - `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。
   相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
+- `--extensions` は read-only で `--extension-root` を受け付けます。省略時は
+  トップレベルの `extension_root` 設定を解決します。`--json` は
+  `--extensions` と `--doctor` のどちらでも利用できます。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--validate-plan` は offline かつ read-only の action で、実行 action および生成物 action の
   すべてと排他です。step plan、UltraPlan、recovery UltraPlan YAML を受け付けます。詳細は

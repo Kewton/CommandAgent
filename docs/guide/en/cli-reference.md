@@ -12,8 +12,8 @@ authority: use `commandagent --help` when its version differs from this checkout
 Use one of the action-selector flags for a direct command, or omit all of them
 for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 `--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
-`--validate-plan`, `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
-`--doctor`. The offline pack actions `--packs`, `--pack-verify`, and
+`--validate-plan`, `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`,
+`--doctor`, and `--extensions`. The offline pack actions `--packs`, `--pack-verify`, and
 `--pack-pin`, generated-artifact actions `--completions` and `--generate-man`,
 config action `--init-config`, and delegated manifest actions
 `--validate-manifest` and `--init-profile` are displayed in the same
@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-61 application flags below. The hidden `--completion-contract-json <PATH>` is an
+62 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -34,6 +34,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
 | `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
 | `--extension-root` | `<DIR>` | top-level `extension_root`, then none | Load local packs and `profiles/<id>/manifest.toml` draft profiles. External profiles are forced to draft and pinned by exact-byte hash. | [Pack selection](configuration.md#pack-selection) |
+| `--extensions` | none | off | Inspect profiles, overlays, packs, usability reasons, and the latest journal record under the extension root. | [Conflicts](#conflicts-and-combinations) |
 | `--packs` | none | off | List compatible admitted packs and conformant packs found under `--extension-root`, including each source. Requires `--profile` and `--intent`. | [Conflicts](#conflicts-and-combinations) |
 | `--pack-verify` | `<DIR>` | none | Run strict conformance for one pack directory and print the same JSON report as `pack_conformance`. | [Conflicts](#conflicts-and-combinations) |
 | `--pack-pin` | `<DIR>` | none | Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin. | [Conflicts](#conflicts-and-combinations) |
@@ -64,7 +65,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
-| `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--json` | none | off | Render --doctor or --extensions output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--init-config` | none | off | Create `.commandagent/config.toml` from a starter template without overwriting an existing file. | [Config template](#config-template) |
@@ -144,6 +145,9 @@ See [Configuration](configuration.md) for the exact per-field layers.
   They conflict with one another, run action selectors, `--pack`, and
   `--pack-hash`. Listing allows `--extension-root`, while verify and pin take
   their target directory directly.
+- `--extensions` is read-only and accepts `--extension-root`; when omitted,
+  it resolves the top-level `extension_root` setting. `--json` is accepted
+  with either `--extensions` or `--doctor`.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
 - `--validate-plan` is an offline, read-only action and conflicts with every

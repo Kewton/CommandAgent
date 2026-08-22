@@ -1,0 +1,19 @@
+[metadata]
+id = "acme-nextjs"
+display_name = "Acme Next.js"
+schema_version = "v1"
+status = "draft"
+
+[overlay]
+base_profile = "nextjs"
+mode = "additive"
+
+[artifacts]
+required = ["docs/security-review.md"]
+groups = []
+
+[guidance.variants.security_review]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.security_review.messages]
+instruction = "Add a security review without changing the base profile obligations."

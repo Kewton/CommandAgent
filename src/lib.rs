@@ -23,6 +23,7 @@ pub mod doctor;
 pub mod env_compat;
 pub mod eval_events;
 mod evidence_envelope;
+mod extension_inventory;
 pub mod fetch_probe;
 mod headless_summary;
 pub mod minimal_loop;
@@ -67,6 +68,9 @@ pub fn run_with_provider_options(
     provider_options: config::ProviderCliOptions,
 ) -> anyhow::Result<()> {
     let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
+    if extension_inventory::run_if_requested(&cli)? {
+        return Ok(());
+    }
     if pack_actions::run_if_requested(&cli)? {
         return Ok(());
     }

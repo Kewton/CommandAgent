@@ -86,6 +86,11 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
         .args(["packs", "pack_verify", "pack_pin"])
         .multiple(false)
 ))]
+#[command(group(
+    ArgGroup::new("json_action")
+        .args(["doctor", "extensions"])
+        .multiple(false)
+))]
 pub struct Cli {
     #[arg(
         long,
@@ -131,6 +136,20 @@ pub struct Cli {
         help = "Load local packs and `profiles/<id>/manifest.toml` draft profiles. External profiles are forced to draft and pinned by exact-byte hash."
     )]
     pub extension_root: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with_all = [
+            "pack", "pack_hash", "packs", "pack_verify", "pack_pin", "profile", "intent",
+            "workflow", "prompt", "plan_steps", "plan_run", "run_plan", "ultra_plan",
+            "ultra_plan_run", "run_ultra_plan", "validate_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man",
+            "init_config", "validate_manifest", "init_profile", "goal"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Inspect profiles, overlays, packs, usability reasons, and the latest journal record under the extension root."
+    )]
+    pub extensions: bool,
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -353,9 +372,9 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        requires = "doctor",
+        requires = "json_action",
         help_heading = "Display",
-        help = "Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`."
+        help = "Render --doctor or --extensions output as stable machine-readable JSON."
     )]
     pub json: bool,
     #[arg(
@@ -713,6 +732,37 @@ mod tests {
     }
 
     #[test]
+    fn extensions_is_an_exclusive_json_capable_action() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--extensions"), "{help}");
+        assert!(help.contains("latest journal record"), "{help}");
+
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--extensions",
+            "--extension-root",
+            "extensions",
+            "--json",
+        ])
+        .unwrap();
+        assert!(cli.extensions);
+        assert!(cli.json);
+
+        assert!(Cli::try_parse_from(["commandagent", "--json"]).is_err());
+        let error = Cli::try_parse_from([
+            "commandagent",
+            "--extensions",
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+            "--packs",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
     fn pack_direct_actions_are_mutually_exclusive() {
         for arguments in [
             vec![
@@ -945,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn json_requires_doctor() {
+    fn json_requires_doctor_or_extensions() {
         let error = Cli::try_parse_from(["commandagent", "--json"]).unwrap_err();
         assert!(error.to_string().contains("--doctor"));
 
