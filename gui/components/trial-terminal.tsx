@@ -1,5 +1,5 @@
 import type { TrialRunState } from "../hooks/use-trial-run";
-import { byteLabel } from "../lib/format";
+import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
 import { TrialRunIdentity } from "./trial-run-identity";
@@ -20,7 +20,12 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
   return (
     <>
       {stage === "terminal" && session !== null && (
-        <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
+        <section
+          className="terminal-grid"
+          data-testid="terminal-gate"
+          ref={terminalRef}
+          tabIndex={-1}
+        >
           <article className="panel verdict-card">
             <span className="panel-index">
               実行結果 / {session.gate === "gate_3" ? "Gate 3" : "Gate 4"}
@@ -48,7 +53,7 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
               href={`#trial-session-${session.id}`}
               onClick={() => onHighlightSession(session.id)}
             >
-              このセッションを GUI Trial 実行履歴で確認
+              このセッションをトライアル実行履歴で確認
             </a>
             <details className="acceptance-sheet-details" data-testid="terminal-acceptance-details">
               <summary>受入シートの詳細を表示</summary>
@@ -61,8 +66,10 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
             <span className="panel-index">任意の次の操作</span>
             <h2>追加の依頼を入力</h2>
             <p>保存前に認証情報を除去し、実行前に内容をもう一度確認します。確定済みの必須チェックは変更できません。</p>
+            <label htmlFor="directive-input">追加の依頼</label>
             <textarea
               data-testid="directive-input"
+              id="directive-input"
               onChange={(event) => {
                 setDirectiveText(event.target.value);
                 setDirective(null);
@@ -83,7 +90,7 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
               <div className="directive-receipt" data-testid="directive-receipt">
                 <strong>{directive.scrubbed_directive}</strong>
                 <code>{directive.directive_hash}</code>
-                <small>{directive.issued_gate} · 追加依頼 {directive.directive_round}</small>
+                <small>{trialGateLabel(directive.issued_gate)} · 追加依頼 {directive.directive_round}</small>
                 <button
                   className="primary-action"
                   disabled={busy}
@@ -153,7 +160,7 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
       )}
 
       {stage === "closed" && (
-        <section className="panel closed-card" data-testid="closed-session">
+        <section className="panel closed-card" data-testid="closed-session" tabIndex={-1}>
           <span>セッション終了</span>
           <h2>追加の操作は実行されていません。</h2>
           <button

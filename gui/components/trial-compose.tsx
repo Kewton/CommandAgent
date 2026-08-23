@@ -10,10 +10,11 @@ const localModelProviders = new Set(["ollama", "lm-studio"]);
 
 export function TrialCompose({ run }: { run: TrialRunState }) {
   const {
-    busy, checkContract, compatiblePacks, created, error, errorReconnectSessionId,
+    busy, checkContract, compatiblePacks, composeRef, created, error, errorReconnectSessionId,
     inspectWorkspaceLease, launchIdentityLocked, optionsError, reconnectExisting,
-    reconnectSessionId, selectedPack, selectedProfile, selectedProvider, setConfirmed, setProposal,
-    setProviderChanged, setReconnectSessionId, setStage, setWorkspaceLease, spec,
+    launchBlockReason, reconnectSessionId, selectedPack, selectedProfile, selectedProvider,
+    setConfirmed, setProposal, setProviderChanged, setReconnectSessionId, setStage,
+    setWorkspaceLease, spec,
     trialAccessReady, trialOptions, trialToken, trialTokenAuthEnabled, update, updateTrialToken,
     workspaceLease,
   } = run;
@@ -29,7 +30,7 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
   }, []);
 
   return (
-    <div className="trial-compose panel">
+    <div className="trial-compose panel" ref={composeRef} tabIndex={-1}>
       <header className="panel-heading">
         <div>
           <span className="panel-index">GATE 1 / 実行前確認</span>
@@ -44,18 +45,24 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。
         </p>
       </div>
-      <label htmlFor="trial-goal">目標</label>
-      <textarea
-        data-testid="trial-goal"
-        disabled={launchIdentityLocked}
-        id="trial-goal"
-        onChange={(event) => update("goal", event.target.value)}
-        rows={5}
-        value={spec.goal}
-      />
+      {launchBlockReason !== null &&
+        workspaceLease !== null &&
+        workspaceLease.status !== "idle" && (
+        <div className="lease-inline-notice" data-testid="lease-inline-notice" role="status">
+          <p>{launchBlockReason}</p>
+          <button
+            className="inline-action"
+            disabled={busy || !trialAccessReady}
+            onClick={() => void reconnectExisting(workspaceLease.session_id)}
+            type="button"
+          >
+            セッション {workspaceLease.session_id} に再接続
+          </button>
+        </div>
+      )}
       {trialTokenAuthEnabled ? (
         <>
-          <label htmlFor="trial-token">Trial アクセストークン</label>
+          <label htmlFor="trial-token">トライアルアクセストークン</label>
           <input
             autoComplete="off"
             autoCapitalize="none"
@@ -78,55 +85,18 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
         </>
       ) : (
         <p className="source-note" data-testid="trial-token-auth-disabled">
-          Trial トークン認証はサーバー設定で無効です。
+          トライアルトークン認証はサーバー設定で無効です。
         </p>
       )}
-      <div
-        className={`lease-status-card ${workspaceLease?.status ?? "unknown"}`}
-        data-testid="workspace-lease-status"
-      >
-        <div>
-          <span>ワークスペースのリース状態</span>
-          <strong>{workspaceLeaseLabel(workspaceLease)}</strong>
-        </div>
-        {workspaceLease !== null && workspaceLease.status !== "idle" && (
-          <code data-testid="workspace-lease-session">{workspaceLease.session_id}</code>
-        )}
-        <p>読み取り専用の確認です。リースの解除や CLI プロセスの起動は行いません。</p>
-        <button
-          className="secondary-action"
-          data-testid="inspect-workspace-lease"
-          disabled={busy}
-          onClick={() => void inspectWorkspaceLease()}
-          type="button"
-        >
-          ワークスペースのリースを確認
-        </button>
-      </div>
-      <div className="reconnect-card" data-testid="reconnect-card">
-        <label htmlFor="reconnect-session">既存セッション ID</label>
-        <div>
-          <input
-            autoCapitalize="none"
-            autoComplete="off"
-            data-testid="reconnect-session"
-            id="reconnect-session"
-            onChange={(event) => setReconnectSessionId(event.target.value)}
-            spellCheck={false}
-            value={reconnectSessionId}
-          />
-          <button
-            className="secondary-action"
-            data-testid="reconnect-session-button"
-            disabled={busy || reconnectSessionId.trim() === "" || !trialAccessReady}
-            onClick={() => void reconnectExisting()}
-            type="button"
-          >
-            監視を再接続
-          </button>
-        </div>
-        <small>GET のみを使用し、別の CLI プロセスは起動しません。</small>
-      </div>
+      <label htmlFor="trial-goal">目標</label>
+      <textarea
+        data-testid="trial-goal"
+        disabled={launchIdentityLocked}
+        id="trial-goal"
+        onChange={(event) => update("goal", event.target.value)}
+        rows={5}
+        value={spec.goal}
+      />
       <div className="trial-fields">
         <label>
           プロファイル
@@ -157,7 +127,7 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           )}
         </label>
         <label>
-          検証 pack
+          検証パック
           <select
             data-testid="trial-pack"
             disabled={launchIdentityLocked || trialOptions === null || selectedProfile?.status === "draft"}
@@ -184,12 +154,12 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           )}
           {selectedProfile?.status === "draft" && (
             <small className="trial-field-hint" data-testid="trial-draft-pack-note">
-              draft profile では検証 pack は「選択なし」固定です。
+              下書きプロファイルでは検証パックは「選択なし」固定です。
             </small>
           )}
           {packPreselectionWarning && (
             <small className="trial-field-hint" data-testid="trial-pack-preselection-warning" role="status">
-              この pack は現在の profile / intent では選べません。
+              このパックは現在のプロファイル / 目的では選べません。
             </small>
           )}
         </label>
@@ -274,7 +244,10 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           {providerModels.map((model) => <option key={model} value={model} />)}
         </datalist>
       </div>
-      <div className="trial-action-bar trial-request-actions">
+      <fieldset
+        className="trial-action-bar trial-request-actions"
+        disabled={launchBlockReason !== null}
+      >
         <button
           className="secondary-action"
           data-testid="check-contract"
@@ -284,25 +257,75 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
         >
           契約と見積りを確認
         </button>
-      </div>
+      </fieldset>
       {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
       {error !== null && (
         <div className="trial-error" role="alert">
           <p>{error}</p>
           {errorReconnectSessionId !== null && (
-            <a
+            <button
+              className="inline-action"
               data-testid="reconnect-session-link"
-              href={`?session=${encodeURIComponent(errorReconnectSessionId)}`}
-              onClick={(event) => {
-                event.preventDefault();
-                void reconnectExisting(errorReconnectSessionId);
-              }}
+              onClick={() => void reconnectExisting(errorReconnectSessionId)}
+              type="button"
             >
               セッション {errorReconnectSessionId} に再接続
-            </a>
+            </button>
           )}
         </div>
       )}
+      <section className="trial-existing-session" aria-labelledby="trial-existing-session-heading">
+        <header>
+          <h3 id="trial-existing-session-heading">既存セッション</h3>
+          <p>リース状態の確認と、既存セッションへの再接続をここで行えます。</p>
+        </header>
+        <div
+          className={`lease-status-card ${workspaceLease?.status ?? "unknown"}`}
+          data-testid="workspace-lease-status"
+        >
+          <div>
+            <span>ワークスペースのリース状態</span>
+            <strong>{workspaceLeaseLabel(workspaceLease)}</strong>
+          </div>
+          {workspaceLease !== null && workspaceLease.status !== "idle" && (
+            <code data-testid="workspace-lease-session">{workspaceLease.session_id}</code>
+          )}
+          <p>読み取り専用の確認です。リースの解除や CLI プロセスの起動は行いません。</p>
+          <button
+            className="secondary-action"
+            data-testid="inspect-workspace-lease"
+            disabled={busy}
+            onClick={() => void inspectWorkspaceLease()}
+            type="button"
+          >
+            ワークスペースのリースを確認
+          </button>
+        </div>
+        <div className="reconnect-card" data-testid="reconnect-card">
+          <label htmlFor="reconnect-session">既存セッション ID</label>
+          <div>
+            <input
+              autoCapitalize="none"
+              autoComplete="off"
+              data-testid="reconnect-session"
+              id="reconnect-session"
+              onChange={(event) => setReconnectSessionId(event.target.value)}
+              spellCheck={false}
+              value={reconnectSessionId}
+            />
+            <button
+              className="secondary-action"
+              data-testid="reconnect-session-button"
+              disabled={busy || reconnectSessionId.trim() === "" || !trialAccessReady}
+              onClick={() => void reconnectExisting()}
+              type="button"
+            >
+              監視を再接続
+            </button>
+          </div>
+          <small>GET のみを使用し、別の CLI プロセスは起動しません。</small>
+        </div>
+      </section>
     </div>
   );
 }

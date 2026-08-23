@@ -194,7 +194,7 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
       setError(
         id === ""
           ? "再接続するセッション ID を入力してください。"
-          : "実行時の Trial アクセストークンを入力してください。",
+          : "実行時のトライアルアクセストークンを入力してください。",
       );
       return false;
     }

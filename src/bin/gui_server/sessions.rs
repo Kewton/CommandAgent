@@ -281,7 +281,40 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
             }
         }
     }
-    phases.into_values().collect()
+    let mut projected = phases.into_values().collect::<Vec<_>>();
+    if let Some(planning) = plan_generation_phase(events) {
+        projected.insert(0, planning);
+    }
+    projected
+}
+
+fn plan_generation_phase(events: &[Value]) -> Option<PhaseStatus> {
+    let mut status = None;
+    for event in events {
+        match string(event, "event").unwrap_or("unknown") {
+            "ultra_plan_generation_attempt"
+            | "ultra_plan_generation_metadata_normalized"
+            | "ultra_plan_generation_retry"
+            | "ultra_plan_generation_tool_call_rejected" => status = Some("running"),
+            "ultra_plan_generation_succeeded" => status = Some("completed"),
+            "ultra_plan_generation_failed" => status = Some("failed"),
+            "tui_command_stop" | "run_stop" if status == Some("running") => {
+                status = Some("interrupted");
+            }
+            _ => {}
+        }
+    }
+    status.map(|status| PhaseStatus {
+        id: "plan_generation".to_string(),
+        index: 0,
+        total: 0,
+        stage: if status == "completed" {
+            "complete".to_string()
+        } else {
+            "scaffold".to_string()
+        },
+        status: status.to_string(),
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -605,6 +638,46 @@ mod tests {
     }
 
     #[test]
+    fn phase_statuses_project_plan_generation_before_numbered_phases() {
+        let events = vec![
+            serde_json::json!({"event": "tui_command_start"}),
+            serde_json::json!({"event": "ultra_plan_generation_attempt", "attempt": 1}),
+            serde_json::json!({
+                "event": "ultra_plan_generation_metadata_normalized",
+                "fields": ["goal"]
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].id, "plan_generation");
+        assert_eq!(phases[0].index, 0);
+        assert_eq!(phases[0].total, 0);
+        assert_eq!(phases[0].stage, "scaffold");
+        assert_eq!(phases[0].status, "running");
+    }
+
+    #[test]
+    fn phase_statuses_keep_plan_generation_outcomes_honest() {
+        let completed = phase_statuses(&[
+            serde_json::json!({"event": "ultra_plan_generation_attempt", "attempt": 1}),
+            serde_json::json!({"event": "ultra_plan_generation_succeeded", "phase_count": 2}),
+        ]);
+        let failed = phase_statuses(&[
+            serde_json::json!({"event": "ultra_plan_generation_attempt", "attempt": 1}),
+            serde_json::json!({"event": "ultra_plan_generation_failed", "attempt": 1}),
+        ]);
+        let absent = phase_statuses(&[serde_json::json!({"event": "tui_command_start"})]);
+
+        assert_eq!(completed[0].stage, "complete");
+        assert_eq!(completed[0].status, "completed");
+        assert_eq!(failed[0].stage, "scaffold");
+        assert_eq!(failed[0].status, "failed");
+        assert!(absent.is_empty());
+    }
+
+    #[test]
     fn phase_statuses_do_not_restore_running_after_completion() {
         let events = vec![
             serde_json::json!({
@@ -720,12 +793,15 @@ mod tests {
 
         let phases = phase_statuses(&events);
 
-        assert_eq!(phases.len(), 1);
-        assert_eq!(phases[0].id, "setup-project");
-        assert_eq!(phases[0].index, 1);
-        assert_eq!(phases[0].total, 5);
-        assert_eq!(phases[0].stage, "recovery_prompt_saved");
-        assert_eq!(phases[0].status, "failed");
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].id, "plan_generation");
+        assert_eq!(phases[0].index, 0);
+        assert_eq!(phases[0].status, "completed");
+        assert_eq!(phases[1].id, "setup-project");
+        assert_eq!(phases[1].index, 1);
+        assert_eq!(phases[1].total, 5);
+        assert_eq!(phases[1].stage, "recovery_prompt_saved");
+        assert_eq!(phases[1].status, "failed");
     }
 
     #[test]

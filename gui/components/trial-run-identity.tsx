@@ -20,11 +20,11 @@ export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
         <dd data-testid="trial-run-identity-goal">{identity.request}</dd>
       </div>
       <div>
-        <dt>profile</dt>
+        <dt>プロファイル</dt>
         <dd><code data-testid="trial-run-identity-profile">{identity.profile}</code></dd>
       </div>
       <div>
-        <dt>pack</dt>
+        <dt>パック</dt>
         <dd><code data-testid="trial-run-identity-pack">{pack}</code></dd>
       </div>
       <div>

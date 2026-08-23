@@ -9,13 +9,18 @@ export function TrialGateOne({ run }: { run: TrialRunState }) {
   if (proposal === null || stage !== "gate_1") return null;
 
   return (
-    <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
+    <section
+      className="gate-one-grid"
+      data-testid="gate-one-card"
+      ref={gateOneRef}
+      tabIndex={-1}
+    >
       <article className="panel contract-card">
         <GateCardMarkdown markdown={proposal.card_markdown} />
       </article>
       <article className="panel price-card">
-        <span className="panel-index">時間と費用の目安</span>
-        <h2>過去の実行記録から確認</h2>
+        <span className="panel-index">Gate 1 / 見積り</span>
+        <h2>契約と見積りを確認</h2>
         <dl>
           <div><dt>所要時間</dt><dd>{priceDuration} ({proposal.price.duration_n} 件)</dd></div>
           <div><dt>費用</dt><dd>{priceCost} ({proposal.price.cost_n} 件)</dd></div>
