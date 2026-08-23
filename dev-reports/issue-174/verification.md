@@ -151,3 +151,26 @@
   (from `gui/`, outside the sandbox): `passed`; the report records aggregate
   `ok: true` with both root and proxy cases `ok: true`.
 - Repair result: `passed`. All prior failure and repair history remains above.
+
+## CI ownership correction
+
+- PR head `cb2a5c8423876bca638b6a5600cd14accc37176e` failed CommandAgent Test,
+  Guardrails, and acceptance on the same foundation-owned assertion in
+  `tests/gui_read_only_guard.rs:1792`, which requires the pre-existing
+  `launch_disabled: launchDisabled` smoke source contract.
+- Ownership decision: do not edit the foundation-row guard and do not change
+  product code. The successful loop-4 root/proxy smoke result remains valid
+  external/local UAT evidence, but its harness overlay is intentionally not
+  shipped in this Trial PR because `gui/scripts/smoke.mjs` integration-harness
+  ownership belongs to the #176/foundation row.
+- Restoration: `gui/scripts/smoke.mjs` was restored with explicit patch edits
+  to the exact candidate `94379e4bab6e76e569f90802f337a8be04150e73`
+  content. Both files hash to Git blob
+  `4e0a6de4310ec720cfc665740bea4196c671b71d`, and a path-scoped `git diff
+  --exit-code` reports no difference.
+- `node --check gui/scripts/smoke.mjs`: `passed`
+- `cargo test --test gui_read_only_guard trial_session_index_is_bounded_read_only_and_reconnects_by_link -- --exact`:
+  `passed` (1 passed, 24 filtered out).
+- Ownership-correction result: `passed`. The shipped harness is byte-identical
+  to candidate `94379e4b`, its owned guard passes, and the successful loop-4
+  external/local UAT evidence and complete repair history remain recorded.
