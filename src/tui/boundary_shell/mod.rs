@@ -657,6 +657,7 @@ mod tests {
             executor_provider: "ollama".to_string(),
             executor_model: "executor".to_string(),
             preset: "profile".to_string(),
+            think: None,
         }
     }
 

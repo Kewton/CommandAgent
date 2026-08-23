@@ -43,6 +43,12 @@ export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
           </code>
         </dd>
       </div>
+      {identity.pins.think !== undefined && (
+        <div>
+          <dt>Ollama thinking</dt>
+          <dd><code data-testid="trial-run-identity-think">{identity.pins.think}</code></dd>
+        </div>
+      )}
     </dl>
   );
 }

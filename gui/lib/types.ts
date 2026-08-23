@@ -53,6 +53,8 @@ export type PackSummary = {
   warning: string | null;
 };
 
+export type OllamaThink = "true" | "false" | "low" | "medium" | "high";
+
 export type SessionSpec = {
   goal: string;
   profile: string;
@@ -61,6 +63,7 @@ export type SessionSpec = {
   planner_provider: string;
   planner_model: string;
   pack: string | null;
+  think: OllamaThink | null;
 };
 
 export type PackOption = {
@@ -124,6 +127,7 @@ export type ConfirmationIdentity = {
     executor_provider: string;
     executor_model: string;
     preset: string;
+    think?: OllamaThink;
   };
   pack:
     | { selection: "none" }

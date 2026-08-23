@@ -210,7 +210,7 @@ const report = {
                   ? "polling_only"
                   : "full_trial",
     commandagent_bin: providerProbeBin ?? commandagentBin,
-    provider: providerOnly ? "openai+gemini" : "ollama",
+    provider: providerOnly ? "openai+gemini+ollama" : "ollama",
     model,
     fixture: fixtureRoot,
     scratch_runtime:
@@ -278,16 +278,20 @@ async function runProviderCase(smokeCase, probeBinary) {
       .waitFor({ state: "attached" });
     const providers = [];
     const rolePairs = [
-      { executorProvider: "openai", plannerProvider: "gemini" },
-      { executorProvider: "gemini", plannerProvider: "openai" },
+      { executorProvider: "openai", plannerProvider: "gemini", think: null },
+      { executorProvider: "gemini", plannerProvider: "openai", think: null },
+      { executorProvider: "ollama", plannerProvider: "openai", think: "high" },
     ];
-    for (const [index, { executorProvider, plannerProvider }] of rolePairs.entries()) {
+    for (const [index, { executorProvider, plannerProvider, think }] of rolePairs.entries()) {
       const executorModel = `${executorProvider}-executor-model`;
       const plannerModel = `${plannerProvider}-planner-model`;
       await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
       await page.locator("[data-testid='trial-token']").fill(trialCredential);
       await page.locator("[data-testid='trial-provider']").selectOption(executorProvider);
       await page.locator("[data-testid='trial-planner-provider']").selectOption(plannerProvider);
+      const thinkControl = page.locator("[data-testid='trial-think']");
+      const thinkDisabled = await thinkControl.isDisabled();
+      if (think !== null) await thinkControl.selectOption(think);
       await page.locator("[data-testid='trial-executor-model']").fill(executorModel);
       await page.locator("[data-testid='trial-planner-model']").fill(plannerModel);
       await page.locator("[data-testid='check-contract']").click();
@@ -322,20 +326,35 @@ async function runProviderCase(smokeCase, probeBinary) {
       const plannerIdentity = await page
         .locator("[data-testid='trial-run-identity-planner-model']")
         .innerText();
+      const thinkIdentityControl = page.locator("[data-testid='trial-run-identity-think']");
+      const thinkIdentity = (await thinkIdentityControl.count()) === 0
+        ? null
+        : await thinkIdentityControl.innerText();
+      const cliThinkArgument = delegatedArgs.find((argument) => argument.startsWith("--think="));
+      const cliThink = cliThinkArgument?.slice("--think=".length) ?? null;
       const result = {
         executor_provider: executorProvider,
         planner_provider: plannerProvider,
         request_provider: createBody.provider,
         request_planner_provider: createBody.planner_provider,
+        request_think: createBody.think,
         cli_provider: cliArgumentValue(delegatedArgs, "--provider"),
         cli_planner_provider: cliArgumentValue(delegatedArgs, "--planner-provider"),
         cli_model: cliArgumentValue(delegatedArgs, "--model"),
         cli_planner_model: cliArgumentValue(delegatedArgs, "--planner-model"),
+        cli_think: cliThink,
         gate_one_text: gateOneText,
         identity_executor: executorIdentity,
         identity_planner: plannerIdentity,
+        identity_think: thinkIdentity,
         identity_text: identityText,
+        think_control_disabled: thinkDisabled,
       };
+      const thinkOk = think === null
+        ? thinkDisabled && result.request_think === null && cliThink === null &&
+          thinkIdentity === null && !gateOneText.includes("Ollama thinking:")
+        : !thinkDisabled && result.request_think === think && cliThink === think &&
+          thinkIdentity === think && gateOneText.includes(`Ollama thinking: ${think}`);
       result.ok =
         createResponse.status() === 202 &&
         result.request_provider === executorProvider &&
@@ -347,7 +366,8 @@ async function runProviderCase(smokeCase, probeBinary) {
         gateOneText.includes(`実行モデル: ${executorProvider} / ${executorModel}`) &&
         gateOneText.includes(`計画モデル: ${plannerProvider} / ${plannerModel}`) &&
         executorIdentity === `${executorProvider} / ${executorModel}` &&
-        plannerIdentity === `${plannerProvider} / ${plannerModel}`;
+        plannerIdentity === `${plannerProvider} / ${plannerModel}` &&
+        thinkOk;
       providers.push(result);
       await page
         .locator("[data-testid='runtime-status'][data-session-state='idle']")
@@ -369,7 +389,7 @@ async function runProviderCase(smokeCase, probeBinary) {
       unexpected_console_errors: consoleErrors,
       ok:
         response?.status() === 200 &&
-        providers.length === 2 &&
+        providers.length === 3 &&
         providers.every((provider) => provider.ok) &&
         consoleErrors.length === 0,
     };
@@ -1220,7 +1240,7 @@ async function runCase(smokeCase) {
     const closedIdentityLocked = (await launchIdentityControls.count()) === 0;
     await page.locator("[data-testid='start-new-run']").click();
     const newRunStage = await page.locator(".gate-chip").innerText();
-    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 8);
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 9);
     const previousRunCleared =
       (await page.locator("[data-testid='session-progress']").count()) === 0 &&
       (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
@@ -2101,6 +2121,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const exactCandidatesClearWarnings =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
 
+    const thinkControl = page.locator("[data-testid='trial-think']");
+    await thinkControl.selectOption("medium");
     await page.locator("[data-testid='trial-provider']").selectOption("openai");
     await page.waitForFunction(
       () => document.querySelectorAll("#trial-executor-provider-model-options option").length === 0,
@@ -2108,6 +2130,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await executor.fill("manual-fallback-model");
     const cloudProviderAllowsManualEntry =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
+    const thinkClearedWithoutOllama =
+      await thinkControl.isDisabled() && await thinkControl.inputValue() === "";
     const plannerCandidatesStayScoped =
       JSON.stringify(await plannerDatalist.evaluateAll((options) =>
         options.map((option) => option.value),
@@ -2139,6 +2163,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const providersSeparated =
       proposalBody.provider === "openai" &&
       proposalBody.planner_provider === "lm-studio";
+    const omittedThinkPreserved = proposalBody.think === null;
 
     return {
       cloud_provider_skipped_discovery: cloudProviderSkippedDiscovery,
@@ -2152,9 +2177,11 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       proposal_pack: proposalBody.pack,
       proposal_provider: proposalBody.provider,
       proposal_planner_provider: proposalBody.planner_provider,
+      proposal_think: proposalBody.think,
       proposal_status: proposalResponse.status(),
       provider_requests: providerRequests,
       providers_separated: providersSeparated,
+      think_cleared_without_ollama: thinkClearedWithoutOllama,
       planner_candidates_stay_scoped: plannerCandidatesStayScoped,
       unknown_warnings: unknownWarnings,
       ok:
@@ -2170,6 +2197,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         cloudProviderAllowsManualEntry &&
         plannerCandidatesStayScoped &&
         providersSeparated &&
+        thinkClearedWithoutOllama &&
+        omittedThinkPreserved &&
         cloudProviderSkippedDiscovery,
     };
   } finally {

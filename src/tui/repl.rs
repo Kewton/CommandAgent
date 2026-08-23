@@ -541,6 +541,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     .to_string(),
                 executor_model: config.model.clone(),
                 preset: "profile".to_string(),
+                think: None,
             };
             let pack = match (&proposal.selected, parsed_request.pack.as_deref()) {
                 (_, None) => crate::tui::boundary_shell::confirmation::PackSelection::None,
@@ -1051,6 +1052,7 @@ mod tests {
             executor_provider: "ollama".to_string(),
             executor_model: "executor".to_string(),
             preset: "profile".to_string(),
+            think: None,
         }
     }
 
