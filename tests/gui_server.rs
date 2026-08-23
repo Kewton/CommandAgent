@@ -1520,6 +1520,135 @@ fn spawn_failure_reports_the_binary_and_releases_the_workspace() {
 
 #[cfg(unix)]
 #[test]
+fn later_gate_one_ignores_products_from_an_isolated_session_workspace() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("session-workspace-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nrun_directory=${COMMANDAGENT_EVAL_EVENTS%/*}\npwd -P > \"$run_directory/delegated-cwd.txt\"\nprintf '%s\\n' \"$@\" > \"$run_directory/delegated-args.txt\"\nmkdir -p .commandagent/plans .commandagent/evidence .commandagent/repairs\nprintf 'first-session route residue\\n' > events-list.html\nprintf 'plan\\n' > .commandagent/plans/plan.yaml\nprintf 'evidence\\n' > .commandagent/evidence/result.txt\nprintf 'repair\\n' > .commandagent/repairs/repair.md\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let first = serde_json::json!({
+        "goal": "HTMLスナップショットからイベント一覧を作成してください",
+        "profile": "ingest",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner"
+    });
+    let proposal = server.request("POST", "/api/session-proposals", Some(&first));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = first;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        assert_eq!(lease.status, 200, "{}", lease.body);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "delegated CLI did not finish");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let session_workspace = workspace.join("sessions").join(&id);
+    let canonical_session_workspace = session_workspace.canonicalize().unwrap();
+    let run_root = runs_dir(&workspace).join(&id);
+    assert_eq!(
+        std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        canonical_session_workspace.to_string_lossy()
+    );
+    let delegated_args = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
+    let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+    assert!(
+        delegated_args.windows(2).any(|arguments| {
+            arguments[0] == "--cwd" && arguments[1] == canonical_session_workspace.to_string_lossy()
+        }),
+        "{delegated_args:?}"
+    );
+    for relative in [
+        "events-list.html",
+        ".commandagent/plans/plan.yaml",
+        ".commandagent/evidence/result.txt",
+        ".commandagent/repairs/repair.md",
+    ] {
+        assert!(
+            session_workspace.join(relative).is_file(),
+            "missing {relative}"
+        );
+        assert!(
+            !workspace.join(relative).exists(),
+            "product escaped to execution-root top level: {relative}"
+        );
+    }
+
+    let second = serde_json::json!({
+        "goal": "HTMLスナップショットからイベントのテーブル構造を作成してください",
+        "profile": "ingest",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner"
+    });
+    let proposal = server.request("POST", "/api/session-proposals", Some(&second));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    assert_eq!(proposal.json()["identity"]["task_family"], "table");
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn delegated_session_rejects_a_symlinked_workspace_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let external = temp.path().join("external-sessions");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&external).unwrap();
+    symlink(&external, workspace.join("sessions")).unwrap();
+    let cli = temp.path().join("terminal-commandagent");
+    write_terminal_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let response = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(response.status, 500, "{}", response.body);
+    assert!(response.body.contains("must be a real directory"));
+    assert_eq!(std::fs::read_dir(&external).unwrap().count(), 0);
+    assert_eq!(
+        std::fs::read_dir(runs_dir(&workspace))
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0
+    );
+    let lease = server.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(lease.json(), serde_json::json!({ "status": "idle" }));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -2110,6 +2239,19 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         None,
     );
     assert_eq!(continued.status, 202, "{}", continued.body);
+    let continued_json = continued.json();
+    let continuation_plan = continued_json["continuation_plan"].as_str().unwrap();
+    assert!(
+        workspace
+            .join("sessions")
+            .join(id)
+            .join(continuation_plan)
+            .is_file()
+    );
+    assert!(
+        !workspace.join(continuation_plan).exists(),
+        "continuation plan escaped to execution-root top level"
+    );
     let intervention = server.request(
         "POST",
         &format!("/api/sessions/{id}/directives"),

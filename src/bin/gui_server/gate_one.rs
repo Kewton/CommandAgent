@@ -15,11 +15,12 @@ use commandagent::tui::boundary_shell::confirmation::{
 use commandagent::tui::boundary_shell::pack_catalog;
 use commandagent::tui::boundary_shell::presentation::render_gate_one_for_gui;
 use commandagent::tui::boundary_shell::route::{
-    DeterministicResolution, ExplicitRouteBinding, RouteRequest, deterministic_route,
+    DeterministicResolution, ExplicitRouteBinding, RouteRequest,
+    deterministic_route_excluding_top_level,
 };
 use serde::{Deserialize, Serialize};
 
-use super::session_paths::proposal_confirmation_root;
+use super::session_paths::{SESSION_WORKSPACES_DIRECTORY, proposal_confirmation_root};
 use super::sessions::{SessionError, internal, require_trial, unprocessable};
 use super::{AppState, trial_options};
 
@@ -88,14 +89,17 @@ pub(super) fn gate_one(
     let descriptor = descriptor_for_name(&spec.profile)
         .ok_or_else(|| unprocessable(format!("profile `{}` is not registered", spec.profile)))?;
     let profile = descriptor.id.clone();
-    let deterministic = deterministic_route(RouteRequest {
-        request: &spec.goal,
-        workspace,
-        explicit: ExplicitRouteBinding {
-            profile: Some(profile),
-            ..ExplicitRouteBinding::default()
+    let deterministic = deterministic_route_excluding_top_level(
+        RouteRequest {
+            request: &spec.goal,
+            workspace,
+            explicit: ExplicitRouteBinding {
+                profile: Some(profile),
+                ..ExplicitRouteBinding::default()
+            },
         },
-    });
+        &[SESSION_WORKSPACES_DIRECTORY],
+    );
     if deterministic.resolution != DeterministicResolution::Unique {
         let candidates = deterministic
             .candidates
