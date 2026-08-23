@@ -42,12 +42,22 @@ const helpMapEntries = [
     source: "gui/components/getting-started.tsx",
   },
   {
+    copy: "初回案内 / はじめに",
+    owner: "getting-started-gui.md#はじめに",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
+    copy: "サンプル目標をトライアルに入力",
+    owner: "getting-started-gui.md#first-trial-walkthrough",
+    source: "gui/components/getting-started.tsx",
+  },
+  {
     copy: "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
     owner: "getting-started-gui.md#terms-shown-in-the-app",
     source: "gui/components/getting-started.tsx",
   },
   {
-    copy: "Trial がファイルを変更できる、専用の作業ディレクトリです。",
+    copy: "トライアルがファイルを変更できる、専用の作業ディレクトリです。",
     owner: "getting-started-gui.md#terms-shown-in-the-app",
     source: "gui/components/getting-started.tsx",
   },
@@ -92,7 +102,7 @@ const helpMapEntries = [
     source: "gui/components/pack-wizard.tsx",
   },
   {
-    copy: "確認済み GUI Trial セッションはありません。",
+    copy: "確認済みのトライアルセッションはありません。",
     owner: "gui-history.md#session-rows-and-refresh",
     source: "gui/components/trial-session-index.tsx",
   },
@@ -485,7 +495,14 @@ async function runCase(smokeCase) {
     const heading = await page.locator("h1").innerText();
     const dashboardTitle = await page.title();
     await page.locator("[data-testid='runtime-status'][data-trial-available='true'][data-session-state='idle']").waitFor();
-    const idleRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    const runtimeStatus = page.locator("[data-testid='runtime-status']");
+    const idleRuntimeText = await runtimeStatus.innerText();
+    const runtimeLiveRegion = await runtimeStatus.evaluate((node) => ({
+      aria_atomic: node.getAttribute("aria-atomic"),
+      aria_live: node.getAttribute("aria-live"),
+    }));
+    const runtimeLiveRegionIsPoliteAtomic =
+      runtimeLiveRegion.aria_live === "polite" && runtimeLiveRegion.aria_atomic === "true";
     const map = await page.locator("[data-testid='score-time-map']").evaluate((image) => ({
       complete: image.complete,
       naturalWidth: image.naturalWidth,
@@ -534,11 +551,19 @@ async function runCase(smokeCase) {
     const unknownStateCount = runIndex.runs.filter((run) => run.state === "unknown").length;
     const unknownStateWithinTarget = unknownStateCount * 5 <= runIndex.runs.length;
     const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
+    const statusBadgeTitles = await page.locator(".status-badge").evaluateAll((badges) =>
+      badges.map((badge) => badge.getAttribute("title")),
+    );
     const statusBadgesArePlainText = statusBadgeTexts.every(
       (text) => !text.includes("**") && !text.includes("`"),
     );
     const japaneseStatusLabels = new Set(["成功", "失敗", "進行中", "記録あり", "未記録", "判定不能"]);
     const statusBadgesAreJapanese = statusBadgeTexts.every((text) => japaneseStatusLabels.has(text));
+    const statusBadgeTitlesAreJapanese = statusBadgeTitles.every(
+      (title) =>
+        title !== null &&
+        [...japaneseStatusLabels].some((label) => title === `記録上の状態: ${label}`),
+    );
     const dashboard = {
       assets_link: assetsLink,
       primary_navigation: primaryNavigation,
@@ -553,8 +578,11 @@ async function runCase(smokeCase) {
       unknown_state_count: unknownStateCount,
       unknown_state_within_20_percent: unknownStateWithinTarget,
       status_badges: statusBadgeTexts,
+      status_badge_titles: statusBadgeTitles,
       status_badges_are_plain_text: statusBadgesArePlainText,
       status_badges_are_japanese: statusBadgesAreJapanese,
+      status_badge_titles_are_japanese: statusBadgeTitlesAreJapanese,
+      runtime_live_region: runtimeLiveRegion,
     };
     const shellNavigation = await probeShellNavigation(
       browser,
@@ -583,6 +611,8 @@ async function runCase(smokeCase) {
       unknownStateWithinTarget &&
       statusBadgesArePlainText &&
       statusBadgesAreJapanese &&
+      statusBadgeTitlesAreJapanese &&
+      runtimeLiveRegionIsPoliteAtomic &&
       shellNavigation.ok;
     const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => {
       const directChildrenWithRole = (element, role) =>
@@ -1288,7 +1318,7 @@ async function runCase(smokeCase) {
       ) &&
       connectedMonitorText.includes("監視: 接続中") &&
       connectedMonitorText.includes("最終更新成功:") &&
-      idleRuntimeText.includes("Trial 利用可") &&
+      idleRuntimeText.includes("トライアル利用可") &&
       idleRuntimeText.includes("実行中なし") &&
       runningRuntimeText.includes(`実行中 ${sessionId.slice(0, 8)}`) &&
       runningHeaderLayout.ok &&
@@ -1296,7 +1326,9 @@ async function runCase(smokeCase) {
       sessionIndexText.includes(sessionId) &&
       sessionIndexText.includes("開始:") &&
       sessionIndexText.includes("最終更新:") &&
-      sessionIndexText.includes(finalApi.body.gate.toUpperCase()) &&
+      sessionIndexText.includes(
+        finalApi.body.gate === "gate_3" ? "GATE 3（完了）" : "GATE 4（要対応）",
+      ) &&
       new URL(sessionIndexHref, trialUrl).searchParams.get("session") === sessionId &&
       sessionIndexOnlyGets &&
       sessionLinkIssuedNoPost &&
@@ -1402,6 +1434,7 @@ async function runCase(smokeCase) {
         connected_visible_text: connectedMonitorText,
       },
       runtime_status: {
+        live_region: runtimeLiveRegion,
         completed_visible_text: completedRuntimeText,
         idle_visible_text: idleRuntimeText,
         running_header_mobile_390: runningHeaderLayout,
@@ -2395,7 +2428,7 @@ async function probeSessionIndexLease(browser, origin, basePath) {
         leaseText.includes("実行中") &&
         leaseText.includes(sessionId) &&
         sessionText.includes(sessionId) &&
-        sessionText.includes("GATE_2 / RUNNING") &&
+        sessionText.includes("GATE 2（実行） / 実行中") &&
         sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
         launchDisabled &&
         reason.includes(sessionId) &&

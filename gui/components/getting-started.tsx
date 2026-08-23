@@ -9,9 +9,9 @@ import type { RuntimePrerequisite } from "../lib/types";
 const DISMISSED_KEY = `commandagent.gui.getting-started-dismissed:${guiBasePath() || "/"}`;
 
 const prerequisiteLabels = {
-  execution_root: "Trial の作業場所",
-  commandagent_binary: "commandagent CLI",
-  trial_authentication: "Trial アクセス",
+  execution_root: "トライアルの作業場所",
+  commandagent_binary: "CommandAgent CLI",
+  trial_authentication: "トライアルアクセス",
 } as const;
 
 export function GettingStarted() {
@@ -45,8 +45,8 @@ export function GettingStarted() {
     <section className="getting-started panel" data-testid="getting-started">
       <header>
         <div>
-          <span className="panel-index">FIRST RUN / はじめに</span>
-          <h2>最初の Trial を準備する</h2>
+          <span className="panel-index">初回案内 / はじめに</span>
+          <h2>最初のトライアルを準備する</h2>
           <p>前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。</p>
         </div>
         <button
@@ -86,7 +86,7 @@ export function GettingStarted() {
             data-testid="getting-started-sample"
             href={withBasePath(`${routePath("try")}?sample=python-cli`)}
           >
-            サンプル目標を Trial に入力
+            サンプル目標をトライアルに入力
           </a>
         </div>
       </div>
@@ -95,8 +95,8 @@ export function GettingStarted() {
         <summary>用語ヘルプ</summary>
         <dl>
           <div><dt>Gate 1</dt><dd>CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。</dd></div>
-          <div><dt>execution root</dt><dd>Trial がファイルを変更できる、専用の作業ディレクトリです。</dd></div>
-          <div><dt>pack</dt><dd>目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。</dd></div>
+          <div><dt>実行ルート</dt><dd>トライアルがファイルを変更できる、専用の作業ディレクトリです。</dd></div>
+          <div><dt>パック</dt><dd>目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。</dd></div>
         </dl>
       </details>
     </section>
