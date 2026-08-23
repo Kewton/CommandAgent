@@ -176,6 +176,26 @@ a.runtime-badge:focus-visible {
   box-shadow: none;
 }
 
+.gui-contract-warning {
+  margin: 1.25rem 1.5rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--muted-strong);
+}
+
+.gui-contract-warning strong {
+  color: var(--warning);
+  font-size: 0.75rem;
+}
+
+.gui-contract-warning p {
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
 .pulse-dot,
 .runtime-badge.available i,
 .runtime-badge.session-running i,
@@ -2172,6 +2192,62 @@ a.runtime-badge:focus-visible {
   text-underline-offset: 0.2rem;
 }
 
+.session-list .trial-failure-diagnostics {
+  grid-column: 1 / -1;
+}
+
+.trial-failure-diagnostics,
+.trial-identity-warning {
+  margin-top: 0.8rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--muted-strong);
+}
+
+.trial-failure-diagnostics h3,
+.trial-failure-diagnostics p,
+.trial-failure-diagnostics ul,
+.trial-identity-warning p {
+  margin: 0;
+}
+
+.trial-failure-diagnostics h3,
+.trial-identity-warning strong {
+  color: var(--danger);
+  font-size: 0.72rem;
+}
+
+.trial-failure-diagnostics p,
+.trial-identity-warning p {
+  margin-top: 0.35rem;
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.trial-failure-diagnostics > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  font-size: 0.63rem;
+  line-height: 1.5;
+}
+
+.trial-failure-diagnostics strong {
+  color: var(--muted);
+}
+
+.trial-failure-diagnostics ul {
+  padding-left: 1rem;
+}
+
+.trial-failure-diagnostics small {
+  display: block;
+  color: var(--muted);
+}
+
 .terminal-history-link {
   display: inline-block;
   margin: 0.8rem 0;
@@ -3175,6 +3251,10 @@ a.runtime-badge:focus-visible {
   .runtime-badge {
     padding: 0.3rem 0.4rem;
     font-size: 0.58rem;
+  }
+
+  .gui-contract-warning {
+    margin: 1rem 1rem 0;
   }
 
   .sidebar {

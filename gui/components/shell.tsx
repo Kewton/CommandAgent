@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
 
+import guiContract from "../public/commandagent-gui-contract.json";
 import { routePath, type GuiRoute } from "../lib/base-path";
 import { useRuntimeStatus, type RuntimeState } from "../lib/use-runtime-status";
 
@@ -38,6 +39,8 @@ export function Shell({ active, title, description, children }: ShellProps) {
       : runtimeSession?.state === "recovery_required"
         ? `要復旧 ${shortSessionId(runtimeSession.id)}`
         : "実行中なし";
+  const contractMismatch = runtime.data !== null &&
+    runtime.data.gui_contract_version !== guiContract.contract_version;
 
   return (
     <RuntimeStatusContext.Provider value={runtime}>
@@ -103,6 +106,19 @@ export function Shell({ active, title, description, children }: ShellProps) {
       </aside>
 
       <main className="main-column">
+        {contractMismatch && (
+          <section
+            className="gui-contract-warning"
+            data-testid="gui-contract-warning"
+            role="alert"
+          >
+            <strong>GUI と gui_server の版が一致していません</strong>
+            <p>
+              この画面は古い応答を安全に表示しますが、一部の実行情報が欠ける可能性があります。
+              同じ checkout で静的 GUI と gui_server を再ビルドし、再起動してください。
+            </p>
+          </section>
+        )}
         <section className="page-intro">
           <h1>{title}</h1>
           <p>{description}</p>

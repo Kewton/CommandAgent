@@ -3,6 +3,10 @@ import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
 import { TrialRunIdentity } from "./trial-run-identity";
+import {
+  hasFailureDiagnostics,
+  TrialFailureDiagnostics,
+} from "./trial-failure-diagnostics";
 
 type TrialTerminalProps = {
   onHighlightSession: (id: string) => void;
@@ -46,6 +50,14 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
                 <dd data-testid="terminal-status-summary">{nextActionSummary(session)}</dd>
               </div>
             </dl>
+            {(session.status === "failed" ||
+              hasFailureDiagnostics(session.failure_diagnostics, session.stop_reason)) && (
+              <TrialFailureDiagnostics
+                diagnostics={session.failure_diagnostics}
+                fallbackStopReason={session.stop_reason}
+                testId="terminal-failure-diagnostics"
+              />
+            )}
             <TrialRunIdentity identity={session.identity} />
             <a
               className="terminal-history-link"

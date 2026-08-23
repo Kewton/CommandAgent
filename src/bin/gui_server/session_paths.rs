@@ -17,6 +17,32 @@ impl SessionPaths {
         }
     }
 
+    pub(super) fn existing(workspace: &Path, id: &str) -> anyhow::Result<Option<Self>> {
+        for runs_root in commandagent::runtime_paths::run_read_dirs(workspace) {
+            let run_root = runs_root.join(id);
+            let metadata = match std::fs::symlink_metadata(&run_root) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("inspect session run {}", run_root.display()));
+                }
+            };
+            require_real_directory(&run_root, &metadata)?;
+            let runtime_root = runs_root
+                .parent()
+                .expect("runtime runs directories always have a parent");
+            require_canonical_real_directory(runtime_root)?;
+            require_canonical_real_directory(&runs_root)?;
+            require_canonical_real_directory(&run_root)?;
+            return Ok(Some(Self {
+                run_root,
+                execution_workspace: workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
+            }));
+        }
+        Ok(None)
+    }
+
     pub(super) fn state_root(&self) -> PathBuf {
         self.run_root.join("state")
     }

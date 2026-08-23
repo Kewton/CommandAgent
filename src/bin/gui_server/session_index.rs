@@ -12,6 +12,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::AppState;
+use super::session_diagnostics::{FailureDiagnostics, project as project_diagnostics};
 use super::sessions::{SessionError, internal, require_trial, started_epoch_seconds};
 use super::workspace_policy::LeaseSnapshot;
 
@@ -31,6 +32,7 @@ struct SessionSummary {
     modified_epoch_seconds: u64,
     gate: Option<&'static str>,
     status: String,
+    failure_diagnostics: FailureDiagnostics,
     pack: Option<SessionPack>,
 }
 
@@ -47,6 +49,7 @@ struct SessionPack {
 struct SessionProjection {
     gate: Option<&'static str>,
     status: String,
+    failure_diagnostics: FailureDiagnostics,
 }
 
 pub async fn list(
@@ -95,6 +98,7 @@ pub async fn list(
                 modified_epoch_seconds: modified_epoch_seconds(&path, &events_path).await,
                 gate: projection.gate,
                 status: projection.status,
+                failure_diagnostics: projection.failure_diagnostics,
                 pack: confirmed_pack(&confirmation_root),
             });
         }
@@ -194,6 +198,7 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
             return SessionProjection {
                 gate: Some("gate_2"),
                 status: "starting".to_string(),
+                failure_diagnostics: FailureDiagnostics::default(),
             };
         }
         Err(_) => return unreadable_projection(),
@@ -208,6 +213,7 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
     let mut terminal = None;
     let mut run_stop_status = None;
     let mut continuation_index = None;
+    let mut events = Vec::new();
     for (index, line) in text
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -230,11 +236,13 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
             Some("human_directive_continuation_started") => continuation_index = Some(index),
             _ => {}
         }
+        events.push(event);
     }
     if !saw_event {
         return SessionProjection {
             gate: Some("gate_2"),
             status: "starting".to_string(),
+            failure_diagnostics: FailureDiagnostics::default(),
         };
     }
     let terminal_is_current = terminal.as_ref().is_some_and(|(terminal_index, _, _)| {
@@ -244,6 +252,7 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
         return SessionProjection {
             gate: Some("gate_2"),
             status: "running".to_string(),
+            failure_diagnostics: FailureDiagnostics::default(),
         };
     }
     let full = terminal.as_ref().is_some_and(|(_, _, full)| *full);
@@ -254,6 +263,9 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
     SessionProjection {
         gate: Some(if full { "gate_3" } else { "gate_4" }),
         status,
+        failure_diagnostics: project_diagnostics(
+            &events[continuation_index.map_or(0, |index| index + 1)..],
+        ),
     }
 }
 
@@ -261,6 +273,7 @@ fn unreadable_projection() -> SessionProjection {
     SessionProjection {
         gate: None,
         status: "unreadable".to_string(),
+        failure_diagnostics: FailureDiagnostics::default(),
     }
 }
 

@@ -11,6 +11,7 @@ import type {
   TrialWorkspaceLease,
 } from "../lib/types";
 import { useShellRuntimeStatus } from "./shell";
+import { TrialFailureDiagnostics } from "./trial-failure-diagnostics";
 
 const COMPLETE_TOKEN_LENGTH = 32;
 
@@ -209,6 +210,12 @@ export function TrialSessionIndexPanel({
               <a data-testid="session-reconnect-link" href={sessionLink(session.id)}>
                 再接続
               </a>
+              {session.status === "failed" && (
+                <TrialFailureDiagnostics
+                  diagnostics={session.failure_diagnostics}
+                  testId="session-failure-diagnostics"
+                />
+              )}
             </li>
           ))}
         </ol>

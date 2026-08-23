@@ -9,6 +9,7 @@ use super::{AppState, workspace_policy::RuntimeStatus};
 pub struct Response {
     #[serde(flatten)]
     runtime: RuntimeStatus,
+    gui_contract_version: &'static str,
     prerequisites: Prerequisites,
 }
 
@@ -29,6 +30,7 @@ pub async fn get(State(state): State<AppState>) -> Json<Response> {
     let authentication_enabled = state.trial_access.authentication_enabled();
     Json(Response {
         runtime: state.trial_workspace.runtime_status(authentication_enabled),
+        gui_contract_version: super::gui_contract::server_contract_version(),
         prerequisites: Prerequisites {
             execution_root: execution_root(&state),
             commandagent_binary: commandagent_binary(&state.commandagent_bin),

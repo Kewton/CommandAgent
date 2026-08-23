@@ -19,12 +19,16 @@ mod error_response;
 mod extensions;
 #[path = "gui_server/gate_one.rs"]
 mod gate_one;
+#[path = "gui_server/gui_contract.rs"]
+mod gui_contract;
 #[path = "gui_server/pack_catalog.rs"]
 mod pack_catalog;
 #[path = "gui_server/preflight.rs"]
 mod preflight;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
+#[path = "gui_server/session_diagnostics.rs"]
+mod session_diagnostics;
 #[path = "gui_server/session_files.rs"]
 mod session_files;
 #[path = "gui_server/session_index.rs"]
