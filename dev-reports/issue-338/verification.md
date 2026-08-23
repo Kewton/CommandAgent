@@ -25,6 +25,13 @@ process fixtures could execute; all default unit, integration, guardrail,
 corpus, and documentation tests passed, with repository-configured ignored
 tests remaining ignored.
 
+After follow-up review, the retry predicate was narrowed from error-kind
+matching to exact raw ETXTBSY matching. The focused test now constructs its
+positive case with `from_raw_os_error(libc::ETXTBSY)` and rejects a synthetic
+`ErrorKind::ExecutableFileBusy` whose `raw_os_error()` is `None`. The focused
+tests, full GUI target, formatting, both Clippy commands, and full Rust suite
+listed above were rerun after that correction and passed.
+
 The change touches only the integration-test fixture and Issue reports. No
 production behavior, event contract, honest-failure rule, or gate was changed.
 Post-merge `develop`-SHA `CI` and `acceptance` conclusions remain an

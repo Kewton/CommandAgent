@@ -25,16 +25,20 @@ fn run_fixture_command(command: &mut Command) -> std::io::Result<ExitStatus> {
 }
 
 fn should_retry_fixture_exec(error: &std::io::Error, attempt: usize) -> bool {
-    error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt < FIXTURE_EXEC_MAX_ATTEMPTS
+    error.raw_os_error() == Some(libc::ETXTBSY) && attempt < FIXTURE_EXEC_MAX_ATTEMPTS
 }
 
 #[test]
 fn fixture_exec_retry_is_bounded_and_etxtbsy_only() {
-    let busy = std::io::Error::from(std::io::ErrorKind::ExecutableFileBusy);
+    let busy = std::io::Error::from_raw_os_error(libc::ETXTBSY);
     for attempt in 1..FIXTURE_EXEC_MAX_ATTEMPTS {
         assert!(should_retry_fixture_exec(&busy, attempt));
     }
     assert!(!should_retry_fixture_exec(&busy, FIXTURE_EXEC_MAX_ATTEMPTS));
+
+    let synthetic_busy = std::io::Error::from(std::io::ErrorKind::ExecutableFileBusy);
+    assert_eq!(synthetic_busy.raw_os_error(), None);
+    assert!(!should_retry_fixture_exec(&synthetic_busy, 1));
 
     let other = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
     assert!(!should_retry_fixture_exec(&other, 1));

@@ -17,11 +17,12 @@ passed.
 - Route only the immediate execution of the freshly written CLI fixture
   through a small helper.
 - Allow at most four total launch attempts, separated by 25 milliseconds.
-- Retry only `std::io::ErrorKind::ExecutableFileBusy`. Return every other
-  error immediately, and return the final busy error after the bound is
-  exhausted.
-- Add a focused test for the retry predicate so both the error-kind filter and
-  attempt bound are explicit.
+- Retry only an OS error whose `raw_os_error()` is exactly
+  `Some(libc::ETXTBSY)`. Return every other error immediately, including a
+  synthetic `ErrorKind::ExecutableFileBusy` without raw errno, and return the
+  final ETXTBSY error after the bound is exhausted.
+- Add a focused test for the retry predicate so the raw-errno filter, the
+  synthetic-error rejection, and the attempt bound are explicit.
 
 ## Verification
 

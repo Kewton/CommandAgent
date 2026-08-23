@@ -6,14 +6,15 @@
   written fake `commandagent` shell fixture.
 - Limited execution to four total attempts with a 25 millisecond delay between
   retryable failures.
-- Restricted retries to `std::io::ErrorKind::ExecutableFileBusy`; all other
-  launch errors return immediately, and ETXTBSY still fails after the fourth
-  attempt.
+- Restricted retries to errors whose `raw_os_error()` is exactly
+  `Some(libc::ETXTBSY)`; all other launch errors return immediately, and
+  ETXTBSY still fails after the fourth attempt.
 - Routed only the direct fixture execution in
   `confirmed_session_delegates_with_cli_event_bytes_unchanged` through the
   helper.
-- Added a focused regression test that pins the retryable error kind and the
-  final-attempt boundary.
+- Added a focused regression test built from raw ETXTBSY that pins the
+  final-attempt boundary and proves a synthetic
+  `ErrorKind::ExecutableFileBusy` without raw errno is not retried.
 
 ## Scope
 
