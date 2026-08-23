@@ -18,6 +18,12 @@ const assetTabLabels: Record<AssetTab, string> = {
   suites: "計測スイート",
 };
 
+const intentLabels: Readonly<Record<string, string>> = {
+  create: "作成",
+  fix: "修正",
+  investigate: "調査",
+};
+
 function assetTitle(document: DocumentRecord): string {
   return document.content.match(/^#\s+(.+)$/m)?.[1] ?? document.id;
 }
@@ -58,7 +64,7 @@ export default function AssetsPage() {
     <Shell
       active="assets"
       title="拡張"
-      description="pack の供給元、承認状態、exact-byte hash と pin を読み取り専用で確認します。"
+      description="パックの供給元、承認状態、バイト単位のハッシュと固定状態を読み取り専用で確認します。"
     >
       <div className="asset-tabs" aria-label="アセット種別" role="tablist">
         {assetTabs.map((item, index) => (
@@ -111,11 +117,11 @@ export default function AssetsPage() {
                     <strong>{selector}</strong>
                   </header>
                   <h2>{pack.id}</h2>
-                  <p>{pack.path} · {pack.profile ?? "profile 不明"} × {pack.intent ?? "intent 不明"}</p>
+                  <p>{pack.path} · {profileDisplayLabel(pack.profile)} × {intentDisplayLabel(pack.intent)}</p>
                   <div className="pin-block">
-                    <span>pin / 期待 hash</span>
+                    <span>固定値 / 期待ハッシュ</span>
                     <code>{pack.expected_hash ?? "未固定"}</code>
-                    <span>観測 hash</span>
+                    <span>観測ハッシュ</span>
                     <code>{pack.observed_hash ?? "算出不可"}</code>
                   </div>
                   {pack.warning !== null && (
@@ -132,7 +138,7 @@ export default function AssetsPage() {
                         data-testid="pack-trial-link"
                         href={withBasePath(`${routePath("try")}?pack=${encodeURIComponent(selector)}`)}
                       >
-                        Trial で使う ↗
+                        トライアルで使う ↗
                       </a>
                     )}
                   </footer>
@@ -222,4 +228,15 @@ function PackMemberPresence({ name, present }: { name: "assist.yaml" | "eval.yam
       {" "}{name}: {present ? "あり" : "なし"}
     </span>
   );
+}
+
+function profileDisplayLabel(profile: string | null): string {
+  if (profile === null) return "プロファイル不明";
+  if (profile === "community-mini-app") return "コミュニティ・ミニアプリ";
+  return profile;
+}
+
+function intentDisplayLabel(intent: string | null): string {
+  if (intent === null) return "目的不明";
+  return intentLabels[intent] ?? "目的不明";
 }

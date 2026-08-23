@@ -124,6 +124,7 @@ export default function MeasurementsPage() {
           <div className="report-list">
             {filteredReports.map((report) => (
               <button
+                aria-current={selected?.path === report.path ? "true" : undefined}
                 className={selected?.path === report.path ? "active" : ""}
                 key={report.path}
                 onClick={() => void readReport(report.path)}
