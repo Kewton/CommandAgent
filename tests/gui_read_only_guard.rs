@@ -381,6 +381,11 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "data-testid=\"trial-planner-provider\"",
         "update(\"provider\", event.target.value)",
         "update(\"planner_provider\", event.target.value)",
+        "data-testid=\"trial-think\"",
+        "disabled={launchIdentityLocked || !ollamaRoleSelected}",
+        "update(\"think\"",
+        "next.provider === \"ollama\" || next.planner_provider === \"ollama\"",
+        "{ ...next, think: null }",
         "data-testid=\"trial-pack\"",
         "option.source_label",
         "data-testid=\"trial-profile-description\"",
@@ -573,6 +578,12 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     assert!(
         !source.contains("planner_provider: value as string"),
         "execution-provider changes must not rewrite the planning provider"
+    );
+    let run_identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
+    assert!(
+        run_identity.contains("identity.pins.think !== undefined")
+            && run_identity.contains("data-testid=\"trial-run-identity-think\""),
+        "the selected thinking value must remain visible in the frozen run identity"
     );
 }
 

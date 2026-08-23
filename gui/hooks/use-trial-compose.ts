@@ -44,6 +44,7 @@ const initialSpec: SessionSpec = {
   planner_provider: "ollama",
   planner_model: "",
   pack: null,
+  think: null,
 };
 
 export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
@@ -148,6 +149,12 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => {
       if (field === "profile") return { ...current, profile: value as string, pack: null };
+      if (field === "provider" || field === "planner_provider") {
+        const next = { ...current, [field]: value as string };
+        return next.provider === "ollama" || next.planner_provider === "ollama"
+          ? next
+          : { ...next, think: null };
+      }
       return { ...current, [field]: value };
     });
     setProposal(null);

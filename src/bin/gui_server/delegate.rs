@@ -262,6 +262,9 @@ fn delegated_cli_command(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(think) = identity.pins.think {
+        command.arg(format!("--think={}", think.as_str()));
+    }
     if !confirmed_pack_applied && let Some(extension_root) = state.extension_root.as_deref() {
         command.arg("--extension-root").arg(extension_root);
     }

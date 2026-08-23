@@ -26,6 +26,14 @@ CLI `--provider`, while **計画プロバイダー** independently maps to
 model ID. For Ollama and LM Studio, each model input obtains candidates using
 its own selected provider, while exact IDs can still be entered manually.
 
+**Ollama thinking** is optional and maps to one exact CLI argument:
+`--think=<value>`. Accepted values are `true`, `false`, `low`, `medium`, and
+`high`. The selector is available only while the execution or planning role
+uses Ollama; removing the final Ollama role clears and disables it. The server
+also rejects a selected value with HTTP 422 when neither role is Ollama. An
+unspecified value adds nothing to the Gate 1 identity or delegated arguments,
+so existing confirmation hashes and records remain compatible.
+
 The compact indicator is **依頼 → 確認 → 実行 → 結果**. Only the current
 workflow state is shown; a completed form is not left stacked above the next
 action.
@@ -51,7 +59,8 @@ exposed by the server. The delegate uses the CLI's host option and inherits
 3. Read the server-rendered card: exact identity, required checks, comparable
    successful runs, measured mean/cost where recorded, and canonical write
    boundary. A draft profile also shows its source/path/hash and
-   `profile_not_admitted` assurance cap.
+   `profile_not_admitted` assurance cap. A selected Ollama thinking value is
+   shown on this card and becomes part of its confirmation ID.
 4. Select the confirmation checkbox. **確認して CLI を実行** stays disabled
    until this explicit action, and the API independently requires the exact
    card hash.
@@ -64,8 +73,9 @@ The server starts `commandagent` directly without a shell. Progress is rebuilt
 from the session JSONL. Launch identity fields remain read-only so an in-flight
 contract cannot be edited. The Gate 2 screen keeps the confirmed goal, profile,
 exact executor/planner provider and model IDs, and exact `id@version` pack (or
-`選択なし`) visible above the progress. The same frozen identity is restored
-from the Gate 1 confirmation record after reconnecting.
+`選択なし`) visible above the progress. A selected Ollama thinking value is
+also shown. The same frozen identity is restored from the Gate 1 confirmation
+record after reconnecting.
 
 Execution state and monitoring health (`connected`, `degraded`, or `lost`) are
 separate. Transient monitoring failures use capped backoff while the delegated
