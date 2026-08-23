@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useShellRuntimeStatus } from "./shell";
 import { routePath, withBasePath } from "../lib/base-path";
@@ -23,11 +23,11 @@ import { persistTrialToken, restoreTrialToken } from "../lib/trial-token-storage
 import type { TrialOptions } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
-const steps = ["対象セル", "出発点", "編集", "検証", "pin"] as const;
+const steps = ["対象セル", "出発点", "編集", "検証", "固定"] as const;
 const intents = [
-  { id: "create", label: "create" },
-  { id: "fix", label: "fix" },
-  { id: "investigate", label: "investigate" },
+  { id: "create", label: "作成" },
+  { id: "fix", label: "修正" },
+  { id: "investigate", label: "調査" },
 ] as const;
 
 type WizardStep = 0 | 1 | 2 | 3 | 4;
@@ -57,10 +57,18 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
   const [issues, setIssues] = useState<WizardIssue[]>([]);
   const [busy, setBusy] = useState(false);
   const [retireAcknowledged, setRetireAcknowledged] = useState(false);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusId = useRef<string | null>(null);
+  const hasOpened = useRef(false);
   const tokenAuthEnabled = runtime?.data?.trial_token_auth_enabled !== false;
   const immutable = lifecycle === "pinned" || lifecycle === "retired";
   const selector = `${id}@${version}`;
   const exampleAvailable = profile === "nextjs" && intent === "create";
+  const selectedProfileLabel = profileDisplayLabel(
+    profile,
+    profileOptions.data?.profiles.find((option) => option.id === profile)?.label,
+  );
+  const selectedIntentLabel = intentDisplayLabel(intent);
   const trialHref = useMemo(
     () => withBasePath(`${routePath("try")}?pack=${encodeURIComponent(selector)}`),
     [selector],
@@ -92,8 +100,24 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
     if (!exampleAvailable && startingPoint === "nextjs-acme") setStartingPoint("blank");
   }, [exampleAvailable, startingPoint]);
 
-  function moveTo(next: WizardStep) {
+  useEffect(() => {
+    if (!open) {
+      if (hasOpened.current) launcherRef.current?.focus();
+      return;
+    }
+    hasOpened.current = true;
+    const targetId = pendingFocusId.current ?? `pack-wizard-step-${step}`;
+    pendingFocusId.current = null;
+    document.getElementById(targetId)?.focus();
+  }, [lifecycle, open, step]);
+
+  function showStep(next: WizardStep, focusId = `pack-wizard-step-${next}`) {
+    pendingFocusId.current = focusId;
     setStep(next);
+  }
+
+  function moveTo(next: WizardStep) {
+    showStep(next);
     setMaxStep((current) => Math.max(current, next) as WizardStep);
   }
 
@@ -269,25 +293,25 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
   }
 
   function focusEditorField(fieldId: string) {
-    setStep(2);
-    window.requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
+    showStep(2, fieldId);
   }
 
   if (!open) {
     return (
       <section className="pack-wizard-launch">
         <div>
-          <small>LOCAL SUPPLY / GUI</small>
-          <h2>pack 作成ウィザード</h2>
-          <p>対象セルと出発点を選び、編集した exact bytes を検証してから pin します。</p>
+          <small>ローカル供給 / GUI 作成</small>
+          <h2>パック作成ウィザード</h2>
+          <p>対象と出発点を選び、編集した正確なバイト列を検証してから固定します。</p>
         </div>
         <button
           className="primary-action"
           data-testid="pack-wizard-open"
           onClick={() => setOpen(true)}
+          ref={launcherRef}
           type="button"
         >
-          pack 作成ウィザードを開く
+          パック作成ウィザードを開く
         </button>
       </section>
     );
@@ -297,19 +321,24 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
     <section className="pack-wizard" data-lifecycle={lifecycle} data-testid="pack-wizard">
       <header className="pack-wizard-heading">
         <div>
-          <small>LOCAL SUPPLY / 未承認・帯域未計測</small>
-          <h2>pack 作成ウィザード</h2>
+          <small>ローカル供給 / 未承認・帯域未計測</small>
+          <h2>パック作成ウィザード</h2>
         </div>
         <button className="text-action" onClick={() => setOpen(false)} type="button">閉じる</button>
       </header>
 
-      <ol className="pack-wizard-steps" aria-label="pack 作成手順">
+      <ol
+        aria-atomic="true"
+        aria-label={`パック作成手順。現在の手順: ${steps[step]}`}
+        aria-live="polite"
+        className="pack-wizard-steps"
+      >
         {steps.map((label, index) => (
           <li className={index === step ? "current" : index <= maxStep ? "reached" : ""} key={label}>
             <button
               aria-current={index === step ? "step" : undefined}
               disabled={index > maxStep}
-              onClick={() => setStep(index as WizardStep)}
+              onClick={() => showStep(index as WizardStep)}
               type="button"
             >
               <span>{index + 1}</span>{label}
@@ -320,11 +349,11 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
 
       {step === 0 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-target">
-          <h3>1. 対象セル</h3>
-          <p>pack が追加する profile × intent を固定します。検証時に既存の contract floor と照合されます。</p>
+          <h3 id="pack-wizard-step-0" tabIndex={-1}>1. 対象セル</h3>
+          <p>パックが追加するプロファイルと目的を固定します。検証時に既存契約の最低条件と照合されます。</p>
           <div className="pack-wizard-fields two-column">
             <label>
-              profile
+              プロファイル
               <select
                 data-testid="pack-wizard-profile"
                 disabled={immutable || profileOptions.data === null}
@@ -335,7 +364,9 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
                   <option value={profile}>許可済みプロファイルを読み込み中…</option>
                 ) : (
                   profileOptions.data.profiles.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
+                    <option key={option.id} value={option.id}>
+                      {profileDisplayLabel(option.id, option.label)}
+                    </option>
                   ))
                 )}
               </select>
@@ -344,7 +375,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
               )}
             </label>
             <label>
-              intent
+              目的
               <select
                 data-testid="pack-wizard-intent"
                 disabled={immutable}
@@ -361,8 +392,8 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
 
       {step === 1 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-starting-point">
-          <h3>2. 出発点</h3>
-          <p>{profile} × {intent} のメンバーをゼロから始めるか、検証可能な例から始めます。</p>
+          <h3 id="pack-wizard-step-1" tabIndex={-1}>2. 出発点</h3>
+          <p>{selectedProfileLabel} × {selectedIntentLabel} の構成ファイルをゼロから始めるか、検証可能な例から始めます。</p>
           <div className="pack-wizard-choice-grid">
             <label className={startingPoint === "blank" ? "selected" : ""}>
               <input
@@ -372,8 +403,8 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
                 onChange={() => setStartingPoint("blank")}
                 type="radio"
               />
-              <strong>最小 assist scaffold</strong>
-              <small>選択した identity と空の inject から始めます。</small>
+              <strong>最小の assist.yaml 構成</strong>
+              <small>選択した識別情報と空の挿入設定から始めます。</small>
             </label>
             <label className={startingPoint === "nextjs-acme" ? "selected" : ""}>
               <input
@@ -385,13 +416,13 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
                 type="radio"
               />
               <strong>nextjs-acme 例</strong>
-              <small>Next.js × create 専用。assist / eval / materials 2 件を読み込みます。</small>
+              <small>Next.js の作成専用。assist.yaml / eval.yaml / materials/ の 2 件を読み込みます。</small>
             </label>
           </div>
           <WizardActions
             disabled={immutable}
             primary="編集を開始"
-            onBack={() => setStep(0)}
+            onBack={() => showStep(0)}
             onPrimary={applyStartingPoint}
           />
         </div>
@@ -399,11 +430,11 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
 
       {step === 2 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-editor">
-          <h3>3. 編集</h3>
-          <p>pin 後は編集できません。内容を変えるときは新しい version で staged にしてください。</p>
+          <h3 id="pack-wizard-step-2" tabIndex={-1}>3. 編集</h3>
+          <p>固定後は編集できません。内容を変えるときは新しいバージョンを作成してください。</p>
           <div className="pack-wizard-fields two-column">
             <label>
-              pack ID
+              パック ID
               <input
                 autoCapitalize="none"
                 data-testid="pack-wizard-id"
@@ -415,7 +446,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
               />
             </label>
             <label>
-              version
+              バージョン
               <input
                 autoCapitalize="none"
                 data-testid="pack-wizard-version"
@@ -429,7 +460,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
           </div>
           {tokenAuthEnabled ? (
             <label className="pack-wizard-token">
-              Trial access token
+              トライアルアクセストークン
               <input
                 autoCapitalize="none"
                 autoComplete="off"
@@ -443,11 +474,11 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
                 type="password"
                 value={token}
               />
-              <small>現在の tab と base path にだけ保存します。</small>
+              <small>現在のタブとベースパスにだけ保存します。</small>
             </label>
           ) : (
             <p className="source-note" data-testid="pack-wizard-token-auth-disabled">
-              Trial トークン認証はサーバー設定で無効です。
+              トライアルのトークン認証はサーバー設定で無効です。
             </p>
           )}
           <div className="pack-wizard-editors">
@@ -484,7 +515,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
             {files.materials.map((material, index) => (
               <article data-testid="pack-wizard-material" key={`${index}-${material.name}`}>
                 <label>
-                  file name
+                  ファイル名
                   <input
                     disabled={immutable}
                     id={`pack-wizard-material-name-${index}`}
@@ -494,7 +525,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
                   />
                 </label>
                 <label>
-                  content
+                  内容
                   <textarea
                     disabled={immutable}
                     id={`pack-wizard-material-content-${index}`}
@@ -513,7 +544,7 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
             busy={busy}
             disabled={immutable}
             primary="保存して検証"
-            onBack={() => setStep(1)}
+            onBack={() => showStep(1)}
             onPrimary={() => void stageAndVerify()}
           />
         </div>
@@ -521,57 +552,57 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
 
       {step === 3 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-verification">
-          <h3>4. 検証</h3>
-          <p>GUI ではなくサーバーが strict schema、closed vocabulary、contract floor、scrub、exact-byte hash を検証します。保存済み bytes の再検証では、編集画面もサーバーの exact bytes に戻します。</p>
+          <h3 id="pack-wizard-step-3" tabIndex={-1}>4. 検証</h3>
+          <p>GUI ではなくサーバーが厳密なスキーマ、限定語彙、契約の最低条件、認証情報除去、バイト単位のハッシュを検証します。保存済みの内容を再検証すると、編集画面もサーバーに保存された正確なバイト列に戻ります。</p>
           <IssueList issues={issues} onFocus={focusEditorField} />
           {busy && <p className="pack-wizard-status" role="status">検証中…</p>}
           {report !== null && (
             <div className="pack-verification-success" data-testid="pack-verification-success">
               <strong>検証済み</strong>
               <dl>
-                <div><dt>conformance</dt><dd>{report.conformance.status}</dd></div>
-                <div><dt>credential scrub</dt><dd>{report.scrub.status}</dd></div>
-                <div><dt>target</dt><dd>{report.conformance.profile} × {report.conformance.intent}</dd></div>
-                <div><dt>members</dt><dd>{report.scrub.scanned.length}</dd></div>
+                <div><dt>適合性</dt><dd>{verificationStatusLabel(report.conformance.status)}</dd></div>
+                <div><dt>認証情報検査</dt><dd>{verificationStatusLabel(report.scrub.status)}</dd></div>
+                <div><dt>対象</dt><dd>{profileDisplayLabel(report.conformance.profile)} × {intentDisplayLabel(report.conformance.intent)}</dd></div>
+                <div><dt>構成ファイル</dt><dd>{report.scrub.scanned.length}</dd></div>
               </dl>
               <code data-testid="pack-wizard-hash">{report.hash}</code>
             </div>
           )}
           <div className="pack-wizard-actions">
-            <button className="secondary-action" disabled={immutable || busy} onClick={() => setStep(2)} type="button">編集に戻る</button>
-            <button className="secondary-action" disabled={immutable || busy || lifecycle !== "staged"} onClick={() => void reverify()} type="button">保存済み bytes を再検証</button>
-            <button className="primary-action" data-testid="pack-wizard-to-pin" disabled={report === null || immutable || busy} onClick={() => moveTo(4)} type="button">pin を確認</button>
+            <button className="secondary-action" disabled={immutable || busy} onClick={() => showStep(2)} type="button">編集に戻る</button>
+            <button className="secondary-action" disabled={immutable || busy || lifecycle !== "staged"} onClick={() => void reverify()} type="button">保存済みの内容を再検証</button>
+            <button className="primary-action" data-testid="pack-wizard-to-pin" disabled={report === null || immutable || busy} onClick={() => moveTo(4)} type="button">固定内容を確認</button>
           </div>
         </div>
       )}
 
       {step === 4 && (
         <div className="pack-wizard-panel" data-testid="pack-wizard-pin">
-          <h3>5. pin</h3>
-          <p>pin は検証した exact bytes を固定します。承認や計測済み band を与える操作ではありません。</p>
+          <h3 id="pack-wizard-step-4" tabIndex={-1}>5. 固定</h3>
+          <p>固定操作では検証した正確なバイト列を変更不可にします。承認や計測済みの帯域を与える操作ではありません。</p>
           <IssueList issues={issues} onFocus={focusEditorField} />
           <div className="pack-pin-review">
             <span>{selector}</span>
             <strong>ローカル（未承認・帯域未計測）</strong>
-            <code>{report?.hash ?? "検証済み hash なし"}</code>
+            <code>{report?.hash ?? "検証済みハッシュなし"}</code>
           </div>
           {lifecycle === "staged" && (
-            <button className="primary-action pack-pin-action" data-testid="pack-wizard-pin-action" disabled={busy || report === null} onClick={() => void pin()} type="button">この hash を pin</button>
+            <button className="primary-action pack-pin-action" data-testid="pack-wizard-pin-action" disabled={busy || report === null} onClick={() => void pin()} type="button">このハッシュで固定</button>
           )}
           {lifecycle === "pinned" && (
             <div className="pack-pinned-state" data-testid="pack-wizard-pinned" role="status">
-              <strong>pinned — 編集不可</strong>
+              <strong>固定済み — 編集不可</strong>
               {intent === "create" ? (
                 <>
-                  <p>ファイルと pin は固定されました。Trial はこの id@version と hash を再取得します。</p>
-                  <a className="pack-trial-link" data-testid="pack-wizard-trial-link" href={trialHref}>Trial で使う ↗</a>
+                  <p>ファイルと固定情報は保存されました。トライアルはこの ID、バージョン、ハッシュを再取得します。</p>
+                  <a className="pack-trial-link" data-testid="pack-wizard-trial-link" href={trialHref}>トライアルで使う ↗</a>
                 </>
               ) : (
-                <p>ファイルと pin は固定されました。この intent は現在の Trial では選択できません。</p>
+                <p>ファイルと固定情報は保存されました。この目的は現在のトライアルでは選択できません。</p>
               )}
               <details className="pack-retire-panel">
-                <summary>この version を退役させる</summary>
-                <p>退役は取り消せません。bytes、pin、journal は保存され、Trial では選択できなくなります。</p>
+                <summary>このバージョンを退役させる</summary>
+                <p>退役は取り消せません。内容、固定情報、履歴は保存され、トライアルでは選択できなくなります。</p>
                 <label>
                   <input
                     checked={retireAcknowledged}
@@ -587,13 +618,13 @@ export function PackWizard({ onCatalogChange }: { onCatalogChange?: () => void }
           )}
           {lifecycle === "retired" && (
             <div className="pack-retired-state" data-testid="pack-wizard-retired" role="status">
-              <strong>retired — 終端状態</strong>
-              <p>編集、再 pin、unretire、Trial 選択はできません。変更は新しい version で作成してください。</p>
+              <strong>退役済み — 終端状態</strong>
+              <p>編集、再固定、退役の取り消し、トライアルでの選択はできません。変更は新しいバージョンで作成してください。</p>
             </div>
           )}
           {immutable && (
             <button className="primary-action" data-testid="pack-wizard-new-version" disabled={busy} onClick={startNextVersion} type="button">
-              新しい version を作る
+              新しいバージョンを作る
             </button>
           )}
         </div>
@@ -645,8 +676,8 @@ function IssueList({ issues, onFocus }: { issues: WizardIssue[]; onFocus: (field
 function ImmutableNotice({ lifecycle }: { lifecycle: EditorLifecycle }) {
   return (
     <p className="pack-immutable-notice" role="status">
-      {lifecycle === "retired" ? "retired は終端状態です。" : "pinned bytes は上書きできません。"}
-      新しい version を作成してください。
+      {lifecycle === "retired" ? "退役済みのバージョンは終端状態です。" : "固定済みの内容は上書きできません。"}
+      新しいバージョンを作成してください。
     </p>
   );
 }
@@ -654,10 +685,10 @@ function ImmutableNotice({ lifecycle }: { lifecycle: EditorLifecycle }) {
 function validateEditor(id: string, version: string, files: PackWizardFiles): WizardIssue[] {
   const issues: WizardIssue[] = [];
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
-    issues.push({ fieldId: "pack-wizard-id", label: "pack ID", message: "小文字 ASCII の kebab-case で入力してください。" });
+    issues.push({ fieldId: "pack-wizard-id", label: "パック ID", message: "小文字 ASCII の kebab-case で入力してください。" });
   }
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-    issues.push({ fieldId: "pack-wizard-version", label: "version", message: "MAJOR.MINOR.PATCH 形式の semantic version で入力してください。" });
+    issues.push({ fieldId: "pack-wizard-version", label: "バージョン", message: "MAJOR.MINOR.PATCH 形式のセマンティックバージョンで入力してください。" });
   }
   if (files.assist.trim() === "" && files.eval.trim() === "") {
     issues.push({ fieldId: "pack-wizard-assist", label: "assist.yaml / eval.yaml", message: "少なくとも一方が必要です。" });
@@ -665,9 +696,9 @@ function validateEditor(id: string, version: string, files: PackWizardFiles): Wi
   const names = new Set<string>();
   files.materials.forEach((material, index) => {
     if (!/^[A-Za-z0-9._-]+\.md$/.test(material.name)) {
-      issues.push({ fieldId: `pack-wizard-material-name-${index}`, label: `material ${index + 1} の file name`, message: "materials/ 直下の .md basename にしてください。" });
+      issues.push({ fieldId: `pack-wizard-material-name-${index}`, label: `材料 ${index + 1} のファイル名`, message: "materials/ 直下の .md ベース名にしてください。" });
     } else if (names.has(material.name)) {
-      issues.push({ fieldId: `pack-wizard-material-name-${index}`, label: `material ${index + 1} の file name`, message: "同じ file name が複数あります。" });
+      issues.push({ fieldId: `pack-wizard-material-name-${index}`, label: `材料 ${index + 1} のファイル名`, message: "同じファイル名が複数あります。" });
     }
     names.add(material.name);
   });
@@ -678,7 +709,7 @@ function serverIssue(reason: unknown, files: PackWizardFiles): WizardIssue {
   const detail = serverDetail(reason);
   const lower = detail.toLowerCase();
   if (reason instanceof GuiRequestError && reason.code === "trial_token_invalid") {
-    return { fieldId: "pack-wizard-token", label: "Trial access token", message: describeError(reason) };
+    return { fieldId: "pack-wizard-token", label: "トライアルアクセストークン", message: describeError(reason) };
   }
   if (lower.includes("eval.yaml")) {
     return { fieldId: "pack-wizard-eval", label: "eval.yaml", message: detail };
@@ -691,12 +722,28 @@ function serverIssue(reason: unknown, files: PackWizardFiles): WizardIssue {
     return { fieldId: `pack-wizard-material-content-${material}`, label: `materials/${files.materials[material].name}`, message: detail };
   }
   if (lower.includes("version") || lower.includes("major.minor.patch")) {
-    return { fieldId: "pack-wizard-version", label: "version", message: detail };
+    return { fieldId: "pack-wizard-version", label: "バージョン", message: detail };
   }
   if (lower.includes("pack id") || lower.includes("identifier") || lower.includes("already pinned") || lower.includes("retired")) {
-    return { fieldId: "pack-wizard-id", label: "pack ID / version", message: detail };
+    return { fieldId: "pack-wizard-id", label: "パック ID / バージョン", message: detail };
   }
-  return { fieldId: "pack-wizard-assist", label: "pack members", message: detail };
+  return { fieldId: "pack-wizard-assist", label: "パック構成ファイル", message: detail };
+}
+
+function profileDisplayLabel(id: string, label?: string): string {
+  if (id === "community-mini-app") return "コミュニティ・ミニアプリ";
+  return label ?? id;
+}
+
+function intentDisplayLabel(id: string): string {
+  return intents.find((option) => option.id === id)?.label ?? "目的不明";
+}
+
+function verificationStatusLabel(status: string): string {
+  if (status === "conformant") return "適合";
+  if (status === "clean") return "問題なし";
+  if (status === "failed" || status === "nonconformant") return "不適合";
+  return "判定不能";
 }
 
 function serverDetail(reason: unknown): string {

@@ -7,7 +7,7 @@ import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
 import { describeError, responseError } from "../../lib/errors";
-import { byteLabel, dateTimeLabel } from "../../lib/format";
+import { byteLabel, dateTimeLabel, repositoryRunStatusLabel } from "../../lib/format";
 import type { DocumentRecord, RunDetail, RunIndex } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -164,11 +164,11 @@ export default function RunDetailPage() {
     <Shell
       active="run"
       title="リポジトリ実行記録"
-      description="repository に保存された実行の受入シートと証跡を確認します。"
+      description="リポジトリに保存された実行の受入シートと証跡を確認します。"
     >
       <section className="panel source-banner" data-testid="repository-run-source">
-        <span className="panel-index">REPOSITORY / workspace/management/runs</span>
-        <p>GUI Trial の execution root ではなく、repository 側の永続レポートを参照しています。</p>
+        <span className="panel-index">リポジトリ / workspace/management/runs</span>
+        <p>GUI トライアルの実行ルートではなく、リポジトリ側の永続レポートを参照しています。</p>
       </section>
       <section className="run-workbench">
         <aside className="run-picker panel">
@@ -207,7 +207,7 @@ export default function RunDetailPage() {
             )}
             {filteredRuns.map((run) => (
               <option key={run.id} value={run.id}>
-                {dateTimeLabel(run.modified_epoch_seconds, "時刻不明")} — {run.status_text} — {run.id}
+                {dateTimeLabel(run.modified_epoch_seconds, "時刻不明")} — {repositoryRunStatusLabel(run.state, run.status_text)} — {run.id}
               </option>
             ))}
           </select>
@@ -244,6 +244,7 @@ export default function RunDetailPage() {
               </div>
               <div className="evidence-list">
                 <button
+                  aria-current={selected === null ? "true" : undefined}
                   className={selected === null ? "active" : ""}
                   onClick={showAcceptance}
                   type="button"
@@ -253,6 +254,7 @@ export default function RunDetailPage() {
                 </button>
                 {detail.evidence.map((item) => (
                   <button
+                    aria-current={selected?.path === item.path ? "true" : undefined}
                     className={selected?.path === item.path ? "active" : ""}
                     key={item.path}
                     onClick={() => void readEvidence(item.path)}

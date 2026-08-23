@@ -1058,7 +1058,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "{pack.expected_hash ?? \"未固定\"}",
         "{pack.observed_hash ?? \"算出不可\"}",
         "pack.trial_eligible && pack.intent === \"create\"",
-        "Trial で使う",
+        "トライアルで使う",
         "routePath(\"try\")",
     ] {
         assert!(
@@ -1149,9 +1149,9 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         "trial_token_auth_enabled !== false",
         "data-testid=\"pack-wizard-token-auth-disabled\"",
         "onCatalogChange?.()",
-        "新しい version を作る",
+        "新しいバージョンを作る",
         "ローカル（未承認・帯域未計測）",
-        "retired — 終端状態",
+        "退役済み — 終端状態",
     ] {
         assert!(
             wizard.contains(required),
@@ -1836,8 +1836,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
-        "REPOSITORY / workspace/management/runs",
-        "GUI Trial の execution root ではなく",
+        "リポジトリ / workspace/management/runs",
+        "GUI トライアルの実行ルートではなく",
     ] {
         assert!(
             runs.contains(required),

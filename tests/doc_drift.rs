@@ -744,12 +744,12 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
         ),
         (
             "gui/app/assets/page.tsx",
-            "Trial で使う",
+            "トライアルで使う",
             "gui-extensions.md#extensions-catalog",
         ),
         (
             "gui/components/pack-wizard.tsx",
-            "pack 作成ウィザードを開く",
+            "パック作成ウィザードを開く",
             "gui-extensions.md#pack-creation-wizard",
         ),
         (

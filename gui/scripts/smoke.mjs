@@ -92,12 +92,12 @@ const helpMapEntries = [
     source: "gui/app/assets/page.tsx",
   },
   {
-    copy: "Trial で使う",
+    copy: "トライアルで使う",
     owner: "gui-extensions.md#extensions-catalog",
     source: "gui/app/assets/page.tsx",
   },
   {
-    copy: "pack 作成ウィザードを開く",
+    copy: "パック作成ウィザードを開く",
     owner: "gui-extensions.md#pack-creation-wizard",
     source: "gui/components/pack-wizard.tsx",
   },
@@ -3321,7 +3321,7 @@ async function probePackWizard(page, browser, origin, basePath) {
   const editedAssist = `${validAssist}# unsaved Issue 165 edit\n`;
   await assist.fill(editedAssist);
   await page.locator(".pack-wizard-steps li:nth-child(4) button").click();
-  await page.getByRole("button", { name: "保存済み bytes を再検証" }).click();
+  await page.getByRole("button", { name: "保存済みの内容を再検証" }).click();
   await success.waitFor();
   const reverifiedHash = await page.locator("[data-testid='pack-wizard-hash']").innerText();
   await page.getByRole("button", { name: "編集に戻る" }).click();
@@ -3767,7 +3767,7 @@ async function probeExtensionCatalog(page) {
       response?.status() === 200 &&
       sourceLabels.includes("承認済み") &&
       sourceLabels.includes("リポジトリ（未承認）") &&
-      trialLinkText.includes("Trial で使う") &&
+      trialLinkText.includes("トライアルで使う") &&
       selector !== null &&
       selectedPack === selector,
   };
