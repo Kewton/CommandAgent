@@ -273,17 +273,26 @@ async function runProviderCase(smokeCase, probeBinary) {
     await page
       .locator("[data-testid='trial-provider'] option[value='gemini']")
       .waitFor({ state: "attached" });
+    await page
+      .locator("[data-testid='trial-planner-provider'] option[value='gemini']")
+      .waitFor({ state: "attached" });
     const providers = [];
-    for (const provider of ["openai", "gemini"]) {
-      const executorModel = `${provider}-executor-model`;
-      const plannerModel = `${provider}-planner-model`;
+    const rolePairs = [
+      { executorProvider: "openai", plannerProvider: "gemini" },
+      { executorProvider: "gemini", plannerProvider: "openai" },
+    ];
+    for (const [index, { executorProvider, plannerProvider }] of rolePairs.entries()) {
+      const executorModel = `${executorProvider}-executor-model`;
+      const plannerModel = `${plannerProvider}-planner-model`;
       await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
       await page.locator("[data-testid='trial-token']").fill(trialCredential);
-      await page.locator("[data-testid='trial-provider']").selectOption(provider);
+      await page.locator("[data-testid='trial-provider']").selectOption(executorProvider);
+      await page.locator("[data-testid='trial-planner-provider']").selectOption(plannerProvider);
       await page.locator("[data-testid='trial-executor-model']").fill(executorModel);
       await page.locator("[data-testid='trial-planner-model']").fill(plannerModel);
       await page.locator("[data-testid='check-contract']").click();
       await page.locator("[data-testid='gate-one-card']").waitFor();
+      const gateOneText = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
       await page.locator("[data-testid='gate-one-confirm']").check();
       const createRequestPromise = page.waitForRequest((candidate) => {
         const url = new URL(candidate.url());
@@ -302,37 +311,48 @@ async function runProviderCase(smokeCase, probeBinary) {
       const created = await createResponse.json();
       const delegatedArgs = (
         await readEventually(
-          join(executionRoot, ".anvil", "runs", created.id, "delegated-args.txt"),
+          join(executionRoot, ".commandagent", "runs", created.id, "delegated-args.txt"),
         )
       ).trim().split("\n");
       await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: 10_000 });
       const identityText = await page.locator("[data-testid='trial-run-identity']").innerText();
+      const executorIdentity = await page
+        .locator("[data-testid='trial-run-identity-executor-model']")
+        .innerText();
+      const plannerIdentity = await page
+        .locator("[data-testid='trial-run-identity-planner-model']")
+        .innerText();
       const result = {
-        provider,
+        executor_provider: executorProvider,
+        planner_provider: plannerProvider,
         request_provider: createBody.provider,
         request_planner_provider: createBody.planner_provider,
         cli_provider: cliArgumentValue(delegatedArgs, "--provider"),
         cli_planner_provider: cliArgumentValue(delegatedArgs, "--planner-provider"),
         cli_model: cliArgumentValue(delegatedArgs, "--model"),
         cli_planner_model: cliArgumentValue(delegatedArgs, "--planner-model"),
+        gate_one_text: gateOneText,
+        identity_executor: executorIdentity,
+        identity_planner: plannerIdentity,
         identity_text: identityText,
       };
       result.ok =
         createResponse.status() === 202 &&
-        result.request_provider === provider &&
-        result.request_planner_provider === provider &&
-        result.cli_provider === provider &&
-        result.cli_planner_provider === provider &&
+        result.request_provider === executorProvider &&
+        result.request_planner_provider === plannerProvider &&
+        result.cli_provider === executorProvider &&
+        result.cli_planner_provider === plannerProvider &&
         result.cli_model === executorModel &&
         result.cli_planner_model === plannerModel &&
-        identityText.includes(provider) &&
-        identityText.includes(executorModel) &&
-        identityText.includes(plannerModel);
+        gateOneText.includes(`実行モデル: ${executorProvider} / ${executorModel}`) &&
+        gateOneText.includes(`計画モデル: ${plannerProvider} / ${plannerModel}`) &&
+        executorIdentity === `${executorProvider} / ${executorModel}` &&
+        plannerIdentity === `${plannerProvider} / ${plannerModel}`;
       providers.push(result);
       await page
         .locator("[data-testid='runtime-status'][data-session-state='idle']")
         .waitFor({ timeout: 10_000 });
-      if (provider !== "gemini") {
+      if (index < rolePairs.length - 1) {
         await page.locator("[data-testid='close-session']").click();
         await page.locator("[data-testid='start-new-run']").click();
       }
@@ -911,6 +931,7 @@ async function runCase(smokeCase) {
         model,
         pack: "",
         plannerModel: model,
+        plannerProvider: "ollama",
         profile: "python-cli",
         provider: "ollama",
         token: trialCredential,
@@ -1199,7 +1220,7 @@ async function runCase(smokeCase) {
     const closedIdentityLocked = (await launchIdentityControls.count()) === 0;
     await page.locator("[data-testid='start-new-run']").click();
     const newRunStage = await page.locator(".gate-chip").innerText();
-    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 7);
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 8);
     const previousRunCleared =
       (await page.locator("[data-testid='session-progress']").count()) === 0 &&
       (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
@@ -1958,16 +1979,20 @@ async function probeRunSelectionOwnership(page, runSummaries) {
 
 async function probeTrialComposeRegression(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
-  const discoveredModels = ["exact-local-model", "second-local-model"];
+  const discoveredModels = {
+    "lm-studio": ["lm-studio-planner-model", "lm-studio-second-model"],
+    ollama: ["ollama-executor-model", "ollama-second-model"],
+  };
   const incompatibleSelector = "synthetic-fix-only@1.0.0";
   const providerRequests = [];
   try {
     await page.route("**/api/provider-models?*", async (route) => {
       const provider = new URL(route.request().url()).searchParams.get("provider");
       providerRequests.push(provider);
-      if (provider === "ollama") {
+      const candidates = discoveredModels[provider];
+      if (candidates !== undefined) {
         await route.fulfill({
-          body: JSON.stringify(discoveredModels),
+          body: JSON.stringify(candidates),
           contentType: "application/json",
           status: 200,
         });
@@ -2039,11 +2064,26 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       warning: await packWarning.innerText(),
     };
 
-    const datalist = page.locator("#trial-provider-model-options option");
-    await datalist.first().waitFor({ state: "attached" });
-    const candidateValues = await datalist.evaluateAll((options) =>
-      options.map((option) => option.value),
+    const executorDatalist = page.locator("#trial-executor-provider-model-options option");
+    const plannerDatalist = page.locator("#trial-planner-provider-model-options option");
+    await executorDatalist.first().waitFor({ state: "attached" });
+    await page.locator("[data-testid='trial-planner-provider']").selectOption("lm-studio");
+    await page.waitForFunction(
+      (expected) =>
+        JSON.stringify(
+          [...document.querySelectorAll("#trial-planner-provider-model-options option")]
+            .map((option) => option.value),
+        ) === JSON.stringify(expected),
+      discoveredModels["lm-studio"],
     );
+    const candidateValues = {
+      executor: await executorDatalist.evaluateAll((options) =>
+        options.map((option) => option.value),
+      ),
+      planner: await plannerDatalist.evaluateAll((options) =>
+        options.map((option) => option.value),
+      ),
+    };
     const executor = page.locator("[data-testid='trial-executor-model']");
     const planner = page.locator("[data-testid='trial-planner-model']");
     const inputLists = {
@@ -2056,21 +2096,22 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       executor: await page.locator("[data-testid='trial-executor-model-warning']").innerText(),
       planner: await page.locator("[data-testid='trial-planner-model-warning']").innerText(),
     };
-    await executor.fill(discoveredModels[0]);
-    await planner.fill(discoveredModels[0]);
+    await executor.fill(discoveredModels.ollama[0]);
+    await planner.fill(discoveredModels["lm-studio"][0]);
     const exactCandidatesClearWarnings =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
 
-    await page.locator("[data-testid='trial-provider']").selectOption("lm-studio");
+    await page.locator("[data-testid='trial-provider']").selectOption("openai");
     await page.waitForFunction(
-      () => document.querySelectorAll("#trial-provider-model-options option").length === 0,
+      () => document.querySelectorAll("#trial-executor-provider-model-options option").length === 0,
     );
     await executor.fill("manual-fallback-model");
-    await planner.fill("manual-fallback-model");
-    const failedDiscoveryAllowsManualEntry =
+    const cloudProviderAllowsManualEntry =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
-    await page.locator("[data-testid='trial-provider']").selectOption("openai");
-    await page.waitForTimeout(50);
+    const plannerCandidatesStayScoped =
+      JSON.stringify(await plannerDatalist.evaluateAll((options) =>
+        options.map((option) => option.value),
+      )) === JSON.stringify(discoveredModels["lm-studio"]);
     const cloudProviderSkippedDiscovery = !providerRequests.includes("openai");
 
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
@@ -2095,30 +2136,40 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       incompatiblePack.warning.includes("このパックは現在のプロファイル / 目的では選べません。") &&
       proposalBody.pack === null &&
       proposalResponse.status() === 200;
+    const providersSeparated =
+      proposalBody.provider === "openai" &&
+      proposalBody.planner_provider === "lm-studio";
 
     return {
       cloud_provider_skipped_discovery: cloudProviderSkippedDiscovery,
       discovered_candidates: candidateValues,
       exact_candidates_clear_warnings: exactCandidatesClearWarnings,
-      failed_discovery_allows_manual_entry: failedDiscoveryAllowsManualEntry,
+      cloud_provider_allows_manual_entry: cloudProviderAllowsManualEntry,
       incompatible_catalog_link_hidden: incompatibleCatalogLinkHidden,
       incompatible_pack: incompatiblePack,
       incompatible_pack_normalized: incompatiblePackNormalized,
       input_lists: inputLists,
       proposal_pack: proposalBody.pack,
+      proposal_provider: proposalBody.provider,
+      proposal_planner_provider: proposalBody.planner_provider,
       proposal_status: proposalResponse.status(),
       provider_requests: providerRequests,
+      providers_separated: providersSeparated,
+      planner_candidates_stay_scoped: plannerCandidatesStayScoped,
       unknown_warnings: unknownWarnings,
       ok:
         incompatibleCatalogLinkHidden &&
         incompatiblePackNormalized &&
-        JSON.stringify(candidateValues) === JSON.stringify(discoveredModels) &&
-        inputLists.executor === "trial-provider-model-options" &&
-        inputLists.planner === "trial-provider-model-options" &&
+        JSON.stringify(candidateValues.executor) === JSON.stringify(discoveredModels.ollama) &&
+        JSON.stringify(candidateValues.planner) === JSON.stringify(discoveredModels["lm-studio"]) &&
+        inputLists.executor === "trial-executor-provider-model-options" &&
+        inputLists.planner === "trial-planner-provider-model-options" &&
         unknownWarnings.executor.includes("取得済みの候補にありません") &&
         unknownWarnings.planner.includes("取得済みの候補にありません") &&
         exactCandidatesClearWarnings &&
-        failedDiscoveryAllowsManualEntry &&
+        cloudProviderAllowsManualEntry &&
+        plannerCandidatesStayScoped &&
+        providersSeparated &&
         cloudProviderSkippedDiscovery,
     };
   } finally {
@@ -2841,6 +2892,7 @@ async function readTrialComposeValues(page) {
     model: await page.locator("[data-testid='trial-executor-model']").inputValue(),
     pack: await page.locator("[data-testid='trial-pack']").inputValue(),
     plannerModel: await page.locator("[data-testid='trial-planner-model']").inputValue(),
+    plannerProvider: await page.locator("[data-testid='trial-planner-provider']").inputValue(),
     profile: await page.locator("[data-testid='trial-profile']").inputValue(),
     provider: await page.locator("[data-testid='trial-provider']").inputValue(),
     token: await page.locator("[data-testid='trial-token']").inputValue(),
@@ -2853,6 +2905,7 @@ function trialComposeValuesMatch(actual, expected, requireToken) {
     actual.model === expected.model &&
     actual.pack === expected.pack &&
     actual.plannerModel === expected.plannerModel &&
+    actual.plannerProvider === expected.plannerProvider &&
     actual.profile === expected.profile &&
     actual.provider === expected.provider &&
     (!requireToken || actual.token === expected.token)

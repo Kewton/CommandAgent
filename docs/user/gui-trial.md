@@ -11,16 +11,20 @@ database.
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **トライアル** and enter a goal, admitted or extension-root draft
-profile, provider, and exact executor/planner model IDs. Goal and model fields
-start empty so a demo request cannot be delegated accidentally.
+profile, execution/planning providers, and exact executor/planner model IDs.
+Goal and model fields start empty so a demo request cannot be delegated
+accidentally.
 
 The browser obtains profiles/providers from `GET api/trial-options` and
 admitted plus conformant pinned local packs from `GET api/pack-options`.
 External profile rows are labeled **下書き**, show their exact-byte manifest
 hash and `保証上限 static`, and fix the pack selector to **選択なし**. An
-additive overlay also names its admitted base. The single provider selection
-applies to both the executor and planner CLI pins. Changing it never rewrites
-either model ID; enter the exact executor and planner model IDs independently.
+additive overlay also names its admitted base. **実行プロバイダー** maps to
+CLI `--provider`, while **計画プロバイダー** independently maps to
+`--planner-provider`; the adjacent model fields map to `--model` and
+`--planner-model`, respectively. Changing either provider never rewrites its
+model ID. For Ollama and LM Studio, each model input obtains candidates using
+its own selected provider, while exact IDs can still be entered manually.
 
 The compact indicator is **依頼 → 確認 → 実行 → 結果**. Only the current
 workflow state is shown; a completed form is not left stacked above the next
@@ -34,10 +38,10 @@ version, exact-byte hash, injection point, and source to Gate 1. Changing the
 pack invalidates the card hash and requires a fresh confirmation. Draft
 profiles cannot select packs and never inherit admission from local supply.
 
-The **LM Studio** choice maps to CLI `--provider lm-studio`. Enter the exact
-model identifier exposed by the server. The delegate uses the CLI's host
-option and inherits `LM_STUDIO_API_TOKEN` only when configured in the GUI
-server environment.
+The **LM Studio** choice maps to `lm-studio` for the corresponding
+`--provider` or `--planner-provider` CLI flag. Enter the exact model identifier
+exposed by the server. The delegate uses the CLI's host option and inherits
+`LM_STUDIO_API_TOKEN` only when configured in the GUI server environment.
 
 ### Gate 1: confirm before execution
 
