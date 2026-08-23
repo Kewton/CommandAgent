@@ -6,6 +6,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readRunEvidence } from "./run-evidence.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
@@ -1136,8 +1138,11 @@ async function runCase(smokeCase) {
 
     const mobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
 
-    const eventsPath = join(executionRoot, ".anvil", "runs", sessionId, "events.jsonl");
-    const eventBytes = await readFile(eventsPath);
+    const { bytes: eventBytes } = await readRunEvidence(
+      executionRoot,
+      sessionId,
+      "events.jsonl",
+    );
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
     const lifecycleUrl = new URL(trialUrl);
     lifecycleUrl.searchParams.set("session", sessionId);
