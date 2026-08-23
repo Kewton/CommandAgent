@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 const DELEGATE_MODULE: &str = "src/bin/gui_server/delegate.rs";
 const DIRECTIVES_MODULE: &str = "src/bin/gui_server/directives.rs";
 const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
+const SESSION_PATHS_MODULE: &str = "src/bin/gui_server/session_paths.rs";
 const SERVER_ROOT_MODULE: &str = "src/bin/gui_server.rs";
 const TRIAL_OPTIONS_MODULE: &str = "src/bin/gui_server/trial_options.rs";
 
@@ -42,7 +43,7 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
                 path.display()
             );
         }
-        if path != Path::new(SERVER_ROOT_MODULE) {
+        if path != Path::new(SERVER_ROOT_MODULE) && path != Path::new(SESSION_PATHS_MODULE) {
             for token in ["fs::create_dir", "fs::set_permissions"] {
                 assert!(
                     !source.contains(token),
@@ -94,6 +95,7 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         ".trial_workspace\n        .require_current()",
         "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
+        "paths.create_execution_workspace()",
         "Command::new(&state.commandagent_bin)",
         "command.env_clear()",
         "DELEGATE_PARENT_ENV_ALLOWLIST",
@@ -115,6 +117,11 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
             "CLI delegation guard is missing {required:?}"
         );
     }
+    assert!(
+        delegate.find("shell.confirm(confirmation_hash)")
+            < delegate.find("paths.create_execution_workspace()"),
+        "session workspace creation must remain after Gate 1 confirmation"
+    );
     for shell_bypass in ["sh\")", "bash\")", ".arg(\"-c\")"] {
         assert!(
             !delegate.contains(shell_bypass),
