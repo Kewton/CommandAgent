@@ -1812,10 +1812,12 @@ a.runtime-badge:focus-visible {
 .trial-compose > label,
 .trial-compose > textarea,
 .trial-compose > input,
-.trial-compose > .reconnect-card,
+.trial-compose > .source-note,
+.trial-compose > .lease-inline-notice,
 .trial-compose > .trial-fields,
 .trial-compose > .trial-action-bar,
-.trial-compose > .trial-error {
+.trial-compose > .trial-error,
+.trial-compose > .trial-existing-session {
   margin-right: 1.25rem;
   margin-left: 1.25rem;
 }
@@ -1823,6 +1825,9 @@ a.runtime-badge:focus-visible {
 .trial-action-bar {
   display: grid;
   gap: 0.65rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
 }
 
 .trial-request-actions .secondary-action {
@@ -1885,6 +1890,72 @@ a.runtime-badge:focus-visible {
   color: var(--warning);
 }
 
+.lease-inline-notice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: #fffbeb;
+  color: var(--warning);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.lease-inline-notice p {
+  margin: 0;
+}
+
+.inline-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-hover);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.inline-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.lease-inline-notice .inline-action {
+  flex: 0 0 auto;
+  color: inherit;
+}
+
+.trial-existing-session {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.trial-existing-session > header h3,
+.trial-existing-session > header p {
+  margin: 0;
+}
+
+.trial-existing-session > header h3 {
+  font-size: 0.82rem;
+}
+
+.trial-existing-session > header p {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
 .reconnect-card {
   display: grid;
   gap: 0.5rem;
@@ -1937,7 +2008,8 @@ a.runtime-badge:focus-visible {
   margin: 0;
 }
 
-.trial-error a {
+.trial-error a,
+.trial-error .inline-action {
   display: inline-block;
   margin-top: 0.45rem;
   color: inherit;
@@ -2117,11 +2189,31 @@ a.runtime-badge:focus-visible {
 }
 
 .trial-rail {
-  display: grid;
   position: sticky;
   top: 1rem;
   overflow: hidden;
   grid-area: rail;
+}
+
+.trial-stage-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trial-stage-announcement,
+.trial-monitor-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .rail-step {
@@ -2352,6 +2444,15 @@ a.runtime-badge:focus-visible {
   color: var(--warning);
 }
 
+.lease-status-card.running {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: var(--danger-soft);
+}
+
+.lease-status-card.running strong {
+  color: var(--danger);
+}
+
 .lease-status-card code {
   overflow-wrap: anywhere;
   color: var(--muted-strong);
@@ -2478,6 +2579,15 @@ a.runtime-badge:focus-visible {
 
 .execution-panel {
   margin-bottom: 1rem;
+}
+
+.trial-compose:focus,
+.gate-one-grid:focus,
+.execution-panel:focus,
+.terminal-grid:focus,
+.closed-card:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .trial-run-identity {
@@ -2933,12 +3043,17 @@ a.runtime-badge:focus-visible {
   }
 
   .trial-model-warning,
+  .lease-inline-notice,
   .workspace-boundary {
     background: rgba(251, 191, 36, 0.08);
   }
 
   .lease-status-card.recovery_required {
     background: rgba(251, 191, 36, 0.08);
+  }
+
+  .lease-status-card.running {
+    background: rgba(248, 113, 113, 0.08);
   }
 }
 
@@ -2996,6 +3111,9 @@ a.runtime-badge:focus-visible {
 
   .trial-rail {
     position: static;
+  }
+
+  .trial-stage-list {
     grid-template-columns: repeat(4, 1fr);
   }
 
@@ -3322,10 +3440,12 @@ a.runtime-badge:focus-visible {
   .trial-compose > label,
   .trial-compose > textarea,
   .trial-compose > input,
-  .trial-compose > .reconnect-card,
+  .trial-compose > .source-note,
+  .trial-compose > .lease-inline-notice,
   .trial-compose > .trial-fields,
   .trial-compose > .trial-action-bar,
-  .trial-compose > .trial-error {
+  .trial-compose > .trial-error,
+  .trial-compose > .trial-existing-session {
     margin-right: 1rem;
     margin-left: 1rem;
   }
@@ -3368,6 +3488,11 @@ a.runtime-badge:focus-visible {
 
   .reconnect-card > div {
     grid-template-columns: 1fr;
+  }
+
+  .lease-inline-notice {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .monitor-state > div {

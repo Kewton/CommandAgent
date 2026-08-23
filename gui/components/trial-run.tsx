@@ -9,6 +9,13 @@ import { TrialGateTwo } from "./trial-gate-two";
 import { TrialSessionIndexPanel } from "./trial-session-index";
 import { TrialTerminal, terminalHeading } from "./trial-terminal";
 
+const trialStages = [
+  ["依頼", "Gate 1"],
+  ["確認", "Gate 1"],
+  ["実行", "Gate 2"],
+  ["結果", "Gate 3 / 4"],
+] as const;
+
 export function TrialRun() {
   const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
   const run = useTrialRun(terminalHeading);
@@ -25,24 +32,24 @@ export function TrialRun() {
         className="trial-rail trial-stage-nav panel"
         data-testid="trial-stage-nav"
       >
-        {[
-          ["依頼", "Gate 1"],
-          ["確認", "Gate 1"],
-          ["実行", "Gate 2"],
-          ["結果", "Gate 3 / 4"],
-        ].map(([label, detail], index) => {
-          const position = stagePosition(stage);
-          return (
-            <div
-              aria-current={index === position ? "step" : undefined}
-              className={`rail-step ${index <= position ? "reached" : ""} ${index === position ? "current" : ""}`}
-              key={label}
-            >
-              <span>{index + 1}</span>
-              <div><strong>{label}</strong><small>{detail}</small></div>
-            </div>
-          );
-        })}
+        <p aria-atomic="true" aria-live="polite" className="trial-stage-announcement">
+          現在の段階: {trialStages[stagePosition(stage)][0]}
+        </p>
+        <ol className="trial-stage-list">
+          {trialStages.map(([label, detail], index) => {
+            const position = stagePosition(stage);
+            return (
+              <li
+                aria-current={index === position ? "step" : undefined}
+                className={`rail-step ${index <= position ? "reached" : ""} ${index === position ? "current" : ""}`}
+                key={label}
+              >
+                <span>{index + 1}</span>
+                <div><strong>{label}</strong><small>{detail}</small></div>
+              </li>
+            );
+          })}
+        </ol>
       </aside>
 
       <div
@@ -54,16 +61,14 @@ export function TrialRun() {
           <div className="trial-error trial-stage-error" role="alert">
             <p>{error}</p>
             {errorReconnectSessionId !== null && (
-              <a
+              <button
+                className="inline-action"
                 data-testid="reconnect-session-link"
-                href={`?session=${encodeURIComponent(errorReconnectSessionId)}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  void reconnectExisting(errorReconnectSessionId);
-                }}
+                onClick={() => void reconnectExisting(errorReconnectSessionId)}
+                type="button"
               >
                 セッション {errorReconnectSessionId} に再接続
-              </a>
+              </button>
             )}
           </div>
         )}

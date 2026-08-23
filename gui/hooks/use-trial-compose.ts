@@ -48,6 +48,7 @@ const initialSpec: SessionSpec = {
 
 export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   const runtime = useShellRuntimeStatus();
+  const composeRef = useRef<HTMLDivElement>(null);
   const gateOneRef = useRef<HTMLElement>(null);
   const packPreselectionApplied = useRef(false);
   const [trialToken, setTrialToken] = useState("");
@@ -161,7 +162,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
 
   function recordError(reason: unknown) {
     rejectTrialToken(reason, trialToken);
-    setError(describeError(reason));
+    setError(trialErrorDescription(reason));
     const active = reconnectIdFromError(reason);
     setErrorReconnectSessionId(active);
     if (active !== null) {
@@ -184,7 +185,14 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     setError(null);
     setErrorReconnectSessionId(null);
     try {
-      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
+      const lease = await fetchWorkspaceLease(trialToken);
+      setWorkspaceLease(lease);
+      if (lease.status !== "idle") {
+        setReconnectSessionId(lease.session_id);
+        setErrorReconnectSessionId(lease.session_id);
+        setError(leaseLaunchBlockReason(lease));
+        return;
+      }
       setProposal(await proposeSession(trialToken, spec));
       setConfirmed(false);
       setStage("gate_1");
@@ -197,7 +205,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
 
   async function inspectWorkspaceLease() {
     if (!trialAccessReady) {
-      setError("ワークスペースのリースを確認する前に、実行時の Trial アクセストークンを入力してください。");
+      setError("ワークスペースのリースを確認する前に、実行時のトライアルアクセストークンを入力してください。");
       return;
     }
     setBusy(true);
@@ -220,6 +228,14 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     setError(null);
     setErrorReconnectSessionId(null);
     try {
+      const lease = await fetchWorkspaceLease(trialToken);
+      setWorkspaceLease(lease);
+      if (lease.status !== "idle") {
+        setReconnectSessionId(lease.session_id);
+        setErrorReconnectSessionId(lease.session_id);
+        setError(leaseLaunchBlockReason(lease));
+        return;
+      }
       const value = await createSession(trialToken, spec, proposal.card_hash);
       setWorkspaceLease(null);
       onLaunched(value);
@@ -258,7 +274,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   );
 
   return {
-    busy, checkContract, compatiblePacks, confirmed, error, errorReconnectSessionId,
+    busy, checkContract, compatiblePacks, composeRef, confirmed, error, errorReconnectSessionId,
     editProposal, gateOneRef, inspectWorkspaceLease,
     launchBlockReason: leaseLaunchBlockReason(workspaceLease),
     launchConfirmed, launchIdentityLocked, optionsError, proposal, providerChanged,
@@ -271,19 +287,34 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
 }
 
 function missingContractField(spec: SessionSpec, trialAccessReady: boolean): string | null {
-  if (spec.goal.trim() === "") return "契約を確認する前に、目標を入力してください。";
-  if (spec.model.trim() === "") return "契約を確認する前に、実行モデルの正確な ID を入力してください。";
-  if (spec.planner_model.trim() === "") return "契約を確認する前に、計画モデルの正確な ID を入力してください。";
-  if (!trialAccessReady) return "契約を確認する前に、実行時の Trial アクセストークンを入力してください。";
+  const action = "「契約と見積りを確認」";
+  if (spec.goal.trim() === "") {
+    return `契約を確認する前に、目標を入力してください。続けるには${action}を選びます。`;
+  }
+  if (spec.model.trim() === "") {
+    return `契約を確認する前に、実行モデルの正確な ID を入力してください。続けるには${action}を選びます。`;
+  }
+  if (spec.planner_model.trim() === "") {
+    return `契約を確認する前に、計画モデルの正確な ID を入力してください。続けるには${action}を選びます。`;
+  }
+  if (!trialAccessReady) {
+    return `契約を確認する前に、実行時の Trial アクセストークンを入力してください。続けるには${action}を選びます。`;
+  }
   return null;
 }
 
 function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | null {
   if (lease === null || lease.status === "idle") return null;
   if (lease.status === "running") {
-    return `実行中のセッション ${lease.session_id} がワークスペースを使用しているため、新しい起動はできません。`;
+    return `実行中のセッション ${lease.session_id} がワークスペースを使用しているため、新しい起動はできません。再接続してください。`;
   }
-  return `セッション ${lease.session_id} のワークスペース復旧が必要なため、新しい起動はできません。`;
+  return `セッション ${lease.session_id} のワークスペース復旧が必要です。再接続してください。新しい起動はできません。`;
+}
+
+function trialErrorDescription(reason: unknown): string {
+  return describeError(reason)
+    .replaceAll("「契約と価格を確認」", "「契約と見積りを確認」")
+    .replaceAll("契約と価格を確認", "「契約と見積りを確認」");
 }
 
 export function replaceSessionQuery(id: string) {

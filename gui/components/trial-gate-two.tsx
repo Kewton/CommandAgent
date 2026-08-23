@@ -1,5 +1,11 @@
 import type { TrialRunState } from "../hooks/use-trial-run";
-import { dateTimeLabel, elapsedLabel } from "../lib/format";
+import {
+  dateTimeLabel,
+  elapsedLabel,
+  phaseStageLabel,
+  phaseStatusLabel,
+  trialStatusLabel,
+} from "../lib/format";
 import type { MonitorStatus } from "../lib/trial-monitor";
 import { TrialRunIdentity } from "./trial-run-identity";
 
@@ -12,17 +18,31 @@ export function TrialGateTwo({ run }: { run: TrialRunState }) {
   const runIdentity = session?.identity ?? proposal?.identity ?? null;
 
   return (
-    <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
+    <section
+      className="panel execution-panel"
+      data-testid="session-progress"
+      ref={executionRef}
+      tabIndex={-1}
+    >
       <header className="panel-heading">
         <div>
-          <span className="panel-index">GATE 2 / ファイルに基づく進行状況</span>
+          <span className="panel-index">Gate 2 / ファイルに基づく進行状況</span>
           <h2>{created.id}</h2>
         </div>
         <span className={`live-label ${monitor.status === "connected" ? "connected" : ""}`}>
-          <i /> 実行: {session?.status ?? "starting"}
+          <i /> 実行: {trialStatusLabel(session?.status ?? "starting")}
         </span>
       </header>
       {runIdentity !== null && <TrialRunIdentity identity={runIdentity} />}
+      <p
+        aria-atomic="true"
+        aria-live={monitor.status === "lost" ? "assertive" : "polite"}
+        className="trial-monitor-announcement"
+        data-testid="monitor-announcement"
+        role="status"
+      >
+        トライアル監視: {monitorLabel(monitor.status)}
+      </p>
       <div
         className={`monitor-state ${monitor.status}`}
         data-monitor-status={monitor.status}
@@ -57,12 +77,18 @@ export function TrialGateTwo({ run }: { run: TrialRunState }) {
         )}
       </div>
       <div className="phase-list">
-        {session?.phases.length === 0 && <p>最初の CLI イベントを待っています…</p>}
+        {session === null && <p>実行状態を取得しています。イベント件数はまだ未取得です。</p>}
+        {session !== null && session.phases.length === 0 && (
+          <p>計画を生成中です（イベント {session.event_count} 件、フェーズはまだありません）。</p>
+        )}
         {session?.phases.map((phase) => (
           <div className={`phase-row ${phase.status}`} key={`${phase.index}-${phase.id}`}>
             <span>{String(phase.index).padStart(2, "0")}</span>
-            <div><strong>{phase.id}</strong><small>{phase.stage}</small></div>
-            <em>{phase.status}</em>
+            <div>
+              <strong>{phaseName(phase.id)}</strong>
+              <small>{phaseStageLabel(phase.stage)}</small>
+            </div>
+            <em>{phaseStatusLabel(phase.status)}</em>
           </div>
         ))}
       </div>
@@ -97,4 +123,8 @@ function monitorLabel(status: MonitorStatus): string {
   if (status === "connected") return "接続中";
   if (status === "degraded") return "不安定";
   return "切断";
+}
+
+function phaseName(id: string): string {
+  return id === "plan_generation" ? "計画の生成" : id;
 }

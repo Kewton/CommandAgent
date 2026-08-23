@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { PolledSession } from "../lib/types";
 import { useTrialCompose, type ScreenStage } from "./use-trial-compose";
@@ -11,6 +11,7 @@ export type { ScreenStage } from "./use-trial-compose";
 
 export function useTrialRun(terminalHeading: (session: PolledSession) => string) {
   const [stage, setStage] = useState<ScreenStage>("compose");
+  const priorStageRef = useRef<ScreenStage>(stage);
   const compose = useTrialCompose({ stage, setStage });
   const monitor = useTrialMonitor({
     reconnectSessionId: compose.reconnectSessionId,
@@ -41,21 +42,33 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
   });
 
   useEffect(() => {
-    if (!window.matchMedia("(max-width: 720px)").matches) return;
+    if (priorStageRef.current === stage) return;
+    priorStageRef.current = stage;
     const target =
-      stage === "gate_1"
+      stage === "compose"
+        ? compose.composeRef.current
+        : stage === "gate_1"
         ? compose.gateOneRef.current
         : stage === "gate_2"
           ? monitor.executionRef.current
           : stage === "terminal"
             ? terminal.terminalRef.current
-            : null;
+            : document.querySelector<HTMLElement>("[data-testid='closed-session']");
     if (target === null) return;
     const frame = window.requestAnimationFrame(() => {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+      if (window.matchMedia("(max-width: 720px)").matches) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [compose.gateOneRef, monitor.executionRef, stage, terminal.terminalRef]);
+  }, [
+    compose.composeRef,
+    compose.gateOneRef,
+    monitor.executionRef,
+    stage,
+    terminal.terminalRef,
+  ]);
 
   const priceDuration = useMemo(() => {
     const seconds =
@@ -87,6 +100,7 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
     artifacts: terminal.artifacts,
     busy: compose.busy,
     checkContract: compose.checkContract,
+    composeRef: compose.composeRef,
     confirmDirective: terminal.confirmDirective,
     confirmed: compose.confirmed,
     created: monitor.created,
