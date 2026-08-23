@@ -1,10 +1,21 @@
 import type { ConfirmationIdentity } from "../lib/types";
 
 type TrialRunIdentityProps = {
-  identity: ConfirmationIdentity;
+  identity: ConfirmationIdentity | undefined;
 };
 
 export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
+  if (identity === undefined) {
+    return (
+      <div className="trial-identity-warning" data-testid="trial-identity-unavailable" role="status">
+        <strong>この実行の確定内容を表示できません</strong>
+        <p>
+          古い gui_server 応答には identity がありません。画面はそのまま利用できます。
+          同じ checkout で静的 GUI と gui_server を再ビルドし、再起動してください。
+        </p>
+      </div>
+    );
+  }
   const pack = identity.pack.selection === "pinned"
     ? `${identity.pack.id}@${identity.pack.version}`
     : "選択なし";

@@ -120,6 +120,9 @@ if (!Number.isFinite(trialTimeoutMs) || trialTimeoutMs <= 0) {
 }
 
 const helpMapMarkdown = await readFile(join(repositoryRoot, "docs/user/gui-help-map.md"), "utf8");
+const guiContract = JSON.parse(
+  await readFile(join(guiRoot, "public", "commandagent-gui-contract.json"), "utf8"),
+);
 const helpMapChecks = await Promise.all(
   helpMapEntries.map(async (entry) => {
     const source = await readFile(join(repositoryRoot, entry.source), "utf8");
@@ -2214,7 +2217,11 @@ async function probeTrialFeedback(browser, origin, basePath) {
   const sessionRequests = [];
   let phaseTotal = 0;
   let terminal = false;
+  let legacyResponse = false;
+  let contractMismatch = false;
+  const pageErrors = [];
   try {
+    page.on("pageerror", (error) => pageErrors.push(message(error)));
     await page.addInitScript(() => {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
       window.__commandagentCompletionNotifications = [];
@@ -2235,6 +2242,15 @@ async function probeTrialFeedback(browser, origin, basePath) {
       const pathname = new URL(request.url()).pathname;
       if (pathname.includes("/api/sessions")) {
         sessionRequests.push({ method: request.method(), pathname });
+      }
+      if (pathname.endsWith("/api/runtime-status") && contractMismatch) {
+        const response = await route.fetch();
+        const runtime = await response.json();
+        await route.fulfill({
+          response,
+          json: { ...runtime, gui_contract_version: "stale-gui-server-contract" },
+        });
+        return;
       }
       if (pathname.endsWith("/api/trial-workspace")) {
         await route.fulfill({
@@ -2267,12 +2283,17 @@ async function probeTrialFeedback(browser, origin, basePath) {
         return;
       }
       if (pathname.endsWith(`/api/sessions/${sessionId}`) && request.method() === "GET") {
+        const session = syntheticFeedbackSession(
+          sessionId,
+          phaseTotal,
+          terminal,
+          startedEpochSeconds,
+        );
+        if (legacyResponse) delete session.identity;
         await route.fulfill({
           contentType: "application/json",
           status: 200,
-          body: JSON.stringify(
-            syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochSeconds),
-          ),
+          body: JSON.stringify(session),
         });
         return;
       }
@@ -2285,7 +2306,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
     await page.goto(trialUrl.href, { waitUntil: "networkidle" });
     const sampleGoal = await page.locator("[data-testid='trial-goal']").inputValue();
     await page.locator("[data-testid='trial-goal']").fill(userGoal);
-    await page.locator("[data-testid='trial-token']").fill("synthetic-feedback-token");
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
     await page.locator("[data-testid='check-contract']").click();
@@ -2380,6 +2401,29 @@ async function probeTrialFeedback(browser, origin, basePath) {
       terminalTitle !== runningTitle &&
       terminalTitle === expectedTerminalTitle &&
       !terminalTitle.includes("✔");
+    legacyResponse = true;
+    await page.reload({ waitUntil: "networkidle" });
+    try {
+      await page.locator("[data-testid='terminal-gate']").waitFor();
+    } catch (reason) {
+      throw new Error(
+        `${message(reason)}; page errors=${JSON.stringify(pageErrors)}; body=${await page.locator("body").innerText()}`,
+      );
+    }
+    const legacyGuidance = await page
+      .locator("[data-testid='trial-identity-unavailable']")
+      .innerText();
+    const legacyDiagnostics = await page
+      .locator("[data-testid='terminal-failure-diagnostics']")
+      .innerText();
+    const legacyResponseStayedRendered =
+      legacyGuidance.includes("古い gui_server 応答には identity がありません") &&
+      !(await page.locator("body").innerText()).includes("This page couldn’t load");
+    contractMismatch = true;
+    await page.clock.runFor(800);
+    const contractWarning = await page
+      .locator("[data-testid='gui-contract-warning']")
+      .innerText();
     return {
       elapsed_before_seconds: elapsedBefore,
       elapsed_after_seconds: elapsedAfter,
@@ -2415,6 +2459,10 @@ async function probeTrialFeedback(browser, origin, basePath) {
       terminal_section_order: terminalSectionOrder,
       completion_notifications: completionNotifications,
       notification_matches: notificationMatches,
+      legacy_identity_guidance: legacyGuidance,
+      legacy_identity_stayed_rendered: legacyResponseStayedRendered,
+      legacy_failure_diagnostics: legacyDiagnostics,
+      contract_mismatch_warning: contractWarning,
       ok:
         elapsedChanged &&
         elapsedPreservedAfterReconnect &&
@@ -2439,6 +2487,11 @@ async function probeTrialFeedback(browser, origin, basePath) {
         acceptanceFolded &&
         terminalSectionOrder &&
         notificationMatches &&
+        legacyResponseStayedRendered &&
+        legacyDiagnostics.includes("release_gate_failed") &&
+        legacyDiagnostics.includes("browser_route_unavailable") &&
+        legacyDiagnostics.includes("browser_readiness") &&
+        contractWarning.includes("GUI と gui_server の版が一致していません") &&
         titleChanged,
     };
   } finally {
@@ -2449,6 +2502,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
 async function probeSessionIndexLease(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const sessionId = "0198b9c8-fab8-7000-8000-000000000071";
+  const failedSessionId = "0198b9c8-fab8-7000-8000-000000000072";
   let proposalCount = 0;
   let dispatchCount = 0;
   try {
@@ -2473,6 +2527,26 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                   hash: "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
                   source: "admitted",
                   source_label: "承認済み",
+                },
+              },
+              {
+                id: failedSessionId,
+                started_epoch_seconds: 1_723_769_500,
+                modified_epoch_seconds: 1_723_769_550,
+                gate: "gate_4",
+                status: "failed",
+                pack: null,
+                failure_diagnostics: {
+                  stop_reason: "release_gate_failed",
+                  release_gate_reasons: ["browser_route_unavailable"],
+                  probe_findings: [
+                    {
+                      name: "browser_readiness",
+                      status: "failed",
+                      reasons: ["route returned 500"],
+                      evidence_path: ".commandagent/evidence/browser-readiness.json",
+                    },
+                  ],
                 },
               },
             ],
@@ -2514,7 +2588,7 @@ async function probeSessionIndexLease(browser, origin, basePath) {
       .fill("synthetic-session-index-lease-token-000000000071");
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
-    await page.locator("[data-testid='session-reconnect-link']").waitFor();
+    await page.locator("[data-testid='session-reconnect-link']").first().waitFor();
     const leaseText = await page.locator("[data-testid='workspace-lease-status']").innerText();
     const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
     const checkContractDisabled = await page
@@ -2534,8 +2608,12 @@ async function probeSessionIndexLease(browser, origin, basePath) {
         leaseText.includes("実行中") &&
         leaseText.includes(sessionId) &&
         sessionText.includes(sessionId) &&
+        sessionText.includes(failedSessionId) &&
         sessionText.includes("GATE 2（実行） / 実行中") &&
         sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
+        sessionText.includes("release_gate_failed") &&
+        sessionText.includes("browser_route_unavailable") &&
+        sessionText.includes("browser_readiness") &&
         checkContractDisabled &&
         leaseInlineNotice.includes(sessionId) &&
         leaseInlineNotice.includes("新しい起動はできません") &&
@@ -2704,6 +2782,20 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
     assurance: terminal ? "static" : null,
     assurance_reason: terminal ? "cli_probe_not_run" : null,
     stop_reason: terminal ? "completed" : null,
+    failure_diagnostics: terminal
+      ? {
+          stop_reason: "release_gate_failed",
+          release_gate_reasons: ["browser_route_unavailable"],
+          probe_findings: [
+            {
+              name: "browser_readiness",
+              status: "failed",
+              reasons: ["route returned 500"],
+              evidence_path: ".commandagent/evidence/browser-readiness.json",
+            },
+          ],
+        }
+      : { stop_reason: null, release_gate_reasons: [], probe_findings: [] },
     next_action: terminal ? "repair_release_gate_failure" : null,
     phases: [
       { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
@@ -3758,6 +3850,7 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
           trial_authentication: { detail: "disabled", status: "ready" },
         },
         session: null,
+        gui_contract_version: guiContract.contract_version,
         trial_available: true,
         trial_token_auth_enabled: false,
       }),

@@ -123,6 +123,7 @@ fn gui_server_check_reports_all_ok_without_binding() {
         r#"<script src="/proxy/commandagent/_next/static/app.js"></script>"#,
     )
     .unwrap();
+    write_gui_contract(&static_root);
 
     let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
         .args(["--check", "--json", "--base-path", "/proxy/commandagent"])
@@ -161,6 +162,7 @@ fn gui_server_check_reports_base_path_mismatch() {
         r#"<script src="/built/path/_next/static/app.js"></script>"#,
     )
     .unwrap();
+    write_gui_contract(&static_root);
     let output = base_check_command(
         repository.path(),
         &static_root,
@@ -176,6 +178,34 @@ fn gui_server_check_reports_base_path_mismatch() {
         text.contains(
             "fix: rebuild the export with `cd gui && GUI_BASE_PATH=/configured/path npm run build` so it matches --base-path"
         ),
+        "{text}"
+    );
+}
+
+#[test]
+fn gui_server_check_reports_static_contract_mismatch() {
+    let repository = tempfile::tempdir().unwrap();
+    let static_root = write_root_export(repository.path());
+    std::fs::write(
+        static_root.join("commandagent-gui-contract.json"),
+        r#"{"schema_version":"commandagent.gui-contract/v1","contract_version":"stale-export"}"#,
+    )
+    .unwrap();
+
+    let output = base_check_command(
+        repository.path(),
+        &static_root,
+        Some(std::path::Path::new(env!("CARGO_BIN_EXE_commandagent"))),
+    )
+    .output()
+    .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = combined_output(&output);
+    assert!(text.contains("ng: static.contract_version"), "{text}");
+    assert!(text.contains("stale-export"), "{text}");
+    assert!(
+        text.contains("cargo build --features gui --bin gui_server"),
         "{text}"
     );
 }
@@ -403,7 +433,16 @@ fn write_root_export(repository: &std::path::Path) -> std::path::PathBuf {
         r#"<script src="/_next/static/app.js"></script>"#,
     )
     .unwrap();
+    write_gui_contract(&static_root);
     static_root
+}
+
+fn write_gui_contract(static_root: &std::path::Path) {
+    std::fs::write(
+        static_root.join("commandagent-gui-contract.json"),
+        include_str!("../gui/public/commandagent-gui-contract.json"),
+    )
+    .unwrap();
 }
 
 fn combined_output(output: &std::process::Output) -> String {
@@ -1780,7 +1819,7 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
             97 => symlink(&outside_events, run_root.join("events.jsonl")).unwrap(),
             98 => std::fs::write(
                 run_root.join("events.jsonl"),
-                "{\"event\":\"tui_command_stop\",\"status\":\"failed\",\"ok\":false}\n{\"event\":\"run_stop\",\"status\":\"completed\",\"ok\":true}\n",
+                "{\"event\":\"tui_command_stop\",\"status\":\"failed\",\"ok\":false,\"stop_reason\":\"release_gate_failed\",\"release_gate_reasons\":[\"browser_not_ready\"],\"browser_readiness_status\":\"failed\",\"browser_readiness_reasons\":[\"route returned 500\"],\"browser_readiness_evidence_path\":\".commandagent/evidence/browser-readiness.json\"}\n{\"event\":\"run_stop\",\"status\":\"completed\",\"ok\":true}\n",
             )
             .unwrap(),
             99 => std::fs::write(run_root.join("events.jsonl"), "not-json\n").unwrap(),
@@ -1824,6 +1863,20 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
         assert_eq!(summary["status"], status);
         assert!(summary["started_epoch_seconds"].as_u64().unwrap() > 0);
         assert!(summary["modified_epoch_seconds"].as_u64().unwrap() > 0);
+        if id == &ids[97] {
+            assert_eq!(
+                summary["failure_diagnostics"]["stop_reason"],
+                "release_gate_failed"
+            );
+            assert_eq!(
+                summary["failure_diagnostics"]["release_gate_reasons"],
+                serde_json::json!(["browser_not_ready"])
+            );
+            assert_eq!(
+                summary["failure_diagnostics"]["probe_findings"][0]["name"],
+                "browser_readiness"
+            );
+        }
     }
 
     std::fs::remove_dir_all(runs_root.join(&ids[101])).unwrap();
@@ -2163,6 +2216,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "average_duration_seconds",
             "event_count",
             "events_path",
+            "failure_diagnostics",
             "gate",
             "id",
             "identity",
@@ -2304,6 +2358,106 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    let canonical_run = runs_dir(&workspace).join(id);
+    let legacy_runs = workspace.join(".anvil/runs");
+    std::fs::create_dir_all(&legacy_runs).unwrap();
+    std::fs::rename(&canonical_run, legacy_runs.join(id)).unwrap();
+
+    let legacy_detail = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(legacy_detail.status, 200, "{}", legacy_detail.body);
+    assert!(
+        legacy_detail.json()["events_path"]
+            .as_str()
+            .unwrap()
+            .starts_with(".anvil/runs/"),
+        "{}",
+        legacy_detail.body
+    );
+    let legacy_events = server.request("GET", &format!("/api/sessions/{id}/events?tail=1"), None);
+    assert_eq!(legacy_events.status, 200, "{}", legacy_events.body);
+    let legacy_index = server.request("GET", "/api/sessions", None);
+    assert_eq!(legacy_index.status, 200, "{}", legacy_index.body);
+    assert!(
+        legacy_index.json()["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|session| session["id"] == id),
+        "{}",
+        legacy_index.body
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("think-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let mut spec = session_spec();
+    let unspecified = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(unspecified.status, 200, "{}", unspecified.body);
+    spec["think"] = serde_json::json!("high");
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal_json = proposal.json();
+    assert_eq!(proposal_json["identity"]["pins"]["think"], "high");
+    assert_ne!(proposal_json["card_hash"], unspecified.json()["card_hash"]);
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Ollama thinking: high")
+    );
+
+    let mut without_ollama = spec.clone();
+    without_ollama["provider"] = serde_json::json!("openai");
+    without_ollama["planner_provider"] = serde_json::json!("gemini");
+    let rejected = server.request("POST", "/api/session-proposals", Some(&without_ollama));
+    assert_eq!(rejected.status, 422, "{}", rejected.body);
+    assert_error(
+        &rejected,
+        "trial_request_invalid",
+        "think requires provider or planner_provider to be ollama",
+    );
+
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal_json["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        assert_eq!(lease.status, 200, "{}", lease.body);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "delegated CLI did not finish");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let delegated_args =
+        std::fs::read_to_string(runs_dir(&workspace).join(id).join("delegated-args.txt")).unwrap();
+    assert!(
+        delegated_args
+            .lines()
+            .any(|argument| argument == "--think=high"),
+        "{delegated_args}"
+    );
     server.stop();
 }
 

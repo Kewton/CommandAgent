@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use super::AppState;
 use super::error_response::GuiError;
+use super::session_diagnostics::{FailureDiagnostics, project as project_diagnostics};
 use super::session_paths::{SessionPaths, relative_path};
 use super::trial_access::AccessError;
 
@@ -41,6 +42,7 @@ pub struct PolledSession {
     assurance: Option<String>,
     assurance_reason: Option<String>,
     stop_reason: Option<String>,
+    failure_diagnostics: FailureDiagnostics,
     next_action: Option<String>,
     phases: Vec<PhaseStatus>,
     event_count: usize,
@@ -71,7 +73,9 @@ pub async fn status(
 ) -> Result<Response, SessionError> {
     let workspace = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&workspace, &id);
+    let paths = SessionPaths::existing(&workspace, &id)
+        .map_err(internal)?
+        .ok_or_else(|| not_found("session run was not found"))?;
     let confirmed = load_latest_confirmation(&paths.confirmation_root())
         .map_err(internal)?
         .ok_or_else(|| not_found("session confirmation was not found"))?;
@@ -93,6 +97,17 @@ pub async fn status(
     let run_stop = latest_event(&events, "run_stop");
     let terminal_seen = terminal_is_current && (terminal.is_some() || run_stop.is_some());
     let terminal_details = current_terminal_details(&events, continuation_index, terminal_seen);
+    let failure_diagnostics = if terminal_seen {
+        project_diagnostics(&events[continuation_index.map_or(0, |index| index + 1)..])
+    } else {
+        FailureDiagnostics::default()
+    };
+    let stop_reason = failure_diagnostics
+        .stop_reason
+        .as_ref()
+        .filter(|reason| reason.as_str() != "completed")
+        .cloned()
+        .or(terminal_details.stop_reason);
     let command_succeeded = terminal
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
@@ -141,7 +156,8 @@ pub async fn status(
         verdict,
         assurance,
         assurance_reason: terminal_details.assurance_reason,
-        stop_reason: terminal_details.stop_reason,
+        stop_reason,
+        failure_diagnostics,
         next_action: terminal_details.next_action,
         phases: phase_statuses(&events),
         event_count: events.len(),

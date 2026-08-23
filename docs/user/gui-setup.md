@@ -22,9 +22,38 @@ exists, and create a 0600 Trial token file without printing its value:
 
 The final summary prints separate preflight and start commands. Run preflight
 first. `gui_server --check` does not bind a port; it reports `ok` or `ng` for
-the static export/base path, pairwise-disjoint roots, `commandagent --version`,
-and token/Origin settings. Green exits 0, `ng` exits 1, malformed arguments
-exit 2, and `--check --json` emits the same result as JSON.
+the static export/base path, static GUI / server contract version,
+pairwise-disjoint roots, `commandagent --version`, and token/Origin settings.
+Green exits 0, `ng` exits 1, malformed arguments exit 2, and `--check --json`
+emits the same result as JSON.
+
+## Rebuild the static GUI and server together
+
+The static export and `gui_server` carry the same GUI contract marker. Rebuild
+both from one checkout whenever either side changes; the server build must keep
+the non-default `gui` feature enabled:
+
+```bash
+cd gui
+GUI_BASE_PATH=/ npm ci
+GUI_BASE_PATH=/ npm run build
+cd ..
+cargo build --bin commandagent
+cargo build --features gui --bin gui_server
+target/debug/gui_server --check \
+  --base-path / \
+  --static-dir gui/out \
+  --repository-root . \
+  --commandagent-bin target/debug/commandagent
+```
+
+Use the deployment prefix instead of `/` for both `GUI_BASE_PATH` and
+`--base-path`. A mismatch makes `static.contract_version` fail in `--check`.
+If the server is started without preflight, the browser shows
+「GUI と gui_server の版が一致していません」 when runtime-status reports a
+missing or different marker. Rebuild both artifacts, rerun `--check`, and only
+then restart the server; clearing browser cache is not a substitute for a
+matched rebuild.
 
 An existing `.commandagent/config.toml` or token file is never overwritten.
 The setup script displays a proposed config diff and leaves existing files

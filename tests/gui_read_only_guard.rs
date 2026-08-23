@@ -1330,17 +1330,18 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "assurance:",
         "assurance_reason:",
         "stop_reason:",
+        "failure_diagnostics?:",
         "next_action:",
         "phases:",
         "event_count:",
         "acceptance_sheet:",
         "section5:",
         "events_path:",
-        "identity:",
+        "identity?:",
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 16);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 17);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [

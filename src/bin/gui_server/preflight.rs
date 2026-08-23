@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::{
-    Arguments, delegate, normalize_base_path, resolve_commandagent_bin, trial_access,
+    Arguments, delegate, gui_contract, normalize_base_path, resolve_commandagent_bin, trial_access,
     workspace_policy,
 };
 
@@ -25,6 +25,7 @@ impl Report {
     pub fn run(arguments: &Arguments) -> Self {
         let mut checks = Vec::new();
         checks.push(check_static_export(arguments));
+        checks.push(check_static_contract(arguments));
         let roots = checked_roots(arguments);
         checks.extend(roots.checks);
         checks.push(check_binary(arguments, roots.repository.as_deref()));
@@ -49,6 +50,26 @@ impl Report {
             }
         }
         println!("preflight: {}", self.status);
+    }
+}
+
+fn check_static_contract(arguments: &Arguments) -> Check {
+    let expected = gui_contract::server_contract_version();
+    match gui_contract::export_contract_version(&arguments.static_dir) {
+        Ok(observed) if observed == expected => pass(
+            "static.contract_version",
+            format!("GUI export and gui_server use contract {expected}"),
+        ),
+        Ok(observed) => fail(
+            "static.contract_version",
+            format!("GUI export contract {observed} does not match gui_server contract {expected}"),
+            "rebuild both artifacts from the same checkout with `cd gui && npm run build`, then `cargo build --features gui --bin gui_server`",
+        ),
+        Err(error) => fail(
+            "static.contract_version",
+            error.to_string(),
+            "rebuild the static export with `cd gui && npm run build`, then rerun gui_server --check",
+        ),
     }
 }
 

@@ -174,6 +174,7 @@ export type TrialSessionSummary = {
   modified_epoch_seconds: number;
   gate: "gate_2" | "gate_3" | "gate_4" | null;
   status: string;
+  failure_diagnostics?: FailureDiagnostics;
   pack: {
     id: string;
     version: string;
@@ -196,6 +197,17 @@ export type PhaseStatus = {
   status: string;
 };
 
+export type FailureDiagnostics = {
+  stop_reason: string | null;
+  release_gate_reasons: string[];
+  probe_findings: Array<{
+    name: string;
+    status: string | null;
+    reasons: string[];
+    evidence_path: string | null;
+  }>;
+};
+
 export type PolledSession = {
   id: string;
   started_epoch_seconds: number;
@@ -206,13 +218,14 @@ export type PolledSession = {
   assurance: string | null;
   assurance_reason: string | null;
   stop_reason: string | null;
+  failure_diagnostics?: FailureDiagnostics;
   next_action: string | null;
   phases: PhaseStatus[];
   event_count: number;
   acceptance_sheet: string | null;
   section5: string | null;
   events_path: string;
-  identity: ConfirmationIdentity;
+  identity?: ConfirmationIdentity;
 };
 
 export type DirectiveProposal = {
@@ -224,6 +237,7 @@ export type DirectiveProposal = {
 };
 
 export type RuntimeStatus = {
+  gui_contract_version?: string;
   trial_available: boolean;
   trial_token_auth_enabled: boolean;
   prerequisites: {
