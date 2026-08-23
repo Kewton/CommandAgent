@@ -109,6 +109,9 @@ fn render_gate_one_for_surface(
             ),
         },
     ]);
+    if let Some(think) = identity.pins.think {
+        lines.push(format!("- Ollama thinking: {}", think.as_str()));
+    }
     render_pack(identity, pack_locator, &mut lines)?;
     let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
     lines.push(if candidates.is_empty() {
@@ -564,6 +567,7 @@ mod tests {
                 executor_provider: "ollama".to_string(),
                 executor_model: "executor".to_string(),
                 preset: "profile".to_string(),
+                think: None,
             },
             pack,
         )
@@ -619,6 +623,7 @@ mod tests {
                 executor_provider: "ollama".to_string(),
                 executor_model: "executor".to_string(),
                 preset: "profile".to_string(),
+                think: None,
             },
             PackSelection::None,
         )

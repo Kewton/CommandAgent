@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import type { TrialRunState } from "../hooks/use-trial-run";
 import { apiPath } from "../lib/base-path";
-import type { TrialWorkspaceLease } from "../lib/types";
+import type { OllamaThink, TrialWorkspaceLease } from "../lib/types";
 
 const localModelProviders = new Set(["ollama", "lm-studio"]);
 
@@ -23,6 +23,7 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
   const [requestedPack, setRequestedPack] = useState<string | null>(null);
   const executorModelUnknown = unknownDiscoveredModel(spec.model, executorProviderModels);
   const plannerModelUnknown = unknownDiscoveredModel(spec.planner_model, plannerProviderModels);
+  const ollamaRoleSelected = spec.provider === "ollama" || spec.planner_provider === "ollama";
   const packPreselectionWarning =
     requestedPack !== null && trialOptions !== null && spec.pack !== requestedPack;
 
@@ -257,6 +258,26 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
               この計画モデルは取得済みの候補にありません。正確な ID か確認してください。
             </small>
           )}
+        </label>
+        <label>
+          Ollama thinking
+          <select
+            aria-describedby="trial-think-hint"
+            data-testid="trial-think"
+            disabled={launchIdentityLocked || !ollamaRoleSelected}
+            value={spec.think ?? ""}
+            onChange={(event) => update("think", (event.target.value || null) as OllamaThink | null)}
+          >
+            <option value="">指定なし</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+          <small className="trial-field-hint" id="trial-think-hint">
+            実行または計画プロバイダーに Ollama がある場合だけ指定できます。
+          </small>
         </label>
         <datalist id="trial-executor-provider-model-options">
           {executorProviderModels.map((model) => <option key={model} value={model} />)}

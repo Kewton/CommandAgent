@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::config::OllamaThink;
 use crate::planner::pack::catalog::PackLocator;
 use crate::planner::pack::catalog::PackSource;
 
@@ -23,6 +24,8 @@ pub struct ExecutionPins {
     pub executor_provider: String,
     pub executor_model: String,
     pub preset: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub think: Option<OllamaThink>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -478,6 +481,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_execution_pins_round_trip_without_a_think_field() {
+        let legacy = r#"{"planner_provider":"ollama","planner_model":"planner","executor_provider":"ollama","executor_model":"executor","preset":"profile"}"#;
+        let pins: ExecutionPins = serde_json::from_str(legacy).unwrap();
+
+        assert_eq!(pins.think, None);
+        assert_eq!(serde_json::to_string(&pins).unwrap(), legacy);
+    }
+
+    #[test]
     fn strict_record_rejects_unknown_fields() {
         let fixture = br#"{
           "schema_version": 1,
@@ -514,6 +526,7 @@ mod tests {
                 executor_provider: "ollama".to_string(),
                 executor_model: "executor".to_string(),
                 preset: "profile".to_string(),
+                think: None,
             },
             pack: PackSelection::Pinned {
                 id: "cli-assist".to_string(),

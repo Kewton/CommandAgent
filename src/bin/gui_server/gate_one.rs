@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use commandagent::config::OllamaThink;
 use commandagent::planner::pack::catalog::PackLocator;
 use commandagent::planner::profile_descriptor::descriptor_for_name;
 use commandagent::tui::boundary_shell::BoundaryShell;
@@ -37,6 +38,8 @@ pub struct SessionSpec {
     planner_provider: String,
     planner_model: String,
     pack: Option<String>,
+    #[serde(default)]
+    think: Option<OllamaThink>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,6 +158,7 @@ pub(super) fn gate_one(
         executor_provider: spec.provider.clone(),
         executor_model: spec.model.clone(),
         preset: "profile".to_string(),
+        think: spec.think,
     };
     let mut shell = BoundaryShell::new(confirmation_root, None);
     let identity = shell
@@ -199,6 +203,11 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
                 "provider `{provider}` is not admitted"
             )));
         }
+    }
+    if spec.think.is_some() && spec.provider != "ollama" && spec.planner_provider != "ollama" {
+        return Err(unprocessable(
+            "think requires provider or planner_provider to be ollama",
+        ));
     }
     Ok(())
 }
@@ -318,6 +327,7 @@ mod tests {
             planner_provider: "lm-studio".to_string(),
             planner_model: "qwen/test".to_string(),
             pack: None,
+            think: None,
         };
 
         validate_spec(&spec).unwrap();
