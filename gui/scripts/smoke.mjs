@@ -302,7 +302,7 @@ async function runProviderCase(smokeCase, probeBinary) {
       const created = await createResponse.json();
       const delegatedArgs = (
         await readEventually(
-          join(executionRoot, ".anvil", "runs", created.id, "delegated-args.txt"),
+          join(executionRoot, ".commandagent", "runs", created.id, "delegated-args.txt"),
         )
       ).trim().split("\n");
       await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: 10_000 });

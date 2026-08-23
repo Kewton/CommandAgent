@@ -75,7 +75,21 @@ pub fn admitted_profiles() -> Vec<ProfileId> {
 }
 
 pub fn deterministic_route(request: RouteRequest<'_>) -> DeterministicRouteResult {
-    let inventory = bounded_inventory(request.workspace);
+    deterministic_route_with_top_level_exclusions(request, &[])
+}
+
+pub fn deterministic_route_excluding_top_level(
+    request: RouteRequest<'_>,
+    excluded: &[&str],
+) -> DeterministicRouteResult {
+    deterministic_route_with_top_level_exclusions(request, excluded)
+}
+
+fn deterministic_route_with_top_level_exclusions(
+    request: RouteRequest<'_>,
+    excluded: &[&str],
+) -> DeterministicRouteResult {
+    let inventory = bounded_inventory(request.workspace, excluded);
     if let Some(profile) = request.explicit.profile.as_ref()
         && let Some(extension) =
             crate::planner::extension_profiles::find(route_profile_name(profile))
@@ -475,7 +489,7 @@ struct Inventory {
     omitted: usize,
 }
 
-fn bounded_inventory(root: &Path) -> Inventory {
+fn bounded_inventory(root: &Path, excluded_top_level: &[&str]) -> Inventory {
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     let mut paths = Vec::new();
     let mut omitted = 0;
@@ -491,7 +505,12 @@ fn bounded_inventory(root: &Path) -> Inventory {
                 continue;
             };
             let relative = normalize_relative(relative);
-            if ignored_path(&relative) || entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
+            if excluded_top_level
+                .iter()
+                .any(|excluded| relative.split('/').next() == Some(*excluded))
+                || ignored_path(&relative)
+                || entry.file_type().is_ok_and(|kind| kind.is_symlink())
+            {
                 continue;
             }
             if paths.len() >= MAX_INVENTORY_ENTRIES {
@@ -660,5 +679,32 @@ mod tests {
             DeterministicResolution::ContradictoryExplicitBinding
         );
         assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn caller_owned_top_level_exclusion_omits_nested_route_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "sessions/first/data/snapshots/events-list.html");
+        let request = || RouteRequest {
+            request: "HTMLスナップショットからイベントのテーブル構造を作成してください",
+            workspace: dir.path(),
+            explicit: ExplicitRouteBinding {
+                profile: Some(ProfileId::Ingest),
+                ..ExplicitRouteBinding::default()
+            },
+        };
+
+        let contaminated = deterministic_route(request());
+        assert_eq!(contaminated.resolution, DeterministicResolution::Ambiguous);
+
+        let isolated = deterministic_route_excluding_top_level(request(), &["sessions"]);
+        assert_eq!(isolated.resolution, DeterministicResolution::Unique);
+        assert_eq!(isolated.candidates[0].family, TaskFamilyId::Table);
+        assert!(
+            isolated
+                .observations
+                .iter()
+                .all(|basis| basis.observation != TaskFamilyId::List.as_str())
+        );
     }
 }

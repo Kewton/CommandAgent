@@ -95,8 +95,12 @@ pub async fn confirm(
         state.trial_workspace.cancel_start(&id);
         return Err(bad_request(error));
     }
-    let continuation =
-        shell.prepare_confirmed_continuation(&workspace, &events_path, &identity, &directive);
+    let continuation = shell.prepare_confirmed_continuation(
+        paths.execution_workspace(),
+        &events_path,
+        &identity,
+        &directive,
+    );
     let continuation = match continuation {
         Ok(continuation) => continuation,
         Err(error) => {
