@@ -720,11 +720,9 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
         "${recentRuns.length} 件",
         "${runs.data.total} 件",
         "statusTone(run.state)",
-        "{statusLabel(run)}",
-        "return \"成功\"",
-        "return \"失敗\"",
-        "? \"記録あり\" : \"進行中\"",
-        "? \"未記録\" : \"判定不能\"",
+        "repositoryRunStatusLabel(run.state, run.status_text)",
+        "title={`記録上の状態: ${label}`}",
+        "{label}",
     ] {
         assert!(
             dashboard.contains(required),
@@ -971,7 +969,9 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
         "data-testid=\"runtime-status\"",
         "data-trial-available",
         "data-session-state",
-        "Trial 利用可",
+        "aria-atomic=\"true\"",
+        "aria-live=\"polite\"",
+        "トライアル利用可",
         "実行中なし",
         "要復旧",
     ] {
@@ -1718,7 +1718,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "session.modified_epoch_seconds",
         "dateTimeLabel(session.started_epoch_seconds, \"反映待ち\")",
         "dateTimeLabel(session.modified_epoch_seconds, \"反映待ち\")",
-        "session.gate ?? \"unknown\"",
+        "trialGateLabel(session.gate)",
+        "trialStatusLabel(session.status)",
         "href={sessionLink(session.id)}",
         "return `?session=${encodeURIComponent(id)}`",
         "data-testid=\"session-reconnect-link\"",
@@ -1733,6 +1734,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "runtimeLease === \"idle\" || runtimeLease === \"recovery_required\"",
         "mergeObservedSession",
         "data-session-id={session.id}",
+        "aria-current={highlight === session.id ? \"true\" : undefined}",
         "className={highlight === session.id ? \"highlight\" : undefined}",
     ] {
         assert!(
@@ -1806,7 +1808,10 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "runtime_max_concurrent_requests",
         "runtime_paused_while_hidden",
         "runtime_resumed_when_visible",
+        "runtime_live_region",
         "terminal_row_highlighted",
+        "terminal_row_aria_current",
+        "GATE 2（実行） / 開始中",
         "time_labels_use_shared_ja_jp_format",
         "runtime_badge_navigated",
         "runtime_badge_reconnected",
@@ -1840,7 +1845,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         );
     }
     assert!(dashboard.contains("参照元: workspace/management/runs"));
-    assert!(panel.contains("EXECUTION ROOT / .anvil/runs"));
+    assert!(panel.contains("実行ルート / .anvil/runs"));
 }
 
 #[test]

@@ -24,24 +24,23 @@
   selected-session `aria-current`, and the shell live region. The session-index
   smoke now exercises runtime-badge reconnect from a separate shell page and
   records the resulting GET instead of clicking the already-loaded session.
+- Updated the authorized GUI read-only guard to pin the same shared formatter,
+  Japanese terminology, live-region, and selected-state contracts instead of
+  the superseded English/raw-enum implementation markers.
 
 ## Scope control
 
 Production and documentation edits are limited to the six paths assigned by
 the dispatch. Test edits are limited to `tests/doc_drift.rs`,
-`gui/scripts/session-index-smoke.mjs`, and directly corresponding assertions
-in `gui/scripts/smoke.mjs`, as authorized by the revised dispatch. Trial
-execution components, page/wizard scopes, corpus fixtures, and unrelated Rust
-guards were not edited.
+`tests/gui_read_only_guard.rs`, `gui/scripts/session-index-smoke.mjs`, and
+directly corresponding assertions in `gui/scripts/smoke.mjs`, as authorized by
+the revised dispatch. Trial execution components, page/wizard scopes, corpus
+fixtures, and unrelated Rust guards were not edited.
 
 ## Integration note
 
-The formatter contract, GUI lint/type/build checks, focused document-drift
-tests, both two-base-path browser smokes, Rust formatting, and Clippy pass. The
-complete serial Rust run also passes all 2,124 library tests and the updated
-document-drift target, then stops at three stale assertions in unowned
-`tests/gui_read_only_guard.rs`. Those assertions require the old English Trial
-availability label, the superseded overview formatter call shape, and a raw
-session gate fallback. Verification remains blocked because satisfying those
-assertions in owned production files would regress the approved contract, and
-editing that guard is outside this row's authorized paths.
+The formatter contract, GUI lint/type/build checks, focused document-drift and
+GUI read-only guard targets, both two-base-path browser smokes, Rust formatting,
+and Clippy pass. The complete serial Rust suite also passes all 2,124 library
+tests, every integration target, and doc tests. Verification is therefore
+recorded as passed.

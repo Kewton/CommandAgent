@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implement only the W6 H foundation row in the six GUI/help files and three
+Implement only the W6 H foundation row in the six GUI/help files and four
 focused harness files assigned by the revised dispatch. The merged Issue 338
 commits are present at the branch parent. The Trial execution screen, other
 pages, wizard, corpus fixtures, and unrelated integration guards remain
@@ -55,3 +55,13 @@ then the corresponding overview/full smoke mode and repository-wide checks.
 Use serial Rust test execution if the known two-second subprocess fixtures
 show the same parallel resource-contention timeouts observed in the initial
 verification run.
+
+## Revised guard scope
+
+The final dispatch also assigns `tests/gui_read_only_guard.rs` to this row.
+Replace only its three obsolete contract groups: pin the Japanese Trial
+availability and polite atomic live-region attributes, the shared overview
+`repositoryRunStatusLabel` call and localized tooltip, and the Trial session
+formatters, localized execution-root heading, and selected-row `aria-current`.
+Keep the guard source-based and do not broaden into successor-owned Trial
+production or page/wizard files.
