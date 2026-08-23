@@ -377,14 +377,18 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
-        "planner_provider: value as string",
+        "data-testid=\"trial-provider\"",
+        "data-testid=\"trial-planner-provider\"",
+        "update(\"provider\", event.target.value)",
+        "update(\"planner_provider\", event.target.value)",
         "data-testid=\"trial-pack\"",
         "option.source_label",
         "data-testid=\"trial-profile-description\"",
         "data-testid=\"trial-provider-model-hint\"",
         "data-testid=\"trial-executor-model-warning\"",
         "data-testid=\"trial-planner-model-warning\"",
-        "id=\"trial-provider-model-options\"",
+        "id=\"trial-executor-provider-model-options\"",
+        "id=\"trial-planner-provider-model-options\"",
         "apiPath(\"provider-models\"",
         "data-testid=\"gate-one-primer\"",
         "プロバイダーを変更しても実行モデルは自動更新されません。",
@@ -453,8 +457,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         source
             .matches("disabled={launchIdentityLocked || trialOptions === null}")
             .count(),
-        2,
-        "profile and provider controls must combine option loading with the run-stage lock"
+        3,
+        "profile and both provider controls must combine option loading with the run-stage lock"
     );
     assert_eq!(
         source
@@ -566,6 +570,10 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "GUI smoke restored obsolete visible/reconnect contract {obsolete:?}"
         );
     }
+    assert!(
+        !source.contains("planner_provider: value as string"),
+        "execution-provider changes must not rewrite the planning provider"
+    );
 }
 
 #[test]

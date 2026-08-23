@@ -148,9 +148,6 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => {
       if (field === "profile") return { ...current, profile: value as string, pack: null };
-      if (field === "provider") {
-        return { ...current, provider: value as string, planner_provider: value as string };
-      }
       return { ...current, [field]: value };
     });
     setProposal(null);
