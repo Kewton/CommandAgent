@@ -866,7 +866,7 @@ async function runCase(smokeCase) {
       "C4 — 再現性",
       "全必須チェックに合格した実行: 3件中0件 (0%)",
     ].every((expected) => cardMarkdownText.includes(expected)) &&
-      gateOneText.includes("時間と費用の目安") &&
+      gateOneText.includes("GATE 1 / 見積り") &&
       !gateOneText.includes("MEASURED PRICE TAG");
     const gateOneHashLayoutDesktop = await probeGateOneHashLayout(page, 1440);
     const deniedWithoutConfirmation = await page.evaluate(
@@ -1028,6 +1028,9 @@ async function runCase(smokeCase) {
     const terminalHeading = await page
       .locator("[data-testid='terminal-result-heading']")
       .innerText();
+    const expectedFinalGateLabel = finalApi.body.gate === "gate_3"
+      ? "GATE 3（完了）"
+      : "GATE 4（要対応）";
     const expectedTerminalHeading = finalApi.body.gate === "gate_3"
       ? "すべての必須チェックに合格しました"
       : "実行結果と次の一手を確認してください";
@@ -1079,12 +1082,12 @@ async function runCase(smokeCase) {
     const indexedSession = page.locator(".session-list li").filter({ hasText: sessionId }).first();
     await indexedSession.waitFor();
     await page.waitForFunction(
-      ({ gate, id }) =>
+      ({ gateLabel, id }) =>
         [...document.querySelectorAll(".session-list li")].some((row) => {
-          const text = row.textContent ?? "";
-          return text.includes(id) && text.includes(gate);
+          const text = row.innerText;
+          return text.includes(id) && text.includes(gateLabel);
         }),
-      { gate: finalApi.body.gate, id: sessionId },
+      { gateLabel: expectedFinalGateLabel, id: sessionId },
     );
     const sessionIndexText = await indexedSession.innerText();
     const sessionIndexHref = await indexedSession
@@ -1155,12 +1158,19 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     const conflictGuidance = await page.locator(".trial-error[role='alert']").innerText();
-    const conflictReconnectHref = await page
-      .locator("[data-testid='reconnect-session-link']")
-      .getAttribute("href");
-    const conflictReconnectId = conflictReconnectHref === null
-      ? null
-      : new URL(conflictReconnectHref, page.url()).searchParams.get("session");
+    const conflictReconnectButton = page.locator("[data-testid='reconnect-session-link']");
+    await conflictReconnectButton.waitFor();
+    const conflictReconnectButtonContract = {
+      accessible_name_matches:
+        (await page.getByRole("button", {
+          exact: true,
+          name: `セッション ${sessionId} に再接続`,
+        }).count()) === 1,
+      name: await conflictReconnectButton.innerText(),
+      tag_name: await conflictReconnectButton.evaluate((element) => element.tagName),
+      type: await conflictReconnectButton.getAttribute("type"),
+      visible: await conflictReconnectButton.isVisible(),
+    };
     const conflictSessionQuery = new URL(page.url()).searchParams.get("session");
     const conflictDispatchCount = await page.evaluate(
       () => window.__commandagentTrialConflictInjection?.count ?? 0,
@@ -1326,9 +1336,7 @@ async function runCase(smokeCase) {
       sessionIndexText.includes(sessionId) &&
       sessionIndexText.includes("開始:") &&
       sessionIndexText.includes("最終更新:") &&
-      sessionIndexText.includes(
-        finalApi.body.gate === "gate_3" ? "GATE 3（完了）" : "GATE 4（要対応）",
-      ) &&
+      sessionIndexText.includes(expectedFinalGateLabel) &&
       new URL(sessionIndexHref, trialUrl).searchParams.get("session") === sessionId &&
       sessionIndexOnlyGets &&
       sessionLinkIssuedNoPost &&
@@ -1339,7 +1347,12 @@ async function runCase(smokeCase) {
       reconnectOnlyGets &&
       tokenStayedTabScoped &&
       conflictGuidance.includes(`セッション ${sessionId} に再接続`) &&
-      conflictReconnectId === sessionId &&
+      conflictReconnectButtonContract.accessible_name_matches &&
+      conflictReconnectButtonContract.name.includes(sessionId) &&
+      conflictReconnectButtonContract.name.includes("再接続") &&
+      conflictReconnectButtonContract.tag_name === "BUTTON" &&
+      conflictReconnectButtonContract.type === "button" &&
+      conflictReconnectButtonContract.visible &&
       conflictSessionQuery === sessionId &&
       conflictDispatchCount === 1 &&
       lifecycleReconnectOnlyGets &&
@@ -1462,7 +1475,7 @@ async function runCase(smokeCase) {
       },
       conflict_reconnect: {
         guidance: conflictGuidance,
-        reconnect_id: conflictReconnectId,
+        button: conflictReconnectButtonContract,
         session_query: conflictSessionQuery,
         intercepted_dispatches: conflictDispatchCount,
       },
@@ -2069,7 +2082,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const incompatiblePackNormalized =
       incompatiblePack.selected_value === "" &&
       incompatiblePack.profile === "python-cli" &&
-      incompatiblePack.warning.includes("現在の profile / intent では選べません") &&
+      incompatiblePack.warning.includes("このパックは現在のプロファイル / 目的では選べません。") &&
       proposalBody.pack === null &&
       proposalResponse.status() === 200;
 
@@ -2346,6 +2359,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
 async function probeSessionIndexLease(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const sessionId = "0198b9c8-fab8-7000-8000-000000000071";
+  let proposalCount = 0;
   let dispatchCount = 0;
   try {
     await page.route("**/api/**", async (route) => {
@@ -2386,6 +2400,7 @@ async function probeSessionIndexLease(browser, origin, basePath) {
         return;
       }
       if (pathname.endsWith("/api/session-proposals") && request.method() === "POST") {
+        proposalCount += 1;
         await route.fulfill({
           contentType: "application/json",
           status: 200,
@@ -2412,17 +2427,18 @@ async function probeSessionIndexLease(browser, origin, basePath) {
     await page.locator("[data-testid='session-reconnect-link']").waitFor();
     const leaseText = await page.locator("[data-testid='workspace-lease-status']").innerText();
     const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
-    await page.locator("[data-testid='check-contract']").click();
-    await page.locator("[data-testid='gate-one-card']").waitFor();
-    await page.locator("[data-testid='gate-one-confirm']").check();
-    const launch = page.locator("[data-testid='launch-session']");
-    const launchDisabled = await launch.isDisabled();
-    const reason = await page.locator("[data-testid='launch-block-reason']").innerText();
+    const checkContractDisabled = await page
+      .locator("[data-testid='check-contract']")
+      .isDisabled();
+    const leaseInlineNotice = await page
+      .locator("[data-testid='lease-inline-notice']")
+      .innerText();
     return {
+      proposal_count: proposalCount,
       dispatch_count: dispatchCount,
-      launch_disabled: launchDisabled,
+      check_contract_disabled: checkContractDisabled,
+      lease_inline_notice: leaseInlineNotice,
       lease_text: leaseText,
-      reason,
       session_text: sessionText,
       ok:
         leaseText.includes("実行中") &&
@@ -2430,9 +2446,10 @@ async function probeSessionIndexLease(browser, origin, basePath) {
         sessionText.includes(sessionId) &&
         sessionText.includes("GATE 2（実行） / 実行中") &&
         sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
-        launchDisabled &&
-        reason.includes(sessionId) &&
-        reason.includes("新しい起動はできません") &&
+        checkContractDisabled &&
+        leaseInlineNotice.includes(sessionId) &&
+        leaseInlineNotice.includes("新しい起動はできません") &&
+        proposalCount === 0 &&
         dispatchCount === 0,
     };
   } finally {
@@ -2528,7 +2545,7 @@ async function probeTenMinutePolling(browser, origin, basePath) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
-    await page.waitForFunction(() => document.body.textContent?.includes("running"));
+    await page.waitForFunction(() => document.body.textContent?.includes("実行中"));
     for (let elapsed = 0; elapsed < durationMs; elapsed += 1_000) {
       await page.clock.runFor(1_000);
       await new Promise((resolveTurn) => setImmediate(resolveTurn));
