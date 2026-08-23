@@ -53,6 +53,8 @@ export function Shell({ active, title, description, children }: ShellProps) {
           </span>
         </Link>
         <div
+          aria-atomic="true"
+          aria-live="polite"
           className="runtime-summary"
           data-session-state={sessionState}
           data-testid="runtime-status"
@@ -61,10 +63,10 @@ export function Shell({ active, title, description, children }: ShellProps) {
           <span className={`runtime-badge ${runtime.data?.trial_available ? "available" : ""}`}>
             <i />
             {runtime.data === null
-              ? "Trial 確認中"
+              ? "トライアル確認中"
               : runtime.data.trial_available
-                ? "Trial 利用可"
-                : "Trial 利用不可"}
+                ? "トライアル利用可"
+                : "トライアル利用不可"}
           </span>
           {runtimeSession === null ? (
             <span className={`runtime-badge session-${sessionState}`}>
@@ -84,7 +86,7 @@ export function Shell({ active, title, description, children }: ShellProps) {
         </div>
       </header>
 
-      <aside className="sidebar" aria-label="ダッシュボードのナビゲーション">
+      <aside className="sidebar" aria-label="主なナビゲーション">
         <nav>
           {navigation.map((item) => (
             <Link

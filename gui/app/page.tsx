@@ -4,23 +4,14 @@ import { Shell } from "../components/shell";
 import { GettingStarted } from "../components/getting-started";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
-import { dateTimeLabel } from "../lib/format";
-import type { DocumentRecord, RunIndex, RunState, RunSummary } from "../lib/types";
+import { dateTimeLabel, repositoryRunStatusLabel } from "../lib/format";
+import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
 function statusTone(state: RunState): string {
   if (state === "pass") return "positive";
   if (state === "fail") return "negative";
   return "neutral";
-}
-
-function statusLabel(run: RunSummary): string {
-  if (run.state === "pass") return "成功";
-  if (run.state === "fail") return "失敗";
-  if (run.state === "pending") {
-    return run.status_text === "recorded" ? "記録あり" : "進行中";
-  }
-  return run.status_text === "not recorded" ? "未記録" : "判定不能";
 }
 
 function bandFact(document: DocumentRecord): string {
@@ -44,7 +35,7 @@ export default function DashboardPage() {
     <Shell
       active="dashboard"
       title="概要"
-      description="repository に保存された実行記録、計測、固定アセットを確認します。"
+      description="リポジトリに保存された実行記録、計測、拡張を確認します。"
     >
       <GettingStarted />
 
@@ -109,9 +100,9 @@ export default function DashboardPage() {
 
       <section className="panel asset-entry">
         <div>
-          <span className="panel-index">拡張カタログ</span>
-          <h2>パック・契約・計測スイート</h2>
-          <p>pack の供給元、承認状態、exact-byte pin を読み取り専用で確認できます。</p>
+          <span className="panel-index">拡張</span>
+          <h2>拡張</h2>
+          <p>パックの供給元、承認状態、固定されたハッシュを読み取り専用で確認できます。</p>
         </div>
         <a data-testid="assets-link" href={withBasePath(routePath("assets"))}>拡張を開く ↗</a>
       </section>
@@ -120,7 +111,7 @@ export default function DashboardPage() {
         <header className="panel-heading">
           <div>
             <span className="panel-index">C / リポジトリ実行記録</span>
-            <h2>repository の最近の実行記録</h2>
+            <h2>リポジトリの最近の実行記録</h2>
             <p className="source-note" data-testid="repository-run-source">
               参照元: workspace/management/runs
             </p>
@@ -143,15 +134,16 @@ export default function DashboardPage() {
             <div role="rowgroup">
               {recentRuns.map((run) => {
                 const href = withBasePath(routePath("run", run.id));
+                const label = repositoryRunStatusLabel(run.state, run.status_text);
                 return (
                   <div className="run-row" role="row" data-run-id={run.id} key={run.id}>
                     <strong role="cell"><a href={href}>{run.id}</a></strong>
                     <span role="cell">
                       <span
                         className={`status-badge ${statusTone(run.state)}`}
-                        title={`記録上の状態: ${run.status_text}`}
+                        title={`記録上の状態: ${label}`}
                       >
-                        {statusLabel(run)}
+                        {label}
                       </span>
                     </span>
                     <time role="cell">

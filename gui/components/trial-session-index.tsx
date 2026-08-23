@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { describeError } from "../lib/errors";
-import { dateTimeLabel } from "../lib/format";
+import { dateTimeLabel, trialGateLabel, trialStatusLabel } from "../lib/format";
 import { fetchSessionIndex } from "../lib/trial-api";
 import type {
   TrialSessionIndex,
@@ -147,9 +147,9 @@ export function TrialSessionIndexPanel({
     >
       <header className="panel-heading">
         <div>
-          <span className="panel-index">EXECUTION ROOT / .anvil/runs</span>
-          <h2>GUI Trial 実行履歴</h2>
-          <p className="source-note">設定された execution root 内の Trial セッションです。</p>
+          <span className="panel-index">実行ルート / .anvil/runs</span>
+          <h2>トライアル実行履歴</h2>
+          <p className="source-note">設定された実行ルート内のトライアルセッションです。</p>
         </div>
         <button
           className="secondary-action"
@@ -163,7 +163,7 @@ export function TrialSessionIndexPanel({
       </header>
       {!authenticated && (
         <p className="session-index-empty" data-testid="trial-session-auth-required">
-          Trial 履歴は認証待ちです。完全な Trial アクセストークンを入力してください。
+          トライアル履歴は認証待ちです。完全なトライアルアクセストークンを入力してください。
         </p>
       )}
       {authenticated && (
@@ -175,18 +175,19 @@ export function TrialSessionIndexPanel({
       )}
       {error !== null && (
         <div className="trial-error session-index-error" role="alert">
-          <strong>Trial 履歴の更新エラー</strong>
+          <strong>トライアル履歴の更新エラー</strong>
           <p>{error}</p>
           {sessionIndex !== null && <small>最後に取得できた一覧を表示しています。</small>}
         </div>
       )}
       {authenticated && sessionIndex !== null && sessions.length === 0 && (
-        <p className="session-index-empty">確認済み GUI Trial セッションはありません。</p>
+        <p className="session-index-empty">確認済みのトライアルセッションはありません。</p>
       )}
       {authenticated && sessions.length > 0 && (
         <ol className="session-list">
           {sessions.map((session) => (
             <li
+              aria-current={highlight === session.id ? "true" : undefined}
               className={highlight === session.id ? "highlight" : undefined}
               data-session-id={session.id}
               id={sessionAnchor(session.id)}
@@ -198,12 +199,12 @@ export function TrialSessionIndexPanel({
                 <time>最終更新: {dateTimeLabel(session.modified_epoch_seconds, "反映待ち")}</time>
               </div>
               <span className={`session-status ${session.status}`}>
-                {session.gate ?? "unknown"} / {session.status}
+                {trialGateLabel(session.gate)} / {trialStatusLabel(session.status)}
               </span>
               <span className="session-pack" data-testid="session-pack">
                 {session.pack === null
-                  ? "pack: 選択なし"
-                  : `pack: ${session.pack.id}@${session.pack.version} · ${session.pack.source_label}`}
+                  ? "パック: 選択なし"
+                  : `パック: ${session.pack.id}@${session.pack.version} · ${session.pack.source_label}`}
               </span>
               <a data-testid="session-reconnect-link" href={sessionLink(session.id)}>
                 再接続
