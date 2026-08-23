@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
@@ -9,6 +9,36 @@ use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
+const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
+const FIXTURE_EXEC_RETRY_DELAY: Duration = Duration::from_millis(25);
+
+fn run_fixture_command(command: &mut Command) -> std::io::Result<ExitStatus> {
+    for attempt in 1..=FIXTURE_EXEC_MAX_ATTEMPTS {
+        match command.status() {
+            Err(error) if should_retry_fixture_exec(&error, attempt) => {
+                std::thread::sleep(FIXTURE_EXEC_RETRY_DELAY);
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the final fixture execution attempt always returns")
+}
+
+fn should_retry_fixture_exec(error: &std::io::Error, attempt: usize) -> bool {
+    error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt < FIXTURE_EXEC_MAX_ATTEMPTS
+}
+
+#[test]
+fn fixture_exec_retry_is_bounded_and_etxtbsy_only() {
+    let busy = std::io::Error::from(std::io::ErrorKind::ExecutableFileBusy);
+    for attempt in 1..FIXTURE_EXEC_MAX_ATTEMPTS {
+        assert!(should_retry_fixture_exec(&busy, attempt));
+    }
+    assert!(!should_retry_fixture_exec(&busy, FIXTURE_EXEC_MAX_ATTEMPTS));
+
+    let other = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert!(!should_retry_fixture_exec(&other, 1));
+}
 
 #[test]
 fn gui_server_help_exposes_only_serving_inputs() {
@@ -1700,13 +1730,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     std::fs::set_permissions(&cli, permissions).unwrap();
 
     let direct_events = temp.path().join("direct-events.jsonl");
-    assert!(
-        Command::new(&cli)
-            .env("COMMANDAGENT_EVAL_EVENTS", &direct_events)
-            .status()
-            .unwrap()
-            .success()
-    );
+    let mut direct_command = Command::new(&cli);
+    direct_command.env("COMMANDAGENT_EVAL_EVENTS", &direct_events);
+    assert!(run_fixture_command(&mut direct_command).unwrap().success());
     let direct_bytes = std::fs::read(&direct_events).unwrap();
     let mut server = Server::start_with_delegate_env(
         &workspace,
