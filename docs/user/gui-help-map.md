@@ -53,6 +53,10 @@ label or the documented unknown fallback.
 
 ## Help ownership
 
+Rows owned by successor GUI work retain their currently implemented copy here
+until that source is migrated. The canonical terminology table above defines
+the target vocabulary for those migrations.
+
 | Kind | In-app copy | Source | Document owner |
 | --- | --- | --- | --- |
 | explanation | 前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#はじめに`](getting-started-gui.md#はじめに) |
@@ -66,6 +70,6 @@ label or the documented unknown fallback.
 | result guidance | 独立した CLI 動作プローブは実行されていません。 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | 受入シートの詳細を表示 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
-| action | トライアルで使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
-| action | パック作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
+| action | Trial で使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
+| action | pack 作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
 | empty state | 確認済みのトライアルセッションはありません。 | `gui/components/trial-session-index.tsx` | [`gui-history.md#session-rows-and-refresh`](gui-history.md#session-rows-and-refresh) |

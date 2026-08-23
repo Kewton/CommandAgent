@@ -198,6 +198,14 @@ async function probeLifecycle(browser, origin, basePath) {
 
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    const runtimeLiveRegion = await page.locator("[data-testid='runtime-status']").evaluate(
+      (node) => ({
+        aria_atomic: node.getAttribute("aria-atomic"),
+        aria_live: node.getAttribute("aria-live"),
+      }),
+    );
+    const runtimeLiveRegionIsPoliteAtomic =
+      runtimeLiveRegion.aria_live === "polite" && runtimeLiveRegion.aria_atomic === "true";
     const authPending = await page.locator("[data-testid='trial-session-auth-required']").innerText();
     assertIncludes(authPending, "認証待ち", "unauthenticated Trial history state");
     assert(indexCalls === 0, `unauthenticated page issued ${indexCalls} index requests`);
@@ -253,7 +261,7 @@ async function probeLifecycle(browser, origin, basePath) {
     await launchedRow.waitFor();
     const startingText = await launchedRow.innerText();
     assertIncludes(startingText, createdSessionId, "optimistic launch row ID");
-    assertIncludes(startingText, "GATE_2 / STARTING", "optimistic launch row state");
+    assertIncludes(startingText, "GATE 2（実行） / 開始中", "optimistic launch row state");
     await waitFor(() => indexCalls > beforeLaunch, "launch acceptance refresh");
 
     const beforeTerminal = indexCalls;
@@ -262,11 +270,11 @@ async function probeLifecycle(browser, origin, basePath) {
     await page.locator("[data-testid='terminal-gate']").waitFor();
     await waitFor(() => indexCalls > beforeTerminal, "terminal transition refresh");
     await page.waitForFunction(
-      (id) => document.querySelector(`#trial-session-${id}`)?.innerText.includes("COMPLETED"),
+      (id) => document.querySelector(`#trial-session-${id}`)?.innerText.includes("GATE 3（完了） / 完了"),
       createdSessionId,
     );
     const terminalText = await launchedRow.innerText();
-    assertIncludes(terminalText, "GATE_3 / COMPLETED", "terminal history state");
+    assertIncludes(terminalText, "GATE 3（完了） / 完了", "terminal history state");
 
     const historyLink = page.locator("[data-testid='terminal-session-history-link']");
     assert(
@@ -278,11 +286,18 @@ async function probeLifecycle(browser, origin, basePath) {
       new URL(page.url()).hash === `#trial-session-${createdSessionId}`,
       "terminal history link did not navigate to its row",
     );
-    const terminalRowHighlighted = await launchedRow.evaluate(
-      (row, id) => row.getAttribute("data-session-id") === id && row.classList.contains("highlight"),
+    const terminalRowSelection = await launchedRow.evaluate(
+      (row, id) => ({
+        aria_current: row.getAttribute("aria-current"),
+        highlighted:
+          row.getAttribute("data-session-id") === id && row.classList.contains("highlight"),
+      }),
       createdSessionId,
     );
-    assert(terminalRowHighlighted, "terminal history link did not highlight the active row");
+    assert(
+      terminalRowSelection.highlighted && terminalRowSelection.aria_current === "true",
+      "terminal history link did not expose the selected active row",
+    );
     const sessionTimes = await launchedRow.locator("time").allInnerTexts();
     const expectedSessionTimes = await page.evaluate((summary) => {
       const formatter = new Intl.DateTimeFormat("ja-JP", {
@@ -363,29 +378,11 @@ async function probeLifecycle(browser, origin, basePath) {
     const reconnectGetOnly =
       reconnectRequests.length > 0 && reconnectRequests.every((request) => request.method === "GET");
 
-    runtimeSession = { id: createdSessionId, state: "running" };
-    await page
-      .locator("[data-testid='runtime-status'][data-session-state='running']")
-      .waitFor({ timeout: 10_000 });
-    const runtimeLink = page.locator("[data-testid='runtime-session-link']");
-    const expectedRuntimeHref = `${prefix}try/?session=${createdSessionId}`;
-    assert(
-      (await runtimeLink.getAttribute("href")) === expectedRuntimeHref,
-      "runtime session badge did not use the base-path-safe Trial link",
+    const runtimeBadgeReconnect = await probeRuntimeBadgeReconnect(
+      browser,
+      origin,
+      basePath,
     );
-    const runtimeRequestOffset = sessionRequests.length;
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-      runtimeLink.click(),
-    ]);
-    await page.locator("[data-testid='terminal-gate']").waitFor();
-    const runtimeBadgeNavigated =
-      new URL(page.url()).pathname === new URL(expectedRuntimeHref, origin).pathname &&
-      new URL(page.url()).searchParams.get("session") === createdSessionId;
-    const runtimeReconnectRequests = sessionRequests.slice(runtimeRequestOffset);
-    const runtimeBadgeReconnected =
-      runtimeReconnectRequests.length > 0 &&
-      runtimeReconnectRequests.every((request) => request.method === "GET");
 
     return {
       initial_index_calls: initialIndexCalls,
@@ -400,7 +397,9 @@ async function probeLifecycle(browser, origin, basePath) {
       no_periodic_index_polling: noPeriodicIndexPolling,
       optimistic_starting_text: startingText,
       terminal_text: terminalText,
-      terminal_row_highlighted: terminalRowHighlighted,
+      runtime_live_region: runtimeLiveRegion,
+      terminal_row_highlighted: terminalRowSelection.highlighted,
+      terminal_row_aria_current: terminalRowSelection.aria_current,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
       focus_revalidated: focusRevalidated,
@@ -409,9 +408,9 @@ async function probeLifecycle(browser, origin, basePath) {
       reconnect_get_only: reconnectGetOnly,
       automatic_reconnect_restored_result: automaticReconnectRestoredResult,
       rejected_token_removed: rejectedTokenRemoved,
-      runtime_badge_navigated: runtimeBadgeNavigated,
-      runtime_badge_reconnected: runtimeBadgeReconnected,
-      runtime_reconnect_requests: runtimeReconnectRequests,
+      runtime_badge_navigated: runtimeBadgeReconnect.navigated,
+      runtime_badge_reconnected: runtimeBadgeReconnect.reconnected,
+      runtime_reconnect_requests: runtimeBadgeReconnect.requests,
       ok:
         noPeriodicIndexPolling &&
         reconnectGetOnly &&
@@ -421,13 +420,98 @@ async function probeLifecycle(browser, origin, basePath) {
         runtimePausedWhileHidden &&
         runtimeResumedWhenVisible &&
         terminalRuntimeRefreshedWithinOneSecond &&
-        terminalRowHighlighted &&
+        runtimeLiveRegionIsPoliteAtomic &&
+        terminalRowSelection.highlighted &&
+        terminalRowSelection.aria_current === "true" &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
         visibilityRevalidated &&
-        runtimeBadgeNavigated &&
-        runtimeBadgeReconnected,
+        runtimeBadgeReconnect.ok,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const requests = [];
+  let indexCalls = 0;
+  try {
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      const method = request.method();
+      if (pathname.endsWith("/api/runtime-status") && method === "GET") {
+        await json(route, 200, {
+          trial_available: true,
+          trial_token_auth_enabled: true,
+          session: { id: existingSessionId, state: "running" },
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/trial-options") && method === "GET") {
+        await json(route, 200, syntheticOptions());
+        return;
+      }
+      if (pathname.endsWith("/api/trial-workspace") && method === "GET") {
+        await json(route, 200, { status: "idle" });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && method === "GET") {
+        indexCalls += 1;
+        await json(route, 200, {
+          sessions: [terminalSummary(existingSessionId)],
+          lease: { status: "idle" },
+        });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${existingSessionId}`) && method === "GET") {
+        requests.push({ method, pathname });
+        await json(route, 200, terminalSession(existingSessionId));
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/artifacts`) &&
+        method === "GET"
+      ) {
+        await json(route, 200, []);
+        return;
+      }
+      await json(route, 404, { error: `unexpected runtime badge API: ${method} ${pathname}` });
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-token']").fill(trialToken);
+    await waitFor(() => indexCalls > 0, "runtime badge authentication");
+    await page.goto(new URL(`${prefix}runs/`, origin).href, { waitUntil: "networkidle" });
+    const runtimeStatus = page.locator("[data-testid='runtime-status']");
+    await runtimeStatus.waitFor();
+    const runtimeLink = page.locator("[data-testid='runtime-session-link']");
+    assert(
+      (await runtimeLink.count()) === 1,
+      `running runtime badge was not linked: ${await runtimeStatus.innerText()}`,
+    );
+    const expectedHref = `${prefix}try/?session=${existingSessionId}`;
+    const hrefMatches = (await runtimeLink.getAttribute("href")) === expectedHref;
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      runtimeLink.click(),
+    ]);
+    await waitFor(() => requests.length > 0, "runtime badge reconnect GET");
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const navigated =
+      new URL(page.url()).pathname === new URL(expectedHref, origin).pathname &&
+      new URL(page.url()).searchParams.get("session") === existingSessionId;
+    const reconnected = requests.every((request) => request.method === "GET");
+    return {
+      href: await runtimeLink.getAttribute("href"),
+      navigated,
+      reconnected,
+      requests,
+      ok: hrefMatches && navigated && reconnected,
     };
   } finally {
     await page.close();
@@ -497,7 +581,7 @@ async function probeSourceMatrix(browser, origin, basePath) {
       const trialSource = await page.locator("[data-testid='trial-session-index'] header").innerText();
       assertIncludes(
         trialSource.toLowerCase(),
-        "execution root / .anvil/runs",
+        "実行ルート / .anvil/runs",
         `${scenario.id} Trial source`,
       );
       if (scenario.authenticated) {

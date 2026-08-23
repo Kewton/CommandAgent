@@ -19,22 +19,29 @@
 - Added canonical terminology and status-label tables to
   `docs/user/gui-help-map.md` so successor rows have one shared display
   contract for their remaining Trial and wizard surfaces.
+- Updated the focused document-drift and browser-smoke contracts for localized
+  getting-started copy, overview badge/tooltips, Trial gate/status output,
+  selected-session `aria-current`, and the shell live region. The session-index
+  smoke now exercises runtime-badge reconnect from a separate shell page and
+  records the resulting GET instead of clicking the already-loaded session.
 
 ## Scope control
 
 Production and documentation edits are limited to the six paths assigned by
-the dispatch. The only additional files are the three required reports under
-`dev-reports/issue-176/`. Trial execution components, page/wizard scopes,
-corpus fixtures, smoke scripts, and Rust test harnesses were not edited.
+the dispatch. Test edits are limited to `tests/doc_drift.rs`,
+`gui/scripts/session-index-smoke.mjs`, and directly corresponding assertions
+in `gui/scripts/smoke.mjs`, as authorized by the revised dispatch. Trial
+execution components, page/wizard scopes, corpus fixtures, and unrelated Rust
+guards were not edited.
 
 ## Integration note
 
-The owned implementation, formatter assertions, GUI type/build checks, Rust
-formatting, Clippy, and the serial GUI-server integration target pass. The
-broader serial Rust suite reaches the parent-owned `tests/doc_drift.rs` harness
-and fails because that harness still requires the replaced English getting-
-started sentence. Existing browser smoke assertions likewise still expect raw
-session labels such as `GATE_2 / RUNNING`. Updating those final harness
-contracts belongs to parent integration under the approved row decision, so
-verification is recorded as blocked rather than weakening the new UI contract
-or editing outside the owned paths.
+The formatter contract, GUI lint/type/build checks, focused document-drift
+tests, both two-base-path browser smokes, Rust formatting, and Clippy pass. The
+complete serial Rust run also passes all 2,124 library tests and the updated
+document-drift target, then stops at three stale assertions in unowned
+`tests/gui_read_only_guard.rs`. Those assertions require the old English Trial
+availability label, the superseded overview formatter call shape, and a raw
+session gate fallback. Verification remains blocked because satisfying those
+assertions in owned production files would regress the approved contract, and
+editing that guard is outside this row's authorized paths.

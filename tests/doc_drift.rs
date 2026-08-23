@@ -709,12 +709,22 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
         ),
         (
             "gui/components/getting-started.tsx",
+            "初回案内 / はじめに",
+            "getting-started-gui.md#はじめに",
+        ),
+        (
+            "gui/components/getting-started.tsx",
+            "サンプル目標をトライアルに入力",
+            "getting-started-gui.md#first-trial-walkthrough",
+        ),
+        (
+            "gui/components/getting-started.tsx",
             "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
             "getting-started-gui.md#terms-shown-in-the-app",
         ),
         (
             "gui/components/getting-started.tsx",
-            "Trial がファイルを変更できる、専用の作業ディレクトリです。",
+            "トライアルがファイルを変更できる、専用の作業ディレクトリです。",
             "getting-started-gui.md#terms-shown-in-the-app",
         ),
         (
@@ -744,7 +754,7 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
         ),
         (
             "gui/components/trial-session-index.tsx",
-            "確認済み GUI Trial セッションはありません。",
+            "確認済みのトライアルセッションはありません。",
             "gui-history.md#session-rows-and-refresh",
         ),
     ] {
@@ -766,6 +776,37 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
         assert!(
             smoke.contains(marker),
             "GUI smoke is missing help-map check {marker}"
+        );
+    }
+}
+
+#[test]
+fn gui_help_map_freezes_foundation_terminology_and_status_labels() {
+    let help_map = read_repo_file("docs/user/gui-help-map.md");
+    for marker in [
+        "| delegated GUI run | トライアル |",
+        "| configured Trial workspace | 実行ルート |",
+        "| Trial gate | `gate_2` | Gate 2（実行） |",
+        "| Trial status | `completed` | 完了 |",
+        "| phase stage | missing / future value | 段階不明 |",
+    ] {
+        assert!(
+            help_map.contains(marker),
+            "GUI help map is missing shared foundation contract {marker:?}"
+        );
+    }
+
+    let format = read_repo_file("gui/lib/format.ts");
+    for marker in [
+        "gate_2: \"Gate 2（実行）\"",
+        "completed: \"完了\"",
+        "ultra_phase_context_attached: \"実行条件を準備中\"",
+        "return TRIAL_GATE_LABELS[normalizedEnumValue(value)] ?? \"Gate 不明\"",
+        "return enumLabel(value, PHASE_STAGE_LABELS, \"段階不明\")",
+    ] {
+        assert!(
+            format.contains(marker),
+            "shared GUI formatter is missing contract {marker:?}"
         );
     }
 }

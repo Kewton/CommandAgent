@@ -2,10 +2,11 @@
 
 ## Scope
 
-Implement only the W6 H foundation row in the six GUI/help files assigned by
-the dispatch. The merged Issue 338 commits are present at the branch parent.
-The Trial execution screen, other pages, wizard, smoke scripts, and corpus
-fixtures remain successor or parent-integration scope.
+Implement only the W6 H foundation row in the six GUI/help files and three
+focused harness files assigned by the revised dispatch. The merged Issue 338
+commits are present at the branch parent. The Trial execution screen, other
+pages, wizard, corpus fixtures, and unrelated integration guards remain
+successor or parent-integration scope.
 
 ## Design
 
@@ -36,6 +37,21 @@ fixtures remain successor or parent-integration scope.
 Run a focused executable formatter assertion, GUI TypeScript type checking,
 the internal-link lint, and a production GUI build. Also inspect the scoped
 diff for raw owned UI values and confirm that only the six assigned files plus
-this issue's three required reports changed. The existing browser smoke scripts
-are intentionally not edited in this row because the dispatch assigns their
-final updates to parent integration.
+this issue's three required reports and newly authorized harness paths changed.
+
+## Revised harness scope
+
+The follow-up dispatch explicitly adds `tests/doc_drift.rs`,
+`gui/scripts/session-index-smoke.mjs`, and directly corresponding assertions in
+`gui/scripts/smoke.mjs` to this row. Replace the stale English/raw-enum
+expectations there with the new Japanese labels, add assertions for the shell
+live-region attributes and highlighted-session `aria-current`, and extend the
+help-map fixtures for the newly owned heading/action copy. Keep assertions for
+successor-owned production sources on their current copy until those rows edit
+the sources; the canonical terminology table remains their migration contract.
+
+Run the focused document-drift test and session-index browser smoke first,
+then the corresponding overview/full smoke mode and repository-wide checks.
+Use serial Rust test execution if the known two-second subprocess fixtures
+show the same parallel resource-contention timeouts observed in the initial
+verification run.
