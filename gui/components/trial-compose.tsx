@@ -18,10 +18,11 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
     trialAccessReady, trialOptions, trialToken, trialTokenAuthEnabled, update, updateTrialToken,
     workspaceLease,
   } = run;
-  const providerModels = useProviderModels(spec.provider);
+  const executorProviderModels = useProviderModels(spec.provider);
+  const plannerProviderModels = useProviderModels(spec.planner_provider);
   const [requestedPack, setRequestedPack] = useState<string | null>(null);
-  const executorModelUnknown = unknownDiscoveredModel(spec.model, providerModels);
-  const plannerModelUnknown = unknownDiscoveredModel(spec.planner_model, providerModels);
+  const executorModelUnknown = unknownDiscoveredModel(spec.model, executorProviderModels);
+  const plannerModelUnknown = unknownDiscoveredModel(spec.planner_model, plannerProviderModels);
   const packPreselectionWarning =
     requestedPack !== null && trialOptions !== null && spec.pack !== requestedPack;
 
@@ -164,7 +165,7 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           )}
         </label>
         <label>
-          プロバイダー
+          実行プロバイダー
           <select
             data-testid="trial-provider"
             disabled={launchIdentityLocked || trialOptions === null}
@@ -192,7 +193,7 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
             )}
             data-testid="trial-executor-model"
             disabled={launchIdentityLocked}
-            list="trial-provider-model-options"
+            list="trial-executor-provider-model-options"
             placeholder="正確なモデル ID"
             value={spec.model}
             onChange={(event) => update("model", event.target.value)}
@@ -219,12 +220,29 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
           )}
         </label>
         <label>
+          計画プロバイダー
+          <select
+            data-testid="trial-planner-provider"
+            disabled={launchIdentityLocked || trialOptions === null}
+            value={spec.planner_provider}
+            onChange={(event) => update("planner_provider", event.target.value)}
+          >
+            {trialOptions === null ? (
+              <option value={spec.planner_provider}>プロバイダーを読み込み中…</option>
+            ) : (
+              trialOptions.providers.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))
+            )}
+          </select>
+        </label>
+        <label>
           計画モデル
           <input
             aria-describedby={plannerModelUnknown ? "trial-planner-model-warning" : undefined}
             data-testid="trial-planner-model"
             disabled={launchIdentityLocked}
-            list="trial-provider-model-options"
+            list="trial-planner-provider-model-options"
             placeholder="正確なモデル ID"
             value={spec.planner_model}
             onChange={(event) => update("planner_model", event.target.value)}
@@ -240,8 +258,11 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
             </small>
           )}
         </label>
-        <datalist id="trial-provider-model-options">
-          {providerModels.map((model) => <option key={model} value={model} />)}
+        <datalist id="trial-executor-provider-model-options">
+          {executorProviderModels.map((model) => <option key={model} value={model} />)}
+        </datalist>
+        <datalist id="trial-planner-provider-model-options">
+          {plannerProviderModels.map((model) => <option key={model} value={model} />)}
         </datalist>
       </div>
       <fieldset
