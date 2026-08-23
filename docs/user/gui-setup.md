@@ -35,11 +35,20 @@ unchanged.
 | Root | Purpose | Write owner |
 | --- | --- | --- |
 | repository root | Read-only documentation, run reports, contracts, packs, and measurement projections | normal repository workflows, never GUI Trial |
-| execution root | One trusted project workspace for delegated `commandagent` Trial runs and its `.anvil/runs` | delegated product CLI only |
+| execution root | Trusted container for isolated `sessions/<session-id>/` CLI workspaces and central `.commandagent/runs/<session-id>/` GUI run records | confirmed GUI Trial delegation only |
 | extension root | Private `packs/`, `profiles/`, pins, retirement markers, and `journal.jsonl` | `SupplyRoot` lifecycle API only |
 
 All three must be pairwise disjoint, including canonicalized symlink aliases.
 The extension root must not be the Trial execution root.
+
+Each confirmed Trial runs with `<execution-root>/sessions/<session-id>/` as
+both its process working directory and CLI `--cwd`. Generated source plus that
+workspace's `.commandagent/plans`, `evidence`, and `repairs` stay below the
+session directory; they are never shared at the execution-root top level.
+Confirmations, `events.jsonl`, `summary.md`, and directive state remain in the
+central `<execution-root>/.commandagent/runs/<session-id>/` record used by the
+GUI APIs. The legacy `.anvil/runs/<session-id>/` location remains read-only
+compatibility input for older records.
 
 ## Serve at `/`
 

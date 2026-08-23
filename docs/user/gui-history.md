@@ -9,10 +9,20 @@ runs without confusing Trial evidence with repository management records.
 ## Two histories, two sources
 
 **リポジトリ実行記録** projects repository-side
-`workspace/management/runs`. **GUI Trial 実行履歴** projects `.anvil/runs`
-under the configured execution root. Both screens show their source path. The
+`workspace/management/runs`. **GUI Trial 実行履歴** projects
+`.commandagent/runs` under the configured execution root, with `.anvil/runs`
+retained as a legacy read source. Both screens show their source path. The
 repository page does not discover Trial sessions, and the Trial index does not
 rewrite historical management evidence.
+
+The central run record and the mutable CLI workspace are intentionally
+separate. Session `<session-id>` keeps confirmations, `events.jsonl`,
+`summary.md`, and directive state in
+`<execution-root>/.commandagent/runs/<session-id>/`, while generated code and
+workspace-owned plans/evidence/repairs live in
+`<execution-root>/sessions/<session-id>/`. A later Gate 1 does not inventory
+earlier session workspaces, and a continuation returns to the same session
+workspace rather than the execution-root top level.
 
 ## Session rows and refresh
 

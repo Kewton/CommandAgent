@@ -155,18 +155,30 @@ fn spawn_cli(
     paths: &SessionPaths,
     identity: &ConfirmationIdentity,
 ) -> anyhow::Result<Child> {
-    let mut command = delegated_cli_command(state, paths, identity, DELEGATION_WORKSPACE_CHANGED)?;
-    command
-        .arg("--ultra-plan-run")
-        .arg("--")
-        .arg(&identity.request)
-        .spawn()
-        .map_err(|cause| {
-            anyhow::anyhow!(
-                "failed to spawn delegated CLI binary {}: {cause}",
-                state.commandagent_bin.display()
-            )
-        })
+    paths.create_execution_workspace()?;
+    let result = delegated_cli_command(state, paths, identity, DELEGATION_WORKSPACE_CHANGED)
+        .and_then(|mut command| {
+            command
+                .arg("--ultra-plan-run")
+                .arg("--")
+                .arg(&identity.request)
+                .spawn()
+                .map_err(|cause| {
+                    anyhow::anyhow!(
+                        "failed to spawn delegated CLI binary {}: {cause}",
+                        state.commandagent_bin.display()
+                    )
+                })
+        });
+    match result {
+        Ok(child) => Ok(child),
+        Err(error) => match paths.rollback_execution_workspace() {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(anyhow::anyhow!(
+                "{error:#}; failed to roll back session execution workspace: {rollback_error:#}"
+            )),
+        },
+    }
 }
 
 fn monitor_cli(
@@ -214,12 +226,13 @@ fn delegated_cli_command(
     if identity.workspace != workspace.to_string_lossy() {
         anyhow::bail!(workspace_changed_message);
     }
+    let execution_workspace = paths.require_execution_workspace()?;
     let mut command = Command::new(&state.commandagent_bin);
     command.env_clear();
     restore_allowed_environment(&mut command);
     let confirmed_pack_applied = apply_confirmed_pack(&mut command, state, identity)?;
     command
-        .current_dir(&workspace)
+        .current_dir(&execution_workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args([
             "--allow",
@@ -231,7 +244,7 @@ fn delegated_cli_command(
             "off",
         ])
         .arg("--cwd")
-        .arg(&workspace)
+        .arg(&execution_workspace)
         .arg("--state-dir")
         .arg(paths.state_root())
         .args(["--ollama-host", &state.ollama_host])
