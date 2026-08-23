@@ -533,11 +533,30 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "terminalTitle === expectedTerminalTitle",
         "!terminalTitle.includes(\"✔\")",
         "code: \"trial_workspace_running\"",
+        "gateOneText.includes(\"GATE 1 / 見積り\")",
+        "const expectedFinalGateLabel = finalApi.body.gate === \"gate_3\"",
+        "const text = row.innerText",
+        "{ gateLabel: expectedFinalGateLabel, id: sessionId }",
         "conflictGuidance.includes(`セッション ${sessionId} に再接続`)",
+        "accessible_name_matches:",
+        "name: `セッション ${sessionId} に再接続`",
+        "conflictReconnectButtonContract.tag_name === \"BUTTON\"",
+        "conflictReconnectButtonContract.type === \"button\"",
+        "conflictReconnectButtonContract.visible",
     ] {
         assert!(
             smoke.contains(browser_check),
             "GUI smoke is missing browser acceptance check {browser_check:?}"
+        );
+    }
+    for obsolete in [
+        "const text = row.textContent ?? \"\"",
+        "{ gate: finalApi.body.gate, id: sessionId }",
+        "const conflictReconnectHref",
+    ] {
+        assert!(
+            !smoke.contains(obsolete),
+            "GUI smoke restored obsolete visible/reconnect contract {obsolete:?}"
         );
     }
 }
@@ -863,12 +882,18 @@ fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
         "empty_selection_cleared",
         "sourceLinkPresent",
         "mobileMap.fits_without_axis_scroll",
+        "const repositoryRunStatusLabel = (state, statusText) => {",
+        "normalizedEnumValue(statusText) === \"recorded\" ? \"記録あり\" : \"進行中\"",
+        "normalizedEnumValue(statusText) === \"not_recorded\" ? \"未記録\" : \"判定不能\"",
+        "const status = repositoryRunStatusLabel(run.state, run.status_text);",
+        "`${date} — ${status} — ${run.id}`",
     ] {
         assert!(
             smoke.contains(required),
             "Issue 75 browser smoke is missing {required:?}"
         );
     }
+    assert!(!smoke.contains("`${date} — ${run.status_text} — ${run.id}`"));
 }
 
 #[test]
@@ -1085,6 +1110,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "probeExtensionCatalog(page)",
         "probeTrialComposeRegression(",
         "proposalBody.pack === null",
+        "incompatiblePack.warning.includes(\"このパックは現在のプロファイル / 目的では選べません。\")",
         "incompatibleCatalogLinkHidden",
         "sourceLabels.includes(\"承認済み\")",
         "sourceLabels.includes(\"リポジトリ（未承認）\")",
@@ -1315,12 +1341,17 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "observedCalls.length >= 50",
         "observedCalls.length <= 65",
         "reductionPercent >= 90",
+        "document.body.textContent?.includes(\"実行中\")",
     ] {
         assert!(
             smoke.contains(required),
             "polling smoke evidence is missing {required:?}"
         );
     }
+    assert!(
+        !smoke.contains("document.body.textContent?.includes(\"running\")"),
+        "polling readiness must observe the localized visible status"
+    );
 }
 
 #[test]
@@ -1786,7 +1817,13 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     for required in [
         "probeSessionIndexLease",
         "lease: { status: \"running\", session_id: sessionId }",
-        "launch_disabled: launchDisabled",
+        "proposalCount += 1",
+        "proposal_count: proposalCount",
+        "check_contract_disabled: checkContractDisabled",
+        "lease_inline_notice: leaseInlineNotice",
+        "leaseInlineNotice.includes(sessionId)",
+        "leaseInlineNotice.includes(\"新しい起動はできません\")",
+        "proposalCount === 0",
         "dispatchCount === 0",
     ] {
         assert!(
@@ -1794,6 +1831,10 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
             "Trial session index smoke is missing {required:?}"
         );
     }
+    assert!(
+        !smoke.contains("launch_disabled: launchDisabled"),
+        "running leases must block contract checking before proposal creation"
+    );
     for required in [
         "buildBasePath: \"/\"",
         "buildBasePath: \"/proxy/commandagent/\"",
