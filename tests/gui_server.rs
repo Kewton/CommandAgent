@@ -469,6 +469,10 @@ fn gui_server_disables_trial_without_an_execution_root() {
         "unconfigured"
     );
     assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
+    assert_eq!(
         runtime["prerequisites"]["trial_authentication"]["status"],
         "ready"
     );
@@ -1003,6 +1007,21 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     )
     .unwrap();
 
+    let incompatible = extension.path().join("packs/incompatible-pack/1.0.0");
+    std::fs::create_dir_all(&incompatible).unwrap();
+    let incompatible_assist = std::fs::read_to_string("packs/nextjs-acme/1.0.0/assist.yaml")
+        .unwrap()
+        .replace("id: nextjs-acme", "id: incompatible-pack");
+    std::fs::write(incompatible.join("assist.yaml"), incompatible_assist).unwrap();
+    let incompatible_hash = commandagent::planner::pack::load_directory(&incompatible)
+        .unwrap()
+        .hash;
+    std::fs::write(
+        incompatible.join("pack.sha256"),
+        format!("{incompatible_hash}\n"),
+    )
+    .unwrap();
+
     let mut local_server = Server::start_dashboard_only_with_extension(extension.path());
     let response = local_server.request_without_access("GET", "/api/packs", None);
     assert_eq!(response.status, 200, "{}", response.body);
@@ -1029,6 +1048,34 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     assert_eq!(shadow["source"], "local");
     assert_eq!(shadow["shadowing_repository"], true);
     assert!(shadow["warning"].as_str().unwrap().contains("ローカル優先"));
+
+    let incompatible = packs
+        .iter()
+        .find(|pack| pack["id"] == "incompatible-pack")
+        .expect("missing incompatible local pack");
+    assert_eq!(incompatible["hash_matches_pin"], true);
+    assert_eq!(incompatible["conformance_ok"], false);
+    assert_eq!(incompatible["trial_eligible"], false);
+    assert!(
+        incompatible["warning"]
+            .as_str()
+            .unwrap()
+            .contains("profile / intent 契約と非互換")
+    );
+
+    let runtime = local_server.request_without_access("GET", "/api/runtime-status", None);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "ready"
+    );
+    assert!(
+        !runtime["prerequisites"]["extension_root"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains(extension.path().to_string_lossy().as_ref()),
+        "runtime response exposed the private extension-root path"
+    );
     local_server.stop();
 }
 
@@ -1416,6 +1463,10 @@ fn gui_server_defaults_trial_token_auth_to_off() {
     ] {
         assert_eq!(runtime["prerequisites"][prerequisite]["status"], "ready");
     }
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
 
     let index = server.request_without_access("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);

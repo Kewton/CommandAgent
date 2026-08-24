@@ -25,7 +25,6 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui(
         None,
     )
 }
-
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_authority(
     client: &mut dyn ChatClient,
@@ -91,8 +90,11 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_aut
         ContractEnforcement::Observe
     };
     let mut prior_expected_paths = Vec::new();
-    for step in &plan.steps {
+    let events = PlanStepEvents::new(plan, config, session, mode, phase_scope);
+    for (index, step) in plan.steps.iter().enumerate() {
+        let task = events.start(step, index);
         if ui.interrupted() {
+            task.interrupted();
             return Err(StepPlanRunError::from_error("interrupted by user", outcome));
         }
         let prompt_context = StepPromptContext {
@@ -105,7 +107,7 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_aut
                 .as_ref()
                 .and_then(|bound| bound.fs_path.clone()),
         };
-        match run_step(
+        let result = run_step(
             client,
             session,
             plan,
@@ -117,7 +119,9 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_aut
             contract_enforcement,
             phase_scope,
             run_setup_authority.as_deref_mut(),
-        ) {
+        );
+        task.finish(&result);
+        match result {
             Ok(step_outcome) => {
                 outcome.completed_steps += 1;
                 outcome.merge_step(&step_outcome);
