@@ -68,11 +68,11 @@ export function GettingStarted() {
               {runtime?.failed ? "runtime-status を取得できません。" : "実行環境を確認中です…"}
             </p>
           ) : (
-            Object.entries(runtimeData.prerequisites).map(([id, prerequisite]) => (
+            Object.entries(prerequisiteLabels).map(([id, label]) => (
               <PrerequisiteRow
                 key={id}
-                label={prerequisiteLabels[id as keyof typeof prerequisiteLabels]}
-                prerequisite={prerequisite}
+                label={label}
+                prerequisite={runtimeData.prerequisites[id as keyof typeof prerequisiteLabels]}
               />
             ))
           )}

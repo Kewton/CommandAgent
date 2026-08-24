@@ -121,6 +121,18 @@ and one non-duplicated reason. `commandagent --init-profile <id>
 --extension-root <dir>` creates a neutral 16-line v2 draft with create-new
 semantics and refuses to overwrite an existing manifest.
 
+The GUI Layer 2 wizard applies that same decoder through a two-step supply
+boundary. Preview accepts only `profiles/<id>/manifest.toml` or
+`profiles/<admitted-base>/overlay.toml`, returns the normalized relative path
+and exact-byte hash, and confirms `draft / static` before any write. Register
+must repeat the same bytes and preview hash. It rejects absolute/traversing or
+symlinked managed paths, unknown schema/capabilities, collisions, and documents
+above 256 KiB. A synced private temporary file is installed without
+replacement; identical existing bytes are idempotent and different bytes are
+a conflict. The process registry is never mutated, so a successful response
+separately reports `restart_required` until normal startup reloads that exact
+hash.
+
 Gate 1 permits the intentionally unmeasured draft identity without inventing
 a capability band. It pins the manifest path/source/hash, displays
 `draft / 未承認 / 保証上限 static`, and may separately pin a conformant local

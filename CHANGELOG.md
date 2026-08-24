@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Define the GUI extension boundary as four dependent layers, with consistent
+  source/status/hash/assurance metadata, safe registration routes, and
+  synchronized English/Japanese guidance.
 - Add explicit `--allow` tool-class policy, Git workspace warnings and exit
   diffs, and doctor-visible `--offline` scope.
 - Add the repository's MIT License, contribution guide, and changelog.

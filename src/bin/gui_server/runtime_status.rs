@@ -16,6 +16,7 @@ pub struct Response {
 #[derive(Debug, Serialize)]
 struct Prerequisites {
     execution_root: Prerequisite,
+    extension_root: Prerequisite,
     commandagent_binary: Prerequisite,
     trial_authentication: Prerequisite,
 }
@@ -33,6 +34,7 @@ pub async fn get(State(state): State<AppState>) -> Json<Response> {
         gui_contract_version: super::gui_contract::server_contract_version(),
         prerequisites: Prerequisites {
             execution_root: execution_root(&state),
+            extension_root: extension_root(&state),
             commandagent_binary: commandagent_binary(&state.commandagent_bin),
             trial_authentication: if authentication_enabled {
                 Prerequisite {
@@ -48,6 +50,27 @@ pub async fn get(State(state): State<AppState>) -> Json<Response> {
             },
         },
     })
+}
+
+fn extension_root(state: &AppState) -> Prerequisite {
+    let Some(path) = state.extension_root.as_deref() else {
+        return Prerequisite {
+            status: "unconfigured",
+            detail: "--extension-root が未設定です。GUI を起動し直して設定してください。"
+                .to_string(),
+        };
+    };
+    match commandagent::planner::pack::SupplyRoot::open(path) {
+        Ok(_) => Prerequisite {
+            status: "ready",
+            detail: "設定済みの private extension root を利用できます。".to_string(),
+        },
+        Err(_) => Prerequisite {
+            status: "action_required",
+            detail: "extension root を利用できません。場所、権限、root 分離を確認して GUI を起動し直してください。"
+                .to_string(),
+        },
+    }
 }
 
 fn execution_root(state: &AppState) -> Prerequisite {

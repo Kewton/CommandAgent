@@ -120,8 +120,10 @@ Other entry points:
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
   sample Trial, Gate 1, separate status/history/result pages, and the copyable
   per-session working directory
-- [Extensions](docs/user/gui-extensions.md) — pack/profile supply, lifecycle,
-  naming, and the path from a private extension to review
+- [Extensions](docs/guide/en/extensions.md) — four layers, pack/profile supply,
+  bounded draft-profile registration, assurance boundaries, and the path from
+  a private extension to review;
+  [detailed lifecycle](docs/user/gui-extensions.md)
 
 ## Install
 

@@ -32,12 +32,14 @@ paths.
 | [`guide/en/tutorial.md`](guide/en/tutorial.md) | Real-screen walkthrough: doctor, first REPL request through Gate 1–4, one GUI Trial. | EN | New users |
 | [`guide/en/cli-reference.md`](guide/en/cli-reference.md) | CLI flags, defaults, and conflicts. | EN | End users |
 | [`guide/en/configuration.md`](guide/en/configuration.md) | Configuration files, presets, and precedence. | EN | End users |
+| [`guide/en/extensions.md`](guide/en/extensions.md) | Four GUI extension layers, boundaries, registration, and references. | EN | Extenders |
 | [`guide/en/providers.md`](guide/en/providers.md) | Ollama, LM Studio, OpenAI, and Gemini setup. | EN | End users |
 | [`guide/en/slash-commands.md`](guide/en/slash-commands.md) | Interactive slash-command reference. | EN | End users |
 | [`guide/en/troubleshooting.md`](guide/en/troubleshooting.md) | Startup, provider, and TUI troubleshooting. | EN | End users |
 | [`guide/ja/tutorial.md`](guide/ja/tutorial.md) | 実際の画面で追うウォークスルー: doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本。 | JA | New users |
 | [`guide/ja/cli-reference.md`](guide/ja/cli-reference.md) | CLI フラグ、既定値、排他関係。 | JA | End users |
 | [`guide/ja/configuration.md`](guide/ja/configuration.md) | 設定ファイル、preset、優先順位。 | JA | End users |
+| [`guide/ja/extensions.md`](guide/ja/extensions.md) | GUI 拡張の 4 レイヤー、境界、登録導線、参照資料。 | JA | Extenders |
 | [`guide/ja/providers.md`](guide/ja/providers.md) | Ollama、LM Studio、OpenAI、Gemini の設定。 | JA | End users |
 | [`guide/ja/slash-commands.md`](guide/ja/slash-commands.md) | 対話型スラッシュコマンドのリファレンス。 | JA | End users |
 | [`guide/ja/troubleshooting.md`](guide/ja/troubleshooting.md) | 起動、プロバイダ、TUI のトラブルシューティング。 | JA | End users |

@@ -92,6 +92,21 @@ const helpMapEntries = [
     source: "gui/app/assets/page.tsx",
   },
   {
+    copy: "4 レイヤーと依存関係",
+    owner: "gui-extensions.md#four-extension-layers",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "安全な登録 Issue を作る",
+    owner: "gui-extensions.md#layer-2-draft-profiles",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "Contract / Suite は拡張種別ではありません",
+    owner: "gui-extensions.md#contract-and-suite-references",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
     copy: "トライアルで使う",
     owner: "gui-extensions.md#extensions-catalog",
     source: "gui/app/assets/page.tsx",
@@ -100,6 +115,11 @@ const helpMapEntries = [
     copy: "パック作成ウィザードを開く",
     owner: "gui-extensions.md#pack-creation-wizard",
     source: "gui/components/pack-wizard.tsx",
+  },
+  {
+    copy: "プロファイル登録ウィザード",
+    owner: "gui-extensions.md#draft-profile-registration-wizard",
+    source: "gui/components/profile-wizard.tsx",
   },
   {
     copy: "確認済みのトライアルセッションはありません。",
@@ -828,6 +848,7 @@ async function runCase(smokeCase) {
       consoleErrors.length === 0;
 
     if (readOnly) {
+      const mobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
       return {
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
@@ -840,9 +861,10 @@ async function runCase(smokeCase) {
         axe_aria_required_children: axeAriaRequiredChildren,
         pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail },
         issue_75: readOnlyUi,
+        mobile,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
-        ok: readOnlyOk,
+        ok: readOnlyOk && mobile.ok,
       };
     }
     const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
@@ -2051,6 +2073,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       const packs = await response.json();
       packs.push({
         expected_hash: "sha256:synthetic-fix-only",
+        conformance_ok: true,
         has_assist: true,
         has_eval: true,
         hash_matches_pin: true,
@@ -2070,6 +2093,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       });
       packs.push({
         expected_hash: "sha256:synthetic-investigate-only",
+        conformance_ok: true,
         has_assist: true,
         has_eval: true,
         hash_matches_pin: true,
@@ -2142,6 +2166,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
 
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(`${prefix}assets/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("#asset-tab-packs").click();
     const incompatibleRow = page
       .locator("[data-testid='extension-pack-row']")
       .filter({ hasText: fixSelector });
@@ -3567,6 +3592,22 @@ async function probeMobile(browser, origin, basePath) {
     const dashboardFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
+    const assets = await page.goto(new URL(`${prefix}assets/`, origin).href, {
+      waitUntil: "networkidle",
+    });
+    const assetsHeading = await page.locator("h1").innerText();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='extension-root-status']")?.getAttribute("data-status") === "ready",
+    );
+    const assetsFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    const mobileLayerCount = await page.locator("[data-testid='extension-layer-card']").count();
+    const mobileProfileCount = await page.locator("[data-testid='extension-profile-row']").count();
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${basePath === "/" ? "root" : "proxy-commandagent"}-extensions-mobile.png`),
+    });
     const trial = await page.goto(new URL(`${prefix}try/`, origin).href, {
       waitUntil: "networkidle",
     });
@@ -3584,6 +3625,13 @@ async function probeMobile(browser, origin, basePath) {
         intro_one_line: dashboardIntroOneLine,
         status: dashboard?.status() ?? 0,
       },
+      extensions: {
+        fits_viewport: assetsFits,
+        heading: assetsHeading,
+        layer_count: mobileLayerCount,
+        profile_count: mobileProfileCount,
+        status: assets?.status() ?? 0,
+      },
       trial: { fits_viewport: trialFits, heading: trialHeading, intro_one_line: trialIntroOneLine, status: trial?.status() ?? 0 },
       ok:
         dashboard?.status() === 200 &&
@@ -3592,6 +3640,11 @@ async function probeMobile(browser, origin, basePath) {
         dashboardFits &&
         gettingStartedCloseLayout.single_line &&
         gettingStartedCloseLayout.white_space === "nowrap" &&
+        assets?.status() === 200 &&
+        assetsHeading === "拡張" &&
+        assetsFits &&
+        mobileLayerCount === 4 &&
+        mobileProfileCount >= 1 &&
         trial?.status() === 200 &&
         trialHeading === "トライアル" &&
         trialIntroOneLine &&
@@ -3881,6 +3934,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     { key: trialTokenStorageKey(basePath), token: trialCredential },
   );
   await page.reload({ waitUntil: "networkidle" });
+  await page.locator("#asset-tab-packs").click();
   await page.locator("[data-testid='pack-wizard-open']").click();
   await page.locator("[data-testid='pack-wizard-target']").waitFor();
   await page.waitForFunction(
@@ -4061,6 +4115,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinnedNextVersion,
     retiredNextVersion,
   );
+  const profileWizard = await probeProfileWizard(page, origin, basePath);
 
   return {
     active_after_failure: activeAfterFailure,
@@ -4076,6 +4131,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinned_next_members_copied: pinnedNextMembersCopied,
     pinned_next_version: pinnedNextVersion,
     pinned_next_version_staged: pinnedNextVersionStaged,
+    profile_wizard: profileWizard,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
     retired_next_draft_editable: retiredNextDraftEditable,
@@ -4106,12 +4162,77 @@ async function probePackWizard(page, browser, origin, basePath) {
       pinnedNextDraftEditable &&
       pinnedNextMembersCopied &&
       pinnedNextVersionStaged &&
+      profileWizard.ok &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
       retiredHasNoTrialLink &&
       retiredNextDraftEditable &&
       retiredNextMembersCopied,
+  };
+}
+
+async function probeProfileWizard(page, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  await page.locator("#asset-tab-profiles").click();
+  const launcher = page.locator("[data-testid='profile-wizard-open']");
+  await launcher.waitFor();
+  const launcherEnabled = !(await launcher.isDisabled());
+  await launcher.click();
+  await page.locator("[data-testid='profile-wizard']").waitFor();
+  const token = page.locator("[data-testid='profile-wizard-token']");
+  if ((await token.count()) === 1) await token.fill(trialCredential);
+  await page.locator("[data-testid='profile-wizard-preview']").click();
+  const confirmation = page.locator("[data-testid='profile-wizard-confirmation']");
+  await confirmation.waitFor();
+  const confirmationText = await confirmation.innerText();
+  const hash = await confirmation.locator("code").nth(2).innerText();
+  await page.locator("[data-testid='profile-wizard-confirm']").check();
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  const result = page.locator("[data-testid='profile-registration-result']");
+  await result.waitFor();
+  const restartRequired = await result.getAttribute("data-restart-required");
+  const resultText = await result.innerText();
+  const row = page
+    .locator("[data-testid='profile-supply-row']")
+    .filter({ hasText: "neutral-profile" });
+  await row.waitFor();
+  const rowText = await row.innerText();
+  const trialOptions = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`trial options returned ${response.status}`);
+    return response.json();
+  }, new URL(`${prefix}api/trial-options`, origin).href);
+  const unavailableBeforeRestart = trialOptions.profiles.every(
+    (profile) => profile.id !== "neutral-profile",
+  );
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='profile-registration-result'] strong")?.textContent?.includes("同一内容"),
+  );
+  const idempotentText = await result.innerText();
+  return {
+    confirmation_text: confirmationText,
+    exact_hash: hash,
+    idempotent_text: idempotentText,
+    launcher_enabled: launcherEnabled,
+    restart_required: restartRequired,
+    result_text: resultText,
+    row_text: rowText,
+    unavailable_before_restart: unavailableBeforeRestart,
+    ok:
+      launcherEnabled &&
+      hash.startsWith("sha256:") &&
+      confirmationText.includes("neutral-profile") &&
+      confirmationText.includes("profiles/neutral-profile/manifest.toml") &&
+      confirmationText.includes("draft / 未承認") &&
+      confirmationText.includes("上限 static") &&
+      restartRequired === "true" &&
+      resultText.includes("保存成功と runtime 反映は別") &&
+      rowText.includes("runtime 未反映") &&
+      rowText.includes(hash) &&
+      unavailableBeforeRestart &&
+      idempotentText.includes("同一内容"),
   };
 }
 
@@ -4126,11 +4247,12 @@ async function probeAssetsAccessibility(page) {
     })),
   );
 
-  const packsTab = page.locator("#asset-tab-packs");
-  await packsTab.focus();
-  await packsTab.press("ArrowRight");
-  const contractsSelected = await selectedAssetTab(page);
-  const disclosure = page.locator("#asset-panel-contracts .document-card > button").first();
+  const profilesTab = page.locator("#asset-tab-profiles");
+  await profilesTab.focus();
+  await profilesTab.press("ArrowRight");
+  const packsSelected = await selectedAssetTab(page);
+  await page.locator("#asset-tab-packs").press("End");
+  const disclosure = page.locator("#asset-panel-references .document-card > button").first();
   await disclosure.waitFor();
   const disclosureCollapsed = await disclosure.getAttribute("aria-expanded");
   const disclosureControls = await disclosure.getAttribute("aria-controls");
@@ -4143,18 +4265,21 @@ async function probeAssetsAccessibility(page) {
 
   await page.addScriptTag({ content: axeSource });
   const axe = [];
-  axe.push(await assetAxeResult(page, "contracts"));
+  axe.push(await assetAxeResult(page, "references"));
 
-  await page.locator("#asset-tab-contracts").press("End");
+  await page.locator("#asset-tab-references").press("End");
   const endSelected = await selectedAssetTab(page);
-  axe.push(await assetAxeResult(page, "suites"));
+  axe.push(await assetAxeResult(page, "references"));
 
-  await page.locator("#asset-tab-suites").press("Home");
+  await page.locator("#asset-tab-references").press("Home");
   const homeSelected = await selectedAssetTab(page);
-  await page.locator("#asset-tab-packs").press("ArrowLeft");
+  await page.locator("#asset-tab-profiles").press("ArrowLeft");
+  await page.locator("#asset-tab-references").press("ArrowLeft");
   const leftWrapped = await selectedAssetTab(page);
-  await page.locator("#asset-tab-suites").press("ArrowRight");
+  await page.locator("#asset-tab-packs").press("ArrowRight");
   const rightWrapped = await selectedAssetTab(page);
+  await page.locator("#asset-tab-references").press("Home");
+  await page.locator("#asset-tab-profiles").press("ArrowRight");
   axe.push(await assetAxeResult(page, "packs"));
 
   const presence = await page
@@ -4174,7 +4299,7 @@ async function probeAssetsAccessibility(page) {
       target_exists: disclosureTargetExists,
     },
     keyboard: {
-      contracts_selected: contractsSelected,
+      packs_selected: packsSelected,
       end_selected: endSelected,
       home_selected: homeSelected,
       left_wrapped: leftWrapped,
@@ -4190,11 +4315,11 @@ async function probeAssetsAccessibility(page) {
           item.selected === (index === 0 ? "true" : "false") &&
           item.tabIndex === (index === 0 ? "0" : "-1"),
       ) &&
-      contractsSelected === "contracts" &&
-      endSelected === "suites" &&
-      homeSelected === "packs" &&
-      leftWrapped === "suites" &&
-      rightWrapped === "packs" &&
+      packsSelected === "packs" &&
+      endSelected === "references" &&
+      homeSelected === "profiles" &&
+      leftWrapped === "packs" &&
+      rightWrapped === "references" &&
       disclosureCollapsed === "false" &&
       disclosureExpanded === "true" &&
       disclosureGlyphHidden &&
@@ -4248,6 +4373,7 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
         prerequisites: {
           commandagent_binary: { detail: "ready", status: "ready" },
           execution_root: { detail: "ready", status: "ready" },
+          extension_root: { detail: "ready", status: "ready" },
           trial_authentication: { detail: "disabled", status: "ready" },
         },
         session: null,
@@ -4275,11 +4401,17 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
     );
     await page.reload({ waitUntil: "networkidle" });
 
+    await page.locator("#asset-tab-packs").click();
     const warningStatus = page.locator("[data-testid='pack-warning-status']");
     await warningStatus.waitFor();
     const warningStatusText = await warningStatus.innerText();
-    const warningNotes = await page.locator("[data-testid='pack-warning'][role='note']").count();
-    const warningAlerts = await page.locator("[data-testid='pack-warning'][role='alert']").count();
+    const warningCards = page.locator("#asset-panel-packs .pack-card.warning");
+    const warningNotes = await warningCards
+      .locator("[data-testid='pack-warning'][role='note']")
+      .count();
+    const warningAlerts = await warningCards
+      .locator("[data-testid='pack-warning'][role='alert']")
+      .count();
 
     await page.locator("[data-testid='pack-wizard-open']").click();
     await page.locator("[data-testid='pack-wizard-target']").waitFor();
@@ -4349,6 +4481,49 @@ function memberMapsMatchNextVersion(previous, next, previousVersion, nextVersion
 }
 
 async function probeExtensionCatalog(page) {
+  const layerCards = page.locator("[data-testid='extension-layer-card']");
+  await layerCards.first().waitFor();
+  const layerLabels = await layerCards.evaluateAll((cards) =>
+    cards.map((card) => card.getAttribute("data-layer")),
+  );
+  const layerMetadataComplete = await layerCards.evaluateAll((cards) =>
+    cards.every((card) => {
+      const labels = [...card.querySelectorAll(".extension-metadata dt")].map((term) =>
+        term.textContent?.trim(),
+      );
+      return ["layer", "source", "status", "hash", "assurance", "登録／昇格"].every((label) =>
+        labels.includes(label),
+      );
+    }),
+  );
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='extension-root-status']")?.getAttribute("data-status") === "ready",
+  );
+  const extensionRootStatus = await page
+    .locator("[data-testid='extension-root-status']")
+    .getAttribute("data-status");
+  const profileRows = page.locator("[data-testid='extension-profile-row']");
+  await profileRows.first().waitFor();
+  const profileCount = await profileRows.count();
+  const profileMetadata = await profileRows.first().locator(".extension-metadata dt").allInnerTexts();
+  const profileIssueHref = await profileRows
+    .first()
+    .locator("[data-testid='profile-registration-issue-link']")
+    .getAttribute("href");
+  const profileHasExactHash = (await profileRows.first().locator(".extension-metadata code").innerText())
+    .startsWith("sha256:");
+  const profileWizardLauncherEnabled = !(await page
+    .locator("[data-testid='profile-wizard-open']")
+    .isDisabled());
+  const suppliedRows = page.locator("[data-testid='profile-supply-row']");
+  await suppliedRows.first().waitFor();
+  const suppliedProfileText = await suppliedRows.first().innerText();
+  const suppliedProfilePath = await suppliedRows.first().locator("code").first().innerText();
+
+  await page.locator("#asset-tab-references").click();
+  const referencesAreNotExtensions = (await page.locator("#asset-panel-references h2").innerText()) ===
+    "Contract / Suite は拡張種別ではありません";
+  await page.locator("#asset-tab-packs").click();
   const rows = page.locator("[data-testid='extension-pack-row']");
   await rows.first().waitFor();
   const rowCount = await rows.count();
@@ -4362,12 +4537,37 @@ async function probeExtensionCatalog(page) {
   const selectedPack = await page.locator("[data-testid='trial-pack']").inputValue();
   return {
     row_count: rowCount,
+    extension_root_status: extensionRootStatus,
+    layer_labels: layerLabels,
+    layer_metadata_complete: layerMetadataComplete,
+    profile_count: profileCount,
+    profile_has_exact_hash: profileHasExactHash,
+    profile_issue_href: profileIssueHref,
+    profile_metadata: profileMetadata,
+    profile_wizard_launcher_enabled: profileWizardLauncherEnabled,
+    supplied_profile_path: suppliedProfilePath,
+    supplied_profile_text: suppliedProfileText,
+    references_are_not_extensions: referencesAreNotExtensions,
     selected_pack: selectedPack,
     selector,
     source_labels: sourceLabels,
     status: response?.status() ?? 0,
     ok:
       response?.status() === 200 &&
+      JSON.stringify(layerLabels) === JSON.stringify(["Layer 1", "Layer 2", "Layer 3", "Layer 4"]) &&
+      layerMetadataComplete &&
+      extensionRootStatus === "ready" &&
+      profileHasExactHash &&
+      profileWizardLauncherEnabled &&
+      suppliedProfilePath.startsWith("profiles/") &&
+      !suppliedProfilePath.startsWith("/") &&
+      suppliedProfileText.includes("Trial 利用可") &&
+      suppliedProfileText.includes("draft / 未承認 / 保証上限 static") &&
+      profileIssueHref?.startsWith("https://github.com/Kewton/CommandAgent/issues/new?") &&
+      ["layer", "source", "status", "hash", "assurance", "登録／昇格"].every((label) =>
+        profileMetadata.includes(label),
+      ) &&
+      referencesAreNotExtensions &&
       sourceLabels.includes("承認済み") &&
       sourceLabels.includes("リポジトリ（未承認）") &&
       trialLinkText.includes("トライアルで使う") &&
@@ -4380,6 +4580,14 @@ async function startServer(basePath, executionRoot, delegateBin = commandagentBi
   const extensionRoot = `${executionRoot}-extensions`;
   await mkdir(extensionRoot, { recursive: true, mode: 0o700 });
   await chmod(extensionRoot, 0o700);
+  await cp(
+    join(
+      repositoryRoot,
+      "tests/corpus/apps/issue117-draft-profile/extension-root/profiles/static-site",
+    ),
+    join(extensionRoot, "profiles/static-site"),
+    { recursive: true },
+  );
   const child = spawn(
     "cargo",
     [

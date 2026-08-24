@@ -80,6 +80,8 @@ use super::{
 mod effects;
 #[path = "phase/flow.rs"]
 mod flow;
+#[path = "phase/plan_step_events.rs"]
+mod plan_step_events;
 #[path = "phase/state.rs"]
 mod state;
 #[path = "phase/step_plan_execution.rs"]
@@ -91,6 +93,7 @@ pub use flow::{
     generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
     run_ultra_plan_with_ui, save_ultra_plan,
 };
+use plan_step_events::PlanStepEvents;
 pub(super) use step_plan_execution::{
     run_step_plan_with_session_with_ui, run_step_plan_with_session_with_ui_and_run_authority,
 };

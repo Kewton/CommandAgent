@@ -156,6 +156,46 @@ export function describeError(reason: unknown): string {
         "拡張ルートの処理に失敗しました。所有権、0700 権限、空き容量、journal の状態を確認してください。",
         detail,
       );
+    case "profile_auth_failed":
+      return withDetail(
+        "プロファイル供給の認証に失敗しました。現在の GUI Trial トークンを入力し直してください。",
+        detail,
+      );
+    case "profile_origin_not_allowed":
+      return withDetail(
+        "この Origin からプロファイルを供給できません。GUI_TRIAL_ALLOWED_ORIGINS と現在の URL を確認してください。",
+        detail,
+      );
+    case "profile_invalid_request":
+      return withDetail(
+        "プロファイル要求を解釈できません。相対 path、文書本文、確認済み hash を確認してください。",
+        detail,
+      );
+    case "profile_body_too_large":
+      return withDetail(
+        "プロファイル文書が上限を超えています。manifest / overlay を 256 KiB 以下にしてください。",
+        detail,
+      );
+    case "profile_validation_failed":
+      return withDetail(
+        "プロファイルを検証できません。compact manifest v2、additive overlay、closed capability、path を確認してください。",
+        detail,
+      );
+    case "profile_confirmation_stale":
+      return withDetail(
+        "確認後に path または本文が変わりました。preview をやり直して exact hash を再確認してください。",
+        detail,
+      );
+    case "profile_conflict":
+      return withDetail(
+        "既存の built-in／外部 ID または保存済みファイルと競合しています。別の ID を使うか、同一内容で再試行してください。",
+        detail,
+      );
+    case "profile_io_failed":
+      return withDetail(
+        "プロファイルの保存または journal 記録に失敗しました。extension root の所有権、0700 権限、symlink、空き容量を確認してください。",
+        detail,
+      );
     case "resource_not_found":
       return withDetail(
         "記録を見つけられません。選択した実行やファイルを確認し、一覧を再読み込みしてください。",
