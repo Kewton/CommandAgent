@@ -791,26 +791,28 @@ async function probeResourceRevalidation(browser, origin, basePath) {
     });
 
     const prefix = displayBasePath(basePath);
-    await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
-    const retainedRow = page.locator(`.runs-panel .run-row[data-run-id='${retainedRun.id}']`);
-    await retainedRow.waitFor();
+    await page.goto(new URL(`${prefix}runs/`, origin).href, { waitUntil: "networkidle" });
+    const retainedOption = page.locator(`#run-select option[value='${retainedRun.id}']`);
+    await retainedOption.waitFor({ state: "attached" });
     const initialCalls = runsCalls;
 
     failNextRuns = true;
     await setDocumentVisibility(page, "hidden");
     await setDocumentVisibility(page, "visible");
     await waitFor(() => runsCalls > initialCalls, "visible resource revalidation");
-    await page.locator(".runs-panel [role='alert']").waitFor();
-    const failureRetainedPreviousData = (await retainedRow.count()) === 1;
+    await page.locator(".run-picker [role='alert']").waitFor();
+    const failureRetainedPreviousData = (await retainedOption.count()) === 1;
 
     runs = [refreshedRun, retainedRun];
     const beforeFocus = runsCalls;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => runsCalls > beforeFocus, "focused resource revalidation");
-    await page.locator(`.runs-panel .run-row[data-run-id='${refreshedRun.id}']`).waitFor();
+    await page
+      .locator(`#run-select option[value='${refreshedRun.id}']`)
+      .waitFor({ state: "attached" });
     const focusLoadedFreshData =
-      (await page.locator(".runs-panel .run-row").count()) === 2 &&
-      (await page.locator(".runs-panel [role='alert']").count()) === 0;
+      (await page.locator("#run-select option:not([value=''])").count()) === 2 &&
+      (await page.locator(".run-picker [role='alert']").count()) === 0;
 
     return {
       initial_calls: initialCalls,
