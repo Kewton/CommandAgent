@@ -24,6 +24,8 @@ concept.
 | reports and bands | 計測 |
 | `.commandagent/runs` session history | トライアル実行履歴 |
 | configured Trial workspace | 実行ルート |
+| delegated per-session workspace | CLI 作業ディレクトリ |
+| CLI-owned session evidence location | 実行記録の保存先 |
 | pinned verification knowledge | パック |
 
 ## Shared status labels
@@ -79,6 +81,8 @@ the target vocabulary for those migrations.
 | result guidance | 実行結果と次の一手を確認してください | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | result guidance | 独立した CLI 動作プローブは実行されていません。 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | 受入シートの詳細を表示 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| action | パスをコピー | `gui/components/trial-session-paths.tsx` | [`gui-trial.md#working-directory-and-run-records`](gui-trial.md#working-directory-and-run-records) |
+| state | この作業ディレクトリは削除済みです。 | `gui/components/trial-session-paths.tsx` | [`gui-trial.md#working-directory-and-run-records`](gui-trial.md#working-directory-and-run-records) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | action | トライアルで使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | heading | 4 レイヤーと依存関係 | `gui/app/assets/page.tsx` | [`gui-extensions.md#four-extension-layers`](gui-extensions.md#four-extension-layers) |

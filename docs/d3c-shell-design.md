@@ -465,3 +465,13 @@ admission. Status, history, and detail use GET-only projections. Existing
 verification, acceptance, honest-failure, event names, event schemas, and the
 legacy `.anvil/` read namespace remain unchanged. The runtime Trial token stays
 in base-path-scoped `sessionStorage`; only the session ID may appear in a URL.
+
+Status and detail also show one per-session working-directory panel. Its
+absolute `sessions/<id>` path is derived from the same `SessionPaths` value
+used for delegated `current_dir` and `--cwd`, while the run-record directory,
+`events.jsonl`, and `summary.md` are labeled separately. Absolute paths are
+available only from the GET-only `api/sessions/{id}/paths` endpoint when Trial
+token authentication is enabled and satisfied; they remain absent from public
+projections. The endpoint rejects invalid IDs, traversal, symlinks, and
+out-of-root resolution, and projects a deleted workspace as `missing` without
+recreating it or claiming that artifacts remain.

@@ -23,6 +23,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
 - Split the GUI Trial into fixed instruction, live status, compact history, and
   terminal result-detail pages with state-aware reconnect links.
+- Show and copy the delegated GUI Trial working directory on live and result
+  pages, separately from run records, through a token-authenticated path API.
 
 ### Fixed
 

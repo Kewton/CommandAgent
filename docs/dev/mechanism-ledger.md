@@ -1684,3 +1684,18 @@ session index APIへの`profile`／`intent`はoptionalな加法投影であり�
 confirmation hash、active lease、honest-failure、verification／acceptance、`.anvil/`
 namespaceは変更しない。Trial tokenはbase pathごとの`sessionStorage`だけに保持し、URL、
 log、`localStorage`へ出さない。
+
+## GUI-374 — Trial session作業ディレクトリ投影（Issue #374、2026-08-25）
+
+GUI Trialの起動直後・実行中・terminal・履歴結果詳細で、委譲CLIの`current_dir`と
+`--cwd`に一致する`<execution-root>/sessions/<session-id>`絶対pathを同一表示し、
+keyboard操作可能なcopy buttonとpolite live通知を追加した。CLI作業directoryは
+`.commandagent/runs/<session-id>`の記録directory、`events.jsonl`、`summary.md`と
+別枠表示し、削除済みworkspaceは`missing`として成果物不在を明示する。
+
+絶対pathはTrial token認証を有効化・通過したGET-only
+`api/sessions/{id}/paths`だけが返す。create/status/index、public artifact/event、
+runtime-status、static projectionには追加しない。session ID検証、runtime/run/workspace
+各directoryのnon-symlink canonical confinement、execution root外拒否を維持し、
+endpointは再作成・削除・lease変更を行わない。既存Origin検証、read-only guard、
+confirmation/event/acceptance schema、`.anvil/` namespaceは不変である。
