@@ -50,6 +50,34 @@ export type ExtensionPackDetail = {
   };
 };
 
+export type ProfileDocumentKind = "manifest" | "overlay";
+
+export type ExtensionProfilePreview = {
+  id: string;
+  display_name: string;
+  kind: ProfileDocumentKind;
+  path: string;
+  hash: string;
+  source: "local";
+  status: "draft";
+  assurance_ceiling: "static";
+  base_profile: string | null;
+  warnings: string[];
+};
+
+export type ExtensionProfileRegistration = {
+  profile: ExtensionProfilePreview;
+  idempotent: boolean;
+  saved: boolean;
+  restart_required: boolean;
+  restart_instruction: string;
+};
+
+export type ExtensionProfileCatalogEntry = ExtensionProfilePreview & {
+  available: boolean;
+  restart_required: boolean;
+};
+
 export async function listExtensionPacks(token: string): Promise<ExtensionPackSummary[]> {
   return extensionJson<ExtensionPackSummary[]>("extensions/packs", token);
 }
@@ -105,6 +133,34 @@ export async function retireExtensionPack(
   await extensionOk(`${packPath(id, version)}/retire`, token, {
     method: "POST",
     headers: trialAuthorizationHeaders(token),
+  });
+}
+
+export async function listExtensionProfiles(
+  token: string,
+): Promise<ExtensionProfileCatalogEntry[]> {
+  return extensionJson<ExtensionProfileCatalogEntry[]>("extensions/profiles", token);
+}
+
+export async function previewExtensionProfile(
+  token: string,
+  request: { path: string; content: string },
+): Promise<ExtensionProfilePreview> {
+  return extensionJson<ExtensionProfilePreview>("extensions/profiles/preview", token, {
+    method: "POST",
+    headers: trialAuthorizationHeaders(token, true),
+    body: JSON.stringify(request),
+  });
+}
+
+export async function registerExtensionProfile(
+  token: string,
+  request: { path: string; content: string; expected_hash: string },
+): Promise<ExtensionProfileRegistration> {
+  return extensionJson<ExtensionProfileRegistration>("extensions/profiles/register", token, {
+    method: "POST",
+    headers: trialAuthorizationHeaders(token, true),
+    body: JSON.stringify(request),
   });
 }
 

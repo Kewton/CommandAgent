@@ -42,6 +42,14 @@ repository Issue using only the public profile ID and hash. Do not attach
 secrets, private paths, or private manifest contents; place reproducible tests
 and measured evidence in a repository PR.
 
+When the extension root is configured, the **Profile registration wizard**
+validates a compact manifest v2 or additive overlay before saving. Confirm its
+normalized path, profile ID, exact hash, and `draft / unapproved / static`
+boundary. Existing content is never overwritten: identical bytes are
+idempotent and different bytes conflict. When the saved result reports
+`restart_required`, restart the GUI server with the same extension root and
+match the exact hash in the Trial candidate and Gate 1.
+
 Gate 1 and acceptance continue to project the effective profile/pack identity
 and exact hash. The GUI has no control that changes Layer 1 vocabulary or
 Layer 4 admission.

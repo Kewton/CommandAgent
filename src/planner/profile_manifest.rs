@@ -12,6 +12,7 @@ pub mod overlay;
 mod schema_v1;
 mod schema_v2;
 pub mod source;
+pub mod supply;
 mod v1_validation;
 mod validation;
 pub use schema_v1::*;

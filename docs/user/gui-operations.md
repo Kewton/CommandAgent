@@ -55,8 +55,10 @@ complete supply record.
 
 Retirement is non-destructive and terminal for that version. Do not delete
 bytes/history or edit a pinned version; stage a new version. Review the journal
-for `stage|verify|pin|retire`, actor, outcome, exact identity, and scrubbed
-detail. See [GUI extensions](gui-extensions.md#lifecycle-workflow).
+for `stage|verify|pin|retire|profile_register`, actor, outcome, exact identity,
+and scrubbed detail. A profile record includes only its normalized relative
+path and exact hash, never the submitted TOML. See
+[GUI extensions](gui-extensions.md#lifecycle-workflow).
 
 ## API
 
@@ -113,6 +115,14 @@ The GUI translates the code into a next action without hiding the server detail.
 | `428 trial_confirmation_required` | Check contract/price and explicitly confirm. |
 | `503 trial_execution_disabled` | Restart with a valid execution root and required token. |
 | `500 trial_internal_error` | Check the CLI path/server log; reconnect rather than double-dispatch. |
+| `401 profile_auth_failed` | Enter the current Trial token, then preview again. |
+| `403 profile_origin_not_allowed` | Use the configured GUI Origin or add its exact value and restart. |
+| `400 profile_invalid_request` | Rebuild the JSON request with only the documented fields. |
+| `413 profile_body_too_large` | Reduce the manifest or overlay to 256 KiB or less. |
+| `422 profile_validation_failed` | Correct the relative path, closed schema/capability, ID, or additive overlay. |
+| `409 profile_confirmation_stale` | Preview the current bytes again and reconfirm the returned exact hash. |
+| `409 profile_conflict` | Choose a new ID/path or preserve the existing file; it will not be overwritten. |
+| `500 profile_io_failed` | Check extension-root ownership, free space, managed paths, and journal; retrying identical bytes is safe. |
 
 For unreadable repository records, reload inventory, then verify repository
 root, canonical path, and permissions. For proxy/network rejection, assume an
@@ -135,7 +145,9 @@ npm run smoke:errors
   upstream/proxy responses.
 - Origin rejected: use the exact browser scheme/host/port in the allowlist.
 - Catalog mutation fails: verify extension ownership, 0700 permissions, space,
-  and journal state; do not bypass `SupplyRoot`.
+  and journal state; do not bypass `SupplyRoot` or `ProfileSupplyRoot`.
+- A profile was saved but is absent from Trial: honor `restart_required`, restart
+  with the same extension root, then match its exact hash in Layer 2 and Gate 1.
 - Lease is non-idle: use the exact session and the
   [read-only recovery guide](gui-trial.md#workspace-lease-inspection-and-recovery).
 - Monitoring is lost: inspect network/proxy and reconnect; do not infer child

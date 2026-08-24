@@ -39,6 +39,13 @@ retired などの具体的な利用不可理由も隠しません。
 repository Issue を準備します。秘密、private path、private manifest 内容は添付せず、
 再現可能な test と計測 evidence を repository PR に置いてください。
 
+extension root が設定済みなら、**プロファイル登録ウィザード**で compact manifest v2
+または additive overlay を保存前に検証できます。normalized path、profile ID、exact
+hash、`draft / 未承認 / static` を確認してから保存します。既存内容は上書きせず、同一
+bytes は idempotent、異なる bytes は conflict です。保存後に
+`restart_required` が表示されたら、同じ extension root で GUI server を再起動し、
+Trial 候補と Gate 1 の exact hash を照合してください。
+
 Gate 1 と acceptance は有効な profile/pack identity と exact hash を引き続き投影します。
 Layer 1 の語彙や Layer 4 admission を変更する GUI control はありません。
 

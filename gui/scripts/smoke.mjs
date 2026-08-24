@@ -117,6 +117,11 @@ const helpMapEntries = [
     source: "gui/components/pack-wizard.tsx",
   },
   {
+    copy: "プロファイル登録ウィザード",
+    owner: "gui-extensions.md#draft-profile-registration-wizard",
+    source: "gui/components/profile-wizard.tsx",
+  },
+  {
     copy: "確認済みのトライアルセッションはありません。",
     owner: "gui-history.md#session-rows-and-refresh",
     source: "gui/components/trial-session-index.tsx",
@@ -3929,6 +3934,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     { key: trialTokenStorageKey(basePath), token: trialCredential },
   );
   await page.reload({ waitUntil: "networkidle" });
+  await page.locator("#asset-tab-packs").click();
   await page.locator("[data-testid='pack-wizard-open']").click();
   await page.locator("[data-testid='pack-wizard-target']").waitFor();
   await page.waitForFunction(
@@ -4109,6 +4115,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinnedNextVersion,
     retiredNextVersion,
   );
+  const profileWizard = await probeProfileWizard(page, origin, basePath);
 
   return {
     active_after_failure: activeAfterFailure,
@@ -4124,6 +4131,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinned_next_members_copied: pinnedNextMembersCopied,
     pinned_next_version: pinnedNextVersion,
     pinned_next_version_staged: pinnedNextVersionStaged,
+    profile_wizard: profileWizard,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
     retired_next_draft_editable: retiredNextDraftEditable,
@@ -4154,12 +4162,77 @@ async function probePackWizard(page, browser, origin, basePath) {
       pinnedNextDraftEditable &&
       pinnedNextMembersCopied &&
       pinnedNextVersionStaged &&
+      profileWizard.ok &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
       retiredHasNoTrialLink &&
       retiredNextDraftEditable &&
       retiredNextMembersCopied,
+  };
+}
+
+async function probeProfileWizard(page, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  await page.locator("#asset-tab-profiles").click();
+  const launcher = page.locator("[data-testid='profile-wizard-open']");
+  await launcher.waitFor();
+  const launcherEnabled = !(await launcher.isDisabled());
+  await launcher.click();
+  await page.locator("[data-testid='profile-wizard']").waitFor();
+  const token = page.locator("[data-testid='profile-wizard-token']");
+  if ((await token.count()) === 1) await token.fill(trialCredential);
+  await page.locator("[data-testid='profile-wizard-preview']").click();
+  const confirmation = page.locator("[data-testid='profile-wizard-confirmation']");
+  await confirmation.waitFor();
+  const confirmationText = await confirmation.innerText();
+  const hash = await confirmation.locator("code").nth(2).innerText();
+  await page.locator("[data-testid='profile-wizard-confirm']").check();
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  const result = page.locator("[data-testid='profile-registration-result']");
+  await result.waitFor();
+  const restartRequired = await result.getAttribute("data-restart-required");
+  const resultText = await result.innerText();
+  const row = page
+    .locator("[data-testid='profile-supply-row']")
+    .filter({ hasText: "neutral-profile" });
+  await row.waitFor();
+  const rowText = await row.innerText();
+  const trialOptions = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`trial options returned ${response.status}`);
+    return response.json();
+  }, new URL(`${prefix}api/trial-options`, origin).href);
+  const unavailableBeforeRestart = trialOptions.profiles.every(
+    (profile) => profile.id !== "neutral-profile",
+  );
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='profile-registration-result'] strong")?.textContent?.includes("同一内容"),
+  );
+  const idempotentText = await result.innerText();
+  return {
+    confirmation_text: confirmationText,
+    exact_hash: hash,
+    idempotent_text: idempotentText,
+    launcher_enabled: launcherEnabled,
+    restart_required: restartRequired,
+    result_text: resultText,
+    row_text: rowText,
+    unavailable_before_restart: unavailableBeforeRestart,
+    ok:
+      launcherEnabled &&
+      hash.startsWith("sha256:") &&
+      confirmationText.includes("neutral-profile") &&
+      confirmationText.includes("profiles/neutral-profile/manifest.toml") &&
+      confirmationText.includes("draft / 未承認") &&
+      confirmationText.includes("上限 static") &&
+      restartRequired === "true" &&
+      resultText.includes("保存成功と runtime 反映は別") &&
+      rowText.includes("runtime 未反映") &&
+      rowText.includes(hash) &&
+      unavailableBeforeRestart &&
+      idempotentText.includes("同一内容"),
   };
 }
 
@@ -4328,11 +4401,17 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
     );
     await page.reload({ waitUntil: "networkidle" });
 
+    await page.locator("#asset-tab-packs").click();
     const warningStatus = page.locator("[data-testid='pack-warning-status']");
     await warningStatus.waitFor();
     const warningStatusText = await warningStatus.innerText();
-    const warningNotes = await page.locator("[data-testid='pack-warning'][role='note']").count();
-    const warningAlerts = await page.locator("[data-testid='pack-warning'][role='alert']").count();
+    const warningCards = page.locator("#asset-panel-packs .pack-card.warning");
+    const warningNotes = await warningCards
+      .locator("[data-testid='pack-warning'][role='note']")
+      .count();
+    const warningAlerts = await warningCards
+      .locator("[data-testid='pack-warning'][role='alert']")
+      .count();
 
     await page.locator("[data-testid='pack-wizard-open']").click();
     await page.locator("[data-testid='pack-wizard-target']").waitFor();
@@ -4433,6 +4512,13 @@ async function probeExtensionCatalog(page) {
     .getAttribute("href");
   const profileHasExactHash = (await profileRows.first().locator(".extension-metadata code").innerText())
     .startsWith("sha256:");
+  const profileWizardLauncherEnabled = !(await page
+    .locator("[data-testid='profile-wizard-open']")
+    .isDisabled());
+  const suppliedRows = page.locator("[data-testid='profile-supply-row']");
+  await suppliedRows.first().waitFor();
+  const suppliedProfileText = await suppliedRows.first().innerText();
+  const suppliedProfilePath = await suppliedRows.first().locator("code").first().innerText();
 
   await page.locator("#asset-tab-references").click();
   const referencesAreNotExtensions = (await page.locator("#asset-panel-references h2").innerText()) ===
@@ -4458,6 +4544,9 @@ async function probeExtensionCatalog(page) {
     profile_has_exact_hash: profileHasExactHash,
     profile_issue_href: profileIssueHref,
     profile_metadata: profileMetadata,
+    profile_wizard_launcher_enabled: profileWizardLauncherEnabled,
+    supplied_profile_path: suppliedProfilePath,
+    supplied_profile_text: suppliedProfileText,
     references_are_not_extensions: referencesAreNotExtensions,
     selected_pack: selectedPack,
     selector,
@@ -4469,6 +4558,11 @@ async function probeExtensionCatalog(page) {
       layerMetadataComplete &&
       extensionRootStatus === "ready" &&
       profileHasExactHash &&
+      profileWizardLauncherEnabled &&
+      suppliedProfilePath.startsWith("profiles/") &&
+      !suppliedProfilePath.startsWith("/") &&
+      suppliedProfileText.includes("Trial 利用可") &&
+      suppliedProfileText.includes("draft / 未承認 / 保証上限 static") &&
       profileIssueHref?.startsWith("https://github.com/Kewton/CommandAgent/issues/new?") &&
       ["layer", "source", "status", "hash", "assurance", "登録／昇格"].every((label) =>
         profileMetadata.includes(label),

@@ -1,0 +1,16 @@
+[metadata]
+id = "neutral-profile"
+display_name = "Neutral profile"
+schema_version = "v2"
+task_family = "unknown"
+[plan]
+intent = "create"
+phases = [{ id = "implementation", prompt = "Complete the requested work for {goal}." }]
+[artifacts]
+required = ["README.md"]
+[guidance.variants.default]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Keep the implementation scoped to the requested goal." }
+[[checks.final]]
+id = "scaffold_files_present"
+params = { files = ["README.md"] }

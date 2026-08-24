@@ -86,8 +86,11 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
     ProtectionRule {
         category: "extension_supply_writes",
         site_predicate: "writes below an extension_root",
-        required_wrapper: "planner::pack::supply::SupplyRoot",
-        allowlist: &["src/planner/pack/supply.rs"],
+        required_wrapper: "planner::pack::supply::SupplyRoot / profile_manifest::supply::ProfileSupplyRoot",
+        allowlist: &[
+            "src/planner/pack/supply.rs",
+            "src/planner/profile_manifest/supply.rs",
+        ],
         audit: audit_extension_supply_writes,
     },
 ];
@@ -523,6 +526,17 @@ fn audit_extension_supply_writes(corpus: &AuditCorpus, rule: &ProtectionRule) ->
     for required in ["pub struct SupplyRoot", "pub mod journal", "pub fn append("] {
         if !boundary.contains(required) {
             violations.push(format!("extension supply boundary is missing `{required}`"));
+        }
+    }
+    let profile_boundary = corpus.file("src/planner/profile_manifest/supply.rs");
+    for required in [
+        "pub struct ProfileSupplyRoot",
+        "pub fn preview(",
+        "pub fn register(",
+        "install_no_replace(",
+    ] {
+        if !profile_boundary.contains(required) {
+            violations.push(format!("profile supply boundary is missing `{required}`"));
         }
     }
     for (path, text) in corpus.src_rust_files() {
