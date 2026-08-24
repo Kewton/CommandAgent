@@ -14,6 +14,10 @@ concept.
 | --- | --- |
 | repository evidence overview | 概要 |
 | delegated GUI run | トライアル |
+| Trial request and Gate 1 | 実行指示 |
+| read-only in-flight Trial | 実行状況 |
+| compact Trial session list | 実行履歴 |
+| terminal Trial evidence | 結果詳細 |
 | packs, contracts, and measurement suites | 拡張 |
 | `workspace/management/runs` history | リポジトリ実行記録 |
 | reports and bands | 計測 |

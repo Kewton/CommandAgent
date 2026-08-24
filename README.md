@@ -118,7 +118,7 @@ one:
 Other entry points:
 
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
-  sample Trial, Gate 1, and result reading
+  sample Trial, Gate 1, and the separate status, history, and result pages
 - [Extensions](docs/user/gui-extensions.md) — pack/profile supply, lifecycle,
   naming, and the path from a private extension to review
 

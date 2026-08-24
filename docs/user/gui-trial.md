@@ -3,10 +3,22 @@
 [GUI index](gui.md) | [Getting started](getting-started-gui.md) |
 [History](gui-history.md) | [Operations](gui-operations.md)
 
-The Trial page delegates the existing non-interactive `commandagent` product
+The Trial area delegates the existing non-interactive `commandagent` product
 binary only after an exact Gate 1 confirmation. The GUI server does not call a
 provider or runner in process, and it does not maintain a separate run-state
-database.
+database. Trial has four fixed pages; `base-path` may be `/` or a configured
+proxy prefix such as `/proxy/commandagent/`.
+
+| Page | Fixed route | Responsibility |
+| --- | --- | --- |
+| 実行指示 | `try/` | Create a request and complete Gate 1. |
+| 実行状況 | `try/status/?session=<id>` | Reconnect to and observe one in-flight session. |
+| 実行履歴 | `try/history/` | Scan compact session summaries. |
+| 結果詳細 | `try/history/detail/?session=<id>` | Read one terminal verdict, diagnosis, acceptance, events, and artifacts. |
+
+Each page has its own title, heading, and active Trial navigation item. The
+execution-instruction page does not embed the history list, so the current
+task and Gate 1 remain the only primary actions there.
 
 ## Trial run: Gate 1 through Gate 3/4
 
@@ -44,9 +56,10 @@ also rejects a selected value with HTTP 422 when neither role is Ollama. An
 unspecified value adds nothing to the Gate 1 identity or delegated arguments,
 so existing confirmation hashes and records remain compatible.
 
-The compact indicator is **依頼 → 確認 → 実行 → 結果**. Only the current
-workflow state is shown; a completed form is not left stacked above the next
-action.
+The Gate indicator is **依頼 → 確認 → 実行 → 結果**. The separate Trial
+navigation keeps page purpose visible while the indicator describes the
+selected session's lifecycle. Only the current workflow state is shown; a
+completed form is not left stacked above the next action.
 
 ### Pack selection and frozen identity
 
@@ -76,19 +89,20 @@ exposed by the server. The delegate uses the CLI's host option and inherits
    shown on this card and becomes part of its confirmation ID.
 4. Select the confirmation checkbox. **確認して CLI を実行** stays disabled
    until this explicit action, and the API independently requires the exact
-   card hash.
+   card hash. An accepted launch moves to that session's **実行状況** page.
 
 GUI confirmation never lowers, replaces, or satisfies a required check.
 
 ### Gate 2: execution and monitoring
 
-The server starts `commandagent` directly without a shell. Progress is rebuilt
-from the session JSONL. Launch identity fields remain read-only so an in-flight
-contract cannot be edited. The Gate 2 screen keeps the confirmed goal, profile,
-exact executor/planner provider and model IDs, and exact `id@version` pack (or
-`選択なし`) visible above the progress. A selected Ollama thinking value is
-also shown. The same frozen identity is restored from the Gate 1 confirmation
-record after reconnecting.
+The server starts `commandagent` directly without a shell. The **実行状況**
+page is read-only, and progress is rebuilt from the session JSONL. Launch
+identity fields remain read-only so an in-flight contract cannot be edited.
+The Gate 2 screen keeps the confirmed goal, profile, exact executor/planner
+provider and model IDs, and exact `id@version` pack (or `選択なし`) visible
+above the progress. A selected Ollama thinking value is also shown. The same
+frozen identity is restored from the Gate 1 confirmation record after
+reconnecting.
 
 Execution state and monitoring health (`connected`, `degraded`, or `lost`) are
 separate. Transient monitoring failures use capped backoff while the delegated
@@ -105,11 +119,12 @@ is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
 
 ### Gate 3/4: read the result
 
-At terminal state the inventory opens automatically. Read result, assurance
-level, and execution status as separate fields. If no final verdict exists,
-the page says so; an assurance identifier such as `static` is not substituted
-for the verdict. The result card repeats the run's confirmed goal, profile,
-model pins, and pack so the outcome remains bound to the execution it describes.
+At terminal state the browser moves from **実行状況** to the session's
+**結果詳細** page. Read result, assurance level, and execution status as
+separate fields. If no final verdict exists, the page says so; an assurance
+identifier such as `static` is not substituted for the verdict. The result
+card repeats the run's confirmed goal, profile, model pins, and pack so the
+outcome remains bound to the execution it describes.
 
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
@@ -123,12 +138,18 @@ into Gate 3.
 
 ## Reconnect monitoring
 
-The launched session ID, never the token, is placed in `?session=<id>`. A
-same-tab reload restores a tab-scoped token and **Reconnect monitoring** calls
-only `GET api/sessions/{id}`. The elapsed clock resumes from the server-owned
-session start and the measured mean is restored from the confirmed band, so
-neither value resets after reload. Reconnect cannot delegate another process.
-A workspace 409 response supplies the same session link.
+New in-flight links use `try/status/?session=<id>` and terminal links use
+`try/history/detail/?session=<id>`. The launched session ID, never the token,
+is placed in the query string. A legacy `try/?session=<id>` deep link reads the
+session and replaces itself with the correct status or detail route.
+
+A same-tab reload restores the base-path-scoped `sessionStorage` token and
+**Reconnect monitoring** calls only `GET api/sessions/{id}`. A separately
+opened tab can reconnect after entering its own runtime token. The elapsed
+clock resumes from the server-owned session start and the measured mean is
+restored from the confirmed band, so neither value resets after reload.
+Reconnect cannot delegate another process. A workspace 409 response supplies
+the same status link.
 
 Monitoring failures have explicit boundaries:
 

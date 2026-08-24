@@ -176,6 +176,8 @@ export type TrialSessionSummary = {
   modified_epoch_seconds: number;
   gate: "gate_2" | "gate_3" | "gate_4" | null;
   status: string;
+  profile?: string | null;
+  intent?: TrialIntent | string | null;
   failure_diagnostics?: FailureDiagnostics;
   pack: {
     id: string;

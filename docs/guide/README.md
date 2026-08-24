@@ -22,7 +22,7 @@ Recommended route / 推奨順路:
 - [CLI getting started](../user/getting-started-cli.md) — install, provider,
   configuration, doctor, first loop, and exact-pack A/B
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
-  Trial, Gate 1, and result reading
+  Trial, Gate 1, and separate status, history, and result pages
 - [Extensions](../user/gui-extensions.md) — supply lifecycle, names, and review
 - [CLI reference](en/cli-reference.md) — all 65 public flags, defaults, and
   conflicts
@@ -48,7 +48,8 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本
 - [CLI 入門](../user/getting-started-cli.md) — 導入、provider、設定、doctor、
   最初の 1 周、exact pack A/B
-- [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、結果
+- [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、
+  分離された実行状況・履歴・結果ページ
 - [拡張](../user/gui-extensions.md) — 供給ライフサイクル、命名、レビュー
 - [CLI リファレンス](ja/cli-reference.md) — 公開されている全 65 フラグ、既定値、排他関係
 - [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、

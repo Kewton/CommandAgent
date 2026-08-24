@@ -42,10 +42,10 @@ paths.
 | [`guide/ja/slash-commands.md`](guide/ja/slash-commands.md) | 対話型スラッシュコマンドのリファレンス。 | JA | End users |
 | [`guide/ja/troubleshooting.md`](guide/ja/troubleshooting.md) | 起動、プロバイダ、TUI のトラブルシューティング。 | JA | End users |
 | [`user/getting-started-cli.md`](user/getting-started-cli.md) | Install-to-first-loop CLI path, pack A/B, and bilingual glossary. | Mixed | New users |
-| [`user/getting-started-gui.md`](user/getting-started-gui.md) | First GUI landing, readiness, sample Trial, Gate 1, and result reading. | Mixed | New users |
+| [`user/getting-started-gui.md`](user/getting-started-gui.md) | First GUI landing, readiness, and the four fixed Trial pages. | Mixed | New users |
 | [`user/gui.md`](user/gui.md) | Stable compatibility index for the former monolithic GUI guide. | EN | End users |
-| [`user/gui-trial.md`](user/gui-trial.md) | Gate 1–4 Trial flow, explicit/automatic intent, reconnect, and read-only lease recovery. | Mixed | End users |
-| [`user/gui-history.md`](user/gui-history.md) | Trial session source, pack columns, refresh, and A/B reading. | Mixed | End users |
+| [`user/gui-trial.md`](user/gui-trial.md) | Four-route Gate 1–4 Trial flow, reconnect, and read-only lease recovery. | Mixed | End users |
+| [`user/gui-history.md`](user/gui-history.md) | Compact Trial session summaries, refresh, detail routing, and A/B reading. | Mixed | End users |
 | [`user/gui-extensions.md`](user/gui-extensions.md) | Extension catalog, bounded lifecycle, naming, and review preparation. | Mixed | Extenders |
 | [`user/gui-setup.md`](user/gui-setup.md) | Setup/preflight, base paths, root separation, and proxy routing. | Mixed | Operators |
 | [`user/gui-operations.md`](user/gui-operations.md) | Tokens, Origins, APIs, backups, recovery, and GUI smoke. | Mixed | Operators |
