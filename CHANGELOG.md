@@ -18,6 +18,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
 - Split the GUI Trial into fixed instruction, live status, compact history, and
   terminal result-detail pages with state-aware reconnect links.
+- Show typed StepPlan task progress and terminal outcomes on GUI Trial status
+  and result-detail pages, including failed-task evidence and legacy-session
+  unsupported handling.
 
 ### Fixed
 

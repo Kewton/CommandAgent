@@ -6,6 +6,7 @@ import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
 import { TrialRunIdentity } from "./trial-run-identity";
+import { TrialTaskProgress } from "./trial-task-progress";
 import {
   hasFailureDiagnostics,
   hasVerificationResults,
@@ -64,8 +65,14 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
                   mode="verification"
                   testId="terminal-verification-results"
                 />
-              )}
+            )}
             <TrialRunIdentity identity={session.identity} />
+            <TrialTaskProgress
+              evidenceLoading={evidenceLoading}
+              onOpenEvents={readEvents}
+              progress={session.task_progress}
+              terminal
+            />
             <Link
               className="terminal-history-link"
               data-testid="terminal-session-history-link"

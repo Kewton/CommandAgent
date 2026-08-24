@@ -2983,6 +2983,250 @@ a.runtime-badge:focus-visible {
   color: var(--warning);
 }
 
+.trial-task-progress {
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.trial-task-progress.pending,
+.trial-task-progress.unsupported {
+  padding: 1.1rem 1.25rem;
+}
+
+.trial-task-progress.pending h3,
+.trial-task-progress.unsupported h3,
+.task-progress-heading h3,
+.task-execution h4 {
+  margin: 0;
+}
+
+.trial-task-progress.pending p,
+.trial-task-progress.unsupported p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.trial-task-progress.unsupported strong {
+  color: var(--warning);
+  font-family: var(--mono);
+}
+
+.trial-task-progress.unsupported .inline-action {
+  margin-top: 0.8rem;
+}
+
+.task-progress-heading,
+.task-execution > header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-progress-heading {
+  padding: 1rem 1.25rem;
+}
+
+.task-progress-heading span,
+.task-progress-heading > strong,
+.task-execution > header span,
+.task-execution > header code {
+  color: var(--muted);
+  font: 0.6rem/1.4 var(--mono);
+}
+
+.task-progress-heading span {
+  color: var(--accent-hover);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.task-progress-heading h3 {
+  margin-top: 0.2rem;
+  font-size: 1rem;
+}
+
+.current-task-announcement {
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--line);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font: 650 0.68rem/1.5 var(--mono);
+}
+
+.task-execution {
+  border-top: 1px solid var(--line);
+}
+
+.task-execution > header {
+  padding: 0.85rem 1.25rem;
+  background: var(--surface-soft);
+}
+
+.task-execution h4 {
+  font-size: 0.78rem;
+}
+
+.task-execution > header span {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.task-execution > header code {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-counts,
+.task-unrecorded {
+  margin: 0;
+  padding: 0.65rem 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted-strong);
+  font: 0.62rem/1.5 var(--mono);
+}
+
+.task-unrecorded {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--warning);
+}
+
+.task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-list > li {
+  border-top: 1px solid var(--line);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.25rem;
+}
+
+.task-list details > summary {
+  display: grid;
+  grid-template-columns: 1.2rem 3.25rem minmax(0, 1fr) auto auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-height: 3.25rem;
+  padding: 0 1.25rem;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.64rem;
+  list-style-position: inside;
+}
+
+.task-list details > summary::marker {
+  color: var(--muted);
+}
+
+.task-list summary strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.task-list summary em {
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.task-status-symbol {
+  display: grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font: 700 0.62rem/1 var(--mono);
+}
+
+.task-position {
+  font-family: var(--mono);
+}
+
+.task-list > li[data-status="completed"] .task-status-symbol,
+.task-list > li[data-status="completed"] summary em {
+  color: var(--success);
+}
+
+.task-list > li[data-status="short_circuited"] .task-status-symbol,
+.task-list > li[data-status="short_circuited"] summary em,
+.task-list > li[data-status="running"] .task-status-symbol,
+.task-list > li[data-status="running"] summary em {
+  color: var(--accent-hover);
+}
+
+.task-list > li[data-status="failed"] .task-status-symbol,
+.task-list > li[data-status="failed"] summary em {
+  color: var(--danger);
+}
+
+.task-list > li[data-status="interrupted"] .task-status-symbol,
+.task-list > li[data-status="interrupted"] summary em {
+  color: var(--warning);
+}
+
+.task-detail {
+  padding: 0.9rem 1.25rem 1rem 3.1rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.task-detail dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.task-detail dt {
+  color: var(--muted);
+}
+
+.task-detail dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+}
+
+.task-detail > div,
+.task-failure-summary {
+  margin: 0.75rem 0 0;
+}
+
+.task-detail ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.task-failure-summary {
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.task-evidence-link {
+  margin-top: 0.8rem;
+}
+
+.verdict-card > .trial-task-progress {
+  margin: 1.25rem -1.25rem 0;
+}
+
 .execution-panel footer {
   display: flex;
   gap: 1rem;
@@ -3727,6 +3971,35 @@ a.runtime-badge:focus-visible {
 
   .execution-panel footer code {
     max-width: 100%;
+  }
+
+  .task-progress-heading,
+  .task-execution > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .task-execution > header code {
+    max-width: 100%;
+  }
+
+  .task-list details > summary {
+    grid-template-columns: 1.2rem 3.25rem minmax(0, 1fr);
+    gap: 0.45rem;
+    padding: 0.65rem 1rem;
+  }
+
+  .task-list summary em,
+  .task-list summary > span:nth-of-type(3) {
+    grid-column: 3;
+  }
+
+  .task-detail {
+    padding: 0.85rem 1rem;
+  }
+
+  .task-detail dl {
+    grid-template-columns: 1fr;
   }
 
   .session-list li {
