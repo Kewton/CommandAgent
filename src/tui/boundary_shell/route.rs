@@ -175,6 +175,7 @@ fn deterministic_route_with_top_level_exclusions(
     observe_workspace(&inventory.paths, &mut profiles, &mut observations);
     observe_request(
         request.request,
+        request.explicit.intent.is_none(),
         &mut profiles,
         &mut intents,
         &mut observations,
@@ -323,43 +324,46 @@ fn observe_workspace(
 
 fn observe_request(
     request: &str,
+    infer_intent: bool,
     profiles: &mut BTreeSet<String>,
     intents: &mut BTreeSet<String>,
     observations: &mut Vec<RouteBasis>,
 ) {
     let lower = request.to_ascii_lowercase();
     let compact = lower.split_whitespace().collect::<String>();
-    insert_on_tokens(
-        &compact,
-        &["作成", "作って", "生成", "build", "create", "make"],
-        "create",
-        "request.intent.create",
-        intents,
-        observations,
-    );
-    insert_on_tokens(
-        &compact,
-        &["修正", "直して", "repair", "fix"],
-        "fix",
-        "request.intent.fix",
-        intents,
-        observations,
-    );
-    insert_on_tokens(
-        &compact,
-        &[
-            "調査",
-            "診断",
-            "原因",
+    if infer_intent {
+        insert_on_tokens(
+            &compact,
+            &["作成", "作って", "生成", "build", "create", "make"],
+            "create",
+            "request.intent.create",
+            intents,
+            observations,
+        );
+        insert_on_tokens(
+            &compact,
+            &["修正", "直して", "repair", "fix"],
+            "fix",
+            "request.intent.fix",
+            intents,
+            observations,
+        );
+        insert_on_tokens(
+            &compact,
+            &[
+                "調査",
+                "診断",
+                "原因",
+                "investigate",
+                "diagnose",
+                "reproduce",
+            ],
             "investigate",
-            "diagnose",
-            "reproduce",
-        ],
-        "investigate",
-        "request.intent.investigate",
-        intents,
-        observations,
-    );
+            "request.intent.investigate",
+            intents,
+            observations,
+        );
+    }
     insert_on_tokens(
         &compact,
         &["snapshot", "スナップショット", "htmlから", "イベント一覧"],
@@ -679,6 +683,30 @@ mod tests {
             DeterministicResolution::ContradictoryExplicitBinding
         );
         assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn explicit_intent_is_not_reinferred_from_conflicting_request_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = deterministic_route(RouteRequest {
+            request: "Create a fix for the Next.js compile error",
+            workspace: dir.path(),
+            explicit: ExplicitRouteBinding {
+                profile: Some(ProfileId::Nextjs),
+                intent: Some(IntentId::Fix),
+                family: None,
+            },
+        });
+
+        assert_eq!(result.resolution, DeterministicResolution::Unique);
+        assert_eq!(result.candidates[0].intent, IntentId::Fix);
+        assert_eq!(result.candidates[0].family, TaskFamilyId::CompileErrorFix);
+        assert!(
+            result
+                .observations
+                .iter()
+                .all(|basis| !basis.rule.starts_with("request.intent."))
+        );
     }
 
     #[test]

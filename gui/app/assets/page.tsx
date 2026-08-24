@@ -132,7 +132,7 @@ export default function AssetsPage() {
                   <footer>
                     <PackMemberPresence name="assist.yaml" present={pack.has_assist} />
                     <PackMemberPresence name="eval.yaml" present={pack.has_eval} />
-                    {pack.trial_eligible && pack.intent === "create" && (
+                    {pack.trial_eligible && pack.intent !== null && (
                       <a
                         className="pack-trial-link"
                         data-testid="pack-trial-link"

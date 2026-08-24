@@ -379,6 +379,12 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "trialOptions.providers.map",
         "data-testid=\"trial-provider\"",
         "data-testid=\"trial-planner-provider\"",
+        "data-testid=\"trial-intent\"",
+        "<option value=\"\">自動判定</option>",
+        "<option value=\"create\">作成</option>",
+        "<option value=\"fix\">修正</option>",
+        "<option value=\"investigate\">調査</option>",
+        "update(\"intent\"",
         "update(\"provider\", event.target.value)",
         "update(\"planner_provider\", event.target.value)",
         "data-testid=\"trial-think\"",
@@ -455,8 +461,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     );
     assert_eq!(
         source.matches("disabled={launchIdentityLocked}").count(),
-        4,
-        "goal, token, and both model controls must share the run-stage lock"
+        5,
+        "goal, token, intent, and both model controls must share the run-stage lock"
     );
     assert_eq!(
         source
@@ -1108,7 +1114,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "{pack.source_label}",
         "{pack.expected_hash ?? \"未固定\"}",
         "{pack.observed_hash ?? \"算出不可\"}",
-        "pack.trial_eligible && pack.intent === \"create\"",
+        "pack.trial_eligible && pack.intent !== null",
         "トライアルで使う",
         "routePath(\"try\")",
     ] {
@@ -1122,8 +1128,9 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
     for required in [
         "packPreselectionApplied",
         "new URLSearchParams(window.location.search).get(\"pack\")",
-        "candidate.intent === \"create\"",
-        "profile: option.profile, pack: selector",
+        "intent: option.intent",
+        "field === \"profile\" || field === \"intent\"",
+        "option.intent === (spec.intent ?? \"create\")",
     ] {
         assert!(
             trial.contains(required),
@@ -1136,8 +1143,11 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "probeExtensionCatalog(page)",
         "probeTrialComposeRegression(",
         "proposalBody.pack === null",
-        "incompatiblePack.warning.includes(\"このパックは現在のプロファイル / 目的では選べません。\")",
-        "incompatibleCatalogLinkHidden",
+        "explicitBody.intent === \"fix\"",
+        "!(\"intent\" in proposalBody)",
+        "compatibleInvestigateOptions.includes(investigateSelector)",
+        "intentChangeClearedPack",
+        "profileChangeClearedPack",
         "sourceLabels.includes(\"承認済み\")",
         "sourceLabels.includes(\"リポジトリ（未承認）\")",
         "selectedPack === selector",
@@ -1175,7 +1185,7 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
     let wizard = std::fs::read_to_string("gui/components/pack-wizard.tsx").unwrap();
     for required in [
         "対象セル",
-        "intent === \"create\" ? (",
+        "const exampleAvailable = profile === \"nextjs\" && intent === \"create\";",
         "出発点",
         "編集",
         "検証",

@@ -35,6 +35,10 @@ export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
         <dd><code data-testid="trial-run-identity-profile">{identity.profile}</code></dd>
       </div>
       <div>
+        <dt>実行目的</dt>
+        <dd><code data-testid="trial-run-identity-intent">{identity.intent}</code></dd>
+      </div>
+      <div>
         <dt>パック</dt>
         <dd><code data-testid="trial-run-identity-pack">{pack}</code></dd>
       </div>

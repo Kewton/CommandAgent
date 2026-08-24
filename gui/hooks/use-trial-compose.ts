@@ -25,6 +25,7 @@ import type {
   CreatedSession,
   PackOptions,
   SessionSpec,
+  TrialIntent,
   TrialOptions,
   TrialWorkspaceLease,
 } from "../lib/types";
@@ -39,6 +40,7 @@ type UseTrialComposeProps = {
 const initialSpec: SessionSpec = {
   goal: "",
   profile: "python-cli",
+  intent: null,
   provider: "ollama",
   model: "",
   planner_provider: "ollama",
@@ -111,12 +113,16 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
     packPreselectionApplied.current = true;
     const selector = new URLSearchParams(window.location.search).get("pack");
     const option = packOptions.packs.find(
-      (candidate) =>
-        candidate.intent === "create" && `${candidate.id}@${candidate.version}` === selector,
+      (candidate) => `${candidate.id}@${candidate.version}` === selector,
     );
     if (selector === null) return;
     if (option !== undefined) {
-      setSpec((current) => ({ ...current, profile: option.profile, pack: selector }));
+      setSpec((current) => ({
+        ...current,
+        profile: option.profile,
+        intent: option.intent,
+        pack: selector,
+      }));
       return;
     }
     setSpec((current) => ({ ...current, pack: null }));
@@ -148,7 +154,9 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => {
-      if (field === "profile") return { ...current, profile: value as string, pack: null };
+      if (field === "profile" || field === "intent") {
+        return { ...current, [field]: value as string | TrialIntent | null, pack: null };
+      }
       if (field === "provider" || field === "planner_provider") {
         const next = { ...current, [field]: value as string };
         return next.provider === "ollama" || next.planner_provider === "ollama"
@@ -271,7 +279,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
   const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
   const compatiblePacks = packOptions?.packs.filter(
-    (option) => option.profile === spec.profile && option.intent === "create",
+    (option) => option.profile === spec.profile && option.intent === (spec.intent ?? "create"),
   ) ?? [];
   const selectedPack = compatiblePacks.find(
     (option) => `${option.id}@${option.version}` === spec.pack,

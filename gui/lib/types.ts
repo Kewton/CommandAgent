@@ -54,10 +54,12 @@ export type PackSummary = {
 };
 
 export type OllamaThink = "true" | "false" | "low" | "medium" | "high";
+export type TrialIntent = "create" | "fix" | "investigate";
 
 export type SessionSpec = {
   goal: string;
   profile: string;
+  intent: TrialIntent | null;
   provider: string;
   model: string;
   planner_provider: string;
@@ -70,7 +72,7 @@ export type PackOption = {
   id: string;
   version: string;
   profile: string;
-  intent: string;
+  intent: TrialIntent;
   hash: string;
   point: string;
   source: "admitted" | "repository" | "local";
@@ -102,7 +104,7 @@ export type ConfirmationIdentity = {
   request: string;
   workspace: string;
   profile: string;
-  intent: string;
+  intent: TrialIntent;
   task_family: string;
   route_bases: string[];
   contract_ref: string;

@@ -11,9 +11,16 @@ database.
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **トライアル** and enter a goal, admitted or extension-root draft
-profile, execution/planning providers, and exact executor/planner model IDs.
+profile, execution intent, execution/planning providers, and exact
+executor/planner model IDs.
 Goal and model fields start empty so a demo request cannot be delegated
 accidentally.
+
+**実行目的** offers **自動判定**, **作成**, **修正**, and **調査**. Automatic
+detection preserves the historical request-word inference path. The other
+choices send the typed `create`, `fix`, or `investigate` value to Gate 1;
+request wording cannot replace that explicit choice. Gate 1 displays and
+freezes the effective value before delegation to CLI `--intent`.
 
 The browser obtains profiles/providers from `GET api/trial-options` and
 admitted plus conformant pinned local packs from `GET api/pack-options`.
@@ -43,8 +50,11 @@ action.
 For a compatible admitted profile/intent, the selector shows exact
 `id@version` pack choices and their supply source. A selected pack adds its
 version, exact-byte hash, injection point, and source to Gate 1. Changing the
-pack invalidates the card hash and requires a fresh confirmation. Draft
-profiles cannot select packs and never inherit admission from local supply.
+profile or intent clears an incompatible pack as well as the proposal and
+confirmation check. Changing the pack invalidates the card hash and requires a
+fresh confirmation. A pack handoff from **拡張** selects its matching profile
+and intent, including compatible fix/investigate packs. Draft profiles cannot
+select packs and never inherit admission from local supply.
 
 The **LM Studio** choice maps to `lm-studio` for the corresponding
 `--provider` or `--planner-provider` CLI flag. Enter the exact model identifier
@@ -82,6 +92,10 @@ separate. Transient monitoring failures use capped backoff while the delegated
 CLI may continue. The browser elapsed clock is an observation, and the
 measured mean shown beside it is a comparison, not an ETA. `Phase x / N` is
 shown only when file-backed phase evidence has a nonzero total.
+
+The confirmed intent is shown with the other launch identity fields. It is not
+editable after Gate 1, and reconnect restores it from the persisted
+confirmation rather than re-running request inference.
 
 Use recent events and artifact browsing for bounded, read-only evidence. There
 is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
