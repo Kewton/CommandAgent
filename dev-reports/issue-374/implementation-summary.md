@@ -61,3 +61,18 @@ Delegated arguments and event bytes, Gate 1 confirmation, active leases,
 Origin validation, artifact/event read-only guards, public projection
 redaction, honest-failure and acceptance semantics, event schemas, and the
 live `.anvil/` namespace are unchanged.
+
+## Dependency CI-fix propagation
+
+Merged Issue #370 dependency head `9e8e178b`, including the Issue #369
+CI-race fix `f0fb9ccf`. The deterministic typed-intent fixture still creates
+an empty delegated-argument file before writing it, and the test still waits
+for the Trial workspace lease to become idle before asserting the complete
+intent, executor, and planner argument pairs.
+
+The merge retained the Issue #374 authenticated path, traversal/symlink
+rejection, delegated working-directory equality, and browser lifecycle tests
+without conflict. One inherited smoke assertion still expected the pre-Issue
+#370 `/try/` heading. It now expects the verified `トライアル実行指示`
+heading; this is the only source change in the propagation follow-up. No
+production, endpoint, authentication, or filesystem behavior changed.

@@ -2496,7 +2496,7 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
     let cli = temp.path().join("intent-commandagent");
     std::fs::write(
         &cli,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprofile=unknown\nprevious=\nfor argument in \"$@\"; do\n  if [ \"$previous\" = \"--profile\" ]; then profile=$argument; fi\n  previous=$argument\ndone\nprintf '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"%s\",\"assurance_level\":\"full\"}\\n' \"$profile\" > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+        "#!/bin/sh\nargs_path=\"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\n: > \"$args_path\"\nsleep 0.1\nprintf '%s\\n' \"$@\" > \"$args_path\"\nprofile=unknown\nprevious=\nfor argument in \"$@\"; do\n  if [ \"$previous\" = \"--profile\" ]; then profile=$argument; fi\n  previous=$argument\ndone\nprintf '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"%s\",\"assurance_level\":\"full\"}\\n' \"$profile\" > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
     )
     .unwrap();
     let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
@@ -2564,19 +2564,6 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
         assert_eq!(created.status, 202, "{}: {}", intent, created.body);
         let id = created.json()["id"].as_str().unwrap().to_string();
         let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !args_path.is_file() {
-            assert!(Instant::now() < deadline, "{intent} delegate did not start");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let delegated_args = std::fs::read_to_string(&args_path).unwrap();
-        let delegated_args = delegated_args.lines().collect::<Vec<_>>();
-        assert!(
-            delegated_args
-                .windows(2)
-                .any(|arguments| arguments == ["--intent", intent]),
-            "{delegated_args:?}"
-        );
         let status = server.request("GET", &format!("/api/sessions/{id}"), None);
         assert_eq!(status.status, 200, "{}", status.body);
         assert_eq!(status.json()["identity"]["intent"], intent);
@@ -2593,6 +2580,27 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
                 "{intent} delegate did not finish"
             );
             std::thread::sleep(Duration::from_millis(20));
+        }
+
+        assert!(
+            args_path.is_file(),
+            "{intent} delegate completed without recording arguments"
+        );
+        let delegated_args = std::fs::read_to_string(&args_path).unwrap();
+        let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+        for expected in [
+            ["--intent", intent],
+            ["--provider", "ollama"],
+            ["--model", "fixture-executor"],
+            ["--planner-provider", "ollama"],
+            ["--planner-model", "fixture-planner"],
+        ] {
+            assert!(
+                delegated_args
+                    .windows(2)
+                    .any(|arguments| arguments == expected),
+                "missing {expected:?} in {delegated_args:?}"
+            );
         }
     }
 
