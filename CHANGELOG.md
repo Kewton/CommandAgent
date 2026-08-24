@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Redesign GUI Overview as a product landing page for the verified-result flow,
+  honest safety principles, first use, extension boundaries, and live readiness.
 - Define the GUI extension boundary as four dependent layers, with consistent
   source/status/hash/assurance metadata, safe registration routes, and
   synchronized English/Japanese guidance.
@@ -24,6 +26,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Show typed StepPlan task progress and terminal outcomes on GUI Trial status
   and result-detail pages, including failed-task evidence and legacy-session
   unsupported handling.
+- Show and copy the delegated GUI Trial working directory on live and result
+  pages, separately from run records, through a token-authenticated path API.
 
 ### Fixed
 

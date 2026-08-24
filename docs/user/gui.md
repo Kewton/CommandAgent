@@ -7,6 +7,18 @@ anchors remain here and point to their current owners.
 Start with [GUI getting started](getting-started-gui.md). For the complete
 reader map, see the [documentation index](../README.md#end-user-guides).
 
+## Overview landing page
+
+Moved to [GUI getting started — Overview landing page](getting-started-gui.md#overview-landing-page).
+
+## Goal to verified result
+
+Moved to [GUI getting started — Goal to verified result](getting-started-gui.md#goal-to-verified-result).
+
+## Live readiness and session state
+
+Moved to [GUI getting started — Live readiness and session state](getting-started-gui.md#live-readiness-and-session-state).
+
 ## Prerequisites
 
 Moved to [GUI getting started — Prerequisites](getting-started-gui.md#prerequisites).

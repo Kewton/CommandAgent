@@ -100,6 +100,14 @@ async function probeLifecycle(browser, origin, basePath) {
   const taskPayloadsBounded =
     liveTaskPayloadBytes < 128 * 1024 && terminalTaskPayloadBytes < 128 * 1024;
   assert(taskPayloadsBounded, "100-task polling projection exceeded 128 KiB");
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value) => { window.__commandagentCopiedPath = value; },
+      },
+    });
+  });
   let indexSessions = [];
   let indexCalls = 0;
   let runtimeCalls = 0;
@@ -108,7 +116,9 @@ async function probeLifecycle(browser, origin, basePath) {
   let runtimeSession = null;
   let failNextIndex = false;
   let terminalReleased = false;
+  let workspaceState = "available";
   const sessionRequests = [];
+  const sessionPathRequests = [];
 
   page.on("request", (request) => {
     if (!isRuntimeStatusRequest(request)) return;
@@ -194,6 +204,16 @@ async function probeLifecycle(browser, origin, basePath) {
         } else {
           await json(route, 200, runningSession(createdSessionId));
         }
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${createdSessionId}/paths`) &&
+        method === "GET"
+      ) {
+        const requestRecord = { authorization, method, pathname };
+        sessionRequests.push(requestRecord);
+        sessionPathRequests.push(requestRecord);
+        await json(route, 200, sessionPaths(createdSessionId, workspaceState));
         return;
       }
       if (pathname.endsWith(`/api/sessions/${createdSessionId}/artifacts`)) {
@@ -285,6 +305,10 @@ async function probeLifecycle(browser, origin, basePath) {
     assertIncludes(liveTaskText, "タスク 100 / 100", "current task position");
     const liveTaskCount = await page.locator("[data-testid='task-progress'] .task-list > li").count();
     assert(liveTaskCount === 100, `live task projection rendered ${liveTaskCount} tasks`);
+    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
+    const launchWorkingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
     const launchUrl = new URL(page.url());
     const launchNavigatedToStatus =
       launchUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
@@ -310,6 +334,10 @@ async function probeLifecycle(browser, origin, basePath) {
       (pathname) => window.location.pathname === pathname,
       new URL(`${prefix}try/history/detail/`, origin).pathname,
     );
+    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
+    const terminalWorkingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
     const detailUrl = new URL(page.url());
     const statusNavigatedToDetail =
       detailUrl.pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
@@ -470,6 +498,10 @@ async function probeLifecycle(browser, origin, basePath) {
       reconnectLink.click(),
     ]);
     await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
+    const historyDetailWorkingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
     const automaticReconnectRestoredResult =
       new URL(page.url()).pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
       new URL(page.url()).searchParams.get("session") === createdSessionId;
@@ -491,9 +523,66 @@ async function probeLifecycle(browser, origin, basePath) {
     );
     await page.locator("[data-testid='trial-token']").fill(trialToken);
     await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
     const reconnectRequests = sessionRequests.slice(requestOffset);
     const reconnectGetOnly =
       reconnectRequests.length > 0 && reconnectRequests.every((request) => request.method === "GET");
+
+    const copyButton = page.locator("[data-testid='copy-working-directory']");
+    await copyButton.focus();
+    const copyButtonKeyboardFocused = await copyButton.evaluate(
+      (button) => document.activeElement === button,
+    );
+    await copyButton.press("Enter");
+    await page.waitForFunction(
+      (expected) => window.__commandagentCopiedPath === expected,
+      launchWorkingDirectory,
+    );
+    const copyAnnouncement = await page
+      .locator("[data-testid='trial-copy-announcement']")
+      .evaluate((node) => ({
+        aria_atomic: node.getAttribute("aria-atomic"),
+        aria_live: node.getAttribute("aria-live"),
+        text: node.textContent?.trim(),
+      }));
+    const copyKeyboardAndLiveRegion =
+      copyButtonKeyboardFocused &&
+      copyAnnouncement.aria_atomic === "true" &&
+      copyAnnouncement.aria_live === "polite" &&
+      copyAnnouncement.text === "作業ディレクトリのパスをクリップボードにコピーしました。";
+    const recordPathsText = await page.locator("[data-testid='trial-run-record-paths']").innerText();
+    const workingAndRecordsAreDistinct =
+      recordPathsText.includes("実行記録の保存先（作業ディレクトリとは別）") &&
+      recordPathsText.includes("events.jsonl") &&
+      recordPathsText.includes("summary.md") &&
+      !recordPathsText.includes(launchWorkingDirectory);
+
+    workspaceState = "missing";
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-session-paths'][data-state='missing']").waitFor();
+    const missingWorkspaceText = await page
+      .locator("[data-testid='trial-working-directory-missing']")
+      .innerText();
+    const missingWorkspaceIsExplicit =
+      missingWorkspaceText.includes("削除済み") &&
+      missingWorkspaceText.includes("生成コードや実行対象が残っている状態ではありません");
+    const missingWorkingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileWorkspaceFits = await page.locator("[data-testid='trial-session-paths']").evaluate(
+      (node) => node.scrollWidth <= node.clientWidth && document.documentElement.scrollWidth <= innerWidth,
+    );
+    const workspacePathConsistent =
+      launchWorkingDirectory === terminalWorkingDirectory &&
+      terminalWorkingDirectory === historyDetailWorkingDirectory &&
+      historyDetailWorkingDirectory === missingWorkingDirectory;
+    const pathRequestsAreAuthenticatedGetOnly =
+      sessionPathRequests.length >= 4 &&
+      sessionPathRequests.every(
+        (request) =>
+          request.method === "GET" && request.authorization === `Bearer ${trialToken}`,
+      );
 
     const runtimeBadgeReconnect = await probeRuntimeBadgeReconnect(
       browser,
@@ -538,6 +627,17 @@ async function probeLifecycle(browser, origin, basePath) {
       visibility_revalidated: visibilityRevalidated,
       reconnect_requests: reconnectRequests,
       reconnect_get_only: reconnectGetOnly,
+      launch_working_directory: launchWorkingDirectory,
+      terminal_working_directory: terminalWorkingDirectory,
+      history_detail_working_directory: historyDetailWorkingDirectory,
+      workspace_path_consistent: workspacePathConsistent,
+      path_requests: sessionPathRequests,
+      path_requests_authenticated_get_only: pathRequestsAreAuthenticatedGetOnly,
+      copy_keyboard_and_live_region: copyKeyboardAndLiveRegion,
+      copy_announcement: copyAnnouncement,
+      working_and_records_are_distinct: workingAndRecordsAreDistinct,
+      missing_workspace_is_explicit: missingWorkspaceIsExplicit,
+      mobile_workspace_fits: mobileWorkspaceFits,
       automatic_reconnect_restored_result: automaticReconnectRestoredResult,
       rejected_token_removed: rejectedTokenRemoved,
       runtime_badge_navigated: runtimeBadgeReconnect.navigated,
@@ -547,6 +647,12 @@ async function probeLifecycle(browser, origin, basePath) {
       ok:
         noPeriodicIndexPolling &&
         reconnectGetOnly &&
+        workspacePathConsistent &&
+        pathRequestsAreAuthenticatedGetOnly &&
+        copyKeyboardAndLiveRegion &&
+        workingAndRecordsAreDistinct &&
+        missingWorkspaceIsExplicit &&
+        mobileWorkspaceFits &&
         automaticReconnectRestoredResult &&
         rejectedTokenRemoved &&
         runtimeMaxConcurrentRequests === 1 &&
@@ -617,6 +723,14 @@ async function probeRouteOwnership(browser, origin, basePath) {
             ? legacyTerminalSession(existingSessionId)
             : runningSession(existingSessionId),
         );
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/paths`) &&
+        method === "GET"
+      ) {
+        requests.push({ method, pathname });
+        await json(route, 200, sessionPaths(existingSessionId));
         return;
       }
       if (
@@ -743,6 +857,14 @@ async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
       if (pathname.endsWith(`/api/sessions/${existingSessionId}`) && method === "GET") {
         requests.push({ method, pathname });
         await json(route, 200, runningSession(existingSessionId));
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/paths`) &&
+        method === "GET"
+      ) {
+        requests.push({ method, pathname });
+        await json(route, 200, sessionPaths(existingSessionId));
         return;
       }
       if (
@@ -907,26 +1029,28 @@ async function probeResourceRevalidation(browser, origin, basePath) {
     });
 
     const prefix = displayBasePath(basePath);
-    await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
-    const retainedRow = page.locator(`.runs-panel .run-row[data-run-id='${retainedRun.id}']`);
-    await retainedRow.waitFor();
+    await page.goto(new URL(`${prefix}runs/`, origin).href, { waitUntil: "networkidle" });
+    const retainedOption = page.locator(`#run-select option[value='${retainedRun.id}']`);
+    await retainedOption.waitFor({ state: "attached" });
     const initialCalls = runsCalls;
 
     failNextRuns = true;
     await setDocumentVisibility(page, "hidden");
     await setDocumentVisibility(page, "visible");
     await waitFor(() => runsCalls > initialCalls, "visible resource revalidation");
-    await page.locator(".runs-panel [role='alert']").waitFor();
-    const failureRetainedPreviousData = (await retainedRow.count()) === 1;
+    await page.locator(".run-picker [role='alert']").waitFor();
+    const failureRetainedPreviousData = (await retainedOption.count()) === 1;
 
     runs = [refreshedRun, retainedRun];
     const beforeFocus = runsCalls;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => runsCalls > beforeFocus, "focused resource revalidation");
-    await page.locator(`.runs-panel .run-row[data-run-id='${refreshedRun.id}']`).waitFor();
+    await page
+      .locator(`#run-select option[value='${refreshedRun.id}']`)
+      .waitFor({ state: "attached" });
     const focusLoadedFreshData =
-      (await page.locator(".runs-panel .run-row").count()) === 2 &&
-      (await page.locator(".runs-panel [role='alert']").count()) === 0;
+      (await page.locator("#run-select option:not([value=''])").count()) === 2 &&
+      (await page.locator(".run-picker [role='alert']").count()) === 0;
 
     return {
       initial_calls: initialCalls,
@@ -1179,6 +1303,21 @@ function taskStatus({ executionId, id, index, status, total }) {
     changed_paths_truncated: false,
     repair_attempts: failed ? 2 : 0,
     failure_summary: failed ? "synthetic verification failed" : interrupted ? "interrupted by user" : null,
+  };
+}
+
+function sessionPaths(id, state = "available") {
+  return {
+    id,
+    working_directory: {
+      path: `/private/tmp/commandagent-gui-trial/sessions/${id}`,
+      state,
+    },
+    run_records: {
+      directory: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}`,
+      events: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/events.jsonl`,
+      summary: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/summary.md`,
+    },
   };
 }
 

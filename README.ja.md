@@ -36,6 +36,15 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
   <img src="docs/assets/demo/gui-demo.gif" alt="CommandAgent 管理 GUI の実録: サンプル目標、Gate 1 カード、実行中の phase、結果" width="900">
 </p>
 
+GUI の **概要** は製品のランディングページです。**Goal → 実行前確認 →
+計画・実装 → 検証・修復 → 検証済み結果または正直な失敗**の流れを示し、
+local-first、Gate 1、限定された書き込み、evidence、
+[4 つの拡張レイヤー](docs/guide/ja/extensions.md)を説明してから、実データの
+準備状態と active session を表示します。`/try/` で開始し、`/try/status/` で
+実行中を確認し、`/try/history/` で履歴を探し、`/try/history/detail/` で終端
+evidence を読みます。能力マップ／band と repository run 一覧は、それぞれ
+**計測**と**リポジトリ実行記録**の担当ページに置きます。
+
 撮影方法と `scripts/demo/` による再生成手順は[録画メモ](docs/assets/ux-demo.md)に
 あります。同じ画面を順に追う[チュートリアル](docs/guide/ja/tutorial.md)も用意
 しました。`commandagent --ux-demo` は完全オフラインの scripted walkthrough として
@@ -117,7 +126,8 @@ CLI は次の順路で進めてください。各レイヤから次のレイヤ�
 ほかの入口:
 
 - [GUI 入門](docs/user/getting-started-gui.md) — セットアップ状態、サンプル
-  Trial、Gate 1、分離された実行状況・履歴・結果ページ
+  Trial、Gate 1、分離された実行状況・履歴・結果ページ、コピー可能な
+  セッション作業ディレクトリ
 - [拡張](docs/guide/ja/extensions.md) — 4 レイヤー、pack/profile の供給、
   境界付き draft profile 登録、assurance 境界、非公開拡張からレビューまで。
   [供給ライフサイクル詳細](docs/user/gui-extensions.md)
