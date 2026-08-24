@@ -1699,3 +1699,18 @@ runtime-status、static projectionには追加しない。session ID検証、run
 各directoryのnon-symlink canonical confinement、execution root外拒否を維持し、
 endpointは再作成・削除・lease変更を行わない。既存Origin検証、read-only guard、
 confirmation/event/acceptance schema、`.anvil/` namespaceは不変である。
+
+## GUI-376 — Trial のPlanタスク進捗・結果（Issue #376、2026-08-25）
+
+Issue #375のschema v1 `plan_step_started`／`plan_step_completed`／
+`plan_step_failed`だけから、GUI session statusへtask projectionを加法追加した。
+`plan_execution_id`ごとに実行区間を分離し、`step_execution_id`ごとにtaskを対応付けるため、
+追加依頼と初回実行、または同名Step IDを誤統合しない。成功、short-circuit、失敗、中断は
+typed terminal fieldだけで決まり、phase完了や後続event順から成功を推測しない。
+
+statusは現在phase／task／位置と100 task級の折り畳み一覧、結果詳細は全typed terminal taskを
+表示する。FAILEDは自動展開し、失敗理由、検証失敗、変更path、`events.jsonl`導線を示す。
+旧terminal sessionまたは不完全contractは`unsupported`として成功件数を出さない。history行は
+GUI-370のcompact要約を維持する。pollingはraw eventsではなくbounded fieldだけを返し、既存
+ETag／304を維持する。root／proxyのbrowser smokeでdirect reload、再接続、100 task、2実行区間、
+keyboard、heading、`aria-expanded`、非色依存label、mobile幅を確認する。

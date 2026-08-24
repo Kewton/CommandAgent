@@ -8,6 +8,7 @@ import {
 } from "../lib/format";
 import type { MonitorStatus } from "../lib/trial-monitor";
 import { TrialRunIdentity } from "./trial-run-identity";
+import { TrialTaskProgress } from "./trial-task-progress";
 
 export function TrialGateTwo({ run }: { run: TrialRunState }) {
   const {
@@ -92,6 +93,14 @@ export function TrialGateTwo({ run }: { run: TrialRunState }) {
           </div>
         ))}
       </div>
+      {session !== null && (
+        <TrialTaskProgress
+          evidenceLoading={evidenceLoading}
+          onOpenEvents={readEvents}
+          progress={session.task_progress}
+          terminal={false}
+        />
+      )}
       <footer>
         <div className="execution-receipt">
           <code>{session?.events_path ?? created.events_path}</code>

@@ -2608,6 +2608,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "id",
             "identity",
             "phases",
+            "task_progress",
             "next_action",
             "section5",
             "started_epoch_seconds",
@@ -2644,6 +2645,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         proposal_json["identity"]["pack"]
     );
     assert_eq!(status_json["phases"][0]["status"], "completed");
+    assert_eq!(status_json["task_progress"]["status"], "unsupported");
+    assert_eq!(
+        status_json["task_progress"]["executions"],
+        serde_json::json!([])
+    );
     assert!(
         status_json["acceptance_sheet"]
             .as_str()

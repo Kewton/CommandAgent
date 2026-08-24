@@ -215,6 +215,39 @@ export type PhaseStatus = {
   status: string;
 };
 
+export type PlanTaskStatus = {
+  step_execution_id: string;
+  step_index: number;
+  total_steps: number;
+  step_id: string;
+  step_kind: string;
+  status: "running" | "completed" | "short_circuited" | "failed" | "interrupted";
+  outcome: string | null;
+  verification_status: string | null;
+  verification_failure_count: number;
+  verification_failures: string[];
+  verification_failures_truncated: boolean;
+  changed_path_count: number;
+  changed_paths: string[];
+  changed_paths_truncated: boolean;
+  repair_attempts: number;
+  failure_summary: string | null;
+};
+
+export type PlanTaskExecution = {
+  execution_index: number;
+  plan_execution_id: string;
+  mode: string;
+  phase_id: string | null;
+  total_steps: number;
+  tasks: PlanTaskStatus[];
+};
+
+export type TaskProgress = {
+  status: "pending" | "supported" | "unsupported";
+  executions: PlanTaskExecution[];
+};
+
 export type FailureDiagnostics = {
   stop_reason: string | null;
   release_gate_reasons: string[];
@@ -239,6 +272,7 @@ export type PolledSession = {
   failure_diagnostics?: FailureDiagnostics;
   next_action: string | null;
   phases: PhaseStatus[];
+  task_progress: TaskProgress;
   event_count: number;
   acceptance_sheet: string | null;
   section5: string | null;
