@@ -1,5 +1,6 @@
 pub mod adjudication;
 pub mod capability_catalog;
+pub(crate) mod completion_contract_path;
 pub mod contract_attribute_repair;
 pub(crate) mod declarative_command_checks;
 pub mod extension_profiles;

@@ -73,7 +73,8 @@ The extension root must not be the Trial execution root.
 Each confirmed Trial runs with `<execution-root>/sessions/<session-id>/` as
 both its process working directory and CLI `--cwd`. Generated source plus that
 workspace's `.commandagent/plans`, `evidence`, and `repairs` stay below the
-session directory; they are never shared at the execution-root top level.
+session directory. Automatically generated completion contracts follow the
+same boundary; these products are never shared at the execution-root top level.
 Confirmations, `events.jsonl`, `summary.md`, and directive state remain in the
 central `<execution-root>/.commandagent/runs/<session-id>/` record used by the
 GUI APIs. The legacy `.anvil/runs/<session-id>/` location remains read-only

@@ -3894,17 +3894,20 @@ if __name__ == "__main__":
     }
 
     #[test]
-    fn ultra_final_acceptance_binds_generated_completion_contract() {
+    fn isolated_ultra_run_binds_generated_completion_contract_inside_its_workspace() {
         let dir = tempfile::tempdir().unwrap();
-        let events = dir.path().join("events.jsonl");
-        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        let workspace = dir.path().join("sessions/session");
+        let run = dir.path().join(".commandagent/runs/session");
+        let events = run.join("events.jsonl");
+        std::fs::create_dir_all(workspace.join("src/app")).unwrap();
+        std::fs::create_dir_all(&run).unwrap();
         std::fs::write(
-            dir.path().join("package.json"),
+            workspace.join("package.json"),
             r#"{"scripts":{"build":"next build"},"dependencies":{"next":"latest","react":"latest","react-dom":"latest"}}"#,
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("src/app/page.tsx"),
+            workspace.join("src/app/page.tsx"),
             r#""use client";
 import { useEffect, useState } from "react";
 export default function Page(){
@@ -3933,7 +3936,7 @@ export default function Page(){
 "#,
         )
         .unwrap();
-        let mut cfg = config(dir.path().to_path_buf());
+        let mut cfg = config(workspace.clone());
         cfg.profile = "nextjs".to_string();
         cfg.eval_events_path = Some(events.clone());
         let plan = UltraPlan {
@@ -3954,9 +3957,12 @@ export default function Page(){
         assert!(event_text.contains("\"completion_contract_verification_enabled\":true"));
         assert!(event_text.contains("\"external_contract_checked\":true"));
         assert!(event_text.contains("\"completion_contract_generated\":true"));
+        assert!(event_text.contains(
+            "\"completion_contract_path\":\".commandagent/completion-contract-ultra-plan-run.json\""
+        ));
         assert!(
-            dir.path()
-                .join("completion-contract-ultra-plan-run.json")
+            workspace
+                .join(".commandagent/completion-contract-ultra-plan-run.json")
                 .is_file()
         );
     }

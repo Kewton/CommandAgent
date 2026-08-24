@@ -2525,14 +2525,11 @@ pub(super) fn generated_completion_contract_path(config: &Config, scope: &str) -
             .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
             .collect::<String>()
     );
-    if let Some(parent) = config
-        .eval_events_path
-        .as_ref()
-        .and_then(|path| path.parent())
-    {
-        return parent.join(filename);
-    }
-    crate::runtime_paths::workspace_dir(&config.workspace_root).join(filename)
+    crate::planner::completion_contract_path::generated_path(
+        &config.workspace_root,
+        config.eval_events_path.as_deref(),
+        &filename,
+    )
 }
 
 pub(super) fn display_path_for_event(root: &Path, path: &Path) -> String {
