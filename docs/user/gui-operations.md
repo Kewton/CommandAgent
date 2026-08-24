@@ -69,7 +69,7 @@ Evidence routes are same-origin GET requests below the configured base path:
 | `api/bands`, `api/maps`, `api/maps/score-time.svg` | measured-band and score/time projections |
 | `api/packs`, `api/contracts`, `api/suites` | resolved pack catalog and reviewed documents |
 | `api/reports`, `api/reports/view?path=…` | measurement report archive |
-| `api/runtime-status` | Trial readiness, authentication mode, and lease state |
+| `api/runtime-status` | Trial readiness, extension-root state, authentication mode, and lease state |
 
 Paths are canonicalized below inventory roots, listing does not follow
 symlinks, and individual text views are capped at 1 MiB.
