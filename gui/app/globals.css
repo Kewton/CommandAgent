@@ -1894,6 +1894,111 @@ a.runtime-badge:focus-visible {
   grid-column: 1 / -1;
 }
 
+.trial-session-paths {
+  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.trial-session-paths-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.trial-working-directory {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.85rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.trial-path-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted-strong);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.trial-working-directory code,
+.trial-run-record-paths code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font: 0.64rem/1.45 var(--mono);
+}
+
+.trial-path-state {
+  padding: 0.3rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.trial-path-state.available {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.trial-path-state.missing {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.trial-path-missing {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.65rem;
+}
+
+.trial-run-record-paths {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+
+.trial-run-record-paths > strong {
+  font-size: 0.65rem;
+}
+
+.trial-run-record-paths dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.7rem 0 0;
+}
+
+.trial-run-record-paths dl > div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.65rem;
+}
+
+.trial-run-record-paths dt {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.trial-run-record-paths dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.trial-copy-announcement {
+  min-height: 1.2em;
+  margin: 0.55rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.62rem;
+}
+
 .trial-history-surface {
   margin-bottom: 1rem;
 }
@@ -3779,6 +3884,23 @@ a.runtime-badge:focus-visible {
     grid-template-columns: 1fr;
     align-items: stretch;
     padding: 1rem;
+  }
+
+  .trial-session-paths {
+    padding: 1rem;
+  }
+
+  .trial-working-directory,
+  .trial-run-record-paths dl > div {
+    grid-template-columns: 1fr;
+  }
+
+  .trial-path-state {
+    justify-self: start;
+  }
+
+  .trial-working-directory button {
+    width: 100%;
   }
 
   .session-file-actions {

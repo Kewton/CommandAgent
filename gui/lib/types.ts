@@ -165,6 +165,19 @@ export type CreatedSession = {
   events_path: string;
 };
 
+export type SessionPathProjection = {
+  id: string;
+  working_directory: {
+    path: string;
+    state: "available" | "missing";
+  };
+  run_records: {
+    directory: string;
+    events: string;
+    summary: string;
+  };
+};
+
 export type TrialWorkspaceLease =
   | { status: "idle" }
   | { status: "running"; session_id: string }

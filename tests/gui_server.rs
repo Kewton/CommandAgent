@@ -1909,7 +1909,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\nprintf '%s\\n' \"$@\" > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\npwd -P > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-cwd.txt\"\nprintf '%s\\n' \"$@\" > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
@@ -2083,6 +2083,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     confirmed["confirmation_hash"] = serde_json::Value::String(card_hash.to_string());
     let created = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(created.status, 202, "{}", created.body);
+    assert!(
+        !created.body.contains(execution_root_text.as_ref()),
+        "{}",
+        created.body
+    );
     let created_json: serde_json::Value = serde_json::from_str(&created.body).unwrap();
     let id = created_json["id"].as_str().unwrap();
     let started_epoch_seconds = created_json["started_epoch_seconds"].as_u64().unwrap();
@@ -2106,6 +2111,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let index = server.request("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);
+    assert!(
+        !index.body.contains(execution_root_text.as_ref()),
+        "{}",
+        index.body
+    );
     let index: serde_json::Value = serde_json::from_str(&index.body).unwrap();
     assert_eq!(index["lease"]["status"], "running");
     assert_eq!(index["lease"]["session_id"], id);
@@ -2182,6 +2192,12 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     .unwrap();
     let delegated_args = delegated_args.lines().collect::<Vec<_>>();
     let session_workspace = workspace.join("sessions").join(id).canonicalize().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(delegated_events.parent().unwrap().join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        session_workspace.to_string_lossy()
+    );
     assert!(!delegated_args.contains(&"--yes"), "{delegated_args:?}");
     assert!(
         delegated_args
@@ -2202,6 +2218,30 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(delegated_args.windows(2).any(|arguments| {
         arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
     }));
+    let session_paths = server.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(session_paths.status, 200, "{}", session_paths.body);
+    assert_eq!(
+        session_paths.header("cache-control"),
+        Some("private, no-store")
+    );
+    let session_paths = session_paths.json();
+    let canonical_run_root = delegated_events.parent().unwrap().canonicalize().unwrap();
+    assert_eq!(session_paths["id"], id);
+    assert_eq!(
+        session_paths["working_directory"],
+        serde_json::json!({
+            "path": session_workspace.to_string_lossy(),
+            "state": "available"
+        })
+    );
+    assert_eq!(
+        session_paths["run_records"],
+        serde_json::json!({
+            "directory": canonical_run_root.to_string_lossy(),
+            "events": canonical_run_root.join("events.jsonl").to_string_lossy(),
+            "summary": canonical_run_root.join("summary.md").to_string_lossy()
+        })
+    );
     let confirmation_root = delegated_events
         .parent()
         .unwrap()
@@ -2644,6 +2684,119 @@ fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
         "{delegated_args}"
     );
     server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn trial_session_paths_are_token_only_confined_and_report_missing_workspaces() {
+    use std::os::unix::fs::symlink;
+
+    const AVAILABLE_ID: &str = "018f0e32-7b80-7000-8000-000000000080";
+    const MISSING_ID: &str = "018f0e32-7b80-7000-8000-000000000081";
+    const SYMLINK_ID: &str = "018f0e32-7b80-7000-8000-000000000082";
+    const OUTSIDE_ID: &str = "018f0e32-7b80-7000-8000-000000000083";
+    const RUN_SYMLINK_ID: &str = "018f0e32-7b80-7000-8000-000000000084";
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let runs_root = runs_dir(&workspace);
+    let sessions_root = workspace.join("sessions");
+    std::fs::create_dir_all(&runs_root).unwrap();
+    std::fs::create_dir_all(&sessions_root).unwrap();
+    for id in [AVAILABLE_ID, MISSING_ID, SYMLINK_ID, OUTSIDE_ID] {
+        std::fs::create_dir(runs_root.join(id)).unwrap();
+    }
+    std::fs::create_dir(sessions_root.join(AVAILABLE_ID)).unwrap();
+
+    let in_root_target = sessions_root.join("real-directory");
+    std::fs::create_dir(&in_root_target).unwrap();
+    symlink(&in_root_target, sessions_root.join(SYMLINK_ID)).unwrap();
+    let outside_workspace = temp.path().join("outside-workspace");
+    std::fs::create_dir(&outside_workspace).unwrap();
+    symlink(&outside_workspace, sessions_root.join(OUTSIDE_ID)).unwrap();
+    let outside_run = temp.path().join("outside-run");
+    std::fs::create_dir(&outside_run).unwrap();
+    symlink(&outside_run, runs_root.join(RUN_SYMLINK_ID)).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let canonical_workspace = workspace.canonicalize().unwrap();
+    let available_path = format!("/api/sessions/{AVAILABLE_ID}/paths");
+    let unauthorized = server.request_without_access("GET", &available_path, None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    assert!(
+        !unauthorized
+            .body
+            .contains(canonical_workspace.to_string_lossy().as_ref())
+    );
+    let wrong_token = server.request_with_access(
+        "GET",
+        &available_path,
+        None,
+        Some("commandagent-gui-test-token-wrong-000000000001"),
+        None,
+    );
+    assert_eq!(wrong_token.status, 401, "{}", wrong_token.body);
+
+    let available = server.request("GET", &available_path, None);
+    assert_eq!(available.status, 200, "{}", available.body);
+    assert_eq!(available.header("cache-control"), Some("private, no-store"));
+    assert_eq!(
+        available.json()["working_directory"],
+        serde_json::json!({
+            "path": canonical_workspace.join("sessions").join(AVAILABLE_ID).to_string_lossy(),
+            "state": "available"
+        })
+    );
+
+    let missing = server.request("GET", &format!("/api/sessions/{MISSING_ID}/paths"), None);
+    assert_eq!(missing.status, 200, "{}", missing.body);
+    assert_eq!(missing.json()["working_directory"]["state"], "missing");
+
+    let invalid = server.request("GET", "/api/sessions/not-a-uuid/paths", None);
+    assert_eq!(invalid.status, 404, "{}", invalid.body);
+    let traversal = server.request("GET", "/api/sessions/%2E%2E/paths", None);
+    assert!(
+        matches!(traversal.status, 400 | 404),
+        "{}: {}",
+        traversal.status,
+        traversal.body
+    );
+    for id in [SYMLINK_ID, OUTSIDE_ID, RUN_SYMLINK_ID] {
+        let rejected = server.request("GET", &format!("/api/sessions/{id}/paths"), None);
+        assert_eq!(rejected.status, 404, "{id}: {}", rejected.body);
+        assert!(
+            !rejected
+                .body
+                .contains(temp.path().to_string_lossy().as_ref())
+        );
+    }
+    server.stop();
+
+    let mut unauthenticated_server = Server::start_without_trial_token(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let authentication_required =
+        unauthenticated_server.request_without_access("GET", &available_path, None);
+    assert_eq!(
+        authentication_required.status, 403,
+        "{}",
+        authentication_required.body
+    );
+    assert_error(
+        &authentication_required,
+        "trial_path_authentication_required",
+        "absolute session paths require Trial token authentication",
+    );
+    assert!(
+        !authentication_required
+            .body
+            .contains(canonical_workspace.to_string_lossy().as_ref())
+    );
+    unauthenticated_server.stop();
 }
 
 #[cfg(unix)]

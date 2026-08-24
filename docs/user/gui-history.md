@@ -26,6 +26,14 @@ plans, evidence, repairs, and completion contracts live in
 earlier session workspaces, and a continuation returns to the same session
 workspace rather than the execution-root top level.
 
+Opening a terminal row's **結果詳細** shows these locations as separate
+fields. The absolute CLI working directory can be copied there and is the same
+path used by delegated `current_dir` and `--cwd`; the run-record directory,
+`events.jsonl`, and `summary.md` remain clearly labeled as records. A deleted
+working directory is marked **削除済み** instead of implying that generated
+artifacts remain. Absolute paths come only from the Trial-token-authenticated,
+GET-only `api/sessions/{id}/paths` endpoint.
+
 ## Session rows and refresh
 
 Entering or restoring a complete token loads up to 100 confirmed Trial run

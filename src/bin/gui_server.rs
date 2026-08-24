@@ -388,6 +388,7 @@ fn dashboard_router() -> Router<AppState> {
             get(session_index::list).post(delegate::create),
         )
         .route("/api/sessions/{id}", get(sessions::status))
+        .route("/api/sessions/{id}/paths", get(session_paths::get))
         .route(
             "/api/sessions/{id}/artifacts",
             get(session_files::artifacts),

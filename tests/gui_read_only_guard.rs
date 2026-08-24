@@ -1761,6 +1761,67 @@ fn trial_session_files_are_get_only_authenticated_views() {
 }
 
 #[test]
+fn trial_session_paths_are_dedicated_authenticated_and_copyable() {
+    let entry = std::fs::read_to_string(SERVER_ROOT_MODULE).unwrap();
+    assert!(entry.contains(".route(\"/api/sessions/{id}/paths\", get(session_paths::get))"));
+    assert!(!entry.contains("post(session_paths::get)"));
+
+    let paths = std::fs::read_to_string(SESSION_PATHS_MODULE).unwrap();
+    for required in [
+        "state.trial_access.authentication_enabled()",
+        "trial_path_authentication_required",
+        "require_trial(&state, &headers, false)",
+        "require_session_id(&id)",
+        "SessionPaths::existing(&workspace, &id)",
+        "execution_workspace_state()",
+        "std::fs::symlink_metadata",
+        "require_canonical_real_directory",
+        "WorkingDirectoryState::Missing",
+        "HeaderValue::from_static(\"private, no-store\")",
+    ] {
+        assert!(
+            paths.contains(required),
+            "session path projection is missing {required:?}"
+        );
+    }
+
+    let component = std::fs::read_to_string("gui/components/trial-session-paths.tsx").unwrap();
+    for required in [
+        "fetchSessionPaths(token, sessionId)",
+        "navigator.clipboard.writeText(path)",
+        "aria-live=\"polite\"",
+        "data-testid=\"copy-working-directory\"",
+        "data-testid=\"trial-working-directory-state\"",
+        "この作業ディレクトリは削除済みです",
+        "実行記録の保存先（作業ディレクトリとは別）",
+        "paths.run_records.events",
+        "paths.run_records.summary",
+    ] {
+        assert!(
+            component.contains(required),
+            "session path UI is missing {required:?}"
+        );
+    }
+    let run = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
+    assert!(run.contains("surface === \"status\" || surface === \"detail\""));
+    assert!(run.contains("<TrialSessionPaths"));
+
+    for public_projection in [
+        "src/bin/gui_server/delegate.rs",
+        "src/bin/gui_server/sessions.rs",
+        "src/bin/gui_server/session_index.rs",
+        "src/bin/gui_server/public_projection.rs",
+        "src/bin/gui_server/runtime_status.rs",
+    ] {
+        let source = std::fs::read_to_string(public_projection).unwrap();
+        assert!(
+            !source.contains("WorkingDirectoryProjection"),
+            "{public_projection} exposes the dedicated absolute path projection"
+        );
+    }
+}
+
+#[test]
 fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(entry.contains("get(session_index::list).post(delegate::create)"));
@@ -2104,6 +2165,7 @@ fn trial_ui_sources() -> String {
         "gui/components/trial-gate-two.tsx",
         "gui/components/trial-page-nav.tsx",
         "gui/components/trial-run.tsx",
+        "gui/components/trial-session-paths.tsx",
         "gui/components/trial-terminal.tsx",
         "gui/hooks/use-trial-compose.ts",
         "gui/hooks/use-trial-monitor.ts",

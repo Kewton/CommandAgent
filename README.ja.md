@@ -117,7 +117,8 @@ CLI は次の順路で進めてください。各レイヤから次のレイヤ�
 ほかの入口:
 
 - [GUI 入門](docs/user/getting-started-gui.md) — セットアップ状態、サンプル
-  Trial、Gate 1、分離された実行状況・履歴・結果ページ
+  Trial、Gate 1、分離された実行状況・履歴・結果ページ、コピー可能な
+  セッション作業ディレクトリ
 - [拡張](docs/user/gui-extensions.md) — pack/profile の供給、ライフサイクル、
   命名、非公開拡張からレビューまで
 

@@ -8,6 +8,7 @@ import { TrialCompose } from "./trial-compose";
 import { TrialGateOne } from "./trial-gate-one";
 import { TrialGateTwo } from "./trial-gate-two";
 import { TrialSessionIndexPanel } from "./trial-session-index";
+import { TrialSessionPaths } from "./trial-session-paths";
 import { TrialTerminal, terminalHeading } from "./trial-terminal";
 
 const trialStages = [
@@ -21,9 +22,11 @@ export function TrialRun({ surface }: { surface: TrialRoute }) {
   const run = useTrialRun(terminalHeading, { loadComposeOptions: surface === "compose" });
   const {
     created, error, errorReconnectSessionId, reconnectExisting, rejectTrialToken,
-    session, setWorkspaceLease, stage, trialToken,
+    reconnectSessionId, session, setWorkspaceLease, stage, trialToken,
+    trialTokenAuthEnabled,
   } = run;
   const sessionId = session?.id ?? created?.id ?? null;
+  const pathSessionId = sessionId ?? (reconnectSessionId.trim() || null);
   useTrialPageRouting(surface, stage, sessionId);
   const displayedStage = surface === "status" && stage === "compose"
     ? "gate_2"
@@ -77,6 +80,14 @@ export function TrialRun({ surface }: { surface: TrialRoute }) {
         data-testid="trial-active-stage"
       >
         {surface !== "compose" && <TrialAccessPanel purpose={surface} run={run} />}
+        {(surface === "status" || surface === "detail") && (
+          <TrialSessionPaths
+            accessToken={trialToken}
+            authenticationEnabled={trialTokenAuthEnabled}
+            onAccessTokenRejected={rejectTrialToken}
+            sessionId={pathSessionId}
+          />
+        )}
         {surface === "compose" && stage !== "compose" && error !== null && (
           <div className="trial-error trial-stage-error" role="alert">
             <p>{error}</p>

@@ -9,6 +9,7 @@ import type {
   PolledSession,
   PackOptions,
   SessionProposal,
+  SessionPathProjection,
   SessionSpec,
   TrialIntent,
   TrialOptions,
@@ -116,6 +117,19 @@ export async function fetchSessionArtifacts(
   return fetchJson<DocumentSummary[]>(
     apiPath(`sessions/${encodeURIComponent(sessionId)}/artifacts`),
     { headers: trialAuthorizationHeaders(token) },
+  );
+}
+
+export async function fetchSessionPaths(
+  token: string,
+  sessionId: string,
+): Promise<SessionPathProjection> {
+  return fetchJson<SessionPathProjection>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/paths`),
+    {
+      cache: "no-store",
+      headers: trialAuthorizationHeaders(token),
+    },
   );
 }
 

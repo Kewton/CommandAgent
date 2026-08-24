@@ -117,6 +117,31 @@ confirmation rather than re-running request inference.
 Use recent events and artifact browsing for bounded, read-only evidence. There
 is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
 
+### Working directory and run records
+
+As soon as a launch reaches **実行状況**, the page shows the absolute
+**CLI 作業ディレクトリ** used for both the delegated process `current_dir`
+and its explicit `--cwd` argument. The same panel remains on terminal
+**結果詳細** and is restored when that result is opened from history. Use
+**パスをコピー** to put the exact value on the clipboard; the button supports
+normal keyboard activation and announces success or failure to assistive
+technology.
+
+Do not confuse this directory with the adjacent **実行記録の保存先**.
+Generated code and execution targets belong below
+`<execution-root>/sessions/<session-id>/`. CLI-owned records such as
+`events.jsonl` and `summary.md` belong below the separately displayed run
+record directory. If the working directory was removed after the run, the
+panel keeps the historical path visible but marks it **削除済み** and states
+that generated code or execution targets are no longer present.
+
+Absolute paths are intentionally absent from create/status/index, public
+artifact/event, runtime-status, and static projections. Only the GET-only
+`api/sessions/{id}/paths` endpoint returns them, and that endpoint refuses to
+operate unless Trial token authentication is enabled and the valid token is
+supplied. Invalid IDs, traversal forms, symlinks, and paths resolving outside
+the configured execution root are rejected.
+
 ### Gate 3/4: read the result
 
 At terminal state the browser moves from **実行状況** to the session's
@@ -144,7 +169,8 @@ is placed in the query string. A legacy `try/?session=<id>` deep link reads the
 session and replaces itself with the correct status or detail route.
 
 A same-tab reload restores the base-path-scoped `sessionStorage` token and
-**Reconnect monitoring** calls only `GET api/sessions/{id}`. A separately
+**Reconnect monitoring** calls only `GET api/sessions/{id}` plus the dedicated
+authenticated `GET api/sessions/{id}/paths` projection. A separately
 opened tab can reconnect after entering its own runtime token. The elapsed
 clock resumes from the server-owned session start and the measured mean is
 restored from the confirmed band, so neither value resets after reload.
