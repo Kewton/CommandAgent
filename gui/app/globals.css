@@ -1891,6 +1891,30 @@ a.runtime-badge:focus-visible {
   margin-bottom: 1rem;
 }
 
+.trial-role-fields {
+  min-width: 0;
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.trial-role-fields legend {
+  padding: 0 0.35rem;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.trial-role-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  min-width: 0;
+}
+
 .trial-field-hint,
 .trial-model-warning {
   font-size: 0.65rem;
@@ -3343,7 +3367,8 @@ a.runtime-badge:focus-visible {
   .measure-map,
   .gate-one-grid,
   .terminal-grid,
-  .trial-fields {
+  .trial-fields,
+  .trial-role-controls {
     grid-template-columns: 1fr;
   }
 

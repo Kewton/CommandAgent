@@ -37,8 +37,10 @@ server setting and grants no authority.
    the executor and planner model IDs empty.
 2. If token authentication is on, enter the runtime-only **Trial access token**.
    It is tab-scoped; it is never placed in the URL or static export.
-3. Enter exact model IDs for the selected provider. Changing the provider does
-   not rewrite the model pins.
+3. In each **Executor / 実行** and **Planner / 計画** group, select the provider
+   and enter its exact model ID. Each pair shares one row on desktop; on mobile,
+   the model immediately follows its provider. Changing either provider does
+   not rewrite the corresponding model pin.
 4. Leave **実行目的** at **自動判定** for request-word compatibility, or
    explicitly select **作成**, **修正**, or **調査**. An explicit choice is
    frozen at Gate 1 even when the goal contains words associated with another

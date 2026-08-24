@@ -377,8 +377,12 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
+        "<fieldset className=\"trial-role-fields\" data-testid=\"trial-executor-role\">",
+        "<legend>Executor / 実行</legend>",
         "data-testid=\"trial-provider\"",
         "data-testid=\"trial-planner-provider\"",
+        "<fieldset className=\"trial-role-fields\" data-testid=\"trial-planner-role\">",
+        "<legend>Planner / 計画</legend>",
         "data-testid=\"trial-intent\"",
         "<option value=\"\">自動判定</option>",
         "<option value=\"create\">作成</option>",
@@ -552,6 +556,9 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "emptyGoalGuidance.includes(\"目標を入力してください\")",
         "selectOption(\"lm-studio\")",
         "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
+        "probeTrialRoleLayouts(page)",
+        "providerChangesPreserveModels",
+        "roleLayouts.ok",
         "terminalTitle === expectedTerminalTitle",
         "!terminalTitle.includes(\"✔\")",
         "code: \"trial_workspace_running\"",
@@ -739,6 +746,15 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     assert!(styles.contains(
         ".trial-compose > textarea,\n  .trial-compose > input {\n    width: calc(100% - 2rem);"
     ));
+    assert!(styles.contains(".trial-role-fields {\n  min-width: 0;\n  grid-column: 1 / -1;"));
+    assert!(styles.contains(
+        ".trial-role-controls {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));"
+    ));
+    assert!(
+        styles.contains(
+            "  .trial-fields,\n  .trial-role-controls {\n    grid-template-columns: 1fr;"
+        )
+    );
     assert!(styles.contains(
         ".session-index,\n.session-list li,\n.gate-one-grid,\n.execution-panel,\n.terminal-grid {\n  scroll-margin-top: 4.5rem;"
     ));
