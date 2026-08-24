@@ -101,6 +101,10 @@ fn verify_step_short_circuits_when_expected_path_and_verify_already_pass() {
     assert!(event_text.contains("\"event\":\"step_short_circuited\""));
     assert!(event_text.contains("\"at\":\"start\""));
     assert!(event_text.contains("\"step_id\":\"verify-existing\""));
+    assert!(event_text.contains("\"event\":\"plan_step_started\""));
+    assert!(event_text.contains("\"event\":\"plan_step_completed\""));
+    assert!(event_text.contains("\"terminal_status\":\"skipped\""));
+    assert!(event_text.contains("\"outcome\":\"short_circuited\""));
 }
 
 #[test]
