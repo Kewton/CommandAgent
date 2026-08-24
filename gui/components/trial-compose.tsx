@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import type { TrialRunState } from "../hooks/use-trial-run";
 import { apiPath } from "../lib/base-path";
-import type { OllamaThink, TrialWorkspaceLease } from "../lib/types";
+import type { OllamaThink, TrialIntent, TrialWorkspaceLease } from "../lib/types";
 
 const localModelProviders = new Set(["ollama", "lm-studio"]);
 
@@ -127,6 +127,26 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
               )}
             </small>
           )}
+        </label>
+        <label>
+          実行目的
+          <select
+            data-testid="trial-intent"
+            disabled={launchIdentityLocked}
+            value={spec.intent ?? ""}
+            onChange={(event) => {
+              setRequestedPack(null);
+              update("intent", (event.target.value || null) as TrialIntent | null);
+            }}
+          >
+            <option value="">自動判定</option>
+            <option value="create">作成</option>
+            <option value="fix">修正</option>
+            <option value="investigate">調査</option>
+          </select>
+          <small className="trial-field-hint">
+            自動判定は依頼文から推論します。明示した目的は Gate 1 で固定されます。
+          </small>
         </label>
         <label>
           検証パック

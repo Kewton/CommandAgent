@@ -10,6 +10,7 @@ import type {
   PackOptions,
   SessionProposal,
   SessionSpec,
+  TrialIntent,
   TrialOptions,
   TrialSessionIndex,
   TrialWorkspaceLease,
@@ -53,7 +54,7 @@ export async function proposeSession(
   return fetchJson<SessionProposal>(apiPath("session-proposals"), {
     method: "POST",
     headers: trialAuthorizationHeaders(token, true),
-    body: JSON.stringify(spec),
+    body: JSON.stringify(sessionRequestSpec(spec)),
   });
 }
 
@@ -65,8 +66,15 @@ export async function createSession(
   return fetchJson<CreatedSession>(apiPath("sessions"), {
     method: "POST",
     headers: trialAuthorizationHeaders(token, true),
-    body: JSON.stringify({ ...spec, confirmation_hash: confirmationHash }),
+    body: JSON.stringify({ ...sessionRequestSpec(spec), confirmation_hash: confirmationHash }),
   });
+}
+
+function sessionRequestSpec(spec: SessionSpec): Omit<SessionSpec, "intent"> & {
+  intent?: TrialIntent;
+} {
+  const { intent, ...request } = spec;
+  return intent === null ? request : { ...request, intent };
 }
 
 export async function createDirective(

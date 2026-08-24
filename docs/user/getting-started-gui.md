@@ -39,17 +39,21 @@ server setting and grants no authority.
    It is tab-scoped; it is never placed in the URL or static export.
 3. Enter exact model IDs for the selected provider. Changing the provider does
    not rewrite the model pins.
-4. Select **契約と見積りを確認**. This asks the server for a Gate 1 card; it
+4. Leave **実行目的** at **自動判定** for request-word compatibility, or
+   explicitly select **作成**, **修正**, or **調査**. An explicit choice is
+   frozen at Gate 1 even when the goal contains words associated with another
+   intent.
+5. Select **契約と見積りを確認**. This asks the server for a Gate 1 card; it
    does not launch the CLI.
-5. Read the goal, profile, intent, models, pack version/hash/source, write
+6. Read the goal, profile, intent, models, pack version/hash/source, write
    boundary, and every required check. The app reminder is explicit:
    **Gate 1 は CLI 実行前の確認です**.
-6. Select the confirmation checkbox only when the card is correct, then choose
+7. Select the confirmation checkbox only when the card is correct, then choose
    **確認して CLI を実行**. The server independently requires the exact card
    hash and enforces the single-workspace lease.
-7. During **実行**, read execution state separately from monitoring health.
+8. During **実行**, read execution state separately from monitoring health.
    A lost browser connection does not imply that the CLI stopped.
-8. Under **結果**, inspect verdict, assurance, status, recent events, and
+9. Under **結果**, inspect verdict, assurance, status, recent events, and
    artifacts as separate facts. Gate 4 means preserve the evidence and choose
    a recovery action; it does not authorize weaker verification.
 

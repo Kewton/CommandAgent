@@ -2021,7 +2021,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     "lm-studio": ["lm-studio-planner-model", "lm-studio-second-model"],
     ollama: ["ollama-executor-model", "ollama-second-model"],
   };
-  const incompatibleSelector = "synthetic-fix-only@1.0.0";
+  const fixSelector = "synthetic-fix-only@1.0.0";
+  const investigateSelector = "synthetic-investigate-only@1.0.0";
   const providerRequests = [];
   try {
     await page.route("**/api/provider-models?*", async (route) => {
@@ -2064,6 +2065,25 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         version: "1.0.0",
         warning: null,
       });
+      packs.push({
+        expected_hash: "sha256:synthetic-investigate-only",
+        has_assist: true,
+        has_eval: true,
+        hash_matches_pin: true,
+        id: "synthetic-investigate-only",
+        intent: "investigate",
+        observed_hash: "sha256:synthetic-investigate-only",
+        path: "synthetic/synthetic-investigate-only/1.0.0",
+        pin: "sha256:synthetic-investigate-only",
+        profile: "data",
+        retired: false,
+        shadowing_repository: false,
+        source: "local",
+        source_label: "ローカル（合成テスト）",
+        trial_eligible: true,
+        version: "1.0.0",
+        warning: null,
+      });
       await route.fulfill({ response, json: packs });
     });
     await page.route("**/api/pack-options", async (route) => {
@@ -2079,28 +2099,87 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         source_label: "ローカル（合成テスト）",
         version: "1.0.0",
       });
+      options.packs.push({
+        hash: "sha256:synthetic-investigate-only",
+        id: "synthetic-investigate-only",
+        intent: "investigate",
+        point: "synthetic-investigate",
+        profile: "data",
+        source: "local",
+        source_label: "ローカル（合成テスト）",
+        version: "1.0.0",
+      });
       await route.fulfill({ response, json: options });
+    });
+    await page.route("**/api/session-proposals", async (route) => {
+      const request = route.request();
+      const body = request.postDataJSON();
+      if (body.intent !== "fix") {
+        await route.continue();
+        return;
+      }
+      const proposal = syntheticProposal();
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          ...proposal,
+          card_hash: `sha256:${"5".repeat(64)}`,
+          card_markdown: "# Synthetic Gate 1\n\n- 作業種別: Web アプリ × 既存機能を修正 (fix)",
+          identity: {
+            ...proposal.identity,
+            request: body.goal,
+            profile: "nextjs",
+            intent: "fix",
+            task_family: "compile_error_fix",
+          },
+        }),
+      });
     });
 
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(`${prefix}assets/`, origin).href, { waitUntil: "networkidle" });
     const incompatibleRow = page
       .locator("[data-testid='extension-pack-row']")
-      .filter({ hasText: incompatibleSelector });
+      .filter({ hasText: fixSelector });
     await incompatibleRow.waitFor();
-    const incompatibleCatalogLinkHidden =
-      (await incompatibleRow.locator("[data-testid='pack-trial-link']").count()) === 0;
+    const fixCatalogLinkVisible =
+      (await incompatibleRow.locator("[data-testid='pack-trial-link']").count()) === 1;
 
     const trialUrl = new URL(`${prefix}try/`, origin);
-    trialUrl.searchParams.set("pack", incompatibleSelector);
+    trialUrl.searchParams.set("pack", fixSelector);
     await page.goto(trialUrl.href, { waitUntil: "networkidle" });
-    const packWarning = page.locator("[data-testid='trial-pack-preselection-warning']");
-    await packWarning.waitFor();
-    const incompatiblePack = {
+    await page.waitForFunction(
+      (selector) =>
+        document.querySelector("[data-testid='trial-pack']")?.value === selector &&
+        document.querySelector("[data-testid='trial-intent']")?.value === "fix",
+      fixSelector,
+    );
+    const intentOptions = await page.locator("[data-testid='trial-intent'] option").evaluateAll(
+      (options) => options.map((option) => ({ label: option.textContent, value: option.value })),
+    );
+    const compatibleFixOptions = await page.locator("[data-testid='trial-pack'] option").evaluateAll(
+      (options) => options.map((option) => option.value),
+    );
+    const fixPack = {
       selected_value: await page.locator("[data-testid='trial-pack']").inputValue(),
       profile: await page.locator("[data-testid='trial-profile']").inputValue(),
-      warning: await packWarning.innerText(),
+      intent: await page.locator("[data-testid='trial-intent']").inputValue(),
     };
+    await page.locator("[data-testid='trial-intent']").selectOption("investigate");
+    const intentChangeClearedPack =
+      await page.locator("[data-testid='trial-pack']").inputValue() === "";
+    await page.locator("[data-testid='trial-profile']").selectOption("data");
+    await page.locator(`[data-testid='trial-pack'] option[value='${investigateSelector}']`).waitFor({
+      state: "attached",
+    });
+    const compatibleInvestigateOptions = await page
+      .locator("[data-testid='trial-pack'] option")
+      .evaluateAll((options) => options.map((option) => option.value));
+    await page.locator("[data-testid='trial-pack']").selectOption(investigateSelector);
+    await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
+    const profileChangeClearedPack =
+      await page.locator("[data-testid='trial-pack']").inputValue() === "";
 
     const executorDatalist = page.locator("#trial-executor-provider-model-options option");
     const plannerDatalist = page.locator("#trial-planner-provider-model-options option");
@@ -2156,7 +2235,9 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       )) === JSON.stringify(discoveredModels["lm-studio"]);
     const cloudProviderSkippedDiscovery = !providerRequests.includes("openai");
 
-    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
+    await page.locator("[data-testid='trial-intent']").selectOption("fix");
+    await page.locator("[data-testid='trial-goal']").fill("Create a fix for the Next.js compile error");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const requestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -2167,17 +2248,61 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
     });
     await page.locator("[data-testid='check-contract']").click();
-    const [proposalRequest, proposalResponse] = await Promise.all([
+    const [explicitRequest, explicitResponse] = await Promise.all([
       requestPromise,
       responsePromise,
     ]);
-    const proposalBody = proposalRequest.postDataJSON();
-    const incompatiblePackNormalized =
-      incompatiblePack.selected_value === "" &&
-      incompatiblePack.profile === "python-cli" &&
-      incompatiblePack.warning.includes("このパックは現在のプロファイル / 目的では選べません。") &&
+    const explicitBody = explicitRequest.postDataJSON();
+    const explicitGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='gate-one-edit']").click();
+    await page.locator("[data-testid='trial-profile']").selectOption("python-cli");
+    await page.locator("[data-testid='trial-intent']").selectOption("");
+    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    const automaticRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return request.method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    const automaticResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    await page.locator("[data-testid='check-contract']").click();
+    const [automaticRequest, automaticResponse] = await Promise.all([
+      automaticRequestPromise,
+      automaticResponsePromise,
+    ]);
+    const proposalBody = automaticRequest.postDataJSON();
+    const automaticGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
+    const confirmationReset = !(await page.locator("[data-testid='gate-one-confirm']").isChecked());
+    const intentSelectionOk =
+      JSON.stringify(intentOptions) === JSON.stringify([
+        { label: "自動判定", value: "" },
+        { label: "作成", value: "create" },
+        { label: "修正", value: "fix" },
+        { label: "調査", value: "investigate" },
+      ]);
+    const compatibleIntentPacks =
+      fixPack.selected_value === fixSelector &&
+      fixPack.profile === "nextjs" &&
+      fixPack.intent === "fix" &&
+      compatibleFixOptions.includes(fixSelector) &&
+      !compatibleFixOptions.includes(investigateSelector) &&
+      compatibleInvestigateOptions.includes(investigateSelector) &&
+      !compatibleInvestigateOptions.includes(fixSelector) &&
+      intentChangeClearedPack &&
+      profileChangeClearedPack;
+    const explicitIntentFrozen =
+      explicitBody.intent === "fix" &&
+      explicitBody.pack === null &&
+      explicitResponse.status() === 200 &&
+      explicitGateOne.includes("修正 (fix)");
+    const automaticIntentCompatible =
+      !("intent" in proposalBody) &&
       proposalBody.pack === null &&
-      proposalResponse.status() === 200;
+      automaticResponse.status() === 200 &&
+      automaticGateOne.includes("新しい機能を作成 (create)") &&
+      confirmationReset;
     const providersSeparated =
       proposalBody.provider === "openai" &&
       proposalBody.planner_provider === "lm-studio";
@@ -2188,23 +2313,30 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       discovered_candidates: candidateValues,
       exact_candidates_clear_warnings: exactCandidatesClearWarnings,
       cloud_provider_allows_manual_entry: cloudProviderAllowsManualEntry,
-      incompatible_catalog_link_hidden: incompatibleCatalogLinkHidden,
-      incompatible_pack: incompatiblePack,
-      incompatible_pack_normalized: incompatiblePackNormalized,
+      automatic_intent_compatible: automaticIntentCompatible,
+      compatible_intent_packs: compatibleIntentPacks,
+      confirmation_reset: confirmationReset,
+      explicit_intent_frozen: explicitIntentFrozen,
+      fix_catalog_link_visible: fixCatalogLinkVisible,
+      fix_pack: fixPack,
+      intent_options: intentOptions,
       input_lists: inputLists,
       proposal_pack: proposalBody.pack,
       proposal_provider: proposalBody.provider,
       proposal_planner_provider: proposalBody.planner_provider,
       proposal_think: proposalBody.think,
-      proposal_status: proposalResponse.status(),
+      proposal_status: automaticResponse.status(),
       provider_requests: providerRequests,
       providers_separated: providersSeparated,
       think_cleared_without_ollama: thinkClearedWithoutOllama,
       planner_candidates_stay_scoped: plannerCandidatesStayScoped,
       unknown_warnings: unknownWarnings,
       ok:
-        incompatibleCatalogLinkHidden &&
-        incompatiblePackNormalized &&
+        fixCatalogLinkVisible &&
+        intentSelectionOk &&
+        compatibleIntentPacks &&
+        explicitIntentFrozen &&
+        automaticIntentCompatible &&
         JSON.stringify(candidateValues.executor) === JSON.stringify(discoveredModels.ollama) &&
         JSON.stringify(candidateValues.planner) === JSON.stringify(discoveredModels["lm-studio"]) &&
         inputLists.executor === "trial-executor-provider-model-options" &&
@@ -2919,6 +3051,7 @@ async function readTrialRunIdentity(page) {
   return {
     goal: await identity.locator("[data-testid='trial-run-identity-goal']").innerText(),
     profile: await identity.locator("[data-testid='trial-run-identity-profile']").innerText(),
+    intent: await identity.locator("[data-testid='trial-run-identity-intent']").innerText(),
     pack: await identity.locator("[data-testid='trial-run-identity-pack']").innerText(),
     executor_model: await identity
       .locator("[data-testid='trial-run-identity-executor-model']")
@@ -2933,6 +3066,7 @@ function syntheticFeedbackIdentityMatches(identity) {
   return (
     identity.goal === "Synthetic Gate 2 feedback probe" &&
     identity.profile === "python-cli" &&
+    identity.intent === "create" &&
     identity.pack === "cli-assist@1.0.0" &&
     identity.executor_model === "ollama / synthetic-model" &&
     identity.planner_model === "ollama / synthetic-model"

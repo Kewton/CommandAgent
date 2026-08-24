@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use commandagent::config::OllamaThink;
+use commandagent::planner::adjudication::contract::IntentId;
 use commandagent::planner::pack::catalog::PackLocator;
 use commandagent::planner::profile_descriptor::descriptor_for_name;
 use commandagent::tui::boundary_shell::BoundaryShell;
@@ -33,6 +34,8 @@ const MAX_FIELD_BYTES: usize = 256;
 pub struct SessionSpec {
     goal: String,
     profile: String,
+    #[serde(default)]
+    intent: Option<IntentId>,
     provider: String,
     model: String,
     planner_provider: String,
@@ -99,6 +102,7 @@ pub(super) fn gate_one(
             workspace,
             explicit: ExplicitRouteBinding {
                 profile: Some(profile),
+                intent: spec.intent,
                 ..ExplicitRouteBinding::default()
             },
         },
@@ -323,6 +327,7 @@ mod tests {
         let spec = SessionSpec {
             goal: "Inspect the workspace".to_string(),
             profile: "generic".to_string(),
+            intent: None,
             provider: "lm-studio".to_string(),
             model: "qwen/test".to_string(),
             planner_provider: "lm-studio".to_string(),

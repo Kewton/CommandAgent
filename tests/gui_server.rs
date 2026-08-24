@@ -2443,6 +2443,135 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
 #[cfg(unix)]
 #[test]
+fn typed_trial_intents_are_validated_frozen_and_delegated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("intent-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprofile=unknown\nprevious=\nfor argument in \"$@\"; do\n  if [ \"$previous\" = \"--profile\" ]; then profile=$argument; fi\n  previous=$argument\ndone\nprintf '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"%s\",\"assurance_level\":\"full\"}\\n' \"$profile\" > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let automatic = session_spec();
+    let automatic_proposal = server.request("POST", "/api/session-proposals", Some(&automatic));
+    assert_eq!(
+        automatic_proposal.status, 200,
+        "{}",
+        automatic_proposal.body
+    );
+    assert_eq!(automatic_proposal.json()["identity"]["intent"], "create");
+    let mut explicit_null = automatic;
+    explicit_null["intent"] = serde_json::Value::Null;
+    let explicit_null_proposal =
+        server.request("POST", "/api/session-proposals", Some(&explicit_null));
+    assert_eq!(
+        explicit_null_proposal.status, 200,
+        "{}",
+        explicit_null_proposal.body
+    );
+    assert_eq!(explicit_null_proposal.body, automatic_proposal.body);
+
+    for (intent, profile, goal) in [
+        (
+            "create",
+            "python-cli",
+            "Fix wording while creating a CLI --pattern filter command",
+        ),
+        (
+            "fix",
+            "nextjs",
+            "Create a fix for the Next.js compile error",
+        ),
+        (
+            "investigate",
+            "data",
+            "Fix and investigate the data pipe failure",
+        ),
+    ] {
+        let mut spec = session_spec();
+        spec["goal"] = serde_json::json!(goal);
+        spec["profile"] = serde_json::json!(profile);
+        spec["intent"] = serde_json::json!(intent);
+        let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+        assert_eq!(proposal.status, 200, "{}: {}", intent, proposal.body);
+        let proposal = proposal.json();
+        assert_eq!(proposal["identity"]["intent"], intent);
+        assert!(
+            proposal["identity"]["route_bases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|basis| !basis.as_str().unwrap().starts_with("request.intent.")),
+            "{}",
+            proposal["identity"]["route_bases"]
+        );
+
+        let mut confirmed = spec;
+        confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+        let created = server.request("POST", "/api/sessions", Some(&confirmed));
+        assert_eq!(created.status, 202, "{}: {}", intent, created.body);
+        let id = created.json()["id"].as_str().unwrap().to_string();
+        let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !args_path.is_file() {
+            assert!(Instant::now() < deadline, "{intent} delegate did not start");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let delegated_args = std::fs::read_to_string(&args_path).unwrap();
+        let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+        assert!(
+            delegated_args
+                .windows(2)
+                .any(|arguments| arguments == ["--intent", intent]),
+            "{delegated_args:?}"
+        );
+        let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+        assert_eq!(status.status, 200, "{}", status.body);
+        assert_eq!(status.json()["identity"]["intent"], intent);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let lease = server.request("GET", "/api/trial-workspace", None);
+            assert_eq!(lease.status, 200, "{}", lease.body);
+            if lease.json()["status"] == "idle" {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{intent} delegate did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    for endpoint in ["/api/session-proposals", "/api/sessions"] {
+        for invalid in [serde_json::json!("unknown"), serde_json::json!(7)] {
+            let mut spec = session_spec();
+            spec["intent"] = invalid;
+            if endpoint == "/api/sessions" {
+                spec["confirmation_hash"] = serde_json::json!(format!("sha256:{}", "0".repeat(64)));
+            }
+            let rejected = server.request("POST", endpoint, Some(&spec));
+            assert!(
+                matches!(rejected.status, 400 | 422),
+                "{endpoint}: {}",
+                rejected.body
+            );
+        }
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
     use std::os::unix::fs::PermissionsExt;
 
