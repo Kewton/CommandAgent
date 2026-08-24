@@ -3,6 +3,7 @@
 import { useState, type KeyboardEvent } from "react";
 
 import { PackWizard } from "../../components/pack-wizard";
+import { ProfileWizard } from "../../components/profile-wizard";
 import { Shell, useShellRuntimeStatus } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { routePath, withBasePath } from "../../lib/base-path";
@@ -228,6 +229,7 @@ function ExtensionCatalog() {
             </div>
             <p>有効な manifest だけを表示します。配置しても admitted にはならず、保証上限は static です。</p>
           </header>
+          <ProfileWizard enabled={extensionRootStatus === "ready"} />
           {options.loading && <LoadingState label="下書きプロファイルを読み込んでいます" />}
           {options.error !== null && <ErrorState message={options.error} />}
           {options.data !== null && draftProfiles.length === 0 && (

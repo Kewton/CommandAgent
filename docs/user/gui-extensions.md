@@ -4,9 +4,9 @@
 [Extension developer catalog](../dev/extension-catalog.md)
 
 This page is for pack/profile extenders. The visible **拡張** screen combines
-the read-only catalog with an authenticated local-pack creation wizard. Every
-mutation still goes through the bounded lifecycle API and its `SupplyRoot`
-write boundary; the browser never writes an extension directory directly.
+the catalogs with authenticated local-pack and draft-profile wizards. Every
+mutation still goes through a bounded leaf supply boundary; the browser never
+writes an extension directory directly.
 
 ## Four extension layers
 
@@ -50,6 +50,29 @@ repository PR.
 Layer 2 is a composition boundary over the Layer 1 closed vocabulary. It is not
 an admission bypass. Gate 1 pins the draft manifest identity, and terminal
 acceptance remains capped at `static / profile_not_admitted`.
+
+## Draft profile registration wizard
+
+The **プロファイル登録ウィザード** is enabled only while the runtime reports a
+ready `--extension-root`. Choose compact manifest v2 or the additive overlay
+contract, then edit the extension-root-relative destination and TOML bytes.
+The server rejects absolute paths, traversal, symlinks, documents above 256
+KiB, unknown fields/capabilities, non-additive overlays, and built-in or
+external profile-ID collisions before creating a managed file.
+
+**保存前に検証** uses the existing parser/validator and returns the effective
+profile ID, normalized relative path, exact-byte hash, `draft / 未承認`, and
+the `static` assurance ceiling. Saving requires an explicit checkbox and sends
+that exact hash back with the same bytes. A changed hash is stale confirmation.
+An existing identical file is idempotent; different content is a conflict and
+is never overwritten.
+
+Successful registration means the bytes and scrubbed journal record were
+saved atomically. It does not mutate the process-lifetime profile registry.
+When `restart_required` is shown, restart the GUI server with the same
+`--extension-root`, confirm the live catalog is **Trial 利用可**, and verify the
+same hash in the Trial candidate and Gate 1. The profile stays draft and the
+acceptance ceiling stays `static / profile_not_admitted` after restart.
 
 ## Contract and Suite references
 
@@ -155,11 +178,15 @@ conformance does not make a local pack admitted.
 ## Extension supply API
 
 Configure a private `--extension-root`. GET routes require Trial
-authentication. POST routes also require same-host or allowlisted Origin, JSON,
-and a complete body no larger than 1 MiB.
+authentication. POST routes also require same-host or allowlisted Origin and
+JSON. Pack requests are capped at 1 MiB; profile documents are capped at 256
+KiB before parser/validator entry.
 
 | Route | Operation |
 | --- | --- |
+| `GET api/extensions/profiles` | List supplied draft profile source, status, exact hash, and current runtime availability. |
+| `POST api/extensions/profiles/preview` | Strictly validate compact manifest v2 or an additive overlay and return its normalized identity. |
+| `POST api/extensions/profiles/register` | Require the previewed exact hash, then atomically create or idempotently confirm the profile document. |
 | `GET api/extensions/packs` | List local packs as `staged`, `pinned`, or `retired` with hash and conformance state. |
 | `GET api/extensions/packs/{id}/{version}` | Return editable UTF-8 members and latest verification. |
 | `POST api/extensions/packs` | Atomically stage members, then verify them. |
@@ -168,10 +195,11 @@ and a complete body no larger than 1 MiB.
 | `POST api/extensions/packs/{id}/{version}/retire` | Create `RETIRED` without deleting evidence. |
 
 There are no PUT, PATCH, DELETE, unretire, or pin-overwrite routes. Stable
-errors distinguish invalid input, failed verification, conflict, and disabled
-extensions. All filesystem changes are delegated to
-`planner::pack::supply::SupplyRoot` and append scrubbed records to
-`journal.jsonl`.
+errors distinguish invalid input, failed verification, stale confirmation,
+conflict, and disabled extensions. All filesystem changes are delegated to
+`planner::pack::supply::SupplyRoot` or
+`planner::profile_manifest::supply::ProfileSupplyRoot` and append scrubbed
+records to `journal.jsonl`.
 
 ## Naming conventions
 

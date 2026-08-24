@@ -1,0 +1,33 @@
+case_id = "issue372-draft-profile-supply"
+source = "Issue 372 bounded GUI draft profile supply fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+extension-root/profiles/neutral-profile/manifest.toml = [
+  "schema_version = \"v2\"",
+  "id = \"scaffold_files_present\""
+]
+extension-root/profiles/nextjs/overlay.toml = [
+  "base_profile = \"nextjs\"",
+  "mode = \"additive\"",
+  "status = \"draft\""
+]

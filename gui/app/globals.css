@@ -1675,6 +1675,100 @@ a.runtime-badge:focus-visible {
   opacity: 0.55;
 }
 
+.profile-wizard-disabled {
+  color: var(--warning) !important;
+  font-weight: 650;
+}
+
+.profile-document-editor,
+.profile-confirmation-check {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.profile-confirmation-check {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding: 0.8rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  line-height: 1.5;
+}
+
+.profile-confirmation-check input {
+  width: 1rem;
+  min-height: 1rem;
+  margin-top: 0.1rem;
+  accent-color: var(--accent);
+  box-shadow: none;
+}
+
+.profile-preview {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.profile-preview > h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.profile-registration-result {
+  margin-top: 1rem;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--success) 35%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.profile-registration-result p {
+  margin: 0.35rem 0;
+}
+
+.profile-registration-result code {
+  overflow-wrap: anywhere;
+}
+
+.profile-supply-catalog {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-soft);
+}
+
+.profile-supply-catalog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.profile-supply-catalog > header small {
+  color: var(--accent-hover);
+  font: 650 0.56rem/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.profile-supply-catalog > header h3 {
+  margin: 0.3rem 0 0;
+  font-size: 0.92rem;
+}
+
+.profile-supply-catalog > header .secondary-action {
+  width: auto;
+  margin: 0;
+}
+
 .pack-wizard-choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
