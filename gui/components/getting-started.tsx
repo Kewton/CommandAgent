@@ -1,71 +1,51 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { useShellRuntimeStatus } from "./shell";
-import { guiBasePath, routePath, withBasePath } from "../lib/base-path";
+import { trialRoutePath, withBasePath } from "../lib/base-path";
 import type { RuntimePrerequisite } from "../lib/types";
-
-const DISMISSED_KEY = `commandagent.gui.getting-started-dismissed:${guiBasePath() || "/"}`;
 
 const prerequisiteLabels = {
   execution_root: "トライアルの作業場所",
+  extension_root: "非公開の拡張ルート",
   commandagent_binary: "CommandAgent CLI",
   trial_authentication: "トライアルアクセス",
 } as const;
 
+const firstUseRoutes = [
+  ["01", "実行指示", "目標を入力し、実行前の Gate 1 を確認します。", "compose"],
+  ["02", "実行状況", "進行中のセッションへ読み取り専用で再接続します。", "status"],
+  ["03", "実行履歴", "開始時刻、状態、profile、目的、pack の要約を探します。", "history"],
+  ["04", "結果詳細", "最終判定、失敗診断、受入シート、イベント、成果物を読みます。", "detail"],
+] as const;
+
 export function GettingStarted() {
   const runtime = useShellRuntimeStatus();
   const runtimeData = runtime?.data ?? null;
-  const [ready, setReady] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    try {
-      setDismissed(window.sessionStorage.getItem(DISMISSED_KEY) === "true");
-    } catch {
-      setDismissed(false);
-    } finally {
-      setReady(true);
-    }
-  }, []);
-
-  if (!ready || dismissed) return null;
-
-  const dismiss = () => {
-    try {
-      window.sessionStorage.setItem(DISMISSED_KEY, "true");
-    } catch {
-      // A blocked storage API must not make the guide impossible to close.
-    }
-    setDismissed(true);
-  };
 
   return (
-    <section className="getting-started panel" data-testid="getting-started">
+    <section
+      aria-labelledby="getting-started-heading"
+      className="getting-started panel"
+      data-testid="getting-started"
+    >
       <header>
         <div>
-          <span className="panel-index">初回案内 / はじめに</span>
-          <h2>最初のトライアルを準備する</h2>
-          <p>前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。</p>
+          <span className="panel-index">FIRST USE / はじめに</span>
+          <h2 id="getting-started-heading">最初のトライアルから結果確認まで</h2>
+          <p>前提を確認し、サンプル目標から実行前確認、進行状況、履歴、結果へ順に進みます。</p>
         </div>
-        <button
-          aria-label="はじめにを閉じる"
-          className="getting-started-close"
-          data-testid="getting-started-close"
-          onClick={dismiss}
-          type="button"
-        >
-          閉じる
-        </button>
       </header>
 
       <div className="getting-started-body">
         <div className="prerequisite-list" data-testid="getting-started-prerequisites">
           <h3>前提チェック</h3>
-          {runtimeData === null ? (
+          {runtime?.failed ? (
+            <p className="source-note" role="status">
+              runtime-status を取得できません。以前の値を準備済みとして扱いません。
+            </p>
+          ) : runtimeData === null ? (
             <p className="source-note">
-              {runtime?.failed ? "runtime-status を取得できません。" : "実行環境を確認中です…"}
+              実行環境を確認中です…
             </p>
           ) : (
             Object.entries(prerequisiteLabels).map(([id, label]) => (
@@ -84,19 +64,31 @@ export function GettingStarted() {
           <a
             className="primary-action"
             data-testid="getting-started-sample"
-            href={withBasePath(`${routePath("try")}?sample=python-cli`)}
+            href={withBasePath(`${trialRoutePath("compose")}?sample=python-cli`)}
           >
             サンプル目標をトライアルに入力
           </a>
         </div>
       </div>
 
+      <nav aria-label="最初のトライアルの確認先" className="getting-started-route-grid">
+        {firstUseRoutes.map(([index, title, detail, route]) => (
+          <a href={withBasePath(trialRoutePath(route))} key={route}>
+            <span>{index}</span>
+            <strong>{title}</strong>
+            <small>{detail}</small>
+          </a>
+        ))}
+      </nav>
+
       <details className="term-help" data-testid="getting-started-terms">
         <summary>用語ヘルプ</summary>
         <dl>
           <div><dt>Gate 1</dt><dd>CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。</dd></div>
           <div><dt>実行ルート</dt><dd>トライアルがファイルを変更できる、専用の作業ディレクトリです。</dd></div>
-          <div><dt>パック</dt><dd>目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。</dd></div>
+          <div><dt>profile</dt><dd>タスク向けの進め方と、最低限必要な検証をまとめたものです。</dd></div>
+          <div><dt>pack</dt><dd>目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。</dd></div>
+          <div><dt>assurance</dt><dd>実際に通った検証と証拠から得る保証水準です。</dd></div>
         </dl>
       </details>
     </section>

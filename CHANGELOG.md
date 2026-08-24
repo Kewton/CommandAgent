@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Redesign GUI Overview as a product landing page for the verified-result flow,
+  honest safety principles, first use, extension boundaries, and live readiness.
 - Define the GUI extension boundary as four dependent layers, with consistent
   source/status/hash/assurance metadata, safe registration routes, and
   synchronized English/Japanese guidance.

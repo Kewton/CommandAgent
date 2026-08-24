@@ -64,8 +64,13 @@ the target vocabulary for those migrations.
 
 | Kind | In-app copy | Source | Document owner |
 | --- | --- | --- | --- |
-| explanation | 前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#はじめに`](getting-started-gui.md#はじめに) |
-| heading | 初回案内 / はじめに | `gui/components/getting-started.tsx` | [`getting-started-gui.md#はじめに`](getting-started-gui.md#はじめに) |
+| heading | 目標を、検証可能なコードに。 | `gui/app/page.tsx` | [`getting-started-gui.md#overview-landing-page`](getting-started-gui.md#overview-landing-page) |
+| principle | 失敗を成功に見せない | `gui/app/page.tsx` | [`getting-started-gui.md#safety-and-honest-results`](getting-started-gui.md#safety-and-honest-results) |
+| heading | Goal から検証済みの結果まで | `gui/app/page.tsx` | [`getting-started-gui.md#goal-to-verified-result`](getting-started-gui.md#goal-to-verified-result) |
+| heading | 4 つのレイヤーで安全に拡張する | `gui/app/page.tsx` | [`gui-extensions.md#four-extension-layers`](gui-extensions.md#four-extension-layers) |
+| status explanation | 装飾ではなく、gui_server が返した実際の準備状態とセッションだけを表示します。 | `gui/app/page.tsx` | [`getting-started-gui.md#live-readiness-and-session-state`](getting-started-gui.md#live-readiness-and-session-state) |
+| explanation | 前提を確認し、サンプル目標から実行前確認、進行状況、履歴、結果へ順に進みます。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#はじめに`](getting-started-gui.md#はじめに) |
+| heading | FIRST USE / はじめに | `gui/components/getting-started.tsx` | [`getting-started-gui.md#はじめに`](getting-started-gui.md#はじめに) |
 | action | サンプル目標をトライアルに入力 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#first-trial-walkthrough`](getting-started-gui.md#first-trial-walkthrough) |
 | term help | CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#terms-shown-in-the-app`](getting-started-gui.md#terms-shown-in-the-app) |
 | term help | トライアルがファイルを変更できる、専用の作業ディレクトリです。 | `gui/components/getting-started.tsx` | [`getting-started-gui.md#terms-shown-in-the-app`](getting-started-gui.md#terms-shown-in-the-app) |

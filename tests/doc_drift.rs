@@ -703,13 +703,38 @@ fn gui_help_map_copy_is_owned_once_and_checked_by_smoke() {
     let smoke = read_repo_file("gui/scripts/smoke.mjs");
     for (source, copy, owner) in [
         (
+            "gui/app/page.tsx",
+            "目標を、検証可能なコードに。",
+            "getting-started-gui.md#overview-landing-page",
+        ),
+        (
+            "gui/app/page.tsx",
+            "失敗を成功に見せない",
+            "getting-started-gui.md#safety-and-honest-results",
+        ),
+        (
+            "gui/app/page.tsx",
+            "Goal から検証済みの結果まで",
+            "getting-started-gui.md#goal-to-verified-result",
+        ),
+        (
+            "gui/app/page.tsx",
+            "4 つのレイヤーで安全に拡張する",
+            "gui-extensions.md#four-extension-layers",
+        ),
+        (
+            "gui/app/page.tsx",
+            "装飾ではなく、gui_server が返した実際の準備状態とセッションだけを表示します。",
+            "getting-started-gui.md#live-readiness-and-session-state",
+        ),
+        (
             "gui/components/getting-started.tsx",
-            "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+            "前提を確認し、サンプル目標から実行前確認、進行状況、履歴、結果へ順に進みます。",
             "getting-started-gui.md#はじめに",
         ),
         (
             "gui/components/getting-started.tsx",
-            "初回案内 / はじめに",
+            "FIRST USE / はじめに",
             "getting-started-gui.md#はじめに",
         ),
         (

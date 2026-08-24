@@ -744,7 +744,7 @@ fn trial_token_storage_is_base_path_scoped_and_non_durable() {
 }
 
 #[test]
-fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
+fn gui_style_and_overview_landing_accessibility_contracts_are_pinned() {
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert_eq!(
         styles.matches(".trial-compose > input,").count(),
@@ -772,50 +772,70 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     for required in [
         ".runtime-summary {\n  flex: 0 0 auto;\n  gap: 0.4rem;\n  white-space: nowrap;",
         ".runtime-badge {\n  flex: 0 0 auto;",
-        ".getting-started-close {\n  flex: 0 0 auto;",
+        ".overview-hero {\n  position: relative;\n  display: grid;",
+        ".overview-hero-actions .primary-action,\n.overview-hero-actions .secondary-action {",
+        ".overview-flow,\n.overview-extension-grid {",
+        ".overview-status-grid article[data-status=\"unavailable\"] > span {",
+        ".getting-started-route-grid {",
         "  .topbar {\n    gap: 0.5rem;",
     ] {
         assert!(
             styles.contains(required),
-            "mobile single-line header contract is missing {required:?}"
+            "Overview responsive or status contract is missing {required:?}"
         );
     }
+    assert!(styles.contains("@media (prefers-reduced-motion: reduce)"));
+    assert!(styles.contains(":focus-visible {\n  outline: 2px solid var(--accent);"));
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
-        "<div className=\"run-table\" role=\"table\" aria-label=\"最近の実行記録\">",
-        "<div role=\"rowgroup\">",
-        "<div className=\"run-table-head\" role=\"row\">",
-        "<span role=\"columnheader\">実行ID</span>",
-        "<div className=\"run-row\" role=\"row\" data-run-id={run.id}",
-        "<strong role=\"cell\"><a href={href}>{run.id}</a></strong>",
-        "<span role=\"cell\">",
-        "useResource<RunIndex>(\"runs\")",
-        "data-testid=\"run-count\"",
-        "data-testid=\"run-total-count\"",
-        "最近の実行記録（一覧に表示中）",
-        "保存済みの実行記録（総数）",
-        "${recentRuns.length} 件",
-        "${runs.data.total} 件",
-        "statusTone(run.state)",
-        "repositoryRunStatusLabel(run.state, run.status_text)",
-        "title={`記録上の状態: ${label}`}",
-        "{label}",
+        "data-testid=\"overview-hero\"",
+        "目標を、検証可能なコードに。",
+        "data-testid=\"overview-trial-cta\"",
+        "data-testid=\"overview-active-session-cta\"",
+        "trialRoutePath(\"status\", activeSession.id)",
+        "安全と検証を先に設計する",
+        "画面で使う 4 つの言葉",
+        "Goal から検証済みの結果まで",
+        "data-testid=\"overview-flow\"",
+        "data-testid=\"overview-extension-layers\"",
+        "コードとレビューが必要",
+        "ローカル登録可能 / assurance は static まで",
+        "計測・レビュー・昇格が必要",
+        "data-testid=\"overview-live-status\"",
+        "data-runtime-state={readinessStatus}",
+        "runtimeUnavailable ? null : runtimeData?.session",
+        "利用可能とは判断しません",
+        "data-testid=\"overview-measurements-link\"",
+        "data-testid=\"overview-runs-link\"",
     ] {
         assert!(
             dashboard.contains(required),
-            "Overview run contract is missing {required:?}"
+            "Overview landing contract is missing {required:?}"
         );
     }
-    assert!(!dashboard.contains("aria-hidden=\"true\""));
+    for removed in [
+        "useResource<RunIndex>",
+        "useResource<DocumentRecord[]>",
+        "data-testid=\"score-time-map\"",
+        "data-testid=\"run-count\"",
+        "data-testid=\"run-total-count\"",
+        "className=\"run-table\"",
+        "className=\"bands-panel\"",
+    ] {
+        assert!(
+            !dashboard.contains(removed),
+            "Overview retains detailed operational dashboard element {removed:?}"
+        );
+    }
 
     let package = std::fs::read_to_string("gui/package.json").unwrap();
     assert!(package.contains("\"axe-core\": \"4.10.3\""));
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
-        "values: [\"aria-required-children\"]",
-        "axeAriaRequiredChildren.violationCount === 0",
-        "axe_aria_required_children: axeAriaRequiredChildren",
+        "values: [\"wcag2a\", \"wcag2aa\"]",
+        "axeLanding.violationCount === 0",
+        "axe_landing: axeLanding",
     ] {
         assert!(
             smoke.contains(required),
@@ -823,28 +843,19 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
         );
     }
 
-    let types = std::fs::read_to_string("gui/lib/types.ts").unwrap();
-    for required in [
-        "export type RunIndex = {",
-        "status: string;",
-        "status_text: string;",
-        "state: RunState;",
-    ] {
-        assert!(
-            types.contains(required),
-            "RunIndex types are missing {required:?}"
-        );
-    }
-
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "--overview-only",
-        "getting_started_close",
-        "running_header_mobile_390",
-        "runtimeHeaderLayout(page)",
-        "singleLineTextLayout(gettingStartedClose)",
-        "statusBadgesArePlainText",
-        "runCountText === expectedRunCountText",
+        "directReloadKeepsTrialCta",
+        "overviewAvoidsOperationalFetches",
+        "probeOverviewRuntimeStates(",
+        "overview-active-smoke-session",
+        "failed.runtime_state === \"unavailable\"",
+        "headingOutline.no_skipped_levels",
+        "trialCtaFocus.outline_style !== \"none\"",
+        "reducedMotion.matches",
+        "trialCtaTarget.height >= 44",
+        "overviewMobile.ok",
     ] {
         assert!(
             smoke.contains(required),
@@ -1071,8 +1082,13 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     for required in [
         "data-testid=\"getting-started\"",
         "data-testid=\"getting-started-sample\"",
-        "data-testid=\"getting-started-close\"",
-        "window.sessionStorage",
+        "FIRST USE / はじめに",
+        "getting-started-route-grid",
+        "trialRoutePath(route)",
+        "extension_root: \"非公開の拡張ルート\"",
+        "[\"02\", \"実行状況\"",
+        "[\"03\", \"実行履歴\"",
+        "[\"04\", \"結果詳細\"",
         "?sample=python-cli",
     ] {
         assert!(
@@ -1080,6 +1096,8 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
             "getting-started guide is missing {required:?}"
         );
     }
+    assert!(!getting_started.contains("window.sessionStorage"));
+    assert!(!getting_started.contains("getting-started-close"));
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert!(styles.contains("grid-template-columns: repeat(5, minmax(0, 1fr));"));
     assert!(styles.contains(".page-intro > p {\n    display: none;"));
@@ -2139,7 +2157,9 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
             "repository report source UI is missing {required:?}"
         );
     }
-    assert!(dashboard.contains("参照元: workspace/management/runs"));
+    assert!(dashboard.contains("data-testid=\"overview-runs-link\""));
+    assert!(dashboard.contains("workspace/management/runs の記録を確認"));
+    assert!(!dashboard.contains("className=\"run-table\""));
     assert!(panel.contains("実行ルート / .commandagent/runs"));
 }
 
@@ -2216,7 +2236,6 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     assert_eq!(format.matches("Intl.DateTimeFormat").count(), 1);
     assert!(format.contains("export function dateTimeLabel"));
     for path in [
-        "gui/app/page.tsx",
         "gui/app/runs/page.tsx",
         "gui/components/trial-gate-two.tsx",
         "gui/components/trial-session-index.tsx",
@@ -2228,6 +2247,12 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
             "{path} does not use the shared GUI date-time formatter"
         );
     }
+    assert!(
+        !std::fs::read_to_string("gui/app/page.tsx")
+            .unwrap()
+            .contains("dateTimeLabel("),
+        "Overview must leave timestamped records on their owning pages"
+    );
 
     let base_path = std::fs::read_to_string("gui/lib/base-path.ts").unwrap();
     for route in [
