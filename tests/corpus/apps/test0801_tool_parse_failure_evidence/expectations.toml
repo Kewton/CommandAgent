@@ -1,0 +1,41 @@
+case_id = "test0801_tool_parse_failure_evidence"
+source = "F-2a-5 additive tool parse failure event and envelope contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["tool_parse_failure", "json_trailing", "raw_excerpt"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/tool-parse-failure.jsonl = [
+  "\"event\":\"tool_parse_failure\"",
+  "\"failure_kind\":\"json_trailing\"",
+  "\"max_bytes\":512",
+  "\"phase\":\"create-sample-data\"",
+  "\"family\":\"tool_parse\"",
+  "\"kind\":\"tool_parse_failure\"",
+  "\"evidence_recorded\":true"
+]
+fixtures/tool-parse-failure.json = [
+  "\"protocol\": \"text\"",
+  "\"failure_kind\": \"json_trailing\"",
+  "\"max_bytes\": 512",
+  "\"text\": \"{\\\"name\\\":\\\"Write\\\"} trailing\"",
+  "\"family\": \"tool_parse\"",
+  "\"judgement\": \"observed\""
+]

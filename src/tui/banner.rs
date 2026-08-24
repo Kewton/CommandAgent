@@ -1,189 +1,279 @@
-use crate::tui::progress::{sanitize_for_progress, truncate_chars};
+use std::io::{self, IsTerminal};
 
-const LOGO_ART: &[&str] = &[
-    "  ____                          _   _                    _",
-    " / ___|___  _ __ ___  _ __ ___ | | / \\   __ _  ___ _ __ | |_",
-    "| |   / _ \\| '_ ` _ \\| '_ ` _ \\| |/ _ \\ / _` |/ _ \\ '_ \\| __|",
-    "| |__| (_) | | | | | | | | | | | / ___ \\ (_| |  __/ | | | |_",
-    " \\____\\___/|_| |_| |_|_| |_| |_|_/_/   \\_\\__, |\\___|_| |_|\\__|",
-    "                                          |___/",
+use crate::config::Config;
+#[cfg(test)]
+use crate::config::Provider;
+
+const MIN_BANNER_WIDTH: u16 = 50;
+const NEON_GRADIENT_256: [u8; 5] = [51, 39, 93, 201, 21];
+const COMMANDAGENT_ART_UTF8: [&str; 5] = [
+    "                                          ",
+    "  ╭──────────────────────────────────────╮",
+    "  │   COMMANDAGENT · local-first agent   │",
+    "  ╰──────────────────────────────────────╯",
+    "                                          ",
 ];
-const LOGO_GRADIENT_256: &[u8] = &[51, 39, 45, 81, 87, 123];
-const MAX_DYNAMIC_CHARS: usize = 56;
-const RESET: &str = "\x1b[0m";
+const COMMANDAGENT_ART_ASCII: [&str; 5] = [
+    "                                          ",
+    "  +--------------------------------------+",
+    "  |   COMMANDAGENT - local-first agent   |",
+    "  +--------------------------------------+",
+    "                                          ",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BannerStyle {
-    ColorArt,
+    Neon,
     MonoArt,
-    Plain,
+    Legacy4Line,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct StartupBanner<'a> {
-    pub version: &'a str,
-    pub cwd: &'a str,
-    pub executor: &'a str,
-    pub planner: &'a str,
-    pub flags: &'a [&'a str],
-    pub style: BannerStyle,
-}
-
-pub fn decide_banner_style(
-    stderr_is_tty: bool,
-    banner_enabled: bool,
-    color_enabled: bool,
-) -> BannerStyle {
-    if !stderr_is_tty || !banner_enabled {
-        BannerStyle::Plain
-    } else if color_enabled {
-        BannerStyle::ColorArt
+pub fn print_startup_banner(config: &Config) -> anyhow::Result<()> {
+    let tty = io::stdout().is_terminal();
+    let width = if tty {
+        crossterm::terminal::size().ok().map(|(width, _)| width)
     } else {
-        BannerStyle::MonoArt
+        None
+    };
+    let style = decide_banner_style(tty, crate::tui::terminal::no_color(), width);
+    print!("{}", render_startup_banner(config, style));
+    Ok(())
+}
+
+pub fn decide_banner_style(tty: bool, no_color: bool, width: Option<u16>) -> BannerStyle {
+    if !tty {
+        return BannerStyle::Legacy4Line;
+    }
+    match width {
+        None => BannerStyle::Legacy4Line,
+        Some(width) if width < MIN_BANNER_WIDTH => BannerStyle::Legacy4Line,
+        Some(_) if no_color => BannerStyle::MonoArt,
+        Some(_) => BannerStyle::Neon,
     }
 }
 
-pub fn render_startup_banner(input: &StartupBanner<'_>) -> String {
-    let mut out = String::new();
+pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
+    render_startup_banner_for_locale(config, style, crate::tui::terminal::utf8_locale())
+}
 
-    match input.style {
-        BannerStyle::ColorArt => {
-            for (index, line) in LOGO_ART.iter().enumerate() {
-                let code = LOGO_GRADIENT_256[index % LOGO_GRADIENT_256.len()];
-                out.push_str(&format!("\x1b[38;5;{code}m{line}{RESET}\n"));
+pub(crate) fn render_startup_banner_for_locale(
+    config: &Config,
+    style: BannerStyle,
+    use_utf8: bool,
+) -> String {
+    let mut out = String::new();
+    let art = if use_utf8 {
+        &COMMANDAGENT_ART_UTF8
+    } else {
+        &COMMANDAGENT_ART_ASCII
+    };
+    match style {
+        BannerStyle::Neon => {
+            for (index, line) in art.iter().enumerate() {
+                let color = NEON_GRADIENT_256[index];
+                out.push_str(&format!("\x1b[38;5;{color}m{line}\x1b[0m\n"));
             }
         }
         BannerStyle::MonoArt => {
-            for line in LOGO_ART {
+            for line in art {
                 out.push_str(line);
                 out.push('\n');
             }
         }
-        BannerStyle::Plain => {}
+        BannerStyle::Legacy4Line => {}
     }
 
-    out.push_str(&context_lines(input));
-    out
-}
-
-pub fn logo_art() -> &'static [&'static str] {
-    LOGO_ART
-}
-
-fn context_lines(input: &StartupBanner<'_>) -> String {
-    let version = bounded(input.version);
-    let cwd = bounded(input.cwd);
-    let executor = bounded(input.executor);
-    let planner = bounded(input.planner);
-    let flags = flags_suffix(input.flags);
-
-    if input.style == BannerStyle::Plain {
-        return format!(
-            "CommandAgent {version} cwd={cwd} provider={executor} planner={planner}{flags}\n"
+    out.push_str("commandagent ");
+    out.push_str(env!("CARGO_PKG_VERSION"));
+    out.push_str(" build=");
+    out.push_str(&crate::build_info::commit_with_dirty());
+    out.push('\n');
+    out.push_str(&format!(
+        "model={} ({}) provider={} ({}) planner={} ({}) planner_provider={} ({})\n",
+        sanitize_banner_text(&config.model),
+        sanitize_banner_text(&config.field_sources.model),
+        config.provider_label(crate::config::ProviderRole::Executor),
+        sanitize_banner_text(&config.field_sources.provider),
+        sanitize_banner_text(&config.planner_model),
+        sanitize_banner_text(&config.field_sources.planner_model),
+        config.provider_label(crate::config::ProviderRole::Planner),
+        sanitize_banner_text(&config.field_sources.planner_provider),
+    ));
+    out.push_str(&format!(
+        "mode=Act cwd={}\n",
+        sanitize_banner_text(&config.workspace_root.display().to_string())
+    ));
+    out.push_str(&format!(
+        "context_budget={} ({}) timeout={}s ({}) profile={} ({}) prompt_layout={} ({}) narration={} ({}) footer={} ({}) stream={} ({}) yes={}\n",
+        config.context_budget,
+        sanitize_banner_text(&config.field_sources.context_budget),
+        config.chat_timeout_secs,
+        sanitize_banner_text(&config.field_sources.chat_timeout_secs),
+        sanitize_banner_text(&config.profile),
+        sanitize_banner_text(&config.field_sources.profile),
+        config.prompt_layout.as_str(),
+        sanitize_banner_text(&config.field_sources.prompt_layout),
+        narration_label(config.narration),
+        sanitize_banner_text(&config.field_sources.narration),
+        footer_label(config.no_footer),
+        sanitize_banner_text(&config.field_sources.footer),
+        stream_label(config.stream),
+        sanitize_banner_text(&config.field_sources.stream),
+        config.yes
+    ));
+    if let Some(path) = &config.eval_events_path {
+        out.push_str(&format!(
+            "run_log={}\n",
+            sanitize_banner_text(&path.display().to_string())
+        ));
+    }
+    if config.yes {
+        out.push_str(
+            "warning: --yes skips mutating-tool approval; use only in trusted workspaces\n",
         );
     }
-
-    format!("CommandAgent {version} cwd={cwd}{flags}\nprovider={executor}\nplanner={planner}\n")
+    if crate::build_info::dirty() {
+        out.push_str("warning: build stamp is dirty; rebuild cleanly before measurement runs\n");
+    }
+    out.push_str(crate::tui::repl_output::FIRST_RUN_HELP_LINE);
+    out.push('\n');
+    crate::tui::glyphs::for_locale(&out, use_utf8)
 }
 
-fn flags_suffix(flags: &[&str]) -> String {
-    if flags.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " [{}]",
-            flags
-                .iter()
-                .map(|flag| bounded(flag))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
+fn narration_label(mode: crate::config::NarrationMode) -> &'static str {
+    match mode {
+        crate::config::NarrationMode::Normal => "normal",
+        crate::config::NarrationMode::Quiet => "quiet",
     }
 }
 
-fn bounded(value: &str) -> String {
-    truncate_chars(&sanitize_for_progress(value), MAX_DYNAMIC_CHARS)
+fn footer_label(no_footer: bool) -> &'static str {
+    if no_footer { "off" } else { "on" }
+}
+
+fn stream_label(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
+}
+
+fn sanitize_banner_text(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        let cp = ch as u32;
+        if cp < 0x20 || cp == 0x7F || (0x80..=0x9F).contains(&cp) {
+            out.push(' ');
+        } else {
+            out.push(ch);
+        }
+    }
+    out.trim_end().to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn sample(style: BannerStyle) -> StartupBanner<'static> {
-        StartupBanner {
-            version: "0.1.0",
-            cwd: "work",
-            executor: "gemini:gemini-3.1-flash-lite",
-            planner: "gemini:gemini-3.5-flash",
-            flags: &["yes"],
-            style,
+    fn config() -> Config {
+        Config {
+            workspace_root: std::path::PathBuf::from("/tmp/commandagent"),
+            state_dir: std::path::PathBuf::from("state"),
+            eval_events_path: None,
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 65536,
+            model: "m\x1b[31m".to_string(),
+            provider: Provider::Ollama,
+            tool_protocol: None,
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
+            prompt_layout: crate::config::PromptLayout::Legacy,
+            plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
+            planner_model: "pm".to_string(),
+            planner_provider: Provider::Gemini,
+            planner_think: Some(crate::config::OllamaThink::False),
+            classifier_model: "pm".to_string(),
+            classifier_provider: Provider::Gemini,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: "http://localhost:1234".to_string(),
+            num_predict: 100,
+            max_iterations: 4,
+            chat_timeout_secs: 1,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: crate::config::ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: crate::config::NarrationMode::Normal,
+            profile: "generic".to_string(),
+            profile_explicit: false,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: crate::config::Action::Repl,
         }
     }
 
     #[test]
-    fn logo_art_is_narrow() {
-        for line in logo_art() {
-            assert!(line.chars().count() <= 64, "{line}");
+    fn banner_style_wide_tty_uses_art() {
+        assert_eq!(
+            decide_banner_style(true, false, Some(80)),
+            BannerStyle::Neon
+        );
+        assert_eq!(
+            decide_banner_style(true, true, Some(80)),
+            BannerStyle::MonoArt
+        );
+    }
+
+    #[test]
+    fn banner_style_non_tty_or_narrow_is_legacy() {
+        assert_eq!(
+            decide_banner_style(false, false, Some(80)),
+            BannerStyle::Legacy4Line
+        );
+        assert_eq!(
+            decide_banner_style(true, false, Some(20)),
+            BannerStyle::Legacy4Line
+        );
+    }
+
+    #[test]
+    fn banner_mono_includes_ascii_art_lines() {
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::MonoArt, true);
+        for line in COMMANDAGENT_ART_UTF8 {
+            assert!(out.contains(line));
         }
-    }
-
-    #[test]
-    fn decide_banner_style_uses_tty_banner_and_color() {
-        assert_eq!(decide_banner_style(false, true, true), BannerStyle::Plain);
-        assert_eq!(decide_banner_style(true, false, true), BannerStyle::Plain);
-        assert_eq!(decide_banner_style(true, true, false), BannerStyle::MonoArt);
-        assert_eq!(decide_banner_style(true, true, true), BannerStyle::ColorArt);
-    }
-
-    #[test]
-    fn plain_banner_keeps_compact_startup_context_without_art() {
-        let out = render_startup_banner(&sample(BannerStyle::Plain));
-
-        assert!(!out.contains("\x1b["));
-        assert!(!out.contains("____"));
-        assert!(out.contains("CommandAgent 0.1.0 cwd=work"));
-        assert!(out.contains("provider=gemini:gemini-3.1-flash-lite"));
-        assert!(out.contains("planner=gemini:gemini-3.5-flash"));
-        assert!(out.contains("[yes]"));
-    }
-
-    #[test]
-    fn mono_banner_contains_art_without_ansi() {
-        let out = render_startup_banner(&sample(BannerStyle::MonoArt));
-
-        assert!(!out.contains("\x1b["));
-        assert!(out.contains("____"));
-        assert!(out.contains("provider=gemini:gemini-3.1-flash-lite"));
-    }
-
-    #[test]
-    fn color_banner_colors_only_fixed_art() {
-        let out = render_startup_banner(&sample(BannerStyle::ColorArt));
-
-        assert!(out.contains("\x1b[38;5;51m"));
-        assert!(out.contains(RESET));
-        assert!(out.contains("CommandAgent 0.1.0 cwd=work"));
-    }
-
-    #[test]
-    fn dynamic_fields_are_sanitized_and_bounded() {
-        let long = "x".repeat(200);
-        let banner = StartupBanner {
-            version: "0.1.0\nbad\x1b[31m",
-            cwd: "cwd\nbad",
-            executor: &long,
-            planner: "planner\u{009b}bad",
-            flags: &["yes\nbad"],
-            style: BannerStyle::Plain,
-        };
-
-        let out = render_startup_banner(&banner);
-        let lines = out.lines().collect::<Vec<_>>();
-
-        assert_eq!(lines.len(), 1);
         assert!(!out.contains("\x1b[31m"));
-        assert!(out.contains("xxx..."));
-        assert!(out.contains("planner bad"));
-        assert!(out.contains("[yes bad]"));
+    }
+
+    #[test]
+    fn banner_non_utf8_locale_uses_ascii_art() {
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::MonoArt, false);
+
+        for line in COMMANDAGENT_ART_ASCII {
+            assert!(out.contains(line), "{out}");
+        }
+        assert!(out.is_ascii(), "{out}");
+    }
+
+    #[test]
+    fn banner_legacy_has_dynamic_lines_without_art() {
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::Legacy4Line, true);
+        assert!(out.contains("commandagent"));
+        assert!(out.contains(&crate::build_info::commit_with_dirty()));
+        assert!(out.contains("context_budget=65536 (default)"));
+        assert!(out.contains("prompt_layout=legacy (default)"));
+        assert!(out.contains("footer=on (default)"));
+        assert!(out.contains("yes=true"));
+        assert!(out.contains("--yes skips mutating-tool approval"));
+        assert!(
+            out.contains(
+                "start: plain-text request → review Gate 1 → /confirm <hash> | help: /help"
+            )
+        );
+        assert!(!out.contains("╔═╗"));
     }
 }

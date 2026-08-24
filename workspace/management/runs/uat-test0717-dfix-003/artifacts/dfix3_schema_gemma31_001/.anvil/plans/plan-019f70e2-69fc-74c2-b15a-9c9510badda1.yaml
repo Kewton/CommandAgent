@@ -1,0 +1,26 @@
+goal: "Original ultra goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\nProfile: data\nStyle: default\nIntent: fix\nPhase id: isolate-cause\nPhase task: Isolate the cause of the reproduced failure without modifying the workspace for: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n- pipeline\n\nPrior ultra context:\n- Pending final artifacts:\n  - output/inspection.json\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- any\n- apply\n- before\n- behavior\n- bind\n- bound\n- … and 21 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema\n\nFix contract phase role: cause_isolation. Inspect and narrow the cause of the observed failure without writing, editing, setting up, installing, or repairing.\n\nData fix cause-isolation artifact policy (runtime-bound):\n- Use the executed F1 evidence above and files present in the workspace snapshot as the primary diagnostic inputs.\n- Existing canonical artifacts allowed for read-only inspection:\n- pipeline/main.py\n- output/results.json\n- output/report.md\n- Absent canonical artifacts: do not request, inspect, verify, create, or expect these during isolate-cause:\n- output/inspection.json\n- Defer creation or regeneration of absent final artifacts to the repair phase.\n\nData fix phase-role boundary (runtime-bound):\n- Return read-only cause-isolation steps only; do not place implementation, file edits, artifact generation, or repair verification in this phase.\n- Put every workspace-changing action in the later repair phase, where implement steps receive write authority."
+steps:
+  - id: "inspect-results-schema"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read output/results.json and verify if it matches the required schema {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Check for missing keys, wrong types, or reconciliation arithmetic errors where input_rows != used_rows + sum(excluded rows)."
+    expected_paths:
+    verify:
+  - id: "inspect-pipeline-logic"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read pipeline/main.py to analyze how output/results.json is constructed. Check for deterministic seeding, stable iteration order, and correct mapping of report claims to values. Identify any logic that might produce schema violations or non-deterministic output."
+    expected_paths:
+    verify:
+  - id: "inspect-report-claims"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read output/report.md and extract all numeric claims. Compare them against the values object in output/results.json to identify any unbound claims or mismatched keys that violate the data_claims_binding contract."
+    expected_paths:
+    verify:
+  - id: "isolate-cause-synthesis"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Synthesize findings from the previous steps to pinpoint the exact cause of the validation failure. Determine if the issue is a schema mismatch, reconciliation error, unbound claim, or non-deterministic behavior, and document the specific root cause for the repair phase."
+    expected_paths:
+    verify:

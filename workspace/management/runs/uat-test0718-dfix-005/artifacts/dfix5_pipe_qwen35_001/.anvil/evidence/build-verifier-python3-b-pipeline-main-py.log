@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0718_dfix_005_v2/dfix5_pipe_qwen35_001/pipeline/main.py", line 169, in <module>
+    run()
+  File "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0718_dfix_005_v2/dfix5_pipe_qwen35_001/pipeline/main.py", line 89, in run
+    amount = parse_amount(row["amount"])
+  File "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0718_dfix_005_v2/dfix5_pipe_qwen35_001/pipeline/main.py", line 53, in parse_amount
+    return int(val.strip())
+ValueError: invalid literal for int() with base 10: ''
+

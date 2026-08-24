@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "uat_id": "uat-test0716-data-008",
+  "scenario_family": "timeseries",
+  "record_directory": "workspace/management/runs/uat-test0716-data-008",
+  "recorded_at": "2026-07-16T11:37:32+09:00",
+  "repository": {
+    "branch": "develop",
+    "head": "fcb9ac8b505f1725db481f26c8ab14fd3d4d15ec",
+    "head_oneline": "fcb9ac8 Record Phase B settlement",
+    "origin_develop_at_same_commit": true,
+    "preflight_status_clean": true,
+    "preflight_isolation": {
+      "reason": "A pre-existing untracked record from another task was isolated after user confirmation so the UAT could start from a clean status.",
+      "path": "workspace/management/runs/uat-test0715-ff1-001",
+      "stash_commit": "3ed51b6005ed24fcae01f5c91503cefa4f68d9e1",
+      "stash_message": "On develop: isolate uat-test0715-ff1-001 for data UAT 8",
+      "included_in_uat_commit": false,
+      "restore_after_uat_commit": true
+    }
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "browser_probe_capable_environment": true,
+      "lib_passed": 1337,
+      "lib_ignored": 13,
+      "conformance_passed": 18,
+      "conformance_ignored": 1,
+      "data_profile_passed": 10,
+      "failures": 0,
+      "full_suite_green": true
+    },
+    "cargo_build_release": {
+      "exit_code": 0
+    },
+    "installed_binary": "/Users/maenokota/.local/bin/commandagent",
+    "version": "commandagent 0.1.0 fcb9ac8 2026-07-16T00:25:36Z",
+    "dirty_suffix_present": false,
+    "release_binary_sha256": "240a24f4a261a75f5e0bc08528de61d8e8afda43f4971ae415371d1a24ec997b",
+    "installed_binary_sha256": "240a24f4a261a75f5e0bc08528de61d8e8afda43f4971ae415371d1a24ec997b"
+  },
+  "measurement": {
+    "workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0716_data_008",
+    "workspace_was_new": true,
+    "profile": "data",
+    "provider": "ollama",
+    "planner_model": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider": "ollama",
+    "context_budget": 65536,
+    "ultra_plan_run": true,
+    "goal": "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。",
+    "input_sha256": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873",
+    "input_hash_matches": 6,
+    "planned_runs": 6,
+    "executed_runs": 6,
+    "execution_order": [1, 4, 2, 5, 3, 6],
+    "one_invocation_each": true,
+    "operator_retries": 0,
+    "interrupted_runs": 0,
+    "duration_source": "events time_profile.profile.total_ms",
+    "total_duration_seconds": 4598.693
+  },
+  "reference_values": {
+    "monthly": {
+      "2026-01": 19990.0,
+      "2026-02": 18657.0,
+      "2026-03": 20730.0,
+      "2026-04": 17324.0,
+      "2026-05": 21470.0,
+      "2026-06": 19767.0
+    },
+    "mom_percent": {
+      "2026-02": -6.67,
+      "2026-03": 11.11,
+      "2026-04": -16.43,
+      "2026-05": 23.93,
+      "2026-06": -7.93
+    },
+    "moving_average_3": {
+      "2026-03": 19792.33,
+      "2026-04": 18903.67,
+      "2026-05": 19841.33,
+      "2026-06": 19520.33
+    },
+    "input_rows": 60,
+    "used_rows": 56,
+    "record_only": true
+  },
+  "criteria": {
+    "P0-a": {
+      "status": "pass",
+      "summary": "6/6 honest classified run_stop events with concrete reasons; no panic, unclassified terminal, or unexplained interruption"
+    },
+    "P0-b": {
+      "status": "pass",
+      "summary": "four static and two failed projections agree with data contract section 4; zero inflation and zero deflation"
+    },
+    "P0-c": {
+      "status": "pass",
+      "summary": "zero full claims and zero false-full; no run reached final acceptance"
+    },
+    "P1-a": {
+      "status": "fail_not_exercised",
+      "summary": "two reports contain eleven numeric percent claims, but claims-binding evidence is absent in all six runs, so percent normalization was not exercised"
+    },
+    "P1-b": {
+      "status": "fail",
+      "summary": "Run 6 exhausted corrective planning on a shell_control_syntax verify for output/monthly_metrics.csv; recorded as a DATA-7-adjacent timeseries-specific shape",
+      "other_known_fixed_class_recurrences": 0
+    }
+  },
+  "aggregate": {
+    "honest_terminals": 6,
+    "completed_runs": 0,
+    "full_runs": 0,
+    "final_acceptance_reached": 0,
+    "profile_full": 0,
+    "none_full": 0,
+    "completed_phase_depths": {
+      "0": 2,
+      "1": 4
+    },
+    "assurance": {
+      "static": 4,
+      "failed": 2,
+      "partial": 0,
+      "full": 0,
+      "inflation": 0,
+      "deflation": 0
+    },
+    "e2_percent": {
+      "reports_with_numeric_percent_claims": 2,
+      "numeric_percent_claims_in_reports": 11,
+      "claims_binding_evidence_present": 0,
+      "claims_binding_evidence_pass": 0,
+      "percent_true_records": 0,
+      "status": "not_exercised"
+    },
+    "evidence": {
+      "pipeline_run_present": 0,
+      "reconciliation_present": 0,
+      "claims_binding_present": 0,
+      "rerun_consistency_present": 0,
+      "results_schema_present": 0,
+      "inspection_schema_present": 4,
+      "inspection_schema_pass": 3
+    },
+    "known_classes": {
+      "data7_adjacent_verify_scaffold": 1,
+      "data10_residual_write_non_follow_through": 2,
+      "data11": 0,
+      "data12": 0
+    },
+    "events": {
+      "run_start": 6,
+      "run_stop": 6,
+      "time_profile": 6,
+      "ultra_final_acceptance": 0,
+      "planner_error": 6,
+      "step_short_circuited": 5,
+      "verify_default_bound": 6,
+      "read_only_stagnation_feedback": 17,
+      "read_only_tool_rejected": 5
+    }
+  },
+  "new_failure_shapes": [
+    {
+      "id": "TS8-1",
+      "run": "data8_ts_qwen35_none_002",
+      "phase": "load-and-validate-data",
+      "class": "inspection_input_discovery_polluted_by_derived_tables",
+      "primary_reason": "data_inspection_schema:inspection_schema_violation:multiple_inputs:data/sales.csv,data/sales_clean.csv,data/validation_log.csv",
+      "source": "artifacts/data8_ts_qwen35_none_002/.anvil/runs/019f68a6-75f6-7cd2-9339-0c04a5b6117f/events.jsonl"
+    },
+    {
+      "id": "TS8-2",
+      "run": "data8_ts_gemma31_none_001",
+      "phase": "monthly-metrics-calculation",
+      "class": "derived_metrics_verify_phase_scaffold_error",
+      "violation_kind": "shell_control_syntax",
+      "original_command": "python -c \"import pandas as pd; df = pd.read_csv('output/monthly_metrics.csv'); assert 'month' in df.columns; assert 'total_sales' in df.columns; assert 'mom_pct' in df.columns; assert 'moving_avg' in df.columns; print('Verification passed')\"",
+      "source": "artifacts/data8_ts_gemma31_none_001/.anvil/runs/019f68b4-c21f-7bc0-a015-3d9de0ab6b61/events.jsonl"
+    }
+  ],
+  "runs": [
+    {
+      "number": 1,
+      "name": "data8_ts_qwen35_profile_001",
+      "run_id": "019f6852-7dae-7440-96e5-f1e90e5fd023",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 1236.318,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "data-cleaning",
+      "completed_phases": 1,
+      "total_phases": 5,
+      "stop_class": "artifact_recovery_exhausted:output/results.json,output/report.md",
+      "inspection_schema": "pass",
+      "evidence_e1_e4": "absent"
+    },
+    {
+      "number": 2,
+      "name": "data8_ts_qwen35_profile_002",
+      "run_id": "019f689a-9e66-78a2-991f-a670c83ac650",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 749.648,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "data-cleaning",
+      "completed_phases": 1,
+      "total_phases": 5,
+      "stop_class": "artifact_recovery_exhausted:output/results.json,output/report.md",
+      "inspection_schema": "pass",
+      "evidence_e1_e4": "absent"
+    },
+    {
+      "number": 3,
+      "name": "data8_ts_gemma31_profile_001",
+      "run_id": "019f68af-af65-7983-a0ff-ef1de0153391",
+      "executor": "gemma4:31b",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 302.147,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "data-inspection",
+      "completed_phases": 0,
+      "total_phases": 5,
+      "stop_class": "model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json",
+      "inspection_schema": "absent",
+      "evidence_e1_e4": "absent"
+    },
+    {
+      "number": 4,
+      "name": "data8_ts_qwen35_none_001",
+      "run_id": "019f688e-d973-7480-94b2-85f71b247231",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 738.501,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "compute-metrics",
+      "completed_phases": 1,
+      "total_phases": 4,
+      "stop_class": "loop_progress_exhausted:model_stagnation:read_only_loop",
+      "inspection_schema": "pass",
+      "numeric_percent_claims_in_report": 5,
+      "claims_binding": "absent",
+      "semantic_reference_match": false,
+      "evidence_e1_e4": "absent"
+    },
+    {
+      "number": 5,
+      "name": "data8_ts_qwen35_none_002",
+      "run_id": "019f68a6-75f6-7cd2-9339-0c04a5b6117f",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 560.33,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "load-and-validate-data",
+      "completed_phases": 0,
+      "total_phases": 3,
+      "stop_class": "inspection_schema_multiple_inputs_then_write_required_exhausted",
+      "inspection_schema": "failed:multiple_inputs:data/sales.csv,data/sales_clean.csv,data/validation_log.csv",
+      "evidence_e1_e4": "absent"
+    },
+    {
+      "number": 6,
+      "name": "data8_ts_gemma31_none_001",
+      "run_id": "019f68b4-c21f-7bc0-a015-3d9de0ab6b61",
+      "executor": "gemma4:31b",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 1011.749,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "monthly-metrics-calculation",
+      "completed_phases": 1,
+      "total_phases": 3,
+      "stop_class": "phase_scaffold_error:verify_command_policy_error:shell_control_syntax",
+      "inspection_schema": "not_executed_noncanonical_shape",
+      "numeric_percent_claims_in_report": 6,
+      "claims_binding": "absent",
+      "semantic_reference_match": false,
+      "evidence_e1_e4": "absent"
+    }
+  ]
+}

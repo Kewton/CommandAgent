@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "code_snippet",
+      "value": "results = {\n    \"aggregation\": { ... },\n    \"summary\": {\n        \"excluded_rows\": { \"invalid_format\": 0, \"missing_value\": 2 },\n        \"input_rows\": 60,\n        \"total_sales\": 122438.0,\n        \"used_rows\": 58\n    }\n}\nwith open(results_file, 'w') as f:\n    json.dump(results, f, indent=2)",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "code_snippet",
+      "value": "{\n  \"aggregation\": { ... },\n  \"summary\": {\n    \"excluded_rows\": { \"invalid_format\": 0, \"missing_value\": 2 },\n    \"input_rows\": 60,\n    \"total_sales\": 122438.0,\n    \"used_rows\": 58\n  }\n}",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "code_snippet",
+      "value": "{\n  \"aggregation\": { ... },\n  \"summary\": { ... },\n  \"reconciliation\": {\n    \"input_rows\": 60,\n    \"used_rows\": 58,\n    \"excluded\": [\n      {\"reason\": \"missing_value\", \"rows\": 2}\n    ]\n  }\n}",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "code_snippet",
+      "value": "# Sales Summary Report\n- Total Input Rows: 60\n- Valid Rows Used: 58\n- Excluded Rows:\n  - invalid_format: 0\n  - missing_value: 2\n- Total Sales: 122438.00",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    }
+  ]
+}

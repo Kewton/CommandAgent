@@ -1,0 +1,13 @@
+goal: "友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。"
+profile: "community-mini-app"
+style: "default"
+intent: "create"
+phases:
+  - id: "spec-generation-l2"
+    prompt: "Generate app.spec.yaml following L2 constraints with entities, views, actions, validations, computed, permissions, and minIdentity. Define models for users, expenses, and settlement pairs. Specify a simple expense entry view, a settlement results view, and computed fields for net balances and optimal pairwise transfers. Verify the spec is complete, statically typed, and matches all required L2 sections without inferring or weakening the platform-owned schema."
+  - id: "expense-input-implementation"
+    prompt: "Implement the expense entry interface and core data handling based on app.spec.yaml. Create a simple form for recording who paid, the amount, and a brief description. Bind inputs to the defined entities and validations. Verify that new expenses are stored correctly, input validation works, and the data structure matches the L2 spec without using prohibited runtime patterns like eval or dynamic imports."
+  - id: "settlement-logic-and-view"
+    prompt: "Implement the settlement calculation logic and results display using bounded computed expressions and registered pure functions. Calculate net balances per user and generate an optimal list of who owes whom. Render the settlement view clearly. Verify that computed fields are statically typed, avoid raw fetch or build-time egress, and correctly output settlement pairs for sample inputs."
+  - id: "integration-and-verification"
+    prompt: "Integrate the expense input, core logic, and settlement view into a cohesive app flow. Ensure data flows correctly from entry to calculation and display. Run static checks and verify the app builds without errors, matches app.spec.yaml, and produces correct settlement outputs for edge cases. Prepare the project for final runtime acceptance and browser readiness verification."

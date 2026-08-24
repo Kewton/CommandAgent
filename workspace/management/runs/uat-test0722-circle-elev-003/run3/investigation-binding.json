@@ -1,0 +1,8 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": []
+}

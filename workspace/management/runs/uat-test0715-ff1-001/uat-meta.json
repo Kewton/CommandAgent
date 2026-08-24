@@ -1,0 +1,181 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0715-ff1-001",
+  "executed_on": "2026-07-15",
+  "timezone": "Asia/Tokyo",
+  "repository": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "branch": "develop",
+  "commit": "dac63deee245a8faae9f3015c428e048b1a63713",
+  "ff1_revision": "7dd98ad",
+  "workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_ff1_001",
+  "planner": {
+    "provider": "ollama",
+    "model": "qwen3.6:27b-coding-nvfp4"
+  },
+  "common_flags": [
+    "--ultra-plan-run",
+    "--profile",
+    "nextjs",
+    "--plan-preset",
+    "profile",
+    "--yes"
+  ],
+  "preflight": {
+    "git_clean": true,
+    "cargo_test": "passed",
+    "release_build": "passed",
+    "installed_version": "commandagent 0.1.0 dac63de 2026-07-14T16:08:30Z",
+    "build_dirty": false,
+    "binary_sha256": "f44ee6737fffc3b77d2836cdd11376deefa79852d00f4ea87bc0953c12d40474",
+    "interaction_probe": "playwright 1.61.1 (managed_interaction_probe)"
+  },
+  "runs": [
+    {
+      "name": "ff1_space_qwen35",
+      "scenario": "Space",
+      "goal": "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "run_uuid": "019f6165-f698-7eb1-a521-79afc5327236",
+      "exit_code": 1,
+      "terminal_status": "failed",
+      "final_acceptance": "incomplete",
+      "assurance_level": "partial",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": ["playerX"],
+      "release_gate_reasons": ["contract_instrumentation_missing:restart"],
+      "duration_ms": 801925
+    },
+    {
+      "name": "ff1_space_gemma31",
+      "scenario": "Space",
+      "goal": "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "gemma4:31b",
+      "run_uuid": "019f6173-427c-79f2-98c7-41b82629bcd7",
+      "exit_code": 0,
+      "terminal_status": "completed",
+      "final_acceptance": "full_success",
+      "assurance_level": "full",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": ["alienPositions"],
+      "release_gate_reasons": [],
+      "duration_ms": 1069370
+    },
+    {
+      "name": "ff1_breakout_qwen35",
+      "scenario": "Breakout",
+      "goal": "あなたが考える最高に面白くかっこいいブロック崩しゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "run_uuid": "019f6184-9583-71d0-84e5-db6b8f4e9e9f",
+      "exit_code": 1,
+      "terminal_status": "failed",
+      "final_acceptance": "incomplete",
+      "assurance_level": "partial",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": [],
+      "release_gate_reasons": [
+        "missing_required_evidence:stateful_update_evidence",
+        "browser_interaction_failed:input_state_change_missing_after_start"
+      ],
+      "duration_ms": 467200
+    },
+    {
+      "name": "ff1_breakout_gemma31",
+      "scenario": "Breakout",
+      "goal": "あなたが考える最高に面白くかっこいいブロック崩しゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "gemma4:31b",
+      "run_uuid": "019f618c-9d51-7fe1-8827-9f618d51a9ea",
+      "exit_code": 1,
+      "terminal_status": "failed",
+      "final_acceptance": "incomplete",
+      "assurance_level": "partial",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": [],
+      "release_gate_reasons": [
+        "missing_required_evidence:restart_or_recoverable_state_evidence",
+        "browser_interaction_failed:input_state_change_missing_after_start"
+      ],
+      "duration_ms": 1245832
+    },
+    {
+      "name": "ff1_quiz_qwen35",
+      "scenario": "Quiz",
+      "goal": "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "run_uuid": "019f61a0-b4f6-7221-a268-76d991574011",
+      "exit_code": 0,
+      "terminal_status": "completed",
+      "final_acceptance": "full_success",
+      "assurance_level": "full",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": ["score"],
+      "release_gate_reasons": [],
+      "duration_ms": 633675
+    },
+    {
+      "name": "ff1_quiz_gemma31",
+      "scenario": "Quiz",
+      "goal": "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。",
+      "executor": "gemma4:31b",
+      "run_uuid": "019f61ab-40b4-7fe0-b38a-6c04346648d6",
+      "exit_code": 0,
+      "terminal_status": "completed",
+      "final_acceptance": "full_success",
+      "assurance_level": "full",
+      "probe_mode": "contract",
+      "contract_hook_status": "usable",
+      "action_hooks": ["primary"],
+      "state_dimensions": ["currentQuestionIndex", "score"],
+      "release_gate_reasons": [],
+      "duration_ms": 382322
+    }
+  ],
+  "event_counts": {
+    "ff1_space_qwen35": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 7,
+      "contract_attribute_repair_guidance": 0
+    },
+    "ff1_space_gemma31": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 0,
+      "contract_attribute_repair_guidance": 0
+    },
+    "ff1_breakout_qwen35": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 0,
+      "contract_attribute_repair_guidance": 2
+    },
+    "ff1_breakout_gemma31": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 4,
+      "contract_attribute_repair_guidance": 0
+    },
+    "ff1_quiz_qwen35": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 0,
+      "contract_attribute_repair_guidance": 0
+    },
+    "ff1_quiz_gemma31": {
+      "interaction_verified_heuristic_only": 0,
+      "contract_instrumentation_missing": 0,
+      "contract_attribute_repair_guidance": 0
+    }
+  },
+  "verdict": {
+    "p0_a": "PASS",
+    "p0_b": "PASS",
+    "overall": "PASS",
+    "full_run_count": 3,
+    "heuristic_only_full_count": 0
+  }
+}

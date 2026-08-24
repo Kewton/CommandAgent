@@ -1,0 +1,18 @@
+{
+  "status": "bound",
+  "attempts": [
+    {
+      "basis": "origin_workspace:pipeline_probe",
+      "command": "python3 -B pipeline/main.py",
+      "lineage": "reproducer:d6587ef46e829187",
+      "outcome": "failure",
+      "subject_failure": true,
+      "reason": "ValueError: invalid source row"
+    }
+  ],
+  "bound": {
+    "basis": "origin_workspace:pipeline_probe",
+    "command": "python3 -B pipeline/main.py",
+    "lineage": "reproducer:d6587ef46e829187"
+  }
+}

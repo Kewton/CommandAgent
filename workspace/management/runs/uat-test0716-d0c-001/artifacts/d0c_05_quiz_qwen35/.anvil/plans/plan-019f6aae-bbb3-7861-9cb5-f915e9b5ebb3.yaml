@@ -1,0 +1,37 @@
+goal: "Wire controls and data-anvil observability."
+steps:
+  - id: "inspect-current-state"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "implement-quiz-observability"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update src/app/page.tsx to implement a beautiful 3-question quiz app. Wire data-anvil-state on the main container with JSON snapshot { status, questionIndex, score }. Add data-anvil-action=\"primary\" to start and answer buttons. Add data-anvil-action=\"restart\" to all retry/restart buttons. Ensure the UI is responsive and uses Tailwind classes."
+    expected_paths:
+      - "src/app/page.tsx"
+    verify:
+      - "test -f src/app/page.tsx"
+  - id: "ensure-scripts-port"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "verify-build"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the Next.js build to verify the app compiles correctly with the new observability wiring."
+    expected_paths:
+    verify:
+      - "npm run build"

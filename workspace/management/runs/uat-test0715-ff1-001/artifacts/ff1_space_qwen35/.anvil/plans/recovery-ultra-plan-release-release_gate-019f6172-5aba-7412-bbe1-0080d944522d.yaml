@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
+recovery_failure_kind: "browser_interaction_failed"
+recovery_profile: "nextjs"
+recovery_failed_phase: "release_gate"
+goal: "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
+profile: "nextjs"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。. Failed acceptance layer or phase: release_gate. Failed step: unknown. Failure kind: browser_interaction_failed. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-release_gate"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: release_gate\nFailed step: unknown\nMissing capability or artifact signals:\n- repair target: capability_implementation\nFailure evidence:\n- failed acceptance layer: release_gate\n- final acceptance status: incomplete\n- release gate status: failed\n- primary reason: contract_instrumentation_missing:restart\n- release gate reason: contract_instrumentation_missing:restart\n- browser readiness: passed\n- browser readiness evidence: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0715_ff1_001/ff1_space_qwen35/.anvil/evidence/browser-readiness.json\n- interaction evidence: failed:contract_instrumentation_missing:restart\n- interaction evidence path: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0715_ff1_001/ff1_space_qwen35/.anvil/evidence/browser-interaction.json\n- interaction surface fit: div:state overflows the viewport by 6px; consider responsive sizing\n- interaction probe mode: contract\n- interaction contract hook status: usable\n- interaction restart hook reachable after start: false\n- interaction redispatched inputs: canvas/center click, ArrowLeft keydown, ArrowRight keydown, Space keydown\n- interaction state dimensions changed: playerX\nRepair targets:\n- capability_implementation\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: release_gate\nPreferred verify/browser check:\n- npm run build\n- start dev server with npm run dev and wait for readiness\n- probe browser route GET / and record HTTP status\n- write browser-readiness.json with route_rendered/http_status\n- run the interaction probe and record browser-interaction.json\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

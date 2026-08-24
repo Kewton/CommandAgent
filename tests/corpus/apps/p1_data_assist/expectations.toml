@@ -1,0 +1,33 @@
+case_id = "p1_data_assist"
+source = "uat-test0716-data-008 data8_ts_qwen35_none_001 measured inspection evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data_inspection_schema", "input_path", "distinct_values"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/uat-test0716-data-008/data8_ts_qwen35_none_001/evidence/inspection-schema.json = [
+  "\"ok\": true",
+  "\"input_path\": \"data/sales.csv\""
+]
+fixtures/uat-test0716-data-008/data8_ts_qwen35_none_001/output/inspection.json = [
+  "\"input_row_count\": 60",
+  "\"region\"",
+  "\"sample_rows\""
+]

@@ -1,0 +1,14 @@
+Source: uat-test0717-dfix-002 Run 4 isolate-cause plan.
+
+Before FIX-7a:
+- inspect-results-json reads existing output/results.json.
+- inspect-inspection-json unconditionally reads absent output/inspection.json.
+- inspect-pipeline-main reads existing pipeline/main.py.
+- inspect-validation-context reads existing F1 evidence.
+
+After FIX-7a:
+Data fix cause-isolation artifact policy (runtime-bound):
+- Executed F1 evidence and existing workspace files are the primary diagnostic inputs.
+- output/results.json and pipeline/main.py remain valid read-only references.
+- absent output/inspection.json is not requested or expected in isolate-cause.
+- creation or regeneration of absent final artifacts is deferred to repair.

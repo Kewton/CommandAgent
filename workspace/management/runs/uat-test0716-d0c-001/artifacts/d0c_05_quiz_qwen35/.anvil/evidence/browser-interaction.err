@@ -1,0 +1,7 @@
+{"stage":"resolving"}
+{"stage":"launching"}
+{"stage":"server_check"}
+{"stage":"warmup_navigation","attempt":1,"timeout_ms":45000}
+{"stage":"measured_navigation","timeout_ms":12000}
+{"stage":"surface_wait"}
+{"stage":"observing"}

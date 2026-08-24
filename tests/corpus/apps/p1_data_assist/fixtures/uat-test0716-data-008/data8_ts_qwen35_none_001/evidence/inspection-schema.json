@@ -1,0 +1,8 @@
+{
+  "capability_id": "data_inspection_schema",
+  "status": "pass",
+  "ok": true,
+  "inspection_path": "output/inspection.json",
+  "input_path": "data/sales.csv",
+  "failure_kinds": []
+}

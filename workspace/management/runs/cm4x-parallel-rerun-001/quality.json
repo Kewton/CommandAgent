@@ -1,0 +1,13 @@
+{
+  "schema_version": "commandagent.cm4x-parallel-quality/v1",
+  "source_summary_sha256": "52edcd412aa6299ac36d748dd9c4c5c048d91fc059a79e361e079457170d7350",
+  "canonical_source": "final run_stop events",
+  "runs": [
+    {"id":"warikan_001","exit_code":0,"status":"completed","task_status":"complete","runtime_acceptance_status":"pass","final_acceptance_status":"full_success","release_gate_status":"pass","headless_verdict":"partial","headless_assurance_reason":"completion_contract_not_bound"},
+    {"id":"warikan_002","exit_code":0,"status":"completed","task_status":"complete","runtime_acceptance_status":"pass","final_acceptance_status":"full_success","release_gate_status":"pass","headless_verdict":"partial","headless_assurance_reason":"completion_contract_not_bound"},
+    {"id":"warikan_003","exit_code":0,"status":"completed","task_status":"complete","runtime_acceptance_status":"pass","final_acceptance_status":"full_success","release_gate_status":"pass","headless_verdict":"partial","headless_assurance_reason":"completion_contract_not_bound"},
+    {"id":"warikan_004","exit_code":0,"status":"completed","task_status":"complete","runtime_acceptance_status":"pass","final_acceptance_status":"full_success","release_gate_status":"pass","headless_verdict":"partial","headless_assurance_reason":"completion_contract_not_bound"}
+  ],
+  "final_acceptance_full_success": 4,
+  "denominator": 4
+}

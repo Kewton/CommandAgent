@@ -1,0 +1,37 @@
+{
+  "goal": "Isolate the cause of the results.json schema validation failure.",
+  "steps": [
+    {
+      "id": "inspect-results-json",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read output/results.json to assess its current structure and keys.",
+      "expected_paths": [],
+      "verify": []
+    },
+    {
+      "id": "inspect-inspection-json",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read output/inspection.json to understand the derived data profile and validation rules.",
+      "expected_paths": [],
+      "verify": []
+    },
+    {
+      "id": "inspect-pipeline-main",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read pipeline/main.py to trace how results.json is generated.",
+      "expected_paths": [],
+      "verify": []
+    },
+    {
+      "id": "inspect-validation-context",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read the existing F1 evidence to locate the exact schema validation failure.",
+      "expected_paths": [],
+      "verify": []
+    }
+  ]
+}

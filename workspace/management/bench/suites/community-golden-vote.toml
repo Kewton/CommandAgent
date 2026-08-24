@@ -1,0 +1,66 @@
+[suite]
+id = "community-golden-vote"
+profile = "community-mini-app"
+intent = "create"
+plan_preset = "profile"
+workspace_mode = "empty"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "openai"
+api = "responses"
+tool_protocol = "native"
+
+[goals]
+main = "週末にどこへ行くか決められないので、みんなが候補を出して一票ずつ入れられるものを作って。結果はあとで見返せればいいです。"
+late = "友だちの予定を聞くと返信がばらばらになるから、行きたい場所をいくつか並べて投票できる簡単なページがほしい。"
+mixed = "家族会議で夕飯を決めるのに使いたいです。途中で候補を追加しても、誰が投票したかは重く考えずに済む感じで。"
+
+[[runs]]
+name = "vote_001"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_002"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_003"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_004"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_005"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_006"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_007"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_008"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_009"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_010"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_011"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_012"
+goal = "mixed"
+executor = "gpt-5.6-luna"

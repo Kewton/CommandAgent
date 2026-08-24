@@ -1,0 +1,23 @@
+goal: "Wire controls and data-anvil observability."
+steps:
+  - id: "inspect-current-quiz-ui"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to evaluate the current quiz implementation and identify exact locations to inject data-anvil observability attributes."
+    expected_paths:
+    verify:
+  - id: "implement-data-anvil-wiring"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update src/app/page.tsx to implement a complete 3-question quiz app with start, quiz, and result screens. Add data-anvil-action=\"primary\" to the initial start button, data-anvil-action=\"input\" to all answer selection buttons, data-anvil-state with a JSON snapshot of {screen, questionIndex, score, selectedAnswer} on the main interactive container, and data-anvil-action=\"restart\" on the retry button shown on the result screen. Ensure the component uses \"use client\", manages state reactively, and styles the UI beautifully using Tailwind CSS.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Required setup scaffold artifacts by completion: package.json, tsconfig.json, postcss.config.js, exactly one tailwind.config.* file, src/app/layout.tsx, src/app/page.tsx, src/app/globals.css, src/app/global.d.ts. If those files are absent, write the coherent App Router scaffold before further inspection. Use tailwind.config.ts for new scaffolds unless exactly one existing Tailwind config is already being completed. src/app/globals.css must contain the @tailwind directives, and src/app/layout.tsx must import ./globals.css. If any layout imports CSS such as ./globals.css, src/app/global.d.ts must declare module \"*.css\". package.json must include compatible next, react, react-dom, @types/react, @types/react-dom, and TypeScript 5.x dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position."
+    expected_paths:
+      - "src/app/page.tsx"
+      - "package.json"
+    verify:
+  - id: "verify-build-success"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the Next.js production build to verify that the updated interactive UI with data-anvil attributes compiles without errors."
+    expected_paths:
+    verify:
+      - "npm run build"

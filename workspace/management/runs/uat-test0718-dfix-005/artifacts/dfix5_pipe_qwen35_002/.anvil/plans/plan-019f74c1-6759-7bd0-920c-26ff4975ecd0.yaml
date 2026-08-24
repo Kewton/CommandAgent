@@ -1,0 +1,8 @@
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "isolate-cause"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/inspection.json`, `output/results.json`, `pipeline/main.py`; identify the narrow cause without changing the workspace."
+    expected_paths:
+    verify:

@@ -1,0 +1,9 @@
+{
+  "status": "pass",
+  "managed_probe": "managed_interaction_probe",
+  "assertions": [
+    "data-testid=\"count\"",
+    "data-action=\"increment\"",
+    "data-action=\"reset\""
+  ]
+}

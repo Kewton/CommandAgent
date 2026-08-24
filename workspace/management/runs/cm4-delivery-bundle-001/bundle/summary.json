@@ -1,0 +1,22 @@
+{
+  "acceptance_sheet_path": "acceptance-sheet.md",
+  "artifacts_dir": "artifacts",
+  "assurance": "partial",
+  "directive_round": 0,
+  "duration_secs": 0.0,
+  "events_path": "verification-events.jsonl",
+  "model_metadata": {
+    "executor_model": "gpt-5.6-luna",
+    "executor_provider": "openai",
+    "ollama_think": "medium",
+    "ollama_think_request_field_present": true,
+    "planner_model": "qwen3.8:27b-mlx",
+    "planner_provider": "ollama"
+  },
+  "provider_cost_usd": null,
+  "run_id": "01a0144c-9d72-74e1-86df-d50bb3bd6809",
+  "schema_version": "commandagent.headless-summary/v1",
+  "score": null,
+  "stop_class": null,
+  "verdict": "full"
+}

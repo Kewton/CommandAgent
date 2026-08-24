@@ -1,0 +1,17 @@
+{
+  "schema_version": "commandagent.community-adversarial/v1",
+  "run_id": "cm1-adversarial-001",
+  "known_types": 5,
+  "cases": 10,
+  "initial_detected": 5,
+  "repair_constraints_maintained": 5,
+  "detected_10_of_10": true,
+  "cost_usd": 0.0,
+  "seal": {
+    "manifest": "workspace/management/bench/adversarial/sha256sums.txt",
+    "manifest_sha256": "792c9696ca86127966810ec4a376a3815c4fb93de4ad2c9d6aa205dad09a2b0b",
+    "manifest_entries": 21,
+    "sealed_file_count": 22,
+    "entries_sha256": "b008347ec74111c74198cb9cee6ca95be06eddbc78fa2d378bd43c3079c951a2"
+  }
+}

@@ -1,0 +1,42 @@
+goal: "Implement the core task-specific behavior for: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext."
+steps:
+  - id: "inspect-workspace"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "setup-scaffold-files"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "src/app/globals.css"
+      - "src/app/global.d.ts"
+      - "src/app/layout.tsx"
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "implement-quiz-page"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create src/app/page.tsx implementing a 3-question quiz app. Use useState for current question index, score, and game state (start, playing, finished). Display questions with multiple-choice buttons. Track score on answer submission. Show final score and a retry button. Add data-anvil-action='primary' to start/submit buttons, data-anvil-action='restart' to retry buttons, and data-anvil-state with JSON snapshot of {questionIndex, score, gameState}. Style with Tailwind for a beautiful UI.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Required setup scaffold artifacts by completion: package.json, tsconfig.json, postcss.config.js, exactly one tailwind.config.* file, src/app/layout.tsx, src/app/page.tsx, src/app/globals.css, src/app/global.d.ts. If those files are absent, write the coherent App Router scaffold before further inspection. Use tailwind.config.ts for new scaffolds unless exactly one existing Tailwind config is already being completed. src/app/globals.css must contain the @tailwind directives, and src/app/layout.tsx must import ./globals.css. If any layout imports CSS such as ./globals.css, src/app/global.d.ts must declare module \"*.css\". package.json must include compatible next, react, react-dom, @types/react, @types/react-dom, and TypeScript 5.x dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position."
+    expected_paths:
+      - "src/app/page.tsx"
+    verify:
+      - "test -f src/app/page.tsx"
+      - "grep -q 'data-anvil-action' src/app/page.tsx"
+      - "node -p '(function(s,w,b){return [new RegExp(\"data-anvil-state\"+w+\"=\"),new RegExp(\"data-anvil-state\"+b)].some(function(r){return r.test(s)})?true:process.exit(1)})(String(require(\"fs\").readFileSync(\"src/app/page.tsx\")),String.fromCharCode(92)+\"s*\",String.fromCharCode(92)+\"b\")'"
+  - id: "verify-build"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the Next.js build command to verify the app compiles without errors and all route-bound components are correctly integrated."
+    expected_paths:
+    verify:
+      - "npm run build"

@@ -1,0 +1,9 @@
+goal: "Bind and run one deterministic failing reproducer R before any workspace change for: このNext."
+steps:
+  - id: "reproduce-before"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the deterministic reproducer to confirm the app fails verification due to the missing data-anvil-action=\"restart\" hook."
+    expected_paths:
+    verify:
+      - "npm run build"

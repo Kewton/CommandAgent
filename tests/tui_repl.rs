@@ -1,0 +1,120 @@
+use std::io::IsTerminal;
+use std::path::PathBuf;
+
+use clap::Parser;
+
+use commandagent::cli::Cli;
+use commandagent::config::{Action, Config, Provider};
+use commandagent::tui::slash::{parse_slash, parse_words};
+
+fn config(root: PathBuf) -> Config {
+    Config {
+        workspace_root: root,
+        state_dir: PathBuf::from("state"),
+        eval_events_path: None,
+        completion_contract_path: None,
+        yes: true,
+        offline: false,
+        context_budget: 1000,
+        model: "m".to_string(),
+        provider: Provider::Ollama,
+        tool_protocol: None,
+        openai_api: commandagent::config::OpenAiApi::ChatCompletions,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
+        planner_model: "pm".to_string(),
+        planner_provider: Provider::Gemini,
+        planner_think: Some(commandagent::config::OllamaThink::False),
+        classifier_model: "pm".to_string(),
+        classifier_provider: Provider::Gemini,
+        openai_compatible: None,
+        ollama_host: "http://localhost:11434".to_string(),
+        ollama_think: None,
+        lm_studio_host: "http://localhost:1234".to_string(),
+        num_predict: 100,
+        max_iterations: 4,
+        chat_timeout_secs: 1,
+        chat_timeout_source: "override:test".to_string(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
+        chat_retries: 1,
+        stream: false,
+        resume: None,
+        fresh_session: false,
+        no_footer: false,
+        narration: commandagent::config::NarrationMode::Normal,
+        profile: "generic".to_string(),
+        profile_explicit: false,
+        profile_inference: None,
+        style: "default".to_string(),
+        action: Action::Repl,
+    }
+}
+
+#[test]
+fn tui_non_tty_requires_action() {
+    if std::io::stdin().is_terminal() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let err = commandagent::repl::run_repl(config(dir.path().to_path_buf()))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("stdin is not a TTY"));
+}
+
+#[test]
+fn slash_command_quotes_profile_style_and_goal() {
+    let words = parse_words(r#"/ultra-plan-run --profile nextjs --style compact "3011 app""#);
+    assert_eq!(
+        words,
+        vec![
+            "/ultra-plan-run",
+            "--profile",
+            "nextjs",
+            "--style",
+            "compact",
+            "3011 app"
+        ]
+    );
+}
+
+#[test]
+fn cli_repl_action_parity() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = config(dir.path().to_path_buf());
+    let parsed = parse_slash(
+        r#"/ultra-plan-run --profile nextjs --style compact "3011 port app""#,
+        &base,
+    )
+    .unwrap();
+    let cli = Cli::parse_from([
+        "commandagent",
+        "--provider",
+        "ollama",
+        "--model",
+        "m",
+        "--planner-provider",
+        "gemini",
+        "--planner-model",
+        "pm",
+        "--ultra-plan-run",
+        "--profile",
+        "nextjs",
+        "--style",
+        "compact",
+        "3011 port app",
+    ]);
+    let config = Config::from_cli(cli).unwrap();
+    assert_eq!(parsed.command, "/ultra-plan-run");
+    assert_eq!(parsed.profile, config.profile);
+    assert_eq!(parsed.style, config.style);
+    assert!(matches!(config.action, Action::UltraPlanRun(goal) if goal == parsed.goal));
+}
+
+#[test]
+fn no_footer_flag_reaches_config() {
+    let cli = Cli::parse_from(["commandagent", "--no-footer"]);
+    let config = Config::from_cli(cli).unwrap();
+    assert!(config.no_footer);
+}

@@ -1,0 +1,2 @@
+Return to L1 and place the declared app behavior in app.spec.yaml only. Keep
+core/router.ts unchanged and record the rejected promotion attempt.

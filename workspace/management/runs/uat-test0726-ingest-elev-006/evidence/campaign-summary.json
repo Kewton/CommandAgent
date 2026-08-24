@@ -1,0 +1,379 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0726-ingest-elev-006",
+  "campaign_id": "ingest-create-elevated-20260728-061159",
+  "measurement_revision": "6628442c4ef36821bbad75018fe2f48ef86d4fad",
+  "contract": "docs/ingest-profile-contract.md (fixed 2026-07-25)",
+  "starting_workflows": {
+    "revision": "17d23f5a05c6622b66d4efbefb94d51c00359c34",
+    "ci": {
+      "run_id": 30330033272,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "acceptance": {
+      "run_id": 30330033256,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  },
+  "suite": {
+    "id": "ingest-create-elevated",
+    "sha256": "f7e9c448defd833c353b0e4a8f28b8a9adba19595c438b648cc50b6102325146",
+    "profile": "ingest",
+    "intent": "create",
+    "workspace_mode": "sourced",
+    "admission": "off",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "events_list_html": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+    "events_table_html": "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd",
+    "uat_meta": "ce7c89a459135668ef745f891b10f432934ad4ecab641dacb385cca85cb9754e",
+    "report_skeleton": "dbadd5f27cf154449e712ba54cf05e8f10f1c3810dc77b3c6bafe10605c5c04f",
+    "acceptance_sheets": {
+      "list_cloud_001": "2d972d41387523cbc6d2c4f2bda2b2793565bd40b11d9e62f50e75fabfbe55e6",
+      "list_cloud_002": "8ab0349691288dd2357fa55eb891e7fecb2a87ff45d73602f4991d141df9e4c1",
+      "list_cloud_003": "3e1da696c78e5f7242a56ab74f16b14dfe74f10b29d320d5302247b80857aaa6",
+      "table_cloud_001": "4f514e60087fc2e3d67e71dce7b33adb08b23a44166e933fee56805b6d58e68f",
+      "table_cloud_002": "41c7c422ebdf054e162fa921cd2b9b65dda864364ddeb90b0cfd19f915974c9a",
+      "table_cloud_003": "ff4faffb466383bf839bd6d6818fe40f83474749820fe5e903d122b548c306a0"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785219119,
+    "preflight_completed": 1785219300,
+    "run_start": 1785219300,
+    "run_end": 1785221739,
+    "audit_and_scrub_end": 1785222180
+  },
+  "cost_seconds": {
+    "preflight": 181,
+    "formal_run_sum": 2439,
+    "list_family": 2306,
+    "table_family": 133,
+    "preflight_and_formal_runs": 2620,
+    "preflight_start_to_audit_and_scrub_end": 3061
+  },
+  "preflight": {
+    "git_status": "clean",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 6628442 2026-07-28T06:14:43Z",
+    "binary_sha256_built": "34a624e23a0067b2a3ee182cc6e3dc367672f954fbff9c15024186ea20a0f1bd",
+    "binary_sha256_installed": "34a624e23a0067b2a3ee182cc6e3dc367672f954fbff9c15024186ea20a0f1bd",
+    "node_env": "production",
+    "minimum_ancestor": "78b95ce"
+  },
+  "full_verification": {
+    "fmt": "green",
+    "clippy_all_targets_deny_warnings": "green",
+    "cargo_test_all_targets": {
+      "passed": 1847,
+      "failed": 0,
+      "ignored": 30
+    },
+    "ingest_plan_synthesis": {
+      "passed": 6,
+      "failed": 0
+    },
+    "snapshot_structure_and_step_material": {
+      "passed": 3,
+      "failed": 0
+    },
+    "production_injection_integration": {
+      "passed": 1,
+      "failed": 0
+    },
+    "ingest_conformance": {
+      "passed": 2,
+      "failed": 0
+    },
+    "generality_guardrails": {
+      "passed": 9,
+      "failed": 0
+    },
+    "scaffold_and_classify_unittest": {
+      "passed": 7,
+      "failed": 0
+    },
+    "ruff": "green"
+  },
+  "runs": [
+    {
+      "name": "list_cloud_001",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "final_acceptance_started": true,
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "normalization_matches": 8,
+      "n2_violation_count": 1,
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "model",
+      "stop_shape": "n2_cross_block_year_rejection_then_model_stagnation",
+      "duration_seconds": 859
+    },
+    {
+      "name": "list_cloud_002",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "final_acceptance_started": true,
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "normalization_matches": 8,
+      "n2_violation_count": 1,
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "model",
+      "stop_shape": "n2_cross_block_year_rejection_then_model_stagnation",
+      "duration_seconds": 1381
+    },
+    {
+      "name": "list_cloud_003",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "final_acceptance_started": true,
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "failed",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "normalization_matches": 0,
+      "n2_violation_count": 36,
+      "n3_violation_count": 20,
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "candidate_id_path_prefix_omitted",
+      "duration_seconds": 66
+    },
+    {
+      "name": "table_cloud_001",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "static",
+      "display_assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_started": true,
+      "n1": "not_executed",
+      "n2": "not_executed",
+      "n3": "not_executed",
+      "n4": "not_executed",
+      "n5": "not_executed",
+      "selector": "table tbody tr",
+      "detected": null,
+      "accepted_in_model_output": 9,
+      "excluded_in_model_output": 1,
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "machine",
+      "stop_shape": "valid_compound_css_rejected_before_evidence",
+      "duration_seconds": 48
+    },
+    {
+      "name": "table_cloud_002",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "final_acceptance_started": true,
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "tr",
+      "detected": 10,
+      "accepted": 10,
+      "excluded": 0,
+      "normalization_matches": 9,
+      "n2_violation_count": 1,
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "model",
+      "stop_shape": "required_empty_date_accepted_then_model_stagnation",
+      "duration_seconds": 51
+    },
+    {
+      "name": "table_cloud_003",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "static",
+      "display_assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_started": true,
+      "n1": "not_executed",
+      "n2": "not_executed",
+      "n3": "not_executed",
+      "n4": "not_executed",
+      "n5": "not_executed",
+      "selector": "table tr",
+      "detected": null,
+      "accepted_in_model_output": 9,
+      "excluded_in_model_output": 1,
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "machine",
+      "stop_shape": "valid_compound_css_rejected_before_evidence",
+      "duration_seconds": 34
+    }
+  ],
+  "snapshot_material_observation": {
+    "injection_events": "6/6",
+    "injection_step": "implement-ingest-delivery",
+    "list_source_bytes": 2485,
+    "table_source_bytes": 2343,
+    "head_lines": 12,
+    "candidate_windows_per_file": 2,
+    "truncated_files": 0,
+    "omitted_files": 0,
+    "traversal_capped_runs": 0,
+    "selectors_matching_real_structure": "6/6",
+    "prior_selector_without_snapshot_content_read_recurrence": "0/6"
+  },
+  "effective_model_audit": {
+    "executor_run_start_matches": 6,
+    "executor_provider_turn_matches": 89,
+    "expected_runs": 6,
+    "expected_executor": "gemma4:31b-cloud",
+    "configured_planner_matches": 6,
+    "expected_planner": "qwen3.6:27b-coding-nvfp4",
+    "planner_was_skipped_by_profile_preset": "6/6"
+  },
+  "automatic_classification": {
+    "known": 6,
+    "unknown": 0,
+    "classes": {
+      "model_stagnation_read_only": 5,
+      "process_failure": 1
+    }
+  },
+  "audited_attribution": {
+    "model_failure": 4,
+    "machine_failure": 2,
+    "new_machine_class_candidates": 1
+  },
+  "new_class_candidates": [
+    {
+      "id": "ingest_candidate_selector:valid_compound_css_rejected",
+      "attribution": "machine",
+      "first_seen": "uat-test0726-ingest-elev-006",
+      "occurrences": 2,
+      "registered": false
+    },
+    {
+      "id": "ingest_candidate_accounting:candidate_id_path_prefix_omitted",
+      "attribution": "model",
+      "first_seen": "uat-test0726-ingest-elev-006",
+      "occurrences": 1,
+      "registered": false
+    },
+    {
+      "id": "ingest_source_binding:required_empty_value_accepted",
+      "attribution": "model",
+      "first_seen": "uat-test0726-ingest-elev-006",
+      "occurrences": 1,
+      "registered": false
+    },
+    {
+      "id": "ingest_source_binding:cross_block_year_inference",
+      "attribution": "model",
+      "first_seen": "uat-test0726-ingest-elev-006",
+      "occurrences": 2,
+      "registered": false
+    }
+  ],
+  "n_evidence": {
+    "runs_starting_final_acceptance": 6,
+    "runs_executing_n1_through_n5": 4,
+    "candidate_freeze_records": 4,
+    "ingest_probe_records": 4,
+    "source_binding_records": 4,
+    "candidate_accounting_records": 4,
+    "format_schema_records": 4,
+    "rerun_consistency_records": 4,
+    "assurance_records": 4,
+    "candidate_distribution": [10, 10, 10, 10],
+    "n1_pass": 4,
+    "n2_pass": 0,
+    "n2_binding_records": 148,
+    "n2_binding_matches": 109,
+    "n2_violation_records": 39,
+    "n2_nearest_miss_records": 0,
+    "n2_normalization_trace_matches": 25,
+    "japanese_era_to_iso_matches": 1,
+    "n3_pass": 3,
+    "n3_failed": 1,
+    "n3_violation_records": 20,
+    "n4_pass": 4,
+    "n5_pass": 4,
+    "runs_excluding_both_incomplete_candidates": 0,
+    "runs_excluding_only_missing_date": 5,
+    "runs_accepting_all_candidates": 1
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full_equivalent": "0/6",
+    "false_success": "0/6",
+    "n1_through_n5_evidence_at_final_acceptance": "4/6",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_assurance": "pass",
+    "p0_b_admission_cap_on_full_or_partial": "not_observed; no full/partial equivalent run",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_n1_through_n5_at_reached_run": "fail 4/6",
+    "p1_b_sheet_generation": "pass 6/6"
+  },
+  "calibration": {
+    "n2_nearest_miss_records": 0,
+    "n2_violation_records": 39,
+    "n3_violation_records": 20,
+    "appended_records": 0
+  },
+  "scrub": {
+    "bench_run_results_ok": 6,
+    "campaign_rescan_ok": true,
+    "findings": []
+  }
+}

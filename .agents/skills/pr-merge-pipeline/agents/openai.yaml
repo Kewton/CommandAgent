@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent PR Merge Pipeline"
+  short_description: "Safely merge ordered CommandAgent pull requests"
+  default_prompt: "Use $pr-merge-pipeline to verify and merge the authorized pull requests into develop."
+policy:
+  allow_implicit_invocation: false

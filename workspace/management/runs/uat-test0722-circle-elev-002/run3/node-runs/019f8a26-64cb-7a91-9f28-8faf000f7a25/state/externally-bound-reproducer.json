@@ -1,0 +1,5 @@
+{
+  "basis": "origin_verify_binding:anvil-catalog-check:data_inspection_schema",
+  "command": "anvil-catalog-check:data_inspection_schema",
+  "lineage": "reproducer:33eefa99a5d98b68"
+}

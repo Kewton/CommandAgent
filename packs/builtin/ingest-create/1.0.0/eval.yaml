@@ -1,0 +1,55 @@
+schema_version: commandagent.pack.eval/v0
+pack:
+  id: ingest-default
+  version: 1.0.0
+  profile: ingest
+  intent: create
+checks:
+  - id: pipeline_probe
+    at:
+      kind: final_acceptance
+    params:
+      entry: pipeline/main.py
+      timeout_seconds: 30
+  - id: ingest_source_binding
+    at:
+      kind: final_acceptance
+    extraction:
+      - source_binding.source_values
+    normalizers:
+      - identity
+    params: {}
+  - id: ingest_candidate_accounting
+    at:
+      kind: final_acceptance
+    extraction:
+      - accounting.enumerate
+    params: {}
+  - id: ingest_format_schema
+    at:
+      kind: final_acceptance
+    params: {}
+  - id: ingest_rerun_consistency
+    at:
+      kind: final_acceptance
+    params:
+      entry: pipeline/main.py
+      timeout_seconds: 30
+schemas:
+  - artifact: output/records.json
+    format: json
+    root: array
+    fields:
+      - name: name
+        type: string
+        required: true
+      - name: date
+        type: string
+        required: true
+      - name: location
+        type: string
+        required: true
+      - name: source_file
+        type: string
+        required: true
+    additional_fields: false

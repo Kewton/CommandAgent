@@ -1,0 +1,311 @@
+use std::collections::BTreeSet;
+use std::sync::OnceLock;
+
+use crate::planner::profile_manifest::{ManifestStatus, ManifestV1};
+use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
+
+pub(crate) mod fix_reproducer;
+const DATA_MANIFEST_TOML: &str = include_str!("manifest.toml");
+const REQUIRED_PHASE_IDS: [&str; 5] = [
+    "data-inspection",
+    "data-cleaning",
+    "data-aggregation",
+    "data-reporting",
+    "data-validation",
+];
+const REQUIRED_CHECK_IDS: [&str; 6] = [
+    "data_inspection_schema",
+    "pipeline_probe",
+    "data_results_schema",
+    "data_reconciliation",
+    "data_claims_binding",
+    "data_rerun_consistency",
+];
+
+pub fn get() -> &'static ManifestV1 {
+    static MANIFEST: OnceLock<ManifestV1> = OnceLock::new();
+    MANIFEST.get_or_init(|| {
+        let manifest = ManifestV1::from_toml(DATA_MANIFEST_TOML)
+            .expect("embedded data profile manifest.toml must parse and resolve");
+        validate_data_contract(&manifest)
+            .expect("embedded data profile manifest.toml must satisfy the fixed data contract");
+        manifest
+    })
+}
+
+pub fn preset_ultra_plan(goal: &str, style: &str, intent: &str) -> Option<UltraPlan> {
+    let manifest = get();
+    if !style.eq_ignore_ascii_case(&manifest.plan.style)
+        || !intent.eq_ignore_ascii_case(&manifest.plan.intent)
+    {
+        return None;
+    }
+    Some(UltraPlan {
+        goal: goal.to_string(),
+        profile: manifest.plan.profile.clone(),
+        style: manifest.plan.style.clone(),
+        intent: manifest.plan.intent.clone(),
+        phases: manifest
+            .plan
+            .phases
+            .iter()
+            .map(|phase| UltraPhase {
+                id: phase.id.clone(),
+                prompt: phase.prompt.replace("{goal}", goal),
+            })
+            .collect(),
+    })
+}
+
+pub fn guidance() -> String {
+    format!(
+        "{}\n{}\n{}\n{}",
+        guidance_message("generic", "generic_interaction"),
+        guidance_message("generic", "start_interaction"),
+        guidance_message("reproducibility", "persistence"),
+        guidance_message("contracts", "contract_attribute_guidance"),
+    )
+}
+
+pub fn generation_rules() -> &'static str {
+    guidance_message("generic", "start_interaction")
+}
+
+pub fn runtime_contract() -> String {
+    format!(
+        "- {}\n- {}\n- {}\n- {}",
+        guidance_message("contracts", "primary_requirement"),
+        guidance_message("contracts", "state_requirement"),
+        guidance_message("contracts", "input_coupled_dimension_requirement"),
+        guidance_message("reproducibility", "persistence"),
+    )
+}
+
+pub fn required_artifacts() -> Vec<String> {
+    get().artifacts.preferred_paths()
+}
+
+pub fn guidance_message(variant: &str, message: &str) -> &'static str {
+    get()
+        .guidance
+        .message(variant, message)
+        .unwrap_or_else(|| panic!("missing data guidance {variant}.{message}"))
+}
+
+pub fn dependency_order_hint() -> String {
+    format!(
+        "Follow manifest phases in order: {}",
+        get()
+            .plan
+            .phases
+            .iter()
+            .map(|phase| phase.id.as_str())
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    )
+}
+
+pub fn required_capability_ids() -> Vec<String> {
+    let ids = check_ids();
+    let mut required = [
+        "data_reconciliation",
+        "data_claims_binding",
+        "data_rerun_consistency",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    if ids.iter().any(|id| id == "data_results_schema") {
+        required.push("data_results_schema".to_string());
+    }
+    required
+}
+
+pub fn is_manifest_check_id(id: &str) -> bool {
+    required_capability_ids()
+        .iter()
+        .any(|required| required == id)
+}
+
+pub fn evidence_target_paths(evidence_keys: &[String]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for (evidence, targets) in &get().evidence_targets.mappings {
+        if evidence_keys.iter().any(|key| key.contains(evidence)) {
+            for target in targets {
+                if !paths.contains(target) {
+                    paths.push(target.clone());
+                }
+            }
+        }
+    }
+    paths
+}
+
+pub fn source_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+    for target in get().evidence_targets.mappings.values().flatten() {
+        if !paths.contains(target) {
+            paths.push(target.clone());
+        }
+    }
+    paths
+}
+
+pub fn check_ids() -> Vec<String> {
+    get()
+        .checks
+        .values()
+        .flatten()
+        .map(|check| check.id.clone())
+        .collect()
+}
+
+fn validate_data_contract(manifest: &ManifestV1) -> Result<(), String> {
+    if manifest.metadata.id != "data" || manifest.plan.profile != "data" {
+        return Err("metadata.id and plan.profile must both be data".to_string());
+    }
+    if manifest.metadata.status != ManifestStatus::Admitted {
+        return Err("metadata.status must be admitted after B-3".to_string());
+    }
+    if manifest.plan.placeholders.port.is_some() {
+        return Err("data profile must not declare an unused port placeholder".to_string());
+    }
+    let phase_ids = manifest
+        .plan
+        .phases
+        .iter()
+        .map(|phase| phase.id.as_str())
+        .collect::<Vec<_>>();
+    if phase_ids != REQUIRED_PHASE_IDS {
+        return Err(format!(
+            "expected five fixed data phases, got {phase_ids:?}"
+        ));
+    }
+    let check_ids = manifest
+        .checks
+        .values()
+        .flatten()
+        .map(|check| check.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let check_count = manifest.checks.values().map(Vec::len).sum::<usize>();
+    if check_count != REQUIRED_CHECK_IDS.len() || check_ids != BTreeSet::from(REQUIRED_CHECK_IDS) {
+        return Err(format!("data check bindings are incomplete: {check_ids:?}"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::planner::capability_catalog::{
+        DataInternalCheck, InternalCapability, ProbeCapability, ResolvedCapability,
+    };
+
+    #[test]
+    fn embedded_data_manifest_loads_once_with_five_phases_and_no_port() {
+        let manifest = get();
+        assert!(std::ptr::eq(manifest, get()));
+        assert_eq!(manifest.metadata.status, ManifestStatus::Admitted);
+        assert_eq!(manifest.plan.phases.len(), 5);
+        assert!(manifest.plan.placeholders.port.is_none());
+        assert_eq!(
+            manifest
+                .plan
+                .phases
+                .iter()
+                .map(|phase| phase.id.as_str())
+                .collect::<Vec<_>>(),
+            REQUIRED_PHASE_IDS
+        );
+    }
+
+    #[test]
+    fn every_data_check_binding_resolves_to_a_typed_catalog_adapter() {
+        let resolved = get().resolve().unwrap();
+        let capabilities = resolved
+            .values()
+            .flatten()
+            .map(|check| &check.capability)
+            .collect::<Vec<_>>();
+
+        for check in [
+            DataInternalCheck::InspectionSchema,
+            DataInternalCheck::ResultsSchema,
+            DataInternalCheck::Reconciliation,
+            DataInternalCheck::ClaimsBinding,
+        ] {
+            assert!(capabilities.contains(&&ResolvedCapability::Internal(
+                InternalCapability::Data(check)
+            )));
+        }
+        assert!(capabilities.iter().any(|capability| matches!(
+            capability,
+            ResolvedCapability::Probe(ProbeCapability::Pipeline { entry, timeout_seconds })
+                if entry == "pipeline/main.py" && *timeout_seconds == 30
+        )));
+        assert!(capabilities.iter().any(|capability| matches!(
+            capability,
+            ResolvedCapability::Probe(ProbeCapability::DataRerunConsistency { entry, timeout_seconds })
+                if entry == "pipeline/main.py" && *timeout_seconds == 30
+        )));
+    }
+
+    #[test]
+    fn manifest_drives_plan_guidance_requirements_and_repair_targets() {
+        let plan = preset_ultra_plan("Summarize sales", "default", "create").unwrap();
+        assert_eq!(plan.phases.len(), 5);
+        assert!(plan.phases[0].prompt.contains("Summarize sales"));
+        assert!(guidance().contains("fixed seed"));
+        assert!(
+            generation_rules().contains("docs/dev/data-profile-contract.md"),
+            "data guidance must point to the relocated canonical contract"
+        );
+        assert_eq!(
+            required_capability_ids(),
+            [
+                "data_reconciliation",
+                "data_claims_binding",
+                "data_rerun_consistency",
+                "data_results_schema",
+            ]
+        );
+        assert_eq!(
+            evidence_target_paths(&["claims_binding_violation".to_string()]),
+            ["pipeline/main.py"]
+        );
+        let acceptance = crate::minimal_loop::evidence::verify_runtime_acceptance(
+            tempfile::tempdir().unwrap().path(),
+            &[],
+            &[],
+            &required_capability_ids(),
+            &[],
+            &[],
+            &[],
+        );
+        assert!(acceptance.missing_capabilities.is_empty(), "{acceptance:?}");
+    }
+
+    #[test]
+    fn data_manifest_rejects_bad_port_and_evidence_target_forms() {
+        let bad_port = DATA_MANIFEST_TOML.replacen(
+            "goal = \"{goal}\"",
+            "goal = \"{goal}\"\nport = \"{goal}\"",
+            1,
+        );
+        assert!(ManifestV1::from_toml(&bad_port).is_err());
+
+        let mixed_targets = DATA_MANIFEST_TOML.replacen(
+            "[evidence_targets.mappings]",
+            "[evidence_targets]\nsource = \"evidence_knowledge\"\nsection = \"repair_targets\"\n\n[evidence_targets.mappings]",
+            1,
+        );
+        assert!(ManifestV1::from_toml(&mixed_targets).is_err());
+
+        let unsafe_target = DATA_MANIFEST_TOML.replacen(
+            "results_schema = [\"pipeline/main.py\"]",
+            "results_schema = [\"../pipeline/main.py\"]",
+            1,
+        );
+        assert!(ManifestV1::from_toml(&unsafe_target).is_err());
+    }
+}

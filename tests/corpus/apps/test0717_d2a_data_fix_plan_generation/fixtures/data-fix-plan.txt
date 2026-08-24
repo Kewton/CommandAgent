@@ -1,0 +1,13 @@
+profile: data
+intent: fix
+phase_ids: reproduce-before -> isolate-cause -> repair -> verify-regressions
+first_phase_prompt: Bind and run one deterministic failing reproducer R before any workspace change for: The data pipeline exits non-zero with a traceback. Fix it and preserve validations.
+reproducer_basis: goal_failure_kind:pipeline_execution
+reproducer_suggestion: profile_catalog:pipeline_probe(entry=pipeline/main.py) => python3 -B pipeline/main.py
+first_phase_execution_prompt:
+Bind and run one deterministic failing reproducer R before any workspace change for: The data pipeline exits non-zero with a traceback. Fix it and preserve validations.
+
+Fix contract section 8 reproducer suggestion (guidance, not enforcement):
+- basis: goal_failure_kind:pipeline_execution
+- canonical candidate: profile_catalog:pipeline_probe(entry=pipeline/main.py) => python3 -B pipeline/main.py
+Use this candidate when it represents the stated failure. A different deterministic R remains permitted; the F1 baseline gate remains authoritative.

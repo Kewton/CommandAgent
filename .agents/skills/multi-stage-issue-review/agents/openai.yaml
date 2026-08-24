@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Multi-stage Issue Review"
+  short_description: "Run staged CommandAgent issue reviews"
+  default_prompt: "Use $multi-stage-issue-review to validate and improve an issue specification."
+policy:
+  allow_implicit_invocation: false

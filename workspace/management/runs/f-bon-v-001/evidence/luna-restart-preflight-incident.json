@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.bon-preflight-incident/v0",
+  "recorded_at": "2026-08-03T18:20:29+09:00",
+  "series_id": "f-bon-v-cli-luna",
+  "label": "bon0-001r",
+  "campaign_id": "cli-filter-bon0-20260803-091056",
+  "declared_binary_sha256": "3fa2978aed3fc09aadc84ae873133bc477117bb03bf4116cc5092cee91c68988",
+  "observed_binary_sha256": "1eb01906f23524da10463b35bf4ea5d58cf40078f4672431f2f6f25a69f18de1",
+  "difference_scope": "Mach-O LC_UUID and its linker-generated ad-hoc code signature only",
+  "cause": "binary pin was sampled from a different Cargo target directory than the fixed measurement worktree target directory",
+  "preflight_disposition": "failed_closed_before_install_and_product_start",
+  "uat_meta_present": false,
+  "run_artifact_count": 0,
+  "statistical_trials": 0,
+  "cost_usd": 0.0,
+  "excluded_from_every_denominator": true,
+  "replacement_label": "bon0-001r2"
+}

@@ -1,94 +1,163 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
 
-repo="${COMMANDAGENT_REPO:-Kewton/CommandAgent}"
-version="${COMMANDAGENT_VERSION:-latest}"
-install_dir="${COMMANDAGENT_INSTALL_DIR:-$HOME/.local/bin}"
+set -eu
 
-need_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "error: $1 is required" >&2
-    exit 2
-  fi
+repository="${COMMANDAGENT_INSTALL_REPOSITORY:-Kewton/CommandAgent}"
+api_root="https://api.github.com/repos/$repository"
+download_root="https://github.com/$repository/releases/download"
+version=""
+prefix="${HOME:?HOME must be set}/.local/bin"
+temp_dir=""
+
+usage() {
+    cat <<'EOF'
+Usage: install.sh [--version VERSION] [--prefix DIRECTORY]
+
+Download a released CommandAgent binary, verify its SHA-256 checksum, and
+install it into ~/.local/bin or DIRECTORY.
+
+  --version VERSION   Install a release such as 0.1.0 or v0.1.0
+  --prefix DIRECTORY  Install directly into DIRECTORY
+  -h, --help          Show this help
+EOF
 }
 
-asset_name() {
-  local os
-  local arch
-
-  os="$(uname -s)"
-  arch="$(uname -m)"
-
-  case "$os:$arch" in
-    Linux:x86_64 | Linux:amd64)
-      echo "commandagent-linux-amd64"
-      ;;
-    Linux:aarch64 | Linux:arm64)
-      echo "commandagent-linux-arm64"
-      ;;
-    Darwin:x86_64 | Darwin:amd64)
-      echo "commandagent-darwin-amd64"
-      ;;
-    Darwin:aarch64 | Darwin:arm64)
-      echo "commandagent-darwin-arm64"
-      ;;
-    *)
-      echo "error: unsupported platform: $os $arch" >&2
-      exit 2
-      ;;
-  esac
+fail() {
+    printf 'error: %s\n' "$1" >&2
+    exit 1
 }
 
-download_base_url() {
-  if [[ "$version" == "latest" ]]; then
-    echo "https://github.com/$repo/releases/latest/download"
-  else
-    echo "https://github.com/$repo/releases/download/$version"
-  fi
+cleanup() {
+    if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
+        rm -rf "$temp_dir"
+    fi
 }
 
-verify_checksum() {
-  local checksum_file="$1"
+trap cleanup EXIT HUP INT TERM
 
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "$checksum_file"
-    return
-  fi
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --version)
+            [ "$#" -ge 2 ] || fail "--version requires a value"
+            version=$2
+            shift 2
+            ;;
+        --prefix)
+            [ "$#" -ge 2 ] || fail "--prefix requires a directory"
+            prefix=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            fail "unknown option: $1"
+            ;;
+    esac
+done
 
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$checksum_file"
-    return
-  fi
+[ -n "$prefix" ] || fail "installation prefix must not be empty"
 
-  echo "error: shasum or sha256sum is required for checksum verification" >&2
-  exit 2
+for command_name in curl tar mkdir mktemp chmod mv; do
+    command -v "$command_name" >/dev/null 2>&1 \
+        || fail "required command not found: $command_name"
+done
+
+request() {
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "$@"
+    else
+        curl -fsSL -H "Accept: application/vnd.github+json" "$@"
+    fi
 }
 
-need_cmd curl
-need_cmd gzip
-need_cmd install
-need_cmd mktemp
-need_cmd uname
-
-asset="$(asset_name)"
-base_url="$(download_base_url)"
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
-
-curl -fsSL "$base_url/$asset.gz" -o "$tmp_dir/$asset.gz"
-curl -fsSL "$base_url/$asset.gz.sha256" -o "$tmp_dir/$asset.gz.sha256"
-
-(
-  cd "$tmp_dir"
-  verify_checksum "$asset.gz.sha256"
-)
-
-gzip -dc "$tmp_dir/$asset.gz" > "$tmp_dir/commandagent"
-mkdir -p "$install_dir"
-install -m 0755 "$tmp_dir/commandagent" "$install_dir/commandagent"
-
-echo "Installed commandagent to $install_dir/commandagent"
-
-if ! command -v commandagent >/dev/null 2>&1; then
-  echo "Add $install_dir to PATH if commandagent is not found by your shell."
+if [ -z "$version" ]; then
+    release_json="$(request "$api_root/releases/latest")" \
+        || fail "could not resolve the latest CommandAgent release"
+    tag="$(printf '%s\n' "$release_json" \
+        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        | sed -n '1p')"
+    [ -n "$tag" ] || fail "latest GitHub release did not contain a tag name"
+    version=${tag#v}
+else
+    case "$version" in
+        v*) tag=$version; version=${version#v} ;;
+        *) tag="v$version" ;;
+    esac
 fi
+
+case "$version" in
+    ""|*[!0-9A-Za-z.+-]*) fail "invalid release version: $version" ;;
+esac
+
+os="$(uname -s)"
+arch="$(uname -m)"
+case "$os:$arch" in
+    Darwin:arm64|Darwin:aarch64)
+        target="aarch64-apple-darwin"
+        ;;
+    Darwin:x86_64|Darwin:amd64)
+        target="x86_64-apple-darwin"
+        ;;
+    Linux:x86_64|Linux:amd64)
+        target="x86_64-unknown-linux-musl"
+        ;;
+    *)
+        fail "unsupported operating system or architecture: $os/$arch"
+        ;;
+esac
+
+archive="commandagent-$version-$target.tar.gz"
+checksum="$archive.sha256"
+base_url="$download_root/$tag"
+
+umask 077
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/commandagent-install.XXXXXX")" \
+    || fail "could not create a temporary directory"
+
+printf 'Downloading CommandAgent %s for %s...\n' "$version" "$target"
+request -o "$temp_dir/$archive" "$base_url/$archive" \
+    || fail "could not download $archive"
+request -o "$temp_dir/$checksum" "$base_url/$checksum" \
+    || fail "could not download $checksum"
+
+expected_hash="$(sed -n '1{s/[[:space:]].*$//;p;}' "$temp_dir/$checksum")"
+case "$expected_hash" in
+    ""|*[!0-9A-Fa-f]*) fail "checksum file is malformed" ;;
+esac
+[ "${#expected_hash}" -eq 64 ] || fail "checksum file is malformed"
+
+if command -v sha256sum >/dev/null 2>&1; then
+    actual_hash="$(sha256sum "$temp_dir/$archive" | sed 's/[[:space:]].*$//')"
+elif command -v shasum >/dev/null 2>&1; then
+    actual_hash="$(shasum -a 256 "$temp_dir/$archive" | sed 's/[[:space:]].*$//')"
+else
+    fail "sha256sum or shasum is required to verify the release"
+fi
+
+[ "$actual_hash" = "$expected_hash" ] \
+    || fail "SHA-256 checksum verification failed for $archive"
+printf 'Verified SHA-256 checksum.\n'
+
+tar -xzf "$temp_dir/$archive" -C "$temp_dir" commandagent \
+    || fail "could not extract commandagent from $archive"
+[ -f "$temp_dir/commandagent" ] || fail "release archive did not contain commandagent"
+chmod 0755 "$temp_dir/commandagent"
+
+mkdir -p "$prefix" || fail "could not create installation directory: $prefix"
+mv "$temp_dir/commandagent" "$prefix/commandagent" \
+    || fail "could not install commandagent into $prefix"
+
+printf 'Installed commandagent to %s/commandagent\n' "$prefix"
+case ":${PATH:-}:" in
+    *":$prefix:"*) ;;
+    *)
+        printf 'Add CommandAgent to PATH, for example:\n'
+        printf '%s\n' "  export PATH=\"$prefix:\$PATH\""
+        ;;
+esac

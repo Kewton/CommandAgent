@@ -1,0 +1,54 @@
+case_id = "test0725_cli_profile_contract"
+source = "fixed CLI profile contract synthetic conformance evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["cli_probe", "help_binding", "cli_output_claims", "cli_rerun_consistency"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/conformance.jsonl = [
+  "\"case\":\"full\"",
+  "\"case\":\"help_listed_unimplemented\"",
+  "\"case\":\"invalid_exit_zero\"",
+  "\"case\":\"output_example_absent\"",
+  "\"case\":\"probe_unexecuted\"",
+  "\"case\":\"rerun_mismatch\"",
+  "\"case\":\"bound_cases_replaced\"",
+  "\"expected_assurance\":\"static\""
+]
+fixtures/python-cli-full-assurance.json = [
+  "\"status\": \"full\"",
+  "\"assurance\": \"full\"",
+  "\"probe_attempted\": true",
+  "\"binding_intact\": true",
+  "\"cli_probe\": \"pass\"",
+  "\"help_binding\": \"pass\"",
+  "\"cli_output_claims\": \"pass\"",
+  "\"cli_rerun_consistency\": \"pass\""
+]
+fixtures/python-cli-plan-run-full.json = [
+  "\"profile\": \"python-cli\"",
+  "\"runtime_acceptance_status\": \"pass\"",
+  "\"final_acceptance_status\": \"full_success\"",
+  "\"assurance_level\": \"full\"",
+  "\"profile_behavior_probe_status\": \"pass\"",
+  "\"profile_behavior_probe_evidence_path\": \".commandagent/evidence/python-cli-behavior.json\"",
+  "\"assurance\": \"full\"",
+  "\"verdict\": \"full\""
+]

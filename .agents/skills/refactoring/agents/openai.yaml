@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Refactoring"
+  short_description: "Refactor CommandAgent behavior safely"
+  default_prompt: "Use $refactoring to improve the selected code without changing behavior."
+policy:
+  allow_implicit_invocation: false

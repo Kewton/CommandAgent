@@ -1,0 +1,6 @@
+{
+  "source": "uat-test0801-cli-luna-007/filter_luna_003",
+  "planner_verify": "python cli/main.py --pattern 'error' data/sample.txt",
+  "documented_usage": "python cli/main.py --file data/sample.txt --pattern ERROR",
+  "expected_normalized": "python cli/main.py --pattern 'error' --file data/sample.txt"
+}

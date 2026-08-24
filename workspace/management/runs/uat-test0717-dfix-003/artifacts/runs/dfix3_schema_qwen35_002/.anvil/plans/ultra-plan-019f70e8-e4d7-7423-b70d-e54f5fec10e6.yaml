@@ -1,0 +1,13 @@
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+profile: "data"
+style: "default"
+intent: "fix"
+phases:
+  - id: "reproduce-before"
+    prompt: "Bind and run one deterministic failing reproducer R before any workspace change for: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+  - id: "isolate-cause"
+    prompt: "Isolate the cause of the reproduced failure without modifying the workspace for: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+  - id: "repair"
+    prompt: "Apply the focused repair for the reproduced failure in: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+  - id: "verify-regressions"
+    prompt: "Verify the repaired behavior and the profile-bound regression set for: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"

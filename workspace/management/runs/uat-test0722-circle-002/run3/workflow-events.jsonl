@@ -1,0 +1,5 @@
+{"entry":"create","event":"workflow_started","origin":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3"}
+{"checks":["E-A","E-B","E-C","E-D"],"edge":"create->investigate","event":"workflow_edge_fired"}
+{"event":"workflow_node_started","intent":"investigate","node":"investigate"}
+{"event":"workflow_node_run_created","model":"qwen3.6:27b-coding-nvfp4","node":"investigate","provider":"ollama","run_dir":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f8752-49ec-7d03-b970-b3ce19856ac8","run_id":"019f8752-49ec-7d03-b970-b3ce19856ac8"}
+{"event":"workflow_adjudicated","reason":"node_failed:investigate","verdict":"circle_failed"}

@@ -1,0 +1,13 @@
+goal: "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+profile: "data"
+style: "default"
+intent: "create"
+phases:
+  - id: "load-and-validate-data"
+    prompt: "Load data/sales.csv and validate each row against expected schema and data types. Categorize invalid rows by specific rejection reasons, count them per reason, and produce a cleaned dataset ready for aggregation. Verify that all invalid rows are excluded and the exclusion summary matches the original row count minus valid rows."
+  - id: "compute-metrics"
+    prompt: "Using the cleaned dataset, compute monthly sales totals, month-over-month percentage changes, and a 3-month moving average. Handle edge cases deterministically, sort chronologically, and output a structured table of results. Verify calculations against sample manual checks and ensure stable ordering."
+  - id: "generate-report"
+    prompt: "Create a comprehensive summary report saved to output/sales_summary_report.md that includes the invalid row exclusion summary with counts per reason, the calculated metrics table, and key business insights. Ensure the report is self-contained, clearly formatted, and matches all requested requirements."
+  - id: "final-verification"
+    prompt: "Review the generated output/sales_summary_report.md to confirm it contains the invalid row exclusion breakdown, monthly totals, MoM percentages, 3-month moving averages, and meets all structural and content requirements. Verify deterministic output generation and mark the task as complete."

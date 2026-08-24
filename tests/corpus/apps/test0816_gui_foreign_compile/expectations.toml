@@ -1,0 +1,23 @@
+case_id = "test0816_gui_foreign_compile"
+source = "GUI trial workspace incident 01a005e0-ddad-74f1-9987-68ef0883409a"
+required_paths = ["package.json", "tsconfig.json", "src/app/layout.tsx", "src/app/page.tsx", "src/app/globals.css"]
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = ["src/app/page.tsx", "src/app/layout.tsx", "src/app/globals.css"]
+exclude = ["gui/components/shell.tsx"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/foreign-compile-error.json = [
+  "gui/components/shell.tsx",
+  "\"route_bound\": false",
+  "foreign_project_compile_error"
+]

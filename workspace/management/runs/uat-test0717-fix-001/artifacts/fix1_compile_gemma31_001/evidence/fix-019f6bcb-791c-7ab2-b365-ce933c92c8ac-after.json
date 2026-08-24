@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "after_passes",
+  "binding_id": "npm run build",
+  "stage": "after",
+  "expected": "success",
+  "lineage": "reproducer:a33c603932fd7056",
+  "epoch": 2,
+  "run_id": "019f6bcb-791c-7ab2-b365-ce933c92c8ac",
+  "executed": true,
+  "outcome": "success",
+  "reason": "command_succeeded"
+}

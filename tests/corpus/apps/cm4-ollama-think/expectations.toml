@@ -1,0 +1,27 @@
+case_id = "cm4-ollama-think"
+source = "CM-4 explicit-only Ollama think request byte contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["think", "medium", "request bytes"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/request-unset.json = ["qwen3.6:27b-coding-nvfp4", "num_ctx", "num_predict"]
+fixtures/request-medium.json = ["qwen3.8:27b-mlx", "num_ctx", "\"think\":\"medium\""]
+fixtures/provider-turn-role-think.jsonl = ["provider_turn_duration", "planner_step", "\"think\":\"false\"", "executor", "\"think\":\"omitted\""]

@@ -1,0 +1,49 @@
+case_id = "issue356-nextjs-held-input-redraw"
+source = "GUI Trial 01a02f31 bounded-repair regression"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["space", "player_x", "canvas_not_redrawn_after_start"]
+
+[route_closure]
+include = ["src/app/page.tsx"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/browser-interaction.json:failure_kind = "input_state_change_missing_after_start"
+fixtures/browser-interaction.json:input_contract_state_change = "true"
+fixtures/browser-interaction.json:input_state_change = "false"
+fixtures/browser-interaction.json:canvas_not_redrawn_after_start = "true"
+fixtures/browser-interaction.json:recovery_transition = "true"
+
+[fixture_contains]
+src/app/page.tsx = [
+  "const anvilState = JSON.stringify",
+  "player_x: snapshot.player_x",
+  "data-anvil-state={anvilState}"
+]
+fixtures/browser-interaction.json = [
+  "input_key_hold",
+  "ArrowLeft_keydown_hold",
+  "player_x",
+  "after_recovery"
+]
+
+[fixture_ordered]
+fixtures/repair-guidance.txt = [
+  "canvas_not_redrawn_after_start:",
+  "render-loop checklist:",
+  "input-wiring checklist:"
+]

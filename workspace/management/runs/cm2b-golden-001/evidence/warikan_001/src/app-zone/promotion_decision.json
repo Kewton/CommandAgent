@@ -1,0 +1,21 @@
+{
+  "promotion_decision": {
+    "from": "L2",
+    "to": "L3",
+    "lower_level_result": {
+      "status": "success",
+      "spec_reference": "app.spec.yaml",
+      "sections": [
+        "entities",
+        "views",
+        "actions",
+        "validations",
+        "computed",
+        "permissions",
+        "minIdentity"
+      ]
+    },
+    "decision": "promote",
+    "reason": "L2 defines the platform-owned data and settlement contract successfully. The expense entry interface requires a route-bound implementation under app-zone for form binding, local state handling, validation feedback, and rendering entered expenses; this presentation and interaction logic is recorded as an L3 promotion without changing the L2 schema."
+  }
+}

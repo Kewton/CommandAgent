@@ -1,0 +1,27 @@
+case_id = "test0714_m4_003_run6_false_full"
+source = "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_003/artifacts/quiz_qwen27_plan_qwen35_exec_preset_profile_001"
+required_paths = ["src/app/page.tsx"]
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[release_qualification]
+evidence_fixture = "fixtures/browser-interaction.json"
+restart_required = false
+full_eligible = false
+evidence_status = "interaction_verified_heuristic_only"
+reasons = ["contract_instrumentation_missing:primary"]
+
+[json_fields]
+fixtures/browser-interaction.json:status = "passed"
+fixtures/browser-interaction.json:probe_mode = "heuristic"
+fixtures/browser-interaction.json:contract_hook_status = "primary_missing"
+
+[fixture_contains]
+src/app/page.tsx = ["INTERACTIVE CHALLENGE", "const columns = 9", ">Action</button>"]

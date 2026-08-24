@@ -1,0 +1,4 @@
+commandagent --yes --intent fix --context-budget 65536 \
+  --model gemma4:31b --provider ollama \
+  --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama \
+  --plan-preset none --ultra-plan-run --profile data "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"

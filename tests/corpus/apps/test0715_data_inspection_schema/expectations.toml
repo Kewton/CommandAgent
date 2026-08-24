@@ -1,0 +1,42 @@
+case_id = "test0715_data_inspection_schema"
+source = "uat-test0714-m4-004 Run 1 inspection artifact and a complete positive fixture"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data_inspection_schema", "missing_keys", "column_names"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run1-inspection.json = [
+  "total_input_rows",
+  "invalid_date",
+  "regions",
+  "months"
+]
+fixtures/valid-inspection.json = [
+  "column_names",
+  "input_row_count",
+  "type_summaries",
+  "distinct_values",
+  "sample_rows"
+]
+fixtures/uat5-run1-row-count-mismatch.json = [
+  "\"input_row_count\": 24",
+  "\"column_names\"",
+  "\"sample_rows\""
+]

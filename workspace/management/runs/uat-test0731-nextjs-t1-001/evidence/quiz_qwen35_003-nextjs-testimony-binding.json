@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "check_id": "nextjs_testimony_binding",
+  "status": "claims_absent",
+  "claims_absent": true,
+  "recognized_claim_count": 0,
+  "matched_claim_count": 0,
+  "violation_count": 0,
+  "unrecognized_prose": 0,
+  "claims": [],
+  "source_files": [],
+  "compared_evidence": [
+    ".anvil/evidence/browser-readiness.json",
+    ".anvil/evidence/browser-interaction.json"
+  ],
+  "violations": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "T",
+    "kind": "testimony_binding",
+    "epoch": 1785479893,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": [
+      ".anvil/evidence/browser-interaction.json",
+      ".anvil/evidence/browser-readiness.json"
+    ]
+  }
+}

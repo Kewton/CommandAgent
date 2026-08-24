@@ -1,201 +1,171 @@
 pub mod gemini;
+pub mod gemini_function_calling;
+pub(crate) mod guidance;
+pub mod lm_studio;
 pub mod ollama;
 pub mod openai;
-pub mod planner;
-pub mod usage;
+mod openai_chat_completions;
+pub mod openai_compatible;
+mod openai_responses;
+pub mod parsing;
+pub(crate) mod startup;
+pub mod streaming;
 pub mod xml_fallback;
+pub(crate) mod xml_repair;
 
-use crate::config::Provider;
-use crate::providers::usage::ModelUsage;
-use serde_json::Value;
+use anyhow::bail;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolCallMode {
-    Native,
-    XmlFallback,
+use crate::config::{Config, Provider, ProviderRole};
+use crate::state::{ConversationMessage, ToolCall};
+use crate::tools::registry::ToolSpec;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ResponseTiming {
+    pub prompt_eval_duration: Option<u64>,
+    pub eval_duration: Option<u64>,
+    pub load_duration: Option<u64>,
+    pub total_duration: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderCapabilities {
-    pub native_tool_calls: bool,
-    pub default_tool_call_mode: ToolCallMode,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderResponseMetadata {
+    pub response_id: Option<String>,
+    pub model_id: Option<String>,
+    pub system_fingerprint: Option<String>,
+    pub created_epoch: Option<i64>,
+    pub service_tier: Option<String>,
+    pub cached_input_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatMessage {
-    pub role: ChatRole,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssistantReply {
     pub content: String,
-    pub tool_call_id: Option<String>,
-    pub tool_name: Option<String>,
+    #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default)]
+    pub prompt_tokens: Option<u64>,
+    #[serde(default)]
+    pub completion_tokens: Option<u64>,
 }
 
-impl ChatMessage {
-    pub fn new(role: ChatRole, content: impl Into<String>) -> Self {
+impl AssistantReply {
+    pub fn text(content: impl Into<String>) -> Self {
         Self {
-            role,
             content: content.into(),
-            tool_call_id: None,
-            tool_name: None,
             tool_calls: Vec::new(),
-        }
-    }
-
-    pub fn assistant_with_tool_calls(
-        content: impl Into<String>,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self {
-        Self {
-            role: ChatRole::Assistant,
-            content: content.into(),
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls,
-        }
-    }
-
-    pub fn tool_result(
-        content: impl Into<String>,
-        tool_name: impl Into<String>,
-        tool_call_id: Option<String>,
-    ) -> Self {
-        Self {
-            role: ChatRole::Tool,
-            content: content.into(),
-            tool_call_id,
-            tool_name: Some(tool_name.into()),
-            tool_calls: Vec::new(),
+            prompt_tokens: None,
+            completion_tokens: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChatRole {
-    System,
-    User,
-    Assistant,
-    Tool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolCall {
-    pub id: Option<String>,
-    pub thought_signature: Option<String>,
-    pub name: String,
-    pub args_json: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatRequest {
-    pub model: String,
-    pub messages: Vec<ChatMessage>,
-    pub tools: Vec<ToolSpec>,
-    pub tool_call_mode: ToolCallMode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatResponse {
-    pub content: String,
-    pub tool_calls: Vec<ToolCall>,
-    pub usage: ModelUsage,
-}
-
-impl ChatResponse {
-    pub fn new(content: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
-        Self {
-            content: content.into(),
-            tool_calls,
-            usage: ModelUsage::unavailable("usage_not_provided_by_mock_response"),
-        }
+pub trait ChatClient: Send {
+    fn label(&self) -> &str;
+    fn boxed_clone(&self) -> Box<dyn ChatClient>;
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        false
     }
-
-    pub fn with_usage(mut self, usage: ModelUsage) -> Self {
-        self.usage = usage;
-        self
+    fn allows_xml_fallback(&self) -> bool {
+        false
     }
+    fn supports_ollama_think(&self) -> bool {
+        false
+    }
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        None
+    }
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        None
+    }
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+    fn supports_streaming_for_model(&self, _model: &str) -> bool {
+        self.supports_streaming()
+    }
+    fn chat_stream(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+        _on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        bail!("streaming is not supported by this chat client")
+    }
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolSpec {
-    pub name: String,
-    pub description: String,
-    pub parameters_json_schema: Value,
-}
-
-const TOOL_CALL_PARSE_ERROR_PREFIX: &str = "commandagent_tool_call_parse_error:";
-
-pub fn tool_call_parse_error_content(message: impl AsRef<str>) -> String {
-    format!(
-        "{} {}",
-        TOOL_CALL_PARSE_ERROR_PREFIX,
-        message.as_ref().trim()
+pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<dyn ChatClient>> {
+    client_from_config_for_role(
+        config,
+        if planner {
+            ProviderRole::Planner
+        } else {
+            ProviderRole::Executor
+        },
     )
 }
 
-pub fn tool_call_parse_error_from_content(content: &str) -> Option<String> {
-    content
-        .trim()
-        .strip_prefix(TOOL_CALL_PARSE_ERROR_PREFIX)
-        .map(str::trim)
-        .filter(|message| !message.is_empty())
-        .map(ToString::to_string)
-}
-
-pub trait ChatProvider {
-    fn provider(&self) -> Provider;
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        capabilities(self.provider())
+pub(crate) fn client_from_config_for_role(
+    config: &Config,
+    role: ProviderRole,
+) -> anyhow::Result<Box<dyn ChatClient>> {
+    if config
+        .openai_compatible
+        .as_ref()
+        .is_some_and(|compatible| compatible.applies_to(role))
+    {
+        return Ok(Box::new(
+            openai_compatible::OpenAiCompatibleClient::from_openai_compatible_env(config, role)?,
+        ));
     }
-}
-
-pub trait ExecutorProvider: ChatProvider {}
-
-pub trait PlannerProvider: ChatProvider {}
-
-pub fn capabilities(provider: Provider) -> ProviderCapabilities {
+    let provider = match role {
+        ProviderRole::Executor => config.provider,
+        ProviderRole::Planner => config.planner_provider,
+        ProviderRole::Classifier => config.classifier_provider,
+    };
     match provider {
-        Provider::Ollama => ProviderCapabilities {
-            native_tool_calls: true,
-            default_tool_call_mode: ToolCallMode::Native,
-        },
-        Provider::Gemini => ProviderCapabilities {
-            native_tool_calls: true,
-            default_tool_call_mode: ToolCallMode::Native,
-        },
-        Provider::OpenAi => ProviderCapabilities {
-            native_tool_calls: false,
-            default_tool_call_mode: ToolCallMode::XmlFallback,
-        },
+        Provider::Ollama => Ok(Box::new(
+            ollama::OllamaClient::new(
+                config.ollama_host.clone(),
+                config.chat_timeout_secs,
+                config.num_predict,
+                config.chat_retries,
+            )?
+            .with_context_budget(config.context_budget)
+            .with_think(if role == ProviderRole::Planner {
+                config.planner_think
+            } else {
+                config.ollama_think
+            }),
+        )),
+        Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),
+        Provider::Openai => Ok(Box::new(openai::OpenAiClient::from_env(config)?)),
+        Provider::Gemini => Ok(Box::new(gemini::GeminiClient::from_env(config)?)),
     }
 }
 
-pub fn request_tool_mode(provider: Provider) -> ToolCallMode {
-    capabilities(provider).default_tool_call_mode
+pub fn model_for(config: &Config, planner: bool) -> &str {
+    if planner {
+        &config.planner_model
+    } else {
+        &config.model
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ollama_supports_native_tools() {
-        let caps = capabilities(Provider::Ollama);
-        assert!(caps.native_tool_calls);
-        assert_eq!(caps.default_tool_call_mode, ToolCallMode::Native);
+pub fn ensure_known_tool(tool_name: &str, tools: &[ToolSpec]) -> anyhow::Result<()> {
+    if tools.iter().any(|tool| tool.function.name == tool_name) {
+        return Ok(());
     }
-
-    #[test]
-    fn gemini_supports_native_tools() {
-        let caps = capabilities(Provider::Gemini);
-        assert!(caps.native_tool_calls);
-        assert_eq!(caps.default_tool_call_mode, ToolCallMode::Native);
-    }
-
-    #[test]
-    fn openai_uses_xml_fallback_by_default() {
-        let caps = capabilities(Provider::OpenAi);
-        assert!(!caps.native_tool_calls);
-        assert_eq!(caps.default_tool_call_mode, ToolCallMode::XmlFallback);
-    }
+    bail!("unknown tool requested by provider: {tool_name}")
 }

@@ -1,0 +1,16 @@
+{
+  "columns": [
+    {"name": "date", "type": "string", "description": "YYYY-MM-DD format"},
+    {"name": "region", "type": "string", "description": "Sales region"},
+    {"name": "amount", "type": "number", "description": "Sales amount"}
+  ],
+  "sample_rows": [
+    {"date": "2023-01-01", "region": "East", "amount": 100.5},
+    {"date": "2023-01-02", "region": "West", "amount": 200.0}
+  ],
+  "validation_rules": {
+    "date_format": "^\\d{4}-\\d{2}-\\d{2}$",
+    "valid_regions": ["East", "West", "North", "South"],
+    "amount_min": 0
+  }
+}

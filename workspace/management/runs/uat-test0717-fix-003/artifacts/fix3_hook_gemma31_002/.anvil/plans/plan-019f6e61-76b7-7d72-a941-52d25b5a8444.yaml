@@ -1,0 +1,21 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to analyze the current UI component structure, state management, and existing data-anvil-action attributes to locate where the restart hook should be added."
+    expected_paths:
+    verify:
+  - id: "inspect-evidence-logs"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Examine the evidence directory and any verification logs to confirm the exact failure message related to the missing restart affordance and understand the verification expectations."
+    expected_paths:
+    verify:
+  - id: "verify-cause-isolated"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm that the inspection has successfully pinpointed the exact component and render condition missing the data-anvil-action=\"restart\" attribute."
+    expected_paths:
+    verify:
+      - "test -f src/app/page.tsx"

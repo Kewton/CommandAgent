@@ -1,0 +1,100 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-003",
+  "declared_gate_result": "FAIL",
+  "review_status": "FAIL_FIX3_STRICT_CRITERION",
+  "runs": 6,
+  "external_invocations": 6,
+  "external_retries": 0,
+  "completed": 0,
+  "failed_with_reason": 6,
+  "full": 0,
+  "partial": 0,
+  "static": 0,
+  "failed_assurance": 6,
+  "total_duration_ms": 1449538,
+  "full_rate": "0/6",
+  "distribution_only": true,
+  "gates": {
+    "P0-a": {
+      "status": "PASS",
+      "honest_terminals": "6/6",
+      "run_start": 6,
+      "tui_command_stop": 6,
+      "run_stop": 6,
+      "panic": 0,
+      "unclassified": 0,
+      "unexplained_interrupt": 0
+    },
+    "P0-b": {
+      "status": "PASS",
+      "assurance_contract_consistent": "6/6",
+      "inflation": 0,
+      "deflation": 0,
+      "detail": "all runs executed F1 and observed the expected failure; F2 and F3 were not executed, so failed(after_not_executed) is the contract-correct projection"
+    },
+    "P0-c": {
+      "status": "PASS",
+      "false_full": 0,
+      "full_runs": [],
+      "detail": "no run claimed full; no unexecuted F2 or F3 evidence was promoted"
+    },
+    "P1-a": {
+      "status": "PASS",
+      "fix_reproducer_suggested": "6/6",
+      "semantic_adoption": "6/6",
+      "exact_byte_adoption": "5/6",
+      "relevance_deviation_fix_002": 3,
+      "relevance_deviation_fix_003": 0,
+      "baseline_not_reproduced_fix_002_literal": 2,
+      "baseline_not_reproduced_fix_003_literal": 0
+    },
+    "P1-b": {
+      "status": "FAIL",
+      "strict_diagnostic_injection_all_f1_failure_runs": "2/6",
+      "compile_or_traceback_applicable_injection": "2/2",
+      "phase2_executor_prompts_reached_with_diagnostic": "0/2",
+      "read_only_stagnation_fix_002": 3,
+      "read_only_stagnation_fix_003": 3,
+      "detail": "compile diagnostics were persisted in both applicable Phase 2 plans, but the appended write-pressure marker made each verify instruction fail planner lint before executor execution; hook predicate failures produced no compile or traceback diagnostic and three fell back to package.json read-only stagnation"
+    }
+  },
+  "intent_audit": {
+    "status": "PASS",
+    "intent_resolved_cli_fix": "6/6",
+    "unexpected_intent_resolution": 0
+  },
+  "fix_1_observation": {
+    "ambient_host_value": "NODE_ENV=production",
+    "host_env_contamination_detector_event": "6/6",
+    "host_env_normalized_event": "6/6",
+    "normalization_strategy": "unset_inherited",
+    "dev_dependency_setup_failures": 0
+  },
+  "f_evidence": {
+    "before_probe_executed": "6/6",
+    "before_expected_failure_observed": "6/6",
+    "baseline_not_reproduced_rejections": "0/6",
+    "after_probe_executed": "0/6",
+    "regression_set_executed": "0/6",
+    "writes_before_f1": 0
+  },
+  "spoof_resistance_observation": {
+    "baseline_not_reproduced": 0,
+    "lineage_mismatch_rejection": "not_exercised",
+    "regression_shrink_rejection": "not_exercised",
+    "epoch_inversion_rejection": "not_exercised"
+  },
+  "recorded_distribution": {
+    "fix_003": "0/6 full",
+    "combined_raw_fix_001_to_fix_003": "1/18 full",
+    "combined_admission_excluding_two_environment_held_fix_001_runs": "1/16 full"
+  },
+  "observations": [
+    "FIX-2 suggestions fired for every applicable goal and were semantically adopted in all six runs; reproducer relevance deviations fell from three to zero.",
+    "FIX-3 compile diagnostics selected the intended source files in both compile runs, but both plans were rejected before execution because the diagnostic block made verify instructions look write-bearing.",
+    "Hook predicate failures carried no compile or Python traceback payload, so no FIX-3 diagnostic was injected; three hook runs selected package.json for write pressure and stagnated read-only.",
+    "No run reached the repair, F2, or F3 phases, and no source or config file changed from its copied baseline."
+  ],
+  "required_follow_up": "Run the report's $codex-issue-worker prompt before admission closure; do not weaken planner lint or fix evidence gates."
+}

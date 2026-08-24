@@ -1,0 +1,36 @@
+goal: "Original ultra goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nProfile: data\nStyle: default\nIntent: create\nPhase id: load-and-inspect-data\nPhase task: Load data/sales.csv, inspect its schema and sample rows, and define deterministic validation rules for dates, regions, and sales values based on observed data patterns. Output a validation rule summary and confirm the dataset is ready for processing.\n\nWorkspace snapshot:\n- data\n\nPrior ultra context:\n- Pending final artifacts:\n  - pipeline/main.py\n  - output/inspection.json\n  - output/results.json\n  - output/report.md\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- aggregation\n- alongside\n- apply\n- are\n- based\n- breakdown\n- … and 64 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema"
+steps:
+  - id: "inspect-data"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read data/sales.csv to identify column names, data types, sample rows, and potential invalid entries for dates, regions, and sales values."
+    expected_paths:
+    verify:
+  - id: "setup-directories"
+    kind: "setup"
+    expected_result: "pass"
+    instruction: "Create pipeline and output directories if they do not exist."
+    expected_paths:
+      - "pipeline"
+      - "output"
+    verify:
+  - id: "implement-pipeline-and-reports"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create pipeline/main.py containing the data processing logic. Generate output/inspection.json containing schema, sample rows, and validation rules. Generate output/results.json containing reconciliation counts and numeric claims. Generate output/report.md containing the summary report. Create check_outputs.py to validate JSON structures and report content.\n\nProfile contract:\nBuild one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md.\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nA rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.\nRepair pipeline/main.py and regenerate output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Every numeric claim printed in output/report.md must be present under values. For a claims-binding nearest_miss, report each violation as: \"Report claim <claim> has no corresponding results.json value. Nearest candidate <key>=<value>; absolute difference=<difference>.\" Then export every report numeric claim under an explicit values key, for example regional_名古屋. Never weaken or replace the manifest-bound evidence checks."
+    expected_paths:
+      - "pipeline/main.py"
+      - "output/inspection.json"
+      - "output/results.json"
+      - "output/report.md"
+      - "check_outputs.py"
+    verify:
+  - id: "verify-artifacts"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the verification script to ensure all outputs are valid and match the required schema."
+    expected_paths:
+      - "output/inspection.json"
+    verify:
+      - "anvil-catalog-check:data_inspection_schema"
+      - "test -f output/inspection.json"

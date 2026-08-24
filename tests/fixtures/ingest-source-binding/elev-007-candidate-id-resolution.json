@@ -1,0 +1,38 @@
+{
+  "campaign": "uat-test0726-ingest-elev-007",
+  "source_asset": "workspace/management/bench/assets/ingest/list/data/snapshots/events-list.html",
+  "source_sha256": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+  "selector": "article.event",
+  "observed_runs": 6,
+  "observed_n2_date_bindings": 54,
+  "observed_n2_field_violations": 216,
+  "provided_accepted_id": "events-list.html#1",
+  "canonical_accepted_id": "data/snapshots/events-list.html#1",
+  "provided_excluded_ids": [
+    "events-list.html#0",
+    "events-list.html#2",
+    "events-list.html#3",
+    "events-list.html#4",
+    "events-list.html#5",
+    "events-list.html#6",
+    "events-list.html#7",
+    "events-list.html#8",
+    "events-list.html#9"
+  ],
+  "output_value": "2026-08-03",
+  "candidate_fragment": "8/3(月)",
+  "context_fragment": "2026年",
+  "declared_normalizations": [
+    "japanese_date_to_iso",
+    "document_year_context"
+  ],
+  "expected_resolution": "unique_suffix",
+  "ambiguous_probe": {
+    "provided_id": "events.html#0",
+    "frozen_ids": [
+      "data/snapshots/a/events.html#0",
+      "data/snapshots/b/events.html#0"
+    ]
+  },
+  "false_probe": "invented.html#9"
+}

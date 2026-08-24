@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "npm run build",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:a33c603932fd7056",
+  "epoch": 1,
+  "run_id": "019f6bca-16c2-7ef1-a22a-ca92070b2945",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 2490 summary: Failed to compile. Type error: Cannot find name 'initGame'. stdout: > anvilminimal-nextjs-app@1.0.0 build > next build ▲ Next.js 14.2.35 Creating an optimized production build ... ✓ Compiled successfully Linting and checking validity of types ... stderr: Failed to compile. ./src/app/page.tsx:250:5 Type error: Cannot find name 'initGame'. \u001b[0m \u001b[90m 248 |\u001b[39m\u001b[0m \u001b[0m \u001b[90m 249 |\u001b[39m \u001b[36mconst\u001b[39m startGame \u001b[33m=\u001b[39m ()"
+}

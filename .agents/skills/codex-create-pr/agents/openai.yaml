@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Create PR"
+  short_description: "Create a verified CommandAgent pull request"
+  default_prompt: "Use $codex-create-pr to prepare a verified pull request to develop."
+policy:
+  allow_implicit_invocation: false

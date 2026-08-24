@@ -1,0 +1,24 @@
+{
+  "capability_id": "data_reconciliation",
+  "status": "pass",
+  "ok": true,
+  "input_rows": 60,
+  "used_rows": 57,
+  "excluded": [
+    {
+      "reason": "invalid_date",
+      "rows": 1
+    },
+    {
+      "reason": "missing_amount",
+      "rows": 1
+    },
+    {
+      "reason": "missing_date",
+      "rows": 1
+    }
+  ],
+  "excluded_rows": 3,
+  "equation": "60 = 57 + 3",
+  "failure_kinds": []
+}

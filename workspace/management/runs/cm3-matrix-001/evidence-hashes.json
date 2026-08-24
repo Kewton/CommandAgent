@@ -1,0 +1,21 @@
+{
+  "schema_version": "commandagent.cm3-evidence-hashes/v1",
+  "execution_revision": "b913268f8f045bb77dc07a320b597740f0542877",
+  "binary_sha256": "3487e1ef08fc9ff462824a999e21e46652e02eec77d8db952e9b3fd949a35a44",
+  "summary_json_sha256": "a2f6216c4140392f5a9961bc8e858a305e91b8b58aa25abc41831a37ece0ff81",
+  "sealed_manifests": {
+    "golden": "4ea74f2fe2687989467a9019c4f72a160d38e77097ea441e6de4a066748dad86",
+    "schema": "6242f3549c8b7eea08dd75067fd7e338e24659b76079d03c6ed5185fa58572c1",
+    "adversarial": "792c9696ca86127966810ec4a376a3815c4fb93de4ad2c9d6aa205dad09a2b0b"
+  },
+  "campaign_meta": {
+    "B": "d27f511d04bb59c148670c9c2d96ef9a3b49c0f10737b41c056efca8cbc87895",
+    "C": "7840344957c4a5ea9965888c165ac4673daed6844738f60101f06356847d627f",
+    "D": "d68453858c6dc515e6320275cde5e05419d5953aa98f471031dc2803b1b99f56"
+  },
+  "predeclarations": {
+    "B": "755d6f02e4e9ccd04e96f4268c12ea57b547b4ee8e379ca5c368c725afe35abe",
+    "C": "89907cdb176068901525304d6877abc2179a7487735efc4eecd07251aad6af2b",
+    "D": "5724147c85e13d7145a8a1a74e87162514c3ef03a36bc8dbb7df3d9b4dc1e958"
+  }
+}

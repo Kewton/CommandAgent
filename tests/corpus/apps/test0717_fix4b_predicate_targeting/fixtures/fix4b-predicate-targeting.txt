@@ -1,0 +1,27 @@
+Measured pre-FIX-4b context:
+source: uat-test0717-fix-003 hook Runs 3/4/5
+F1 observed outcome: failure
+profile predicate: hook_attribute_present(action,restart,path=src/app/page.tsx)
+route-bound command: node predicate over src/app/page.tsx
+Phase 2 write-pressure target: package.json (selection_reason=required_path)
+terminal class: read-only stagnation
+
+Post-FIX-4b Phase 2 context:
+
+Fix F1 profile contract predicate (runtime-bound):
+- capability: hook_attribute_present
+- write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)
+
+Contract attribute repair guidance:
+- classification: contract_attribute_missing
+- missing attribute: `data-anvil-action="restart"`
+- target source file: `src/app/page.tsx`
+- location directive: add the missing attribute to the route-bound restart control in the rendered hierarchy.
+Generic one-line example:
+- data-anvil-action="restart"
+
+Write-pressure resolution:
+selected target: src/app/page.tsx
+selection reason: contract_attribute
+package.json is not selected while the profile predicate target is available.
+verify instruction: unchanged

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "provider": "openai",
+  "transport": "chat_completions",
+  "requested_model": "gpt-5.6-luna",
+  "provider_model_id": "gpt-5.6-luna",
+  "provider_response_id": "chatcmpl-E7vwZHvc4jUW3mM0UKjt2Mjfq4HXU",
+  "system_fingerprint": null,
+  "service_tier": "default",
+  "provider_created_epoch": 1785559739,
+  "duration_ms": 1871,
+  "prompt_tokens": 11,
+  "completion_tokens": 4,
+  "pricing_usd_per_million_tokens": {
+    "input": 1.0,
+    "output": 6.0
+  },
+  "estimated_cost_usd": 0.000035,
+  "pricing_source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+  "ok": true
+}

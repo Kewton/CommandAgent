@@ -1,0 +1,206 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0725-cli-elev-001",
+  "campaign_id": "cli-create-elevated-20260725-085827",
+  "revision": "760d473f154fcb919c21e959181315e02364ad48",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24)",
+  "suite": {
+    "id": "cli-create-elevated",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "9933f40b63b62d73c882927de648dd326a9574307049bc63c3cdfeeb69a1d3e1",
+    "report_skeleton_sha256": "4af3c7dd142a59e04452d78212c02680df4b8c1b66a4e82c94ff4b0e28377a82"
+  },
+  "excluded_campaign": {
+    "campaign_id": "cli-create-elevated-20260725-083300",
+    "revision": "a31538c2ca833738ef53e70ea1044758adb87870",
+    "uat_meta_sha256": "041a8b3cb638415880edbd3f95abd995ceaad5670001f18e03504fcdacc863d1",
+    "reason": "cli alias was absent from admission lookup; stopped after one completed run exposed static (profile_not_admitted)",
+    "completed": 1,
+    "interrupted": 1,
+    "pending": 4
+  },
+  "epochs": {
+    "preflight_start": 1784969907,
+    "run_start": 1784970007,
+    "run_end": 1784973316,
+    "audit_end": 1784979670
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 3409,
+    "run_sum": 3309,
+    "preflight_start_to_audit_end": 9763
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "passed": 1782,
+      "failed": 0,
+      "ignored": 30
+    },
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 760d473 2026-07-25T08:59:51Z"
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 982
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 313
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 315
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 425
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 432
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 842
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "physical_classification_rows": {
+      "known": 12,
+      "unknown": 0,
+      "note": "classifier scanned both workspace originals and artifact copies"
+    },
+    "new_terminal_classes": 0,
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 0
+  },
+  "c_evidence": {
+    "runs_reaching_profile_acceptance": 0,
+    "case_freeze_records": 0,
+    "polarity_pairs": 0,
+    "help_binding_records": 0,
+    "claims_binding_records": 0,
+    "nearest_miss_records": 0
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "full_equivalent": "0/6",
+    "false_success": "0/6",
+    "sheet_self_supply": "6/6",
+    "admission_cap_removed": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "fail",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_c1_at_reached_run": "not_measured",
+    "p1_b_sheet_generation": "pass",
+    "p0_b_reason": "C1-C4 were not executed, but all admitted-profile terminal projections reported partial instead of contract-required static"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  },
+  "previous_ci": {
+    "revision": "7087babcd375d3d0be0afd6f28869e1a46999456",
+    "ci_run_id": 30150268770,
+    "ci_conclusion": "success",
+    "acceptance_run_id": 30150268768,
+    "acceptance_conclusion": "success"
+  }
+}

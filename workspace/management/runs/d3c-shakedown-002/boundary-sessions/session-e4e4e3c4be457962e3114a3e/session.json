@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "session_id": "session-e4e4e3c4be457962e3114a3e",
+  "target_run_id": "019fb8ce-3806-7ee0-9818-f5eab0fb0bd1",
+  "created_epoch": 1785554847,
+  "rounds": [
+    {
+      "round": 1,
+      "directive_hash": "sha256:e868fada3d47b09d1a9226564e214e752d03a3a2da32b77f7addd08bb5850203",
+      "artifact_path": "boundary-directives/e868fada3d47b09d1a9226564e214e752d03a3a2da32b77f7addd08bb5850203.json",
+      "raw": "README.mdの使用例の出力を、実際の実行結果に合わせて修正してください",
+      "epoch": 1785513326,
+      "issued_gate": "gate_4",
+      "result": {
+        "verdict": "failed",
+        "stop_reason": "phase inspect-current-state failed: step create-readme failed verification after bounded repair: cli_readme_structure:cli_invocation_missing; failure_kind=bounded_repair_exhausted; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .anvil/repairs/repair-create-readme-019fb8e6-3917-7de1-beb0-c5e09ccde3cc.md - Recovery UltraPlan YAML saved:\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-inspect-current-state-019fb8e6-3918-7f91-8beb-22e7c19f581c.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fb8e6-3918-7f91-8beb-22fa0fc4f68f.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-inspect-current-state-019fb8e6-3918-7f91-8beb-22e7c19f581c.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fb8e6-3918-7f91-8beb-22fa0fc4f68f.yaml",
+        "evidence_source": "/private/tmp/d3d-shakedown-002-live.sgHyfv/.anvil/runs/019fb8ce-3806-7ee0-9818-f5eab0fb0bd1/events.jsonl"
+      }
+    },
+    {
+      "round": 2,
+      "directive_hash": "sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4",
+      "artifact_path": "boundary-directives/55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4.json",
+      "raw": "起動例を python3 cli/main.py に戻し、使用例の出力を実際の実行結果のとおりに書き直してください",
+      "epoch": 1785554847,
+      "issued_gate": "gate_4",
+      "result": {
+        "verdict": "failed",
+        "stop_reason": "phase inspect-current-state failed: step update-readme failed verification after bounded repair: cli_readme_structure:cli_invocation_missing; failure_kind=bounded_repair_exhausted; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .anvil/repairs/repair-update-readme-019fbb5f-5acd-7821-b673-9871bb280ba9.md - Recovery UltraPlan YAML saved:\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml",
+        "evidence_source": "/private/tmp/d3d-shakedown-002-live.sgHyfv/.anvil/runs/019fb8ce-3806-7ee0-9818-f5eab0fb0bd1/events.jsonl"
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+F1 reproducer: npm run build
+
+F1 raw failure:
+Failed to compile.
+./src/app/page.tsx:250:5
+Type error: Cannot find name 'initGame'.
+> 250 |     initGame();
+
+Phase 2 injected guidance:
+Fix F1 failure diagnostic (runtime-derived):
+- location: src/app/page.tsx:250:5
+- error kind: Type error
+- message: Type error: Cannot find name 'initGame'.
+- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)
+- excerpt: > 250 | initGame();

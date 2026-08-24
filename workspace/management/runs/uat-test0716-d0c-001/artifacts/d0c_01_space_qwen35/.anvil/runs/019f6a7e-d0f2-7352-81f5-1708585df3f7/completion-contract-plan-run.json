@@ -1,0 +1,49 @@
+{
+  "required_paths": [
+    "package.json",
+    "src/app/game-invaders.tsx",
+    "src/app/page.tsx",
+    "src/app/globals.css",
+    "src/app/global.d.ts",
+    "src/app/layout.tsx"
+  ],
+  "verify_commands": [],
+  "profile": null,
+  "goal": "Implement the core task-specific behavior for: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.",
+  "required_capabilities": [
+    "stateful_interaction",
+    "start_or_restart_flow",
+    "player_control",
+    "adversary_or_challenge",
+    "progression_or_score",
+    "failure_or_collision_rule"
+  ],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "nextjs_route_evidence",
+    "build_command_or_dependency_missing_boundary",
+    "implementation_artifact",
+    "visible_interactive_surface_evidence",
+    "user_input_handler_evidence",
+    "stateful_update_evidence",
+    "interactive_ui_source_evidence",
+    "non_static_screen_evidence",
+    "restart_or_recoverable_state_evidence",
+    "challenge_or_adversary_evidence",
+    "score_or_progression_evidence",
+    "failure_or_collision_evidence"
+  ],
+  "evidence_hint_tokens": [
+    "core",
+    "task",
+    "specific",
+    "behavior",
+    "スペースインベーダーゲーム",
+    "インベーダーゲーム"
+  ],
+  "required_obligations": [
+    "implementation"
+  ],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}

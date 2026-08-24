@@ -1,0 +1,8 @@
+intent: fix
+phases:
+  - {id: reproduce-before, role: reproduce, owns_outputs: false, verify_binding: F1_lineage}
+  - {id: isolate-cause, role: isolate, owns_outputs: false, verify_binding: F1_evidence, material_injection: R_failure_output}
+  - {id: implement-fix, role: implement, owns_outputs: true, verify_binding: target_binding, material_injection: verified_diagnosis}
+  - {id: verify-after, role: verify, owns_outputs: false, verify_binding: F2_and_regressions}
+evidence: [F1, F2, F3, regression]
+assurance: {full: all_required_evidence_pass, failed: any_required_evidence_failed}

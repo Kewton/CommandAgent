@@ -1,0 +1,61 @@
+{
+  "model": "gpt-fixture",
+  "protocol": "text",
+  "repair_kind": "first_json_value",
+  "change_excerpt": {
+    "operation": "discarded",
+    "text": "}",
+    "max_bytes": 256,
+    "original_bytes": 1,
+    "truncated": false
+  },
+  "phase": "create-sample-data",
+  "claims": [
+    {
+      "claim": "first_json_value",
+      "observation": {
+        "model": "gpt-fixture",
+        "protocol": "text",
+        "repair_kind": "first_json_value",
+        "change_excerpt": {
+          "operation": "discarded",
+          "text": "}",
+          "max_bytes": 256,
+          "original_bytes": 1,
+          "truncated": false
+        },
+        "phase": "create-sample-data"
+      }
+    }
+  ],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "tool_parse",
+    "kind": "repair_applied",
+    "epoch": 1785661200,
+    "claims": [
+      {
+        "index": 0,
+        "label": "first_json_value",
+        "judgement": "observed",
+        "observation": {
+          "model": "gpt-fixture",
+          "protocol": "text",
+          "repair_kind": "first_json_value",
+          "change_excerpt": {
+            "operation": "discarded",
+            "text": "}",
+            "max_bytes": 256,
+            "original_bytes": 1,
+            "truncated": false
+          },
+          "phase": "create-sample-data"
+        },
+        "source_ref": null,
+        "direction": null
+      }
+    ],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

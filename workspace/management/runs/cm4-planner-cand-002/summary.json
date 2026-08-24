@@ -1,0 +1,2463 @@
+{
+  "schema_version": "commandagent.cm4x-planner-candidate-summary/v1",
+  "series_id": "cm4-planner-cand-002",
+  "denominator": 36,
+  "execution_revision": "f2072b570b5eddde06215e8025cce859335c7916",
+  "binary_sha256": "b9f9818602d34c1b383a1910bcaf0c8737d596bcf0d792f5b3e0399d330c13fa",
+  "baseline": {
+    "label": "A",
+    "n": 12,
+    "full": 10,
+    "full_rate": 0.8333333333333334,
+    "full_wilson_95": [
+      0.5519691377470268,
+      0.953034857816146
+    ],
+    "one_shot_full": 9,
+    "one_shot_full_rate": 0.75,
+    "one_shot_full_wilson_95": [
+      0.4676946650664344,
+      0.9110583316059453
+    ],
+    "duration_secs": {
+      "min": 139.0,
+      "q1": 167.5,
+      "p50": 181.5,
+      "q3": 191.75,
+      "p95": 218.49999999999997,
+      "max": 235.0
+    },
+    "cost_usd": {
+      "min": 0.00086468,
+      "q1": 0.00097519,
+      "p50": 0.0010699400000000001,
+      "q3": 0.001562985,
+      "p95": 0.0023808619999999996,
+      "max": 0.00252714,
+      "total": 0.01611224
+    },
+    "stop_classes": {
+      "community_computed_unregistered": 1,
+      "community_l2_verify_invocation_incomplete": 1
+    },
+    "outcome_signatures": {
+      "community_computed_unregistered": 1,
+      "community_l2_verify_invocation_incomplete": 1,
+      "full": 10
+    },
+    "levels": {
+      "L2": 12
+    },
+    "artifact_scrub_all": true,
+    "model_identity": {
+      "returned_id_observations": 0,
+      "drift_count": 0,
+      "drift": []
+    },
+    "tasks": {
+      "warikan": {
+        "n": 4,
+        "full": 4,
+        "duration_secs": {
+          "min": 139.0,
+          "q1": 157.0,
+          "p50": 170.0,
+          "q3": 184.0,
+          "p95": 200.79999999999998,
+          "max": 205.0
+        }
+      },
+      "mochimono": {
+        "n": 4,
+        "full": 2,
+        "duration_secs": {
+          "min": 147.0,
+          "q1": 175.5,
+          "p50": 187.5,
+          "q3": 191.75,
+          "p95": 195.95,
+          "max": 197.0
+        }
+      },
+      "vote": {
+        "n": 4,
+        "full": 4,
+        "duration_secs": {
+          "min": 169.0,
+          "q1": 175.75,
+          "p50": 181.5,
+          "q3": 197.5,
+          "p95": 227.5,
+          "max": 235.0
+        }
+      }
+    }
+  },
+  "existing_e_12": {
+    "n": 12,
+    "full": 8,
+    "full_rate": 0.6666666666666666,
+    "full_wilson_95": [
+      0.3906220888727996,
+      0.8618799089087867
+    ],
+    "one_shot_full": 7,
+    "one_shot_full_rate": 0.5833333333333334,
+    "one_shot_full_wilson_95": [
+      0.3195113125495498,
+      0.8067396863412434
+    ],
+    "duration_secs": {
+      "min": 44.0,
+      "q1": 53.0,
+      "p50": 59.0,
+      "q3": 65.5,
+      "p95": 74.8,
+      "max": 77.0
+    },
+    "cost_usd": {
+      "min": 0.0003774,
+      "q1": 0.001390085,
+      "p50": 0.00162571,
+      "q3": 0.002021,
+      "p95": 0.003136054999999999,
+      "max": 0.00380392,
+      "total": 0.02128278
+    },
+    "stop_classes": {
+      "community_computed_unregistered": 1,
+      "community_spec_artifact_missing": 1,
+      "community_verify_instruction_not_executable": 2
+    },
+    "outcome_signatures": {
+      "community_computed_unregistered": 1,
+      "community_spec_artifact_missing": 1,
+      "community_verify_instruction_not_executable": 2,
+      "full": 8
+    },
+    "levels": {
+      "L2": 12
+    },
+    "artifact_scrub_all": true,
+    "model_identity": {
+      "returned_id_observations": 49,
+      "drift_count": 0,
+      "drift": []
+    },
+    "tasks": {
+      "warikan": {
+        "n": 4,
+        "full": 4,
+        "duration_secs": {
+          "min": 44.0,
+          "q1": 45.5,
+          "p50": 54.0,
+          "q3": 62.75,
+          "p95": 64.55,
+          "max": 65.0
+        }
+      },
+      "mochimono": {
+        "n": 4,
+        "full": 2,
+        "duration_secs": {
+          "min": 47.0,
+          "q1": 53.0,
+          "p50": 59.0,
+          "q3": 66.5,
+          "p95": 74.89999999999999,
+          "max": 77.0
+        }
+      },
+      "vote": {
+        "n": 4,
+        "full": 2,
+        "duration_secs": {
+          "min": 55.0,
+          "q1": 55.75,
+          "p50": 61.5,
+          "q3": 68.5,
+          "p95": 72.1,
+          "max": 73.0
+        }
+      }
+    }
+  },
+  "extension_e_24": {
+    "n": 24,
+    "full": 16,
+    "full_rate": 0.6666666666666666,
+    "full_wilson_95": [
+      0.46706316838131734,
+      0.8202780967270222
+    ],
+    "one_shot_full": 11,
+    "one_shot_full_rate": 0.4583333333333333,
+    "one_shot_full_wilson_95": [
+      0.27891333731210993,
+      0.649251346410805
+    ],
+    "duration_secs": {
+      "min": 40.0,
+      "q1": 54.5,
+      "p50": 61.5,
+      "q3": 70.0,
+      "p95": 152.29999999999993,
+      "max": 198.0
+    },
+    "cost_usd": {
+      "min": 0.0004136,
+      "q1": 0.00133233,
+      "p50": 0.00162727,
+      "q3": 0.002411135,
+      "p95": 0.006744986999999992,
+      "max": 0.00755488,
+      "total": 0.05106268
+    },
+    "stop_classes": {
+      "community_computed_unregistered": 1,
+      "community_dangerous_command_blocked": 1,
+      "community_package_missing": 1,
+      "community_spec_artifact_missing": 2,
+      "community_verify_instruction_not_executable": 1,
+      "community_workspace_path_invented": 2
+    },
+    "outcome_signatures": {
+      "community_computed_unregistered": 1,
+      "community_dangerous_command_blocked": 1,
+      "community_package_missing": 1,
+      "community_spec_artifact_missing": 2,
+      "community_verify_instruction_not_executable": 1,
+      "community_workspace_path_invented": 2,
+      "full": 16
+    },
+    "levels": {
+      "L2": 22,
+      "L3": 2
+    },
+    "artifact_scrub_all": true,
+    "model_identity": {
+      "returned_id_observations": 105,
+      "drift_count": 0,
+      "drift": []
+    },
+    "tasks": {
+      "warikan": {
+        "n": 8,
+        "full": 4,
+        "duration_secs": {
+          "min": 40.0,
+          "q1": 57.5,
+          "p50": 64.0,
+          "q3": 118.5,
+          "p95": 144.7,
+          "max": 158.0
+        }
+      },
+      "mochimono": {
+        "n": 8,
+        "full": 6,
+        "duration_secs": {
+          "min": 52.0,
+          "q1": 62.75,
+          "p50": 67.0,
+          "q3": 70.0,
+          "p95": 153.19999999999993,
+          "max": 198.0
+        }
+      },
+      "vote": {
+        "n": 8,
+        "full": 6,
+        "duration_secs": {
+          "min": 41.0,
+          "q1": 51.75,
+          "p50": 54.0,
+          "q3": 56.75,
+          "p95": 67.19999999999999,
+          "max": 70.0
+        }
+      }
+    }
+  },
+  "combined_e_36": {
+    "n": 36,
+    "full": 24,
+    "full_rate": 0.6666666666666666,
+    "full_wilson_95": [
+      0.5033399787115652,
+      0.7978538117569468
+    ],
+    "one_shot_full": 18,
+    "one_shot_full_rate": 0.5,
+    "one_shot_full_wilson_95": [
+      0.3447432540962683,
+      0.6552567459037317
+    ],
+    "duration_secs": {
+      "min": 40.0,
+      "q1": 54.5,
+      "p50": 61.5,
+      "q3": 70.0,
+      "p95": 129.5,
+      "max": 198.0
+    },
+    "cost_usd": {
+      "min": 0.0003774,
+      "q1": 0.001351275,
+      "p50": 0.00162571,
+      "q3": 0.00225179,
+      "p95": 0.00467973,
+      "max": 0.00755488,
+      "total": 0.07234546
+    },
+    "stop_classes": {
+      "community_computed_unregistered": 2,
+      "community_dangerous_command_blocked": 1,
+      "community_package_missing": 1,
+      "community_spec_artifact_missing": 3,
+      "community_verify_instruction_not_executable": 3,
+      "community_workspace_path_invented": 2
+    },
+    "outcome_signatures": {
+      "community_computed_unregistered": 2,
+      "community_dangerous_command_blocked": 1,
+      "community_package_missing": 1,
+      "community_spec_artifact_missing": 3,
+      "community_verify_instruction_not_executable": 3,
+      "community_workspace_path_invented": 2,
+      "full": 24
+    },
+    "levels": {
+      "L2": 34,
+      "L3": 2
+    },
+    "artifact_scrub_all": true,
+    "model_identity": {
+      "returned_id_observations": 154,
+      "drift_count": 0,
+      "drift": []
+    },
+    "tasks": {
+      "warikan": {
+        "n": 12,
+        "full": 8,
+        "duration_secs": {
+          "min": 40.0,
+          "q1": 53.5,
+          "p50": 61.5,
+          "q3": 79.75,
+          "p95": 137.09999999999997,
+          "max": 158.0
+        }
+      },
+      "mochimono": {
+        "n": 12,
+        "full": 8,
+        "duration_secs": {
+          "min": 47.0,
+          "q1": 58.0,
+          "p50": 64.0,
+          "q3": 70.0,
+          "p95": 131.44999999999993,
+          "max": 198.0
+        }
+      },
+      "vote": {
+        "n": 12,
+        "full": 8,
+        "duration_secs": {
+          "min": 41.0,
+          "q1": 52.75,
+          "p50": 55.0,
+          "q3": 63.25,
+          "p95": 71.35,
+          "max": 73.0
+        }
+      }
+    }
+  },
+  "comparisons": {
+    "A_to_E36": {
+      "full_rate_difference": -0.16666666666666674,
+      "full_rate_difference_newcombe_95": [
+        -0.36916126403136795,
+        0.14377797831028816
+      ],
+      "one_shot_full_rate_difference": -0.25,
+      "one_shot_full_rate_difference_newcombe_95": [
+        -0.47370615397951515,
+        0.0721815626018481
+      ],
+      "duration_p50_difference_secs": -120.0,
+      "duration_p95_difference_secs": -88.99999999999997,
+      "cost_total_difference_usd": 0.05623322
+    },
+    "E12_to_extension24_descriptive": {
+      "full_rate_delta": 0.0,
+      "one_shot_rate_delta": -0.12500000000000006,
+      "note": "independent-arm CI is not applied to the overlapping E36 aggregate"
+    }
+  },
+  "campaign_window": {
+    "started_epoch": 1787056599,
+    "ended_epoch": 1787058363,
+    "wall_seconds": 1764
+  },
+  "evidence_hashes": {
+    "arm": "E-extension",
+    "uat_meta_sha256": "fb1bd8d7bff0046013eb721187242f3a7f8801eb4c53f2c71572a5a0cfe43327",
+    "events": [
+      {
+        "path": "artifacts/e_mochimono_005/.anvil/runs/01a014ea-0bc9-7e01-95c2-7b04a899696e/events.jsonl",
+        "sha256": "00cdc3a0966d4d942ab3386b7652ae05a8a8bdd4469ba4ed2b70f37c52f856df"
+      },
+      {
+        "path": "artifacts/e_mochimono_005/.anvil/runs/01a014eb-9163-70d1-80d1-5305e5c0569f/events.jsonl",
+        "sha256": "f9f4fd35fb0e47431d39da16c8ca8d106ce073813557d60c08f7c00f9040395b"
+      },
+      {
+        "path": "artifacts/e_mochimono_005/.anvil/runs/01a014eb-9183-7f62-884d-a01e19ee79a4/events.jsonl",
+        "sha256": "f9f4fd35fb0e47431d39da16c8ca8d106ce073813557d60c08f7c00f9040395b"
+      },
+      {
+        "path": "artifacts/e_mochimono_005/.anvil/runs/01a014eb-9f14-7f92-800f-776f721f9fce/events.jsonl",
+        "sha256": "f9f4fd35fb0e47431d39da16c8ca8d106ce073813557d60c08f7c00f9040395b"
+      },
+      {
+        "path": "artifacts/e_mochimono_005/.anvil/runs/01a014eb-dcd2-73b3-9e84-cfbc4d32c920/events.jsonl",
+        "sha256": "8e8321408cb297a73fac90db052b2e42c98879f708d3c77f161d9cc188fcc56d"
+      },
+      {
+        "path": "artifacts/e_mochimono_006/.anvil/runs/01a014ed-0e2c-7760-b77a-09cfb6f182aa/events.jsonl",
+        "sha256": "637ffda4d5020ba106e8536f9973695978b9787f12f557291a648ce085a52fd5"
+      },
+      {
+        "path": "artifacts/e_mochimono_006/.anvil/runs/01a014ed-dc28-7cb2-ab71-20a74fae1147/events.jsonl",
+        "sha256": "d38beb207fe563d20dd60fe9e12fad7420e82eea6ea82054d6fd665929c3bb28"
+      },
+      {
+        "path": "artifacts/e_mochimono_006/.anvil/runs/01a014ed-dc45-77a2-976a-5fcec06c6133/events.jsonl",
+        "sha256": "d38beb207fe563d20dd60fe9e12fad7420e82eea6ea82054d6fd665929c3bb28"
+      },
+      {
+        "path": "artifacts/e_mochimono_007/.anvil/runs/01a014ed-dc72-7b62-a102-090c30305845/events.jsonl",
+        "sha256": "292d0892681b53b57b2a6ff0b3ec8a5cbd3debc3e28349799f72737987a67e81"
+      },
+      {
+        "path": "artifacts/e_mochimono_007/.anvil/runs/01a014ee-d3d1-7e11-9b54-58dd5094da07/events.jsonl",
+        "sha256": "dd3e965893117bf215493d191347b8be3e83b2ec8a19cd80486cbea7109a73bd"
+      },
+      {
+        "path": "artifacts/e_mochimono_007/.anvil/runs/01a014ee-d3ee-7391-a2fa-2a38ac678c60/events.jsonl",
+        "sha256": "dd3e965893117bf215493d191347b8be3e83b2ec8a19cd80486cbea7109a73bd"
+      },
+      {
+        "path": "artifacts/e_mochimono_008/.anvil/runs/01a014ee-d41c-7ac0-a40f-745727f41691/events.jsonl",
+        "sha256": "11d03277fce27017ae5f9bb0108e5e41fe4a0aac9869270e3d24847da11dbd13"
+      },
+      {
+        "path": "artifacts/e_mochimono_008/.anvil/runs/01a014ef-e67f-7da1-8efe-e5ee5a21cb44/events.jsonl",
+        "sha256": "cdedc9d604fde7a288cdac8b9391ea3e897a1aadd714f8c7d518b112cae7ef8a"
+      },
+      {
+        "path": "artifacts/e_mochimono_008/.anvil/runs/01a014ef-e696-7393-924a-bc1695797eb4/events.jsonl",
+        "sha256": "cdedc9d604fde7a288cdac8b9391ea3e897a1aadd714f8c7d518b112cae7ef8a"
+      },
+      {
+        "path": "artifacts/e_mochimono_009/.anvil/runs/01a014ef-e6c7-7a11-9791-3f6013403227/events.jsonl",
+        "sha256": "2b8defc8fe5027bf8871a06f349fe2c40eb9f1fc76a6f2018fa11bbaec6b2d4a"
+      },
+      {
+        "path": "artifacts/e_mochimono_009/.anvil/runs/01a014f0-ccba-77b0-a72e-500ec078c0a2/events.jsonl",
+        "sha256": "7ad812adb7c739c7865cd6614902d5a082a22949e4b2ef688d7d62f0a1e948d3"
+      },
+      {
+        "path": "artifacts/e_mochimono_009/.anvil/runs/01a014f0-ccd2-7f40-bf51-b25ac853ec01/events.jsonl",
+        "sha256": "7ad812adb7c739c7865cd6614902d5a082a22949e4b2ef688d7d62f0a1e948d3"
+      },
+      {
+        "path": "artifacts/e_mochimono_009/.anvil/runs/01a014f0-de48-70f0-b79b-3eae297e6f54/events.jsonl",
+        "sha256": "2dfd75ae68b9f9a5682c70ec05e97e95a11d929b7df5b26883bc375417e39e5a"
+      },
+      {
+        "path": "artifacts/e_mochimono_010/.anvil/runs/01a014f0-de78-7cd3-a5fd-b6e3440210b9/events.jsonl",
+        "sha256": "7b257b96d4f7170969e19e8e224281a1f95072a81fcb184509babda224f243d1"
+      },
+      {
+        "path": "artifacts/e_mochimono_010/.anvil/runs/01a014f1-d265-7263-8a2e-376fc769933c/events.jsonl",
+        "sha256": "96504e07cfa36f40488ebd44660eb546e7dbebd73e1c6541c909accedad13be8"
+      },
+      {
+        "path": "artifacts/e_mochimono_010/.anvil/runs/01a014f1-d275-7be3-88af-dea9a063e70b/events.jsonl",
+        "sha256": "96504e07cfa36f40488ebd44660eb546e7dbebd73e1c6541c909accedad13be8"
+      },
+      {
+        "path": "artifacts/e_mochimono_010/.anvil/runs/01a014f1-e33b-7f90-80c0-772e2e7ca646/events.jsonl",
+        "sha256": "96504e07cfa36f40488ebd44660eb546e7dbebd73e1c6541c909accedad13be8"
+      },
+      {
+        "path": "artifacts/e_mochimono_010/.anvil/runs/01a014f1-f277-7e22-96a4-62292d936fba/events.jsonl",
+        "sha256": "c5841ea58de5165c61c0be8e233fe000a6819637297a21e2ad3457f0016d09ee"
+      },
+      {
+        "path": "artifacts/e_mochimono_011/.anvil/runs/01a014f1-f2b7-7860-a9b0-513a0eb83a1b/events.jsonl",
+        "sha256": "df11dd913f30de18c03faa72ae44c74f15e98d5097cca15b8246926e07a3e587"
+      },
+      {
+        "path": "artifacts/e_mochimono_011/.anvil/runs/01a014f2-cc21-7ba2-bad9-9884b0ad760a/events.jsonl",
+        "sha256": "741a78be0929e1b3211ec2d74250ba30003bf2d95a357e700855498d91e13762"
+      },
+      {
+        "path": "artifacts/e_mochimono_011/.anvil/runs/01a014f2-cc40-7352-acee-098abeef0914/events.jsonl",
+        "sha256": "741a78be0929e1b3211ec2d74250ba30003bf2d95a357e700855498d91e13762"
+      },
+      {
+        "path": "artifacts/e_mochimono_011/.anvil/runs/01a014f2-fbc2-7fc0-891a-125e881383ba/events.jsonl",
+        "sha256": "741a78be0929e1b3211ec2d74250ba30003bf2d95a357e700855498d91e13762"
+      },
+      {
+        "path": "artifacts/e_mochimono_011/.anvil/runs/01a014f3-041a-7bb1-886a-919c810bc813/events.jsonl",
+        "sha256": "741a78be0929e1b3211ec2d74250ba30003bf2d95a357e700855498d91e13762"
+      },
+      {
+        "path": "artifacts/e_mochimono_012/.anvil/runs/01a014f3-04bd-7b91-a83c-c8650b3755e2/events.jsonl",
+        "sha256": "cfc003b4ecc9e7745be320c83948fba4c921980cfb4e59f86996619029b1999d"
+      },
+      {
+        "path": "artifacts/e_mochimono_012/.anvil/runs/01a014f3-e7c7-7263-8ac4-bfccb9c8d6bd/events.jsonl",
+        "sha256": "52dc0428da32641f510118e0274307da8f4f0f942b36d965c73284171433ce45"
+      },
+      {
+        "path": "artifacts/e_mochimono_012/.anvil/runs/01a014f3-e7e7-7591-971c-93ad73a0c8dc/events.jsonl",
+        "sha256": "52dc0428da32641f510118e0274307da8f4f0f942b36d965c73284171433ce45"
+      },
+      {
+        "path": "artifacts/e_vote_005/.anvil/runs/01a014f3-e817-7d80-b05c-2e39bffe2d14/events.jsonl",
+        "sha256": "28cae303deba1fc312f643e65d453d4860fa5cab54f876954cc4bfe3c27f7a36"
+      },
+      {
+        "path": "artifacts/e_vote_005/.anvil/runs/01a014f4-ba18-7040-9185-22de56cde382/events.jsonl",
+        "sha256": "438f70c686e0ca187cf49450e85a58004e0f3d563beff6e5ab9f49140f3d41da"
+      },
+      {
+        "path": "artifacts/e_vote_005/.anvil/runs/01a014f4-ba2e-76f0-8010-d361a9803644/events.jsonl",
+        "sha256": "438f70c686e0ca187cf49450e85a58004e0f3d563beff6e5ab9f49140f3d41da"
+      },
+      {
+        "path": "artifacts/e_vote_006/.anvil/runs/01a014f4-ba63-72f0-a075-6ac379625211/events.jsonl",
+        "sha256": "f5137d1c8fb5afb0fa84b51d4305d811ef04f87ca1aad6b3a3c237d5f8b59a54"
+      },
+      {
+        "path": "artifacts/e_vote_006/.anvil/runs/01a014f5-746d-7373-8b37-3e6c036f16c1/events.jsonl",
+        "sha256": "134ad2afda833dfba242ee6535fc38ff1c0fd8f98cf9b713cd8eb71607ef5460"
+      },
+      {
+        "path": "artifacts/e_vote_006/.anvil/runs/01a014f5-748e-7a13-b9e6-90b7491d83a2/events.jsonl",
+        "sha256": "134ad2afda833dfba242ee6535fc38ff1c0fd8f98cf9b713cd8eb71607ef5460"
+      },
+      {
+        "path": "artifacts/e_vote_006/.anvil/runs/01a014f5-8528-72a1-84cf-9128c2b6de56/events.jsonl",
+        "sha256": "26a04e58e5bab9570a895a7fcef884ea199233eefdcb77fd732614e76b46327c"
+      },
+      {
+        "path": "artifacts/e_vote_007/.anvil/runs/01a014f5-8554-7733-9272-a601295975ce/events.jsonl",
+        "sha256": "f306de97e446db46f4f4dfb93f56f8e860d5d234097d085b7b517ebbb26032f5"
+      },
+      {
+        "path": "artifacts/e_vote_008/.anvil/runs/01a014f6-77d0-75e2-a054-8092e7b5de9a/events.jsonl",
+        "sha256": "2e81b74f3d2b2d2f454f9ed117b7a80aeb99d89e3b4a3baccd80fb4494365a7c"
+      },
+      {
+        "path": "artifacts/e_vote_008/.anvil/runs/01a014f7-86a9-7c23-ac01-5a126cddae87/events.jsonl",
+        "sha256": "78dfa161c50886c8c64f5695ab4975a44b5a9b48a4abefa3d468de2776af8167"
+      },
+      {
+        "path": "artifacts/e_vote_008/.anvil/runs/01a014f7-86c2-7942-b1c9-e722a754997c/events.jsonl",
+        "sha256": "78dfa161c50886c8c64f5695ab4975a44b5a9b48a4abefa3d468de2776af8167"
+      },
+      {
+        "path": "artifacts/e_vote_009/.anvil/runs/01a014f7-86f5-7352-88a0-756ff7d9d80f/events.jsonl",
+        "sha256": "cd2a1505e282871a16f0069e51c846cb104fca79950aea00fd20bee3e9de6dfb"
+      },
+      {
+        "path": "artifacts/e_vote_009/.anvil/runs/01a014f8-1bf9-7fb2-9d8f-27e2602e56af/events.jsonl",
+        "sha256": "cd8596b803f10c7090249b669677010302a91ffe9b3221e69a636cced2be58e5"
+      },
+      {
+        "path": "artifacts/e_vote_009/.anvil/runs/01a014f8-1c14-71a0-955d-830ad2286bdd/events.jsonl",
+        "sha256": "cd8596b803f10c7090249b669677010302a91ffe9b3221e69a636cced2be58e5"
+      },
+      {
+        "path": "artifacts/e_vote_009/.anvil/runs/01a014f8-286b-73f1-a429-853cbedbfa1f/events.jsonl",
+        "sha256": "0aae043c11acf2f92453be273f32459fb0b3585fb1f9610201604f8abd75b7a4"
+      },
+      {
+        "path": "artifacts/e_vote_010/.anvil/runs/01a014f8-289d-7182-800c-e22bec8a803b/events.jsonl",
+        "sha256": "f8ce39c2090c90f27585ee72c57ebcc4ccc51492939a444126089a7bc1f2154c"
+      },
+      {
+        "path": "artifacts/e_vote_010/.anvil/runs/01a014f8-f731-7c93-af17-bd4aa409d2e1/events.jsonl",
+        "sha256": "b789470bcb26b36507e7d34a5f5dbe5da309ca8a29daa0ab1606495fdae3634e"
+      },
+      {
+        "path": "artifacts/e_vote_010/.anvil/runs/01a014f8-f750-7e90-b9d3-4270f482bce5/events.jsonl",
+        "sha256": "b789470bcb26b36507e7d34a5f5dbe5da309ca8a29daa0ab1606495fdae3634e"
+      },
+      {
+        "path": "artifacts/e_vote_010/.anvil/runs/01a014f8-feef-7b01-b327-a60828af4e75/events.jsonl",
+        "sha256": "1f3b80adc4edc5bb92832c945241b327898dccfa366d89ac9df13b6cdb468d92"
+      },
+      {
+        "path": "artifacts/e_vote_011/.anvil/runs/01a014f8-ff22-7010-9ced-ba1e20d7edac/events.jsonl",
+        "sha256": "c7dcbcbe610003cd161e74a410245e7731a1fea7e77bf374e439158308d98940"
+      },
+      {
+        "path": "artifacts/e_vote_011/.anvil/runs/01a014f9-d3cd-7f12-b634-fe357a408efd/events.jsonl",
+        "sha256": "3470dc16c36de895e43b571940163fcb4d14d069b0074ede7120704db9b007b2"
+      },
+      {
+        "path": "artifacts/e_vote_011/.anvil/runs/01a014f9-d3ec-7532-88da-a9f528f2e558/events.jsonl",
+        "sha256": "3470dc16c36de895e43b571940163fcb4d14d069b0074ede7120704db9b007b2"
+      },
+      {
+        "path": "artifacts/e_vote_012/.anvil/runs/01a014f9-d419-7473-a2e6-cda421f4482e/events.jsonl",
+        "sha256": "83ad60abd12e327295276aa87d5badb5a114fc470aaf521ec5da33c6aa60cea7"
+      },
+      {
+        "path": "artifacts/e_warikan_005/.anvil/runs/01a014df-b460-7602-b636-1baf19a0b384/events.jsonl",
+        "sha256": "b76fbde2897c6e4b02419970b619e26a0e69457764515a5d83f8aa0a21d4a144"
+      },
+      {
+        "path": "artifacts/e_warikan_006/.anvil/runs/01a014e0-b5db-7912-917e-3ab413f67332/events.jsonl",
+        "sha256": "a7da90dfb1ea88615f1e6bbf79632c20b7acf4fdaf482ddc1c5149a7ee6c21ed"
+      },
+      {
+        "path": "artifacts/e_warikan_006/.anvil/runs/01a014e1-9b3f-7633-9f64-00e95cfcd27f/events.jsonl",
+        "sha256": "984b20cb11116daf8273f08ccbe0b18f822a7bce235d37fa260d61a4f31c460c"
+      },
+      {
+        "path": "artifacts/e_warikan_006/.anvil/runs/01a014e1-9b55-7003-a7f3-3f3c05d7c680/events.jsonl",
+        "sha256": "984b20cb11116daf8273f08ccbe0b18f822a7bce235d37fa260d61a4f31c460c"
+      },
+      {
+        "path": "artifacts/e_warikan_007/.anvil/runs/01a014e1-9b87-7821-bd05-b286d8e0bb2b/events.jsonl",
+        "sha256": "b98971789bd10484774a56564bbf8876719dae8468b7e6129e37a02bfb3f7f15"
+      },
+      {
+        "path": "artifacts/e_warikan_007/.anvil/runs/01a014e2-760c-7c30-aa6c-3e4b7a1e0c81/events.jsonl",
+        "sha256": "1e1b29485691edd6ef445e75eb6753e244c2d176d70f87cb8209726ac0ed7c23"
+      },
+      {
+        "path": "artifacts/e_warikan_007/.anvil/runs/01a014e2-7627-7ed3-8b73-2d0a650d919f/events.jsonl",
+        "sha256": "1e1b29485691edd6ef445e75eb6753e244c2d176d70f87cb8209726ac0ed7c23"
+      },
+      {
+        "path": "artifacts/e_warikan_008/.anvil/runs/01a014e2-7654-7720-88bc-3aaa357c850f/events.jsonl",
+        "sha256": "994f0cf725994a098e23b780e5fbcc6b64a75d68a749f3927805dfa5438e70c1"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e3-0fd7-7c41-b2ac-2f5964e6369b/events.jsonl",
+        "sha256": "2b2a5cf55b5a0f28812e2f1648d5a3de067f719d9e41fa64651a240f9ddc7afb"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e4-1092-7671-b8de-1a1271c9dfcf/events.jsonl",
+        "sha256": "da991f32f5d2ece507d3a95fcdb18ed719e696d4414f2e54c0f423fc64f87c15"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e4-10a9-7373-b5b6-3bc7731e1317/events.jsonl",
+        "sha256": "da991f32f5d2ece507d3a95fcdb18ed719e696d4414f2e54c0f423fc64f87c15"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-45a4-78d3-9d8b-aae175ea14d0/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-45b9-7292-b14e-3d823afcd44c/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-52cd-7013-897b-f73a2c77ada4/events.jsonl",
+        "sha256": "8d1c28cb6db8ef7f5af7733a1f191a700a3f78f7607f11023a01438ad14524c3"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-52e5-76d2-9bd5-24b2209b6e58/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-647f-7332-aad0-2f772d3b89a4/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-6bf1-7461-b3d0-06e28b865514/events.jsonl",
+        "sha256": "621997d74171d7d5f08197e189db589587d2fceccb4cb3d752c3e19c00311262"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-6c1f-7400-93a9-8cbe7ad92a36/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_009/.anvil/runs/01a014e5-79b0-7d60-aa10-0e14b5c048fb/events.jsonl",
+        "sha256": "7405a3164edb1a8b62aee5756cbde753dbb30e4b6b2a4da3abac3ec29c79cd58"
+      },
+      {
+        "path": "artifacts/e_warikan_010/.anvil/runs/01a014e5-7a56-7530-b5ab-f0afb2072176/events.jsonl",
+        "sha256": "2d45bf622d75d53f46ef7d292a4d3fbc90f804b203eae4bf2d07128b450bee0e"
+      },
+      {
+        "path": "artifacts/e_warikan_010/.anvil/runs/01a014e6-9ec1-7c40-b3f4-080f254a37c1/events.jsonl",
+        "sha256": "d17fd540cc83d429f47f2f99a49cd99f0cc9d024b4bde4054df3cb782733fb18"
+      },
+      {
+        "path": "artifacts/e_warikan_010/.anvil/runs/01a014e6-9ee1-7e70-90ff-e91bff807584/events.jsonl",
+        "sha256": "d17fd540cc83d429f47f2f99a49cd99f0cc9d024b4bde4054df3cb782733fb18"
+      },
+      {
+        "path": "artifacts/e_warikan_011/.anvil/runs/01a014e7-4594-7fa2-a306-5f9f18eb22b5/events.jsonl",
+        "sha256": "2d6b1c8e66195163b2302db6768065cb665663eea16add72f43e42e9fdba2343"
+      },
+      {
+        "path": "artifacts/e_warikan_011/.anvil/runs/01a014e9-1b8f-7023-bfa4-76139e047cb2/events.jsonl",
+        "sha256": "89193a3f561cdf322561772485c7fc67a87700add78cc400eb2e84cb685d9187"
+      },
+      {
+        "path": "artifacts/e_warikan_011/.anvil/runs/01a014e9-1ba7-7082-9b46-5b3062974f5a/events.jsonl",
+        "sha256": "89193a3f561cdf322561772485c7fc67a87700add78cc400eb2e84cb685d9187"
+      },
+      {
+        "path": "artifacts/e_warikan_012/.anvil/runs/01a014e9-1bdf-7dc1-bb5b-bb6fd99c60b0/events.jsonl",
+        "sha256": "7ce7c1bc5e71601d2c4a0261150774ae84de30e881f21b18c9bdc119041262b5"
+      },
+      {
+        "path": "artifacts/e_warikan_012/.anvil/runs/01a014ea-0b72-77a1-9d76-53ef503c3f1d/events.jsonl",
+        "sha256": "37c27b6797af1def1c80bdc8e017304b43f76badba08cf500bc09c37bc7ab1fa"
+      },
+      {
+        "path": "artifacts/e_warikan_012/.anvil/runs/01a014ea-0b90-7b60-b236-41c51da9ab5a/events.jsonl",
+        "sha256": "37c27b6797af1def1c80bdc8e017304b43f76badba08cf500bc09c37bc7ab1fa"
+      }
+    ]
+  },
+  "extension_cost_usd": 0.05106268,
+  "combined_cost_usd": 0.07234546,
+  "local_planner_cost_usd": 0,
+  "adoption_decision": "owner_adjudication_pending",
+  "runs": [
+    {
+      "arm": "E",
+      "id": "e_warikan_001",
+      "task": "warikan",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 65,
+      "cost_usd": 0.00160414,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_002",
+      "task": "warikan",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 44,
+      "cost_usd": 0.001088,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_003",
+      "task": "warikan",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 62,
+      "cost_usd": 0.00139422,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_004",
+      "task": "warikan",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 46,
+      "cost_usd": 0.00137768,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_001",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 63,
+      "cost_usd": 0.00182392,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_002",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 77,
+      "cost_usd": 0.00164728,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_003",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 2,
+      "duration_secs": 55,
+      "cost_usd": 0.00197892,
+      "stop_class": "community_computed_unregistered",
+      "outcome_signature": "community_computed_unregistered",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_004",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 47,
+      "cost_usd": 0.0003774,
+      "stop_class": "community_spec_artifact_missing",
+      "outcome_signature": "community_spec_artifact_missing",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_001",
+      "task": "vote",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 3,
+      "duration_secs": 73,
+      "cost_usd": 0.00380392,
+      "stop_class": "community_verify_instruction_not_executable",
+      "outcome_signature": "community_verify_instruction_not_executable",
+      "scrub_ok": true,
+      "provider_turns": 11,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_002",
+      "task": "vote",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 3,
+      "duration_secs": 56,
+      "cost_usd": 0.00258962,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 8,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_003",
+      "task": "vote",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 55,
+      "cost_usd": 0.00145044,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_004",
+      "task": "vote",
+      "source": "cm4-planner-cand-001 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 2,
+      "duration_secs": 67,
+      "cost_usd": 0.00214724,
+      "stop_class": "community_verify_instruction_not_executable",
+      "outcome_signature": "community_verify_instruction_not_executable",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_005",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 67,
+      "cost_usd": 0.0004192,
+      "stop_class": "community_spec_artifact_missing",
+      "outcome_signature": "community_spec_artifact_missing",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_006",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 58,
+      "cost_usd": 0.00171016,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_007",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 56,
+      "cost_usd": 0.00135544,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_008",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 40,
+      "cost_usd": 0.0004136,
+      "stop_class": "community_spec_artifact_missing",
+      "outcome_signature": "community_spec_artifact_missing",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_009",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L3",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 5,
+      "duration_secs": 158,
+      "cost_usd": 0.00755488,
+      "stop_class": "community_verify_instruction_not_executable",
+      "outcome_signature": "community_verify_instruction_not_executable",
+      "scrub_ok": true,
+      "provider_turns": 16,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_010",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 118,
+      "cost_usd": 0.0017744,
+      "stop_class": "community_dangerous_command_blocked",
+      "outcome_signature": "community_dangerous_command_blocked",
+      "scrub_ok": true,
+      "provider_turns": 8,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_011",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 120,
+      "cost_usd": 0.00133878,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_warikan_012",
+      "task": "warikan",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 61,
+      "cost_usd": 0.0021995,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_005",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L3",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": false,
+      "repair_cycles": 2,
+      "duration_secs": 198,
+      "cost_usd": 0.00730716,
+      "stop_class": "community_package_missing",
+      "outcome_signature": "community_package_missing",
+      "scrub_ok": true,
+      "provider_turns": 18,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_006",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 52,
+      "cost_usd": 0.00131298,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_007",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 64,
+      "cost_usd": 0.00146776,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_008",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 70,
+      "cost_usd": 0.00203712,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_009",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 1,
+      "duration_secs": 64,
+      "cost_usd": 0.00254968,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_010",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 2,
+      "duration_secs": 70,
+      "cost_usd": 0.00241856,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_011",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 2,
+      "duration_secs": 70,
+      "cost_usd": 0.00355934,
+      "stop_class": "community_computed_unregistered",
+      "outcome_signature": "community_computed_unregistered",
+      "scrub_ok": true,
+      "provider_turns": 10,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_mochimono_012",
+      "task": "mochimono",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 59,
+      "cost_usd": 0.00206444,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_005",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 53,
+      "cost_usd": 0.00127922,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_006",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 1,
+      "duration_secs": 52,
+      "cost_usd": 0.00242408,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_007",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 62,
+      "cost_usd": 0.00047,
+      "stop_class": "community_workspace_path_invented",
+      "outcome_signature": "community_workspace_path_invented",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_008",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 70,
+      "cost_usd": 0.00240866,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_009",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 1,
+      "duration_secs": 41,
+      "cost_usd": 0.00154438,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_010",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 1,
+      "duration_secs": 55,
+      "cost_usd": 0.00153504,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_011",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 55,
+      "cost_usd": 0.0014237,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    },
+    {
+      "arm": "E",
+      "id": "e_vote_012",
+      "task": "vote",
+      "source": "cm4-planner-cand-002 same-instrument extension",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 51,
+      "cost_usd": 0.0004946,
+      "stop_class": "community_workspace_path_invented",
+      "outcome_signature": "community_workspace_path_invented",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ],
+      "think": "medium"
+    }
+  ]
+}

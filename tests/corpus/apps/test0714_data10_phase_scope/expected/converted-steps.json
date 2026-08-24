@@ -1,0 +1,38 @@
+[
+  {
+    "id": "run-inspection",
+    "kind": "verify",
+    "expected_result": "pass",
+    "instruction": "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure.",
+    "expected_paths": [
+      "output/inspection.json"
+    ],
+    "verify": [
+      "anvil-catalog-check:data_inspection_schema",
+      "test -f output/inspection.json"
+    ]
+  },
+  {
+    "id": "validate-data-contract",
+    "kind": "verify",
+    "expected_result": "pass",
+    "instruction": "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure.",
+    "expected_paths": [
+      "pipeline/main.py",
+      "output/inspection.json",
+      "output/results.json",
+      "output/report.md"
+    ],
+    "verify": [
+      "anvil-catalog-check:data_results_schema",
+      "anvil-catalog-check:data_reconciliation",
+      "anvil-catalog-check:data_claims_binding",
+      "anvil-catalog-check:pipeline_probe",
+      "anvil-catalog-check:data_rerun_consistency",
+      "test -f pipeline/main.py",
+      "test -f output/inspection.json",
+      "test -f output/results.json",
+      "test -f output/report.md"
+    ]
+  }
+]

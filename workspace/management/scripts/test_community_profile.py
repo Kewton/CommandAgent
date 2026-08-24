@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+import community_profile
+
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURE = ROOT / "workspace/management/bench/community/synthetic-community"
+SCHEMA_FIXTURE = ROOT / "workspace/management/bench/community/appspec-schema"
+
+
+class CommunityProfileSpecTests(unittest.TestCase):
+    @staticmethod
+    def write_valid_promotion(root: Path) -> None:
+        evidence = root / "evidence"
+        evidence.mkdir(exist_ok=True)
+        (evidence / "promotion-decision.json").write_text(
+            json.dumps(
+                {
+                    "evidence_family": "promotion_decision",
+                    "attempt_id": "attempt-1",
+                    "requested_level": "L3",
+                    "decision": "promote",
+                    "reason_class": "ui_requirement",
+                    "lower_level_result": {
+                        "status": "pass",
+                        "artifact_ref": "app.spec.yaml",
+                    },
+                    "zone_path": "src/app-zone",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_synthetic_spec_passes_pinned_schema(self):
+        result = community_profile.validate_spec(
+            FIXTURE / "app.spec.yaml",
+            FIXTURE / "schema/app-spec.schema.yaml",
+            FIXTURE / "schema/app-spec.schema.sha256",
+        )
+        self.assertEqual(result["verdict"], "pass")
+        self.assertEqual(result["family"], "S")
+
+    def test_schema_pin_mismatch_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pin = Path(directory) / "pin"
+            pin.write_text("0" * 64, encoding="utf-8")
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_schema_pin(FIXTURE / "schema/app-spec.schema.yaml", pin)
+
+    def test_removed_v0_schema_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            schema = Path(directory) / "schema.yaml"
+            pin = Path(directory) / "schema.sha256"
+            old = (FIXTURE / "schema/app-spec.schema.yaml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "schema_version: community.app-spec/v0.1",
+                "schema_version: community.app-spec/v1",
+            )
+            schema.write_text(old, encoding="utf-8")
+            pin.write_text(
+                hashlib.sha256(old.encode()).hexdigest(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "unsupported platform schema version",
+            ):
+                community_profile.validate_schema_pin(schema, pin)
+
+    def test_unknown_field_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spec = Path(directory) / "app.spec.yaml"
+            spec.write_text(
+                (FIXTURE / "app.spec.yaml").read_text(encoding="utf-8") + "\nunknown: true\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_spec(spec, FIXTURE / "schema/app-spec.schema.yaml", FIXTURE / "schema/app-spec.schema.sha256")
+
+    def test_computed_ast_is_bounded_and_typed(self):
+        with self.assertRaises(community_profile.ValidationError):
+            community_profile.ExpressionParser("eval(1)", {"count": "number"}).parse()
+        with self.assertRaises(community_profile.ValidationError):
+            community_profile.ExpressionParser("count + 'bad'", {"count": "number"}).parse()
+
+    def test_same_entity_computed_chain_is_topologically_ordered(self):
+        result = community_profile.validate_spec(
+            SCHEMA_FIXTURE / "positive/computed-chain/app.spec.yaml",
+            SCHEMA_FIXTURE / "app-spec.schema.yaml",
+            SCHEMA_FIXTURE / "app-spec.schema.sha256",
+        )
+        self.assertEqual(
+            result["computed_evaluation_order"],
+            [
+                "expense.shareAmount",
+                "expense.netBalance",
+                "expense.settlementAmount",
+            ],
+        )
+
+    def test_self_referencing_computed_is_a_violation(self):
+        with self.assertRaisesRegex(community_profile.ValidationError, "computed cycle"):
+            community_profile.validate_spec(
+                SCHEMA_FIXTURE / "negative/computed-self-cycle/app.spec.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.sha256",
+            )
+
+    def test_mutually_referencing_computed_is_a_violation(self):
+        with self.assertRaisesRegex(community_profile.ValidationError, "computed cycle"):
+            community_profile.validate_spec(
+                SCHEMA_FIXTURE / "negative/computed-mutual-cycle/app.spec.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.sha256",
+            )
+
+    def test_zone_rejects_core_diff_and_forbidden_api(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", ["core/router.ts"])
+            (root / "src/app-zone/attack.ts").write_text("const x = process.env.SECRET;\n", encoding="utf-8")
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_zone_rejects_initial_allowlist_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
+            package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            package["dependencies"] = {"unreviewed": "1.0.0"}
+            (root / "package.json").write_text(json.dumps(package), encoding="utf-8")
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_l2_without_declared_package_material_passes_zone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            (root / "src/app-zone").rename(root / "app-zone.fixture")
+            (root / "package.json").unlink()
+            (root / "package-lock.json").unlink()
+            result = community_profile.validate_zone(
+                root, root / "core.sha256sums", ["app.spec.yaml"]
+            )
+            self.assertEqual(result["verdict"], "pass")
+
+    def test_declared_package_material_still_requires_lockfile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            (root / "package-lock.json").unlink()
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "package-lock.json is required",
+            ):
+                community_profile.validate_zone(
+                    root, root / "core.sha256sums", ["app.spec.yaml"]
+                )
+
+    def test_zone_requires_promotion_decision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "community_promotion_missing",
+            ):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_valid_promotion_decision_passes_zone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
+            result = community_profile.validate_zone(
+                root, root / "core.sha256sums", []
+            )
+            self.assertEqual(result["verdict"], "pass")
+
+
+if __name__ == "__main__":
+    unittest.main()

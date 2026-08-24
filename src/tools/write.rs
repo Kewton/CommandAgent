@@ -1,74 +1,107 @@
-use crate::safety::path_guard::PathGuard;
-use crate::tools::{ToolError, ToolResult};
-use std::fs;
-use std::path::Path;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
+use std::path::{Component, Path, PathBuf};
 
-pub struct WriteTool<'a> {
-    guard: &'a PathGuard,
+use anyhow::{Context, bail};
+
+pub fn run(root: &Path, path: &Path, content: &str) -> anyhow::Result<String> {
+    write_checked(root, path, content)?;
+    Ok(format!("wrote {}", path.display()))
 }
 
-impl<'a> WriteTool<'a> {
-    pub fn new(guard: &'a PathGuard) -> Self {
-        Self { guard }
+pub fn write_checked(root: &Path, path: &Path, content: &str) -> anyhow::Result<()> {
+    ensure_mutation_allowed(root, path)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create parent directory {}", parent.display()))?;
     }
+    verify_existing_components_inside(root, path)?;
+    reject_target_symlink(path)?;
+    let mut file = open_for_truncate_no_follow(path)?;
+    file.write_all(content.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    file.flush()
+        .with_context(|| format!("failed to flush {}", path.display()))?;
+    Ok(())
+}
 
-    pub fn write(&self, path: impl AsRef<Path>, content: &str) -> ToolResult<()> {
-        let resolved = self.guard.resolve(path)?;
-        if let Some(parent) = resolved.parent() {
-            fs::create_dir_all(parent).map_err(|err| ToolError::Io {
-                path: parent.to_path_buf(),
-                message: err.to_string(),
-            })?;
+pub fn ensure_mutation_allowed(root: &Path, path: &Path) -> anyhow::Result<()> {
+    reject_target_symlink(path)?;
+    verify_existing_components_inside(root, path)
+}
+
+fn reject_target_symlink(path: &Path) -> anyhow::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "symlink_write_blocked: refusing to write through {}",
+                path.display()
+            )
         }
-        fs::write(&resolved, content).map_err(|err| ToolError::Io {
-            path: resolved,
-            message: err.to_string(),
-        })
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => {
+            Err(err).with_context(|| format!("failed to inspect target {}", path.display()))
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::safety::path_guard::PathGuard;
-    use std::fs;
-    use std::path::PathBuf;
-
-    #[test]
-    fn creates_parent_directories() {
-        let root = temp_workspace("parents");
-        let guard = PathGuard::new(&root).unwrap();
-
-        WriteTool::new(&guard)
-            .write("nested/deep/file.txt", "created")
-            .unwrap();
-
-        assert_eq!(
-            fs::read_to_string(root.join("nested/deep/file.txt")).unwrap(),
-            "created"
-        );
+fn verify_existing_components_inside(root: &Path, path: &Path) -> anyhow::Result<()> {
+    let raw_root = root.to_path_buf();
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("workspace root is not accessible: {}", root.display()))?;
+    let candidate = if path.is_absolute() && path.starts_with(&raw_root) {
+        root.join(
+            path.strip_prefix(&raw_root)
+                .with_context(|| format!("path escapes workspace: {}", path.display()))?,
+        )
+    } else if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let relative = candidate
+        .strip_prefix(&root)
+        .with_context(|| format!("path escapes workspace: {}", candidate.display()))?;
+    let mut current = PathBuf::from(&root);
+    for component in relative.components() {
+        let Component::Normal(part) = component else {
+            bail!("path escapes workspace: {}", candidate.display());
+        };
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(_) => {
+                let canonical = current.canonicalize().with_context(|| {
+                    format!("path component is not accessible: {}", current.display())
+                })?;
+                if !canonical.starts_with(&root) {
+                    bail!(
+                        "path escapes workspace through existing component {}; use workspace-relative paths",
+                        current.display()
+                    );
+                }
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => break,
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!("failed to inspect path component {}", current.display())
+                });
+            }
+        }
     }
+    Ok(())
+}
 
-    #[test]
-    fn rejects_path_escape() {
-        let root = temp_workspace("escape");
-        let guard = PathGuard::new(&root).unwrap();
-
-        let err = WriteTool::new(&guard)
-            .write("../outside.txt", "nope")
-            .unwrap_err();
-
-        assert!(matches!(err, ToolError::Path(_)));
+fn open_for_truncate_no_follow(path: &Path) -> anyhow::Result<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
     }
-
-    fn temp_workspace(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "commandagent-write-{}-{}",
-            name,
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
+    options
+        .open(path)
+        .with_context(|| format!("failed to open {} for writing", path.display()))
 }

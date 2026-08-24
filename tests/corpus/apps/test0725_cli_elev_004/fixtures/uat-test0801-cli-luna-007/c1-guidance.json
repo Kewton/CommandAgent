@@ -1,0 +1,6 @@
+{
+  "source": "uat-test0801-cli-luna-007/stats_luna_003/README.md:8",
+  "observed_readme_usage": "python cli/main.py --column <列名> <CSVファイル>",
+  "required_literal_example": "python3 src/app/main.py data/sample.csv --column amount",
+  "forbidden_notation": "<...>"
+}

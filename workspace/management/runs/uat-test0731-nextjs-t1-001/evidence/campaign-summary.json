@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "campaign_id": "nextjs-t1-20260731-060218",
+  "suite_id": "nextjs-t1",
+  "suite_sha256": "96accf52490d0aa3f54e5660637d1c2d3e17539e174769b4dec11664b4d2abd5",
+  "profile": "nextjs",
+  "intent": "create",
+  "family": "Quiz",
+  "planner": "qwen3.6:27b-coding-nvfp4",
+  "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+  "run_count": 3,
+  "honest_terminal_count": 3,
+  "full_count": 3,
+  "t1_started_count": 3,
+  "t1_status_counts": {
+    "claims_absent": 3,
+    "matched": 0,
+    "violation": 0
+  },
+  "recognized_claim_count": 0,
+  "matched_claim_count": 0,
+  "violation_count": 0,
+  "unrecognized_prose_count": 0,
+  "claim_source_file_count": 0,
+  "product_duration_seconds": 972,
+  "campaign_wall_interval_seconds": 1905,
+  "artifact_scrub_green": 3,
+  "runs": [
+    {
+      "name": "quiz_qwen35_001",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "full",
+      "terminal_reason": "completed",
+      "duration_seconds": 281,
+      "t1_status": "claims_absent",
+      "t1_epoch": 1785478269,
+      "resume_recovered_product_terminal": true
+    },
+    {
+      "name": "quiz_qwen35_002",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "full",
+      "terminal_reason": "completed",
+      "duration_seconds": 489,
+      "t1_status": "claims_absent",
+      "t1_epoch": 1785479652,
+      "resume_recovered_product_terminal": false
+    },
+    {
+      "name": "quiz_qwen35_003",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "full",
+      "terminal_reason": "completed",
+      "duration_seconds": 202,
+      "t1_status": "claims_absent",
+      "t1_epoch": 1785479893,
+      "resume_recovered_product_terminal": false
+    }
+  ]
+}

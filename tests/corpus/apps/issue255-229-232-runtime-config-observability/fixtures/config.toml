@@ -1,0 +1,9 @@
+[preset.team_base]
+provider = "openai-compatible"
+base_url = "${TEAM_LLM_URL}"
+model = "${TEAM_EXECUTOR_MODEL}"
+planner_model = "${TEAM_PLANNER_MODEL}"
+
+[preset.developer]
+extends = "team_base"
+model = "${DEVELOPER_MODEL}"

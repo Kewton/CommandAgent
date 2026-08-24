@@ -1,0 +1,22 @@
+{
+  "reconciliation": {
+    "input_rows": 24,
+    "used_rows": 22,
+    "excluded": [
+      {"reason": "invalid_date", "rows": 1},
+      {"reason": "missing_date", "rows": 1}
+    ]
+  },
+  "values": {
+    "monthly_2026-01": 5332,
+    "monthly_2026-02": 3777,
+    "monthly_2026-03": 5628,
+    "monthly_2026-04": 4443,
+    "monthly_2026-05": 5924,
+    "monthly_2026-06": 6072,
+    "regional_東京": 9775,
+    "regional_大阪": 9701,
+    "regional_名古屋": 11700,
+    "total": 31176
+  }
+}

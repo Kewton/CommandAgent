@@ -1,0 +1,55 @@
+case_id = "test0716_d1_fix_intent_contract"
+source = "D-1 fix intent v0 contract and deterministic runtime conformance"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["before_fails", "after_passes", "no_regression", "baseline_not_reproduced"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix-full.jsonl = [
+  "\"event\":\"fix_evidence_recorded\"",
+  "\"requirement_id\":\"before_fails\"",
+  "\"stage\":\"before\"",
+  "\"expected_polarity\":\"failure\"",
+  "\"lineage\":\"reproducer:fixture\"",
+  "\"epoch\":1",
+  "\"requirement_id\":\"after_passes\"",
+  "\"stage\":\"after\"",
+  "\"expected_polarity\":\"success\"",
+  "\"epoch\":2",
+  "\"requirement_id\":\"no_regression\"",
+  "\"lineage\":\"regression:fixture\"",
+  "\"epoch\":3",
+  "\"epoch\":4",
+  "\"contract_origin\":\"fix_intent_v0\"",
+  "\"contract_ref\":\"docs/fix-intent-contract.md\"",
+  "\"verdict\":\"full\"",
+  "\"assurance_level\":\"full\"",
+  "\"final_acceptance_status\":\"full_success\"",
+  "\"bound_regression_ids\":[\"profile_contract\",\"profile_verify_1\"]",
+  "\"bound_regression_lineages\":{\"profile_contract\":\"regression:fixture\",\"profile_verify_1\":\"regression:fixture-build\"}"
+]
+fixtures/fix-baseline-not-reproduced.jsonl = [
+  "\"requirement_id\":\"before_fails\"",
+  "\"outcome\":\"success\"",
+  "\"assurance_reason\":\"baseline_not_reproduced\"",
+  "\"verdict\":\"failed\"",
+  "\"final_acceptance_status\":\"failed\"",
+  "\"after_epoch\":null"
+]

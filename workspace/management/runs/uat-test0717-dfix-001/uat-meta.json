@@ -1,0 +1,26 @@
+{
+  "campaign": "uat-test0717-dfix-001",
+  "date": "2026-07-17",
+  "head": "7f15729f69c470d6b9d592c48aedc70239e5235f",
+  "profile": "data",
+  "intent": "fix",
+  "run_count": 6,
+  "retry_count": 0,
+  "full_count": 0,
+  "failed_count": 6,
+  "overall_gate": "FAIL",
+  "failed_gate": "P1-a",
+  "cost_seconds": {
+    "acquisition": 756,
+    "execution_campaign_wall": 4156,
+    "execution_run_sum": 3911,
+    "reporting": 395
+  },
+  "analysis": [
+    "analysis/preflight.json",
+    "analysis/source-provenance.json",
+    "analysis/run-matrix.json",
+    "analysis/fix-evidence-audit.json",
+    "analysis/gate-results.json"
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f6feb-dff1-7a31-999b-6641694a249d",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f6feb-dff1-7a31-999b-6641694a249d",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "pipeline_probe",
+      "data_reconciliation",
+      "data_claims_binding",
+      "data_rerun_consistency",
+      "data_results_schema"
+    ],
+    "bound_regression_lineages": {
+      "data_claims_binding": "regression:5ee07e4968be4199",
+      "data_reconciliation": "regression:aad7a27c9f14260b",
+      "data_rerun_consistency": "regression:09f9be875c51316d",
+      "data_results_schema": "regression:292fa5e5cb8065da",
+      "pipeline_probe": "regression:539f12e6adea8590"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "python -c \"import json\\nd=json.load(open('output/results.json'))\\nassert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']\"",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:db3f7b5f226081c4",
+      "epoch": 1,
+      "run_id": "019f6feb-dff1-7a31-999b-6641694a249d",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 186 summary: SyntaxError: unexpected character after line continuation character stdout: stderr: File \"<string>\", line 1 import json\\nd=json.load(open('output/results.json'))\\nassert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation'] ^ SyntaxError: unexpected character after line continuation character"
+    },
+    "after": null,
+    "regressions": []
+  }
+}

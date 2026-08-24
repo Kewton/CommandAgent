@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "probe_mode": "heuristic",
+  "contract_hook_status": "primary_missing",
+  "interaction_success": true,
+  "interaction_performed": true,
+  "input_state_change": true,
+  "state_changed": true,
+  "state_dimensions_changed": [],
+  "candidate_table": [{"changed": true, "text_excerpt": "Action"}],
+  "action_hooks": [],
+  "steps": ["surface_visible", "start_transition", "input_state_change", "recovery_transition"]
+}

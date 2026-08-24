@@ -1,0 +1,38 @@
+case_id = "issue231-151-repl-controls"
+source = "Issues 231 and 151 REPL session and history contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/repl-contract.jsonl = [
+  "\"command\":\"/model executor-new\"",
+  "\"command\":\"/provider lm-studio\"",
+  "\"command\":\"/profile nextjs\"",
+  "\"command\":\"/confirm sha256:77cd5e23\"",
+  "\"minimum_prefix_digits\":8",
+  "\"persisted_hash\":\"full_sha256\"",
+  "\"strict_environment\":\"COMMANDAGENT_STRICT_CONFIRM=1\"",
+  "\"history\":\"workspace_scoped\"",
+  "\"legacy_shared_history\":\"ignored_and_preserved\"",
+  "\"hint_minimum_characters\":2",
+  "\"help\":\"grouped\"",
+  "\"status_first\":\"current_execution\""
+]

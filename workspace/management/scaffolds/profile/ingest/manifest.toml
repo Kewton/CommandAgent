@@ -1,0 +1,30 @@
+[manifest]
+id = "ingest"
+kind = "profile"
+admission = "admitted"
+profile = "ingest"
+intent = "create"
+contract = "docs/ingest-profile-contract.md"
+runtime_manifest = "src/planner/profiles/ingest/manifest.toml"
+runtime_entry = "src/planner/profiles/ingest/runtime.rs"
+
+[phases]
+ids = ["ingest-implement", "ingest-run", "ingest-structural-gate"]
+source = "machine_synthesized_profile_preset"
+implement_expected_paths = ["pipeline/main.py", "output/inspection.json"]
+run_generated_outputs = ["output/records.json", "output/report.md"]
+verify_commands = ["python3 -B pipeline/main.py", "test -f output/records.json", "test -f output/report.md", "anvil-ingest-check:phase_structure"]
+
+[checks]
+n1 = "pipeline_probe"
+n2 = "ingest_source_binding"
+n3 = "ingest_candidate_accounting"
+n4 = "ingest_format_schema"
+n5 = "ingest_rerun_consistency"
+
+[assurance]
+projection = "src/completion_metadata/ingest.rs"
+admission_cap = "admitted_preserves_earned"
+
+[activation]
+production_test = "planner::runner::tests::cli_runtime_dispatch_tests::moved::ingest_final_acceptance_production_path_executes_n1_through_n5"

@@ -1,0 +1,151 @@
+{
+  "schema_version": "commandagent.gui-smoke/v1",
+  "generated_at": "2026-08-15T08:01:01.960Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "dashboard": {
+        "status": 200,
+        "heading": "Evidence, at a glance."
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "Pinned means visible.",
+          "headingMatches": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "Claims need coordinates.",
+          "headingMatches": true
+        },
+        "runDetail": {
+          "status": 200,
+          "heading": "One run. Every receipt.",
+          "headingMatches": true
+        }
+      },
+      "console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "dashboard": {
+        "status": 200,
+        "heading": "Evidence, at a glance."
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/proxy/commandagent/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "Pinned means visible.",
+          "headingMatches": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "Claims need coordinates.",
+          "headingMatches": true
+        },
+        "runDetail": {
+          "status": 200,
+          "heading": "One run. Every receipt.",
+          "headingMatches": true
+        }
+      },
+      "console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

@@ -1,0 +1,12 @@
+{
+  "columns": {
+    "region": {
+      "type": "string",
+      "observed_values": [
+        "名古屋",
+        "東京",
+        "大阪"
+      ]
+    }
+  }
+}

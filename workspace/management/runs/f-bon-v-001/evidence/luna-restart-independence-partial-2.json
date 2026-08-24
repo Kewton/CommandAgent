@@ -1,0 +1,47 @@
+{
+  "campaigns": [
+    {
+      "campaign_id": "cli-filter-bon0-20260803-092213",
+      "full_count": 1,
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/f-bon-v-001/evidence/bon0-001r2-selection.json",
+      "trials": 6
+    },
+    {
+      "campaign_id": "cli-filter-bon0-20260803-115414",
+      "full_count": 0,
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/f-bon-v-001/evidence/bon0-002r-selection.json",
+      "trials": 6
+    }
+  ],
+  "cross_check": {
+    "binomial_expected_variance": 0.8466,
+    "decision": "binomial_consistent",
+    "variance_ratio": 0.5905976848570753
+  },
+  "observed": {
+    "campaign_count": 2,
+    "campaigns_with_at_least_one_full": 1,
+    "full_count_mean": 0.5,
+    "full_count_sample_variance": 0.5,
+    "full_count_total": 1,
+    "full_counts": [
+      1,
+      0
+    ]
+  },
+  "predeclared_test": {
+    "dispersion_ratio_thresholds": {
+      "overdispersed_above": 1.5,
+      "underdispersed_below": 0.5
+    },
+    "expected_campaigns_with_at_least_one_full": 1.346119253262,
+    "expected_full_count_per_campaign": 1.02,
+    "expected_full_count_total": 2.04,
+    "expected_full_probability": 0.17,
+    "kind": "cross-campaign-binomial-full-count-dispersion",
+    "p_value": false,
+    "trials_per_campaign": 6
+  },
+  "schema_version": "commandagent.bon-independence/v0",
+  "valid_measurement": true
+}

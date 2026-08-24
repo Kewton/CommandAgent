@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "workflow": "recovery-circle-data",
+  "origin": {
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3",
+    "run_id": "019f6476-d96f-7e20-abda-0094031f600e",
+    "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f6476-d96f-7e20-abda-0094031f600e/events.jsonl",
+    "recovery_yaml_paths": [
+      "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/plans/recovery-ultra-plan-phase-data-cleaning-019f6482-0775-7241-bf2c-28a13c81849f.yaml",
+      "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/plans/recovery-ultra-plan-read-only-stagnation-019f6482-0773-77b2-9ac8-29316e6eada7.yaml"
+    ],
+    "goal": "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+  },
+  "edges": [
+    {
+      "edge": "create->investigate",
+      "fired": true,
+      "checks": {
+        "E-A": {
+          "passed": true,
+          "detail": "origin selector verified failed run_stop in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f6476-d96f-7e20-abda-0094031f600e/events.jsonl"
+        },
+        "E-B": {
+          "passed": true,
+          "detail": "source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f6476-d96f-7e20-abda-0094031f600e/events.jsonl"
+        },
+        "E-C": {
+          "passed": true,
+          "detail": "source is in the sequential route history; target run is allocated only after firing"
+        },
+        "E-D": {
+          "passed": true,
+          "detail": "declared carries present: [Workspace, RecoveryYaml]"
+        }
+      }
+    }
+  ],
+  "nodes": {
+    "investigate": {
+      "intent": "investigate",
+      "run_id": "019f8752-49ec-7d03-b970-b3ce19856ac8",
+      "run_dir": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f8752-49ec-7d03-b970-b3ce19856ac8",
+      "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle002_origin_3/.anvil/runs/019f8752-49ec-7d03-b970-b3ce19856ac8/events.jsonl"
+    }
+  },
+  "verdict": "circle_failed",
+  "reason": "node_failed:investigate"
+}

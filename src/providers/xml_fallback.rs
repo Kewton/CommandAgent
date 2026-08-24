@@ -1,160 +1,392 @@
-use crate::providers::{ToolCall, ToolCallMode};
 use serde_json::Value;
 
-pub const COMMANDAGENT_TOOL_CALL_TAG: &str = "commandagent_tool_call";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct XmlToolCallExtraction {
-    pub content: String,
-    pub tool_calls: Vec<ToolCall>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum XmlFallbackError {
-    UnclosedToolCall { tag: String },
-    InvalidJson { message: String },
-    MissingToolName,
-    InvalidArguments,
-}
-
-impl std::fmt::Display for XmlFallbackError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnclosedToolCall { tag } => write!(f, "unclosed <{}> block", tag),
-            Self::InvalidJson { message } => write!(f, "invalid tool call JSON: {}", message),
-            Self::MissingToolName => write!(f, "tool call is missing a tool name"),
-            Self::InvalidArguments => write!(f, "tool call arguments must be a JSON object"),
-        }
-    }
-}
-
-impl std::error::Error for XmlFallbackError {}
+use crate::state::ToolCall;
+use crate::tools::args_recovery::recover_tool_arguments;
 
 pub fn strip_think_tags(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut remaining = input;
-
-    while let Some(start) = remaining.find("<think>") {
-        output.push_str(&remaining[..start]);
-        let after_start = &remaining[start + "<think>".len()..];
-        let Some(end) = after_start.find("</think>") else {
+    let mut out = input.to_string();
+    while let Some(start) = out.find("<think>") {
+        let Some(end_rel) = out[start..].find("</think>") else {
             break;
         };
-        remaining = &after_start[end + "</think>".len()..];
+        let end = start + end_rel + "</think>".len();
+        out.replace_range(start..end, "");
     }
-
-    output.push_str(remaining);
-    output
+    out
 }
 
-pub fn extract_tool_calls(input: &str) -> Result<Vec<ToolCall>, XmlFallbackError> {
-    Ok(extract_tool_calls_with_content(input)?.tool_calls)
-}
-
-pub fn render_tool_calls(tool_calls: &[ToolCall]) -> String {
-    tool_calls
-        .iter()
-        .map(render_tool_call)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-pub fn extract_tool_calls_with_content(
+pub fn extract_tool_calls(
     input: &str,
-) -> Result<XmlToolCallExtraction, XmlFallbackError> {
-    let stripped = strip_think_tags(input);
-    let mut content = String::with_capacity(stripped.len());
+    allowed_tools: &[String],
+) -> anyhow::Result<(Vec<ToolCall>, String)> {
+    let mut remaining = strip_think_tags(input);
     let mut calls = Vec::new();
-    let mut remaining = stripped.as_str();
+    for tag in ["anvil_tool_call", "tool_call", "function_call"] {
+        extract_plain_tag_calls(&mut remaining, tag, allowed_tools, &mut calls)?;
+    }
+    for tag in ["anvil_tool_call", "function"] {
+        extract_named_tag_calls(&mut remaining, tag, allowed_tools, &mut calls)?;
+    }
+    extract_function_equals_calls(&mut remaining, allowed_tools, &mut calls)?;
+    Ok((calls, remaining.trim().to_string()))
+}
 
-    while let Some((start, tag)) = next_open_tag(remaining) {
-        let open = format!("<{}>", tag);
-        let close = format!("</{}>", tag);
-        content.push_str(&remaining[..start]);
-
-        let after_open = &remaining[start + open.len()..];
-        let Some(end) = after_open.find(&close) else {
-            return Err(XmlFallbackError::UnclosedToolCall {
-                tag: tag.to_string(),
-            });
+fn extract_plain_tag_calls(
+    remaining: &mut String,
+    tag: &str,
+    allowed_tools: &[String],
+    calls: &mut Vec<ToolCall>,
+) -> anyhow::Result<()> {
+    loop {
+        let open = format!("<{tag}>");
+        let close = format!("</{tag}>");
+        let Some(start) = remaining.find(&open) else {
+            break;
         };
-        let payload = after_open[..end].trim();
-        calls.push(parse_tool_call_payload(payload)?);
-        remaining = &after_open[end + close.len()..];
+        let json_start = start + open.len();
+        let Some(end_rel) = remaining[json_start..].find(&close) else {
+            let raw = remaining[json_start..].trim();
+            if json_looks_closed(raw) {
+                calls.push(parse_tool_call(raw, None, allowed_tools)?);
+                remaining.replace_range(start..remaining.len(), "");
+                continue;
+            }
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let json_end = json_start + end_rel;
+        let raw = remaining[json_start..json_end].trim();
+        calls.push(parse_tool_call(raw, None, allowed_tools)?);
+        let end = json_end + close.len();
+        remaining.replace_range(start..end, "");
     }
-
-    content.push_str(remaining);
-
-    Ok(XmlToolCallExtraction {
-        content: content.trim().to_string(),
-        tool_calls: calls,
-    })
+    Ok(())
 }
 
-pub fn mode_after_parse_failure(current: ToolCallMode) -> ToolCallMode {
-    match current {
-        ToolCallMode::Native => ToolCallMode::XmlFallback,
-        ToolCallMode::XmlFallback => ToolCallMode::XmlFallback,
+fn extract_named_tag_calls(
+    remaining: &mut String,
+    tag: &str,
+    allowed_tools: &[String],
+    calls: &mut Vec<ToolCall>,
+) -> anyhow::Result<()> {
+    let open_prefix = format!("<{tag} name=\"");
+    let close = format!("</{tag}>");
+    while let Some(start) = remaining.find(&open_prefix) {
+        let name_start = start + open_prefix.len();
+        let Some(name_end_rel) = remaining[name_start..].find('"') else {
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let name_end = name_start + name_end_rel;
+        let name = remaining[name_start..name_end].to_string();
+        let after_name = name_end + 1;
+        let Some(gt_rel) = remaining[after_name..].find('>') else {
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let body_start = after_name + gt_rel + 1;
+        let Some(end_rel) = remaining[body_start..].find(&close) else {
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let body_end = body_start + end_rel;
+        let raw = remaining[body_start..body_end].trim();
+        calls.push(parse_tool_call(raw, Some(&name), allowed_tools)?);
+        let end = body_end + close.len();
+        remaining.replace_range(start..end, "");
     }
+    Ok(())
 }
 
-fn parse_tool_call_payload(payload: &str) -> Result<ToolCall, XmlFallbackError> {
-    let value: Value =
-        serde_json::from_str(payload).map_err(|err| XmlFallbackError::InvalidJson {
-            message: err.to_string(),
-        })?;
-    let object = value.as_object().ok_or(XmlFallbackError::InvalidJson {
-        message: "payload must be a JSON object".to_string(),
-    })?;
+fn extract_function_equals_calls(
+    remaining: &mut String,
+    allowed_tools: &[String],
+    calls: &mut Vec<ToolCall>,
+) -> anyhow::Result<()> {
+    let open = "<function=";
+    let close = "</function>";
+    while let Some(start) = remaining.find(open) {
+        let name_start = start + open.len();
+        let Some(gt_rel) = remaining[name_start..].find('>') else {
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let name_end = name_start + gt_rel;
+        let name = remaining[name_start..name_end]
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        let body_start = name_end + 1;
+        let Some(end_rel) = remaining[body_start..].find(close) else {
+            return Err(anyhow::anyhow!("malformed XML tool call"));
+        };
+        let body_end = body_start + end_rel;
+        let raw = remaining[body_start..body_end].trim();
+        calls.push(parse_tool_call(raw, Some(&name), allowed_tools)?);
+        let end = body_end + close.len();
+        remaining.replace_range(start..end, "");
+    }
+    Ok(())
+}
 
-    let name = first_string(object, &["name", "tool", "tool_name"])
-        .ok_or(XmlFallbackError::MissingToolName)?;
-    let arguments = object
-        .get("args")
-        .or_else(|| object.get("arguments"))
+pub(super) fn parse_tool_call(
+    raw: &str,
+    default_name: Option<&str>,
+    allowed_tools: &[String],
+) -> anyhow::Result<ToolCall> {
+    let value = parse_json_relaxed(raw)?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("XML tool call payload must be an object"))?;
+    let nested_arguments = object
+        .get("arguments")
+        .or_else(|| object.get("args"))
+        .and_then(Value::as_object);
+    let raw_name = default_name
+        .or_else(|| {
+            object
+                .get("name")
+                .or_else(|| object.get("tool"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            nested_arguments
+                .and_then(|inner| inner.get("name").or_else(|| inner.get("tool")))
+                .and_then(Value::as_str)
+        })
+        .map(str::to_string)
+        .or_else(|| infer_tool_name_from_arguments(object, nested_arguments, allowed_tools))
+        .ok_or_else(|| anyhow::anyhow!("tool call missing name"))?;
+    let name = normalize_allowed_tool_name(&raw_name, allowed_tools)?;
+    let arguments = if default_name.is_some()
+        && object.get("arguments").is_none()
+        && object.get("args").is_none()
+        && object.get("name").is_none()
+        && object.get("tool").is_none()
+    {
+        Value::Object(object.clone())
+    } else {
+        object
+            .get("arguments")
+            .or_else(|| object.get("args"))
+            .cloned()
+            .unwrap_or_else(|| {
+                let mut remaining = object.clone();
+                remaining.remove("name");
+                remaining.remove("tool");
+                remaining.remove("arguments");
+                remaining.remove("args");
+                Value::Object(remaining)
+            })
+    };
+    let arguments = recover_tool_arguments(&name, arguments).arguments;
+    Ok(ToolCall::new(name, arguments))
+}
+
+fn normalize_allowed_tool_name(name: &str, allowed_tools: &[String]) -> anyhow::Result<String> {
+    allowed_tools
+        .iter()
+        .find(|allowed| allowed.eq_ignore_ascii_case(name))
         .cloned()
-        .unwrap_or_else(|| Value::Object(Default::default()));
-    if !arguments.is_object() {
-        return Err(XmlFallbackError::InvalidArguments);
+        .ok_or_else(|| anyhow::anyhow!("unknown tool in XML fallback: {name}"))
+}
+
+fn infer_tool_name_from_arguments(
+    object: &serde_json::Map<String, Value>,
+    nested_arguments: Option<&serde_json::Map<String, Value>>,
+    allowed_tools: &[String],
+) -> Option<String> {
+    let args = nested_arguments.unwrap_or(object);
+    let mut candidates = Vec::new();
+    if has_any_key(args, &["command", "cmd"]) {
+        maybe_push_allowed_tool(&mut candidates, "Bash", allowed_tools);
     }
-
-    Ok(ToolCall {
-        id: None,
-        thought_signature: None,
-        name,
-        args_json: serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string()),
-    })
+    if has_any_key(args, &["path", "file", "file_path", "filepath", "filename"]) {
+        if has_any_key(args, &["old_string", "old", "old_text", "oldText", "find"])
+            && has_any_key(
+                args,
+                &[
+                    "new_string",
+                    "new",
+                    "new_text",
+                    "newText",
+                    "replacement",
+                    "replace_with",
+                ],
+            )
+        {
+            maybe_push_allowed_tool(&mut candidates, "Edit", allowed_tools);
+        } else if has_any_key(args, &["content", "contents", "body", "text"]) {
+            maybe_push_allowed_tool(&mut candidates, "Write", allowed_tools);
+        } else {
+            maybe_push_allowed_tool(&mut candidates, "Read", allowed_tools);
+        }
+    }
+    if has_any_key(args, &["pattern", "query", "glob"]) {
+        maybe_push_allowed_tool(&mut candidates, "Grep", allowed_tools);
+        maybe_push_allowed_tool(&mut candidates, "Glob", allowed_tools);
+    }
+    candidates.dedup();
+    (candidates.len() == 1).then(|| candidates.remove(0))
 }
 
-fn render_tool_call(tool_call: &ToolCall) -> String {
-    let name = serde_json::to_string(&tool_call.name).unwrap_or_else(|_| "\"\"".to_string());
-    format!(
-        "<{tag}>{{\"name\":{name},\"args\":{args}}}</{tag}>",
-        tag = COMMANDAGENT_TOOL_CALL_TAG,
-        name = name,
-        args = tool_call.args_json
-    )
+fn has_any_key(map: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
+    keys.iter().any(|key| map.contains_key(*key))
 }
 
-fn first_string(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .filter_map(|key| object.get(*key))
-        .find_map(|value| value.as_str().map(ToString::to_string))
+fn maybe_push_allowed_tool(candidates: &mut Vec<String>, name: &str, allowed_tools: &[String]) {
+    if let Some(allowed) = allowed_tools
+        .iter()
+        .find(|candidate| candidate.eq_ignore_ascii_case(name))
+    {
+        candidates.push(allowed.clone());
+    }
 }
 
-fn supported_tags() -> [&'static str; 2] {
-    [COMMANDAGENT_TOOL_CALL_TAG, legacy_tool_call_tag()]
+fn parse_json_relaxed(raw: &str) -> anyhow::Result<Value> {
+    let trimmed = raw.trim();
+    for candidate in [trimmed.to_string(), strip_markdown_fence(trimmed)] {
+        if let Ok(parsed) = serde_json::from_str(&candidate) {
+            return Ok(parsed);
+        }
+        if let Some(parsed) = repair_json_candidate(&candidate) {
+            return Ok(parsed);
+        }
+        let balanced = balance_braces(&candidate);
+        if balanced != candidate {
+            if let Ok(parsed) = serde_json::from_str(&balanced) {
+                return Ok(parsed);
+            }
+            if let Some(parsed) = repair_json_candidate(&balanced) {
+                return Ok(parsed);
+            }
+        }
+    }
+    serde_json::from_str(trimmed).map_err(Into::into)
 }
 
-fn legacy_tool_call_tag() -> &'static str {
-    concat!("an", "vil_tool_call")
+fn repair_json_candidate(raw: &str) -> Option<Value> {
+    let mut fixed = raw.trim().to_string();
+    fixed = fixed.replace('\'', "\"");
+    fixed = strip_trailing_commas(&fixed);
+    fixed = quote_bare_keys(&fixed);
+    serde_json::from_str(&fixed).ok()
 }
 
-fn next_open_tag(input: &str) -> Option<(usize, &'static str)> {
-    supported_tags()
-        .into_iter()
-        .filter_map(|tag| input.find(&format!("<{}>", tag)).map(|idx| (idx, tag)))
-        .min_by_key(|(idx, _)| *idx)
+fn strip_trailing_commas(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == ',' {
+            let mut lookahead = chars.clone();
+            while matches!(lookahead.peek(), Some(next) if next.is_whitespace()) {
+                lookahead.next();
+            }
+            if matches!(lookahead.peek(), Some('}' | ']')) {
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn quote_bare_keys(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    let mut expecting_key = false;
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(ch) = chars.next() {
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => {
+                out.push(ch);
+                escaped = true;
+            }
+            '"' => {
+                out.push(ch);
+                in_string = !in_string;
+                expecting_key = false;
+            }
+            '{' | ',' if !in_string => {
+                out.push(ch);
+                expecting_key = true;
+            }
+            ':' if !in_string => {
+                out.push(ch);
+                expecting_key = false;
+            }
+            ch if !in_string && expecting_key && (ch.is_ascii_alphabetic() || ch == '_') => {
+                let mut key = String::new();
+                key.push(ch);
+                while let Some(next) = chars.peek() {
+                    if next.is_ascii_alphanumeric() || matches!(next, '_' | '-') {
+                        key.push(*next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                out.push('"');
+                out.push_str(&key);
+                out.push('"');
+                expecting_key = false;
+            }
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+fn strip_markdown_fence(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
+    }
+    let mut lines = trimmed.lines();
+    let _ = lines.next();
+    let mut body = lines.collect::<Vec<_>>();
+    if matches!(body.last(), Some(last) if last.trim_start().starts_with("```")) {
+        body.pop();
+    }
+    body.join("\n")
+}
+
+fn balance_braces(raw: &str) -> String {
+    let mut curly: i32 = 0;
+    let mut square: i32 = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in raw.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            '{' if !in_string => curly += 1,
+            '}' if !in_string => curly -= 1,
+            '[' if !in_string => square += 1,
+            ']' if !in_string => square -= 1,
+            _ => {}
+        }
+    }
+    let mut fixed = raw.to_string();
+    while square > 0 {
+        fixed.push(']');
+        square -= 1;
+    }
+    while curly > 0 {
+        fixed.push('}');
+        curly -= 1;
+    }
+    fixed
+}
+
+fn json_looks_closed(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    !trimmed.is_empty() && balance_braces(trimmed) == trimmed
 }
 
 #[cfg(test)]
@@ -162,108 +394,108 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strips_think_tags() {
-        assert_eq!(strip_think_tags("a<think>hidden</think>b"), "ab");
-    }
-
-    #[test]
-    fn extracts_commandagent_tool_call() {
-        let calls = extract_tool_calls(
-            r#"<commandagent_tool_call>{"name":"Read","args":{"path":"Cargo.toml"}}</commandagent_tool_call>"#,
+    fn extracts_tool_call() {
+        let (calls, text) = extract_tool_calls(
+            r#"hi <anvil_tool_call>{"name":"Read","arguments":{"path":"a"}}</anvil_tool_call>"#,
+            &["Read".to_string()],
         )
         .unwrap();
-
-        assert_eq!(
-            calls,
-            vec![ToolCall {
-                id: None,
-                thought_signature: None,
-                name: "Read".to_string(),
-                args_json: r#"{"path":"Cargo.toml"}"#.to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn extracts_calls_and_removes_xml_blocks_from_content() {
-        let extraction = extract_tool_calls_with_content(
-            r#"Before
-<commandagent_tool_call>{"name":"Read","args":{"path":"Cargo.toml"}}</commandagent_tool_call>
-After"#,
-        )
-        .unwrap();
-
-        assert_eq!(extraction.content, "Before\n\nAfter");
-        assert_eq!(extraction.tool_calls.len(), 1);
-        assert_eq!(extraction.tool_calls[0].name, "Read");
-    }
-
-    #[test]
-    fn preserves_tool_call_order_across_supported_tags() {
-        let legacy = legacy_tool_call_tag();
-        let input = format!(
-            r#"<commandagent_tool_call>{{"name":"Read","args":{{"path":"a"}}}}</commandagent_tool_call><{}>{{"name":"Write","arguments":{{"path":"b","content":"c"}}}}</{}>"#,
-            legacy, legacy
-        );
-        let calls = extract_tool_calls(&input).unwrap();
-
         assert_eq!(calls[0].name, "Read");
-        assert_eq!(calls[1].name, "Write");
+        assert_eq!(text, "hi");
     }
 
     #[test]
-    fn renders_tool_calls_as_canonical_commandagent_xml() {
-        let rendered = render_tool_calls(&[ToolCall {
-            id: None,
-            thought_signature: None,
-            name: "Write".to_string(),
-            args_json: r#"{"path":"hello.txt","content":"ok"}"#.to_string(),
-        }]);
-
-        assert_eq!(
-            rendered,
-            r#"<commandagent_tool_call>{"name":"Write","args":{"path":"hello.txt","content":"ok"}}</commandagent_tool_call>"#
-        );
-    }
-
-    #[test]
-    fn accepts_legacy_tool_call_tag_for_migration() {
-        let input = format!(
-            r#"<{}>{{"tool_name":"Write","arguments":{{"path":"a.txt","content":"x"}}}}</{}>"#,
-            legacy_tool_call_tag(),
-            legacy_tool_call_tag()
-        );
-        let calls = extract_tool_calls(&input).unwrap();
-
-        assert_eq!(calls[0].name, "Write");
-    }
-
-    #[test]
-    fn detects_unclosed_tool_call() {
-        let err = extract_tool_calls(r#"<commandagent_tool_call>{"name":"Read"}"#).unwrap_err();
-
-        assert!(matches!(err, XmlFallbackError::UnclosedToolCall { .. }));
-    }
-
-    #[test]
-    fn rejects_invalid_json() {
-        let err = extract_tool_calls(
-            r#"<commandagent_tool_call>{"name":"Read",</commandagent_tool_call>"#,
+    fn extracts_source_style_function_call_tag() {
+        let (calls, text) = extract_tool_calls(
+            r#"hi <function_call>{"name":"Write","arguments":{"path":"provider-probe.txt","content":"ok"}}</function_call>"#,
+            &["Write".to_string()],
         )
-        .unwrap_err();
-
-        assert!(matches!(err, XmlFallbackError::InvalidJson { .. }));
+        .unwrap();
+        assert_eq!(calls[0].name, "Write");
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(text, "hi");
     }
 
     #[test]
-    fn native_parse_failure_downgrades_to_xml_fallback() {
-        assert_eq!(
-            mode_after_parse_failure(ToolCallMode::Native),
-            ToolCallMode::XmlFallback
-        );
-        assert_eq!(
-            mode_after_parse_failure(ToolCallMode::XmlFallback),
-            ToolCallMode::XmlFallback
-        );
+    fn recovers_tool_like_argument_aliases() {
+        let (calls, _) = extract_tool_calls(
+            r#"<function_call>{"name":"Write","arguments":{"file":"provider-probe.txt","body":"ok"}}</function_call>"#,
+            &["Write".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(calls[0].arguments["content"], "ok");
+    }
+
+    #[test]
+    fn extracts_source_style_named_anvil_tool_call() {
+        let (calls, text) = extract_tool_calls(
+            r#"hi <anvil_tool_call name="Write">{"file":"provider-probe.txt","body":"ok"}</anvil_tool_call>"#,
+            &["Write".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].name, "Write");
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(calls[0].arguments["content"], "ok");
+        assert_eq!(text, "hi");
+    }
+
+    #[test]
+    fn extracts_source_style_function_equals_tag() {
+        let (calls, _) = extract_tool_calls(
+            r#"<function=Write>{"file":"provider-probe.txt","body":"ok"}</function>"#,
+            &["Write".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].name, "Write");
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(calls[0].arguments["content"], "ok");
+    }
+
+    #[test]
+    fn infers_unambiguous_tool_name_from_arguments() {
+        let (calls, _) = extract_tool_calls(
+            r#"<function_call>{"arguments":{"file":"provider-probe.txt","body":"ok"}}</function_call>"#,
+            &["Write".to_string(), "Read".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].name, "Write");
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(calls[0].arguments["content"], "ok");
+    }
+
+    #[test]
+    fn recovers_unterminated_closed_tool_call() {
+        let (calls, text) = extract_tool_calls(
+            r#"before <function_call>{"name":"Read","arguments":{"path":"README.md"}}"#,
+            &["Read".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].name, "Read");
+        assert_eq!(calls[0].arguments["path"], "README.md");
+        assert_eq!(text, "before");
+    }
+
+    #[test]
+    fn repairs_relaxed_json_payload() {
+        let (calls, _) = extract_tool_calls(
+            r#"<function_call>{name:'Write', arguments:{file:'provider-probe.txt', body:'ok',},}</function_call>"#,
+            &["Write".to_string()],
+        )
+        .unwrap();
+        assert_eq!(calls[0].name, "Write");
+        assert_eq!(calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(calls[0].arguments["content"], "ok");
+    }
+
+    #[test]
+    fn rejects_ambiguous_inferred_tool_name() {
+        let err = extract_tool_calls(
+            r#"<function_call>{"arguments":{"query":"TODO"}}</function_call>"#,
+            &["Grep".to_string(), "Glob".to_string()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("tool call missing name"));
     }
 }

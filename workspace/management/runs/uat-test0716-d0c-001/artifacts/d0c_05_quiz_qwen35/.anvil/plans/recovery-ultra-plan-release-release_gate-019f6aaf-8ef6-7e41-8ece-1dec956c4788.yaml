@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。"
+recovery_failure_kind: "browser_interaction_failed"
+recovery_profile: "nextjs"
+recovery_failed_phase: "release_gate"
+goal: "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。"
+profile: "nextjs"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。. Failed acceptance layer or phase: release_gate. Failed step: unknown. Failure kind: browser_interaction_failed. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-release_gate"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: release_gate\nFailed step: unknown\nMissing capability or artifact signals:\n- repair target: input_state_render_wiring\nFailure evidence:\n- failed acceptance layer: release_gate\n- final acceptance status: incomplete\n- release gate status: failed\n- primary reason: browser_interaction_failed:input_state_change_missing_after_start\n- release gate reason: browser_interaction_failed:input_state_change_missing_after_start\n- browser readiness: passed\n- browser readiness evidence: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0716_d0c_001/d0c_05_quiz_qwen35/.anvil/evidence/browser-readiness.json\n- interaction evidence: failed:input_state_change_missing_after_start\n- interaction evidence path: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0716_d0c_001/d0c_05_quiz_qwen35/.anvil/evidence/browser-interaction.json\n- input operations must visibly change actual application state, and that change must be reflected in the data-anvil-state JSON snapshot; wire input handlers to state updates.\n- interaction probe mode: contract\n- interaction contract hook status: usable\n- interaction restart hook reachable after start: false\n- interaction redispatched inputs: canvas/center click, ArrowLeft keydown, ArrowRight keydown, Space keydown\nRepair targets:\n- input_state_render_wiring\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: release_gate\nPreferred verify/browser check:\n- npm run build\n- start dev server with npm run dev and wait for readiness\n- probe browser route GET / and record HTTP status\n- write browser-readiness.json with route_rendered/http_status\n- run the interaction probe and record browser-interaction.json\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

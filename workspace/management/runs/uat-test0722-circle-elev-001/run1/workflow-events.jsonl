@@ -1,0 +1,5 @@
+{"entry":"create","event":"workflow_started","origin":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev001_origin_1"}
+{"checks":["E-A","E-B","E-C","E-D"],"edge":"create->investigate","event":"workflow_edge_fired"}
+{"event":"workflow_node_started","intent":"investigate","node":"investigate"}
+{"event":"workflow_node_run_created","model":"gemma4:31b-cloud","node":"investigate","provider":"ollama","run_dir":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev001_origin_1/.anvil/runs/019f88d7-e2d5-7fe1-9855-eb52d9a16567","run_id":"019f88d7-e2d5-7fe1-9855-eb52d9a16567"}
+{"event":"workflow_adjudicated","reason":"node_failed:investigate","verdict":"circle_failed"}

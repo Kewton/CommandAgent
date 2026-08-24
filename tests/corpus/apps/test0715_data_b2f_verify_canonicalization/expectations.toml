@@ -1,0 +1,43 @@
+case_id = "test0715_data_b2f_verify_canonicalization"
+source = "uat-test0715-data-004 measured python -c verify-policy rejections and 13 existing verify_canonicalized events"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["verify_canonicalized", "original_command", "data_results_schema", "data_reconciliation", "data_inspection_schema"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/python-c-rejections.jsonl = [
+  "uat-test0715-data-004",
+  "verify-results-schema",
+  "verify-artifacts",
+  "output/results.json",
+  "output/inspection.json",
+  "'reconciliation' in d and 'values' in d",
+  "shell_control_syntax",
+  "original_command"
+]
+fixtures/existing-canonicalizations.jsonl = [
+  "verify_canonicalized",
+  "expected_path",
+  "anvil-catalog-check:data_results_schema",
+  "anvil-catalog-check:data_reconciliation",
+  "anvil-catalog-check:data_rerun_consistency",
+  "anvil-catalog-check:pipeline_probe",
+  "advisory"
+]

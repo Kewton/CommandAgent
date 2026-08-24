@@ -1,0 +1,21 @@
+{
+  "details": {
+    "changed_by_input": false,
+    "entrypoint": "/private/tmp/d3d-shakedown-002-live.sgHyfv/src/anvil_app/main.py",
+    "first_exit_code": 2,
+    "first_stderr": "usage: main.py [-h] --pattern PATTERN [--count] [file] main.py: error: the following arguments are required: --pattern",
+    "first_stdout": "",
+    "second_exit_code": 2,
+    "second_stderr": "usage: main.py [-h] --pattern PATTERN [--count] [file] main.py: error: the following arguments are required: --pattern",
+    "second_stdout": ""
+  },
+  "ok": false,
+  "profile": "python-cli",
+  "reasons": [
+    "python_cli_behavior_probe_failed:first_exit_code:Some(2)",
+    "python_cli_behavior_probe_failed:second_exit_code:Some(2)",
+    "python_cli_behavior_probe_failed:stdout_empty",
+    "python_cli_behavior_probe_failed:stdout_not_changed_by_input"
+  ],
+  "status": "failed"
+}

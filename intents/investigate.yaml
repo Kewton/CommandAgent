@@ -1,0 +1,19 @@
+intent: investigate
+phases:
+  - id: reproduce-candidate
+    role: reproduce
+    owns_outputs: false
+    verify_binding: I1_lineage
+  - id: diagnose
+    role: implement
+    owns_outputs: true
+    verify_binding: I2_claims
+    material_injection: R_output
+  - id: bind-verify
+    role: bind
+    owns_outputs: false
+    verify_binding: I1_and_I2
+evidence: [I1, I2, investigation_binding]
+assurance:
+  full: all_required_evidence_pass
+  failed: any_required_evidence_failed

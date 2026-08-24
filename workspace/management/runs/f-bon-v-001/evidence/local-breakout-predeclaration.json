@@ -1,0 +1,74 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v2",
+  "recorded_at": "2026-08-04T10:07:00+09:00",
+  "series_id": "f-bon-v-nextjs-breakout-local",
+  "execution_revision": "3d2409c8189e68fd79e14a2558c4478754dbc4c4",
+  "suite_sha256": "8d467639c37df8a220a60566a09108249baeec9f62531271e921bc5b56e28b0a",
+  "binary_sha256": "df9160d98c6a63fa300cff1477ff4be6898888f2bd143dc7fd125496e687e127",
+  "baseline_rate": {
+    "full_count": 2,
+    "trial_count": 11,
+    "estimate": 0.18181818181818182,
+    "sources": [
+      "workspace/management/runs/band_summary.md: Breakout x qwen3.6:35b-a3b-coding-nvfp4 = 2/11"
+    ],
+    "confidence_interval": {
+      "method": "wilson_score",
+      "confidence": 0.95,
+      "lower": 0.05136768974608513,
+      "upper": 0.4769805619608442
+    }
+  },
+  "predictive_distribution": {
+    "model": "beta_binomial",
+    "prior": {
+      "name": "jeffreys",
+      "alpha": 0.5,
+      "beta": 0.5
+    },
+    "trials": 6,
+    "posterior": {
+      "alpha": 2.5,
+      "beta": 9.5
+    },
+    "probability_at_least_one_full": 0.6850005965427045,
+    "expected_full_count": 1.25,
+    "full_count_band": {
+      "method": "shortest_contiguous",
+      "mass": 0.95,
+      "lower": 0,
+      "upper": 3
+    }
+  },
+  "campaign": {
+    "label": "bon-local-001",
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_local_001"
+  },
+  "execution_window": {
+    "timezone": "Asia/Tokyo",
+    "mode": "sequential_single_local_accelerator",
+    "requested_period": "night",
+    "start_not_before": "2026-08-04T20:00:00+09:00",
+    "runs_parallel": 1
+  },
+  "sampling": {
+    "seed_policy": "Ollama-managed per request; effective seed is not exposed in provider-turn evidence",
+    "temperature_policy": "model default 0.6 for both planner and executor; held constant across trials",
+    "variation_acceptance": "all six product tree SHA-256 values must be distinct; otherwise report the collision without replacement trials"
+  },
+  "local_measurement": {
+    "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "model_presence_preflight": "both ollama show checks passed",
+    "ollama_ps_before_declaration": "no loaded models",
+    "record_duration_seconds": true,
+    "record_power_reference": true
+  },
+  "stop_conditions": [
+    "preflight_pin_mismatch",
+    "execution_before_declared_night_window",
+    "invalid_measurement",
+    "configuration_identity_mismatch",
+    "scrub_failure"
+  ]
+}

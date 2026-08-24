@@ -1,0 +1,58 @@
+case_id = "issue242-speculative-phase-pipeline"
+source = "Issue #242 speculative next-phase planning Gate contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/pass-events.jsonl = [
+  "\"event\":\"speculative_phase_plan_started\"",
+  "\"current_phase_id\":\"phase-n\"",
+  "\"event\":\"phase_verification_result\"",
+  "\"event\":\"ultra_phase_complete\"",
+  "\"event\":\"ultra_phase_start\"",
+  "\"event\":\"speculative_phase_plan_adopted\"",
+  "\"next_phase_id\":\"phase-n-plus-one\""
+]
+fixtures/failure-events.jsonl = [
+  "\"event\":\"speculative_phase_plan_started\"",
+  "\"event\":\"speculative_phase_plan_discarded\"",
+  "\"reason\":\"verification_failed\"",
+  "\"event\":\"phase_verification_result\"",
+  "\"ok\":false",
+  "\"event\":\"ultra_phase_failed\""
+]
+
+[fixture_ordered]
+fixtures/pass-events.jsonl = [
+  "\"event\":\"speculative_phase_plan_started\"",
+  "\"event\":\"phase_verification_result\"",
+  "\"event\":\"ultra_phase_complete\"",
+  "\"event\":\"ultra_phase_start\"",
+  "\"event\":\"speculative_phase_plan_adopted\""
+]
+fixtures/failure-events.jsonl = [
+  "\"event\":\"speculative_phase_plan_started\"",
+  "\"event\":\"speculative_phase_plan_discarded\"",
+  "\"event\":\"phase_verification_result\"",
+  "\"event\":\"ultra_phase_failed\""
+]

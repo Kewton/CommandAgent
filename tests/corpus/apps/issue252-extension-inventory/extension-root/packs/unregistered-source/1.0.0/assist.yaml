@@ -1,0 +1,11 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: unregistered-source
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-validation
+    source: not_registered
+    required: true
+    params: {}

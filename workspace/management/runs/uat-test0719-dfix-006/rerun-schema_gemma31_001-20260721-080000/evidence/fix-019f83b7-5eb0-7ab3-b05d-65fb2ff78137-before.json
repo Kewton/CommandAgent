@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "anvil-catalog-check:data_results_schema",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:56d60474a84191e4",
+  "epoch": 1,
+  "run_id": "019f83b7-5eb0-7ab3-b05d-65fb2ff78137",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "results.json missing required key `reconciliation`"
+}

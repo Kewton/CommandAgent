@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "grep -r 'data-anvil-action=\"restart\"' src/",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:39f63d6b307e4a98",
+  "epoch": 1,
+  "run_id": "019f6da4-6b5a-7940-befb-e1332407f5d1",
+  "executed": true,
+  "outcome": "success",
+  "reason": "command_succeeded"
+}

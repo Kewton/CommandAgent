@@ -1,0 +1,123 @@
+{
+  "campaign": "uat-test0717-dfix-002",
+  "runs": [
+    {
+      "index": 1,
+      "name": "dfix2_pipe_qwen35_001",
+      "run_id": "019f7051-422b-74c0-83a3-17af3a44e364",
+      "fix_run_id": "019f7051-422f-7453-98af-06d5d1a8dcf6",
+      "family": "pipe",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 952,
+      "outer_exit_code": 1,
+      "failure_class": "repair_read_only_exhausted"
+    },
+    {
+      "index": 2,
+      "name": "dfix2_pipe_gemma31_001",
+      "run_id": "019f7060-a228-7962-956a-f65a93868ef1",
+      "fix_run_id": "019f7060-a22a-7f72-9dac-28777db89569",
+      "family": "pipe",
+      "set": "B",
+      "executor": "gemma31",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 634,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_cause_implement_read_only_exhausted"
+    },
+    {
+      "index": 3,
+      "name": "dfix2_pipe_qwen35_002",
+      "run_id": "019f706a-f0a2-7881-b5a3-081acc703af2",
+      "fix_run_id": "019f706a-f0a5-7e71-893c-81ad96fa247d",
+      "family": "pipe",
+      "set": "B",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 399,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_cause_implement_read_only_exhausted"
+    },
+    {
+      "index": 4,
+      "name": "dfix2_schema_qwen35_001",
+      "run_id": "019f7071-dd72-7583-8d73-dcef75c12f91",
+      "fix_run_id": "019f7071-dd74-7303-85cd-603f9a7fe793",
+      "family": "schema",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 233,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_missing_inspection_artifact"
+    },
+    {
+      "index": 5,
+      "name": "dfix2_schema_gemma31_001",
+      "run_id": "019f7076-04b2-76b2-8a1f-59812ff29010",
+      "fix_run_id": "019f7076-04b4-7593-841c-dfd91d0dcf81",
+      "family": "schema",
+      "set": "B",
+      "executor": "gemma31",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 594,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_schema_verify_bounded_repair_exhausted"
+    },
+    {
+      "index": 6,
+      "name": "dfix2_schema_qwen35_002",
+      "run_id": "019f707f-f1ec-7f81-91ea-65479c4e718b",
+      "fix_run_id": "019f707f-f1ee-7a90-824b-4708ecbe7cfa",
+      "family": "schema",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 286,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_missing_inspection_artifact"
+    }
+  ],
+  "distribution": {
+    "full": 0,
+    "partial": 0,
+    "static": 0,
+    "failed": 6,
+    "full_rate": 0.0,
+    "family": {
+      "pipe": {"full": 0, "failed": 3},
+      "schema": {"full": 0, "failed": 3}
+    },
+    "executor": {
+      "qwen35": {"full": 0, "failed": 4},
+      "gemma31": {"full": 0, "failed": 2}
+    }
+  },
+  "combined_dfix_001_002": {
+    "denominator": 12,
+    "full": 0,
+    "failed": 12,
+    "family": {
+      "pipe": {"full": 0, "failed": 6},
+      "schema": {"full": 0, "failed": 6}
+    },
+    "executor": {
+      "qwen35": {"full": 0, "failed": 8},
+      "gemma31": {"full": 0, "failed": 4}
+    }
+  }
+}

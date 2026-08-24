@@ -1,0 +1,52 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f8a8b-020d-7d01-84bf-b037c958c2a9",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f8a8b-020d-7d01-84bf-b037c958c2a9",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "pipeline_probe",
+      "data_reconciliation",
+      "data_claims_binding",
+      "data_rerun_consistency",
+      "data_results_schema"
+    ],
+    "bound_regression_lineages": {
+      "data_claims_binding": "regression:5ee07e4968be4199",
+      "data_reconciliation": "regression:aad7a27c9f14260b",
+      "data_rerun_consistency": "regression:09f9be875c51316d",
+      "data_results_schema": "regression:292fa5e5cb8065da",
+      "pipeline_probe": "regression:539f12e6adea8590"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "anvil-catalog-check:data_inspection_schema",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:33eefa99a5d98b68",
+      "epoch": 1,
+      "run_id": "019f8a8b-020d-7d01-84bf-b037c958c2a9",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json"
+    },
+    "after": null,
+    "regressions": []
+  }
+}

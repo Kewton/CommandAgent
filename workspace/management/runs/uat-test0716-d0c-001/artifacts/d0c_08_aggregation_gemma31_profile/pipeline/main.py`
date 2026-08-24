@@ -1,0 +1,123 @@
+import csv
+import json
+import os
+from collections import defaultdict
+from datetime import datetime
+
+def load_data(file_path):
+    rows = []
+    with open(file_path, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
+    return rows
+
+def validate_and_process(rows):
+    used_rows = []
+    excluded = defaultdict(int)
+    
+    for row in rows:
+        # Basic presence check
+        if not row.get('date') or not row.get('region') or not row.get('amount'):
+            excluded['missing_values'] += 1
+            continue
+            
+        # Date format check (YYYY-MM-DD)
+        try:
+            dt = datetime.strptime(row['date'], '%Y-%m-%d')
+            month = dt.strftime('%Y-%m')
+        except ValueError:
+            excluded['invalid_date_format'] += 1
+            continue
+            
+        # Amount numeric check
+        try:
+            amount = float(row['amount'])
+        except ValueError:
+            excluded['invalid_amount_value'] += 1
+            continue
+            
+        used_rows.append({
+            'month': month,
+            'region': row['region'],
+            'amount': amount
+        })
+        
+    return used_rows, excluded
+
+def aggregate(processed_data):
+    # Monthly x Regional sales
+    regional_monthly = defaultdict(float)
+    total_sales = 0.0
+    
+    for entry in processed_data:
+        key = f"regional_{entry['region']}_{entry['month']}"
+        regional_monthly[key] += entry['amount']
+        total_sales += entry['amount']
+        
+    return regional_monthly, total_sales
+
+def main():
+    input_path = 'data/sales.csv'
+    output_dir = 'output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 1. Load
+    rows = load_data(input_path)
+    input_count = len(rows)
+    
+    # 2. Validate
+    used_rows, excluded_counts = validate_and_process(rows)
+    used_count = len(used_rows)
+    
+    # 3. Aggregate
+    regional_monthly, total_sales = aggregate(used_rows)
+    
+    # Prepare results values
+    values = {}
+    for k, v in sorted(regional_monthly.items()):
+        values[k] = v
+    values['total_sales'] = total_sales
+    
+    # 4. Results JSON
+    results = {
+        "reconciliation": {
+            "input_rows": input_count,
+            "used_rows": used_count,
+            "excluded": [
+                {"reason": reason, "rows": count} 
+                for reason, count in sorted(excluded_counts.items())
+            ]
+        },
+        "values": values
+    }
+    
+    with open(os.path.join(output_dir, 'results.json'), 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2)
+        
+    # 5. Report MD
+    report = []
+    report.append("# Sales Summary Report\n")
+    report.append("## Data Reconciliation")
+    report.append(f"- Input rows: {input_count}")
+    report.append(f"- Used rows: {used_count}")
+    for exc in results["reconciliation"]["excluded"]:
+        report.append(f"- Excluded ({exc['reason']}): {exc['rows']}")
+    
+    report.append("\n## Regional Monthly Sales")
+    for k, v in sorted(values.items()):
+        if k != 'total_sales':
+            # Clean up key for report: regional_Region_Month -> Region (Month): Value
+            parts = k.split('_')
+            if len(parts) >= 3:
+                region = parts[1]
+                month = parts[2]
+                report.append(f"- {region} ({month}): {v:,.2f}")
+    
+    report.append(f"\n## Total Sales\n**{values['total_sales']:,.2f}**")
+    
+    with open(os.path.join(output_dir, 'report.md'), 'w', encoding='utf-8') as f:
+        f.write("\n".join(report))
+
+if __name__ == "__main__":
+    main()

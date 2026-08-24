@@ -1,0 +1,18 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: data-assist
+  version: 1.0.0
+  profile: data
+  intent: create
+inject:
+  - point: data-cleaning
+    source: data_inspection_schema
+    required: true
+    params:
+      fields:
+        - input_path
+        - column_names
+        - input_row_count
+        - type_summaries
+        - distinct_values
+        - sample_rows

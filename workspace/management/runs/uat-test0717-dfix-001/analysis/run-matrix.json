@@ -1,0 +1,96 @@
+{
+  "campaign": "uat-test0717-dfix-001",
+  "runs": [
+    {
+      "index": 1,
+      "name": "dfix1_pipe_qwen35_001",
+      "run_id": "019f6fb6-41de-72d1-bb20-6401a6885f69",
+      "family": "pipe",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 489,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_missing_profile_contract_doc"
+    },
+    {
+      "index": 2,
+      "name": "dfix1_pipe_gemma31_001",
+      "run_id": "019f6fbe-34d1-7520-bf79-0a40831d7520",
+      "family": "pipe",
+      "set": "B",
+      "executor": "gemma31",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 1154,
+      "outer_exit_code": 1,
+      "failure_class": "repair_read_only_exhausted"
+    },
+    {
+      "index": 3,
+      "name": "dfix1_pipe_qwen35_002",
+      "run_id": "019f6fd0-900d-7c30-bfa0-077bd548d258",
+      "family": "pipe",
+      "set": "B",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 187,
+      "outer_exit_code": 1,
+      "failure_class": "cause_isolation_mutated_then_read_only_exhausted"
+    },
+    {
+      "index": 4,
+      "name": "dfix1_schema_qwen35_001",
+      "run_id": "019f6fd3-e210-7801-9b53-85ef5284d109",
+      "family": "schema",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 548,
+      "outer_exit_code": 1,
+      "failure_class": "isolate_missing_inspection_artifact"
+    },
+    {
+      "index": 5,
+      "name": "dfix1_schema_gemma31_001",
+      "run_id": "019f6fdc-c2ad-7471-ba59-22e80c501eb4",
+      "family": "schema",
+      "set": "B",
+      "executor": "gemma31",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 948,
+      "outer_exit_code": 1,
+      "failure_class": "repair_missing_inspection_artifact"
+    },
+    {
+      "index": 6,
+      "name": "dfix1_schema_qwen35_002",
+      "run_id": "019f6feb-dfef-7591-b166-e88e8947ff28",
+      "family": "schema",
+      "set": "A",
+      "executor": "qwen35",
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "wall_seconds": 585,
+      "outer_exit_code": 1,
+      "failure_class": "irrelevant_syntax_error_R_then_isolate_missing_inspection"
+    }
+  ],
+  "distribution": {
+    "full": 0,
+    "partial": 0,
+    "static": 0,
+    "failed": 6,
+    "full_rate": 0.0
+  }
+}

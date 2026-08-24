@@ -1,0 +1,68 @@
+[suite]
+id = "ingest-create-elevated"
+profile = "ingest"
+intent = "create"
+plan_preset = "default"
+workspace_mode = "sourced"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "ollama"
+min_head = "78b95ce"
+
+[goals]
+events = "data/snapshots/ 配下のHTMLから自治体イベント情報を抽出し、JSON形式（フィールド: name, date (YYYY-MM-DD), location, source_file）で output/records.json に整形してください。候補検出に用いる決定的セレクタを宣言し、抽出できない候補は理由を明記して除外してください。output/report.md に件数と要約を記載してください。"
+
+[[sources]]
+set = "list"
+path = "workspace/management/bench/assets/ingest/list"
+copy = ["data"]
+input_sha256 = { "data/snapshots/events-list.html" = "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07" }
+precheck_cmd = "python3 -c \"from pathlib import Path; p = Path('data/snapshots/events-list.html'); assert p.is_file() and p.stat().st_size > 0; print('snapshot-ok:list')\""
+precheck_expect = "zero_exit"
+precheck_pattern = "snapshot-ok:list"
+
+[[sources]]
+set = "table"
+path = "workspace/management/bench/assets/ingest/table"
+copy = ["data"]
+input_sha256 = { "data/snapshots/events-table.html" = "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd" }
+precheck_cmd = "python3 -c \"from pathlib import Path; p = Path('data/snapshots/events-table.html'); assert p.is_file() and p.stat().st_size > 0; print('snapshot-ok:table')\""
+precheck_expect = "zero_exit"
+precheck_pattern = "snapshot-ok:table"
+
+[[runs]]
+name = "list_cloud_001"
+set = "list"
+goal = "events"
+executor = "gemma4:31b-cloud"
+
+[[runs]]
+name = "list_cloud_002"
+set = "list"
+goal = "events"
+executor = "gemma4:31b-cloud"
+
+[[runs]]
+name = "list_cloud_003"
+set = "list"
+goal = "events"
+executor = "gemma4:31b-cloud"
+
+[[runs]]
+name = "table_cloud_001"
+set = "table"
+goal = "events"
+executor = "gemma4:31b-cloud"
+
+[[runs]]
+name = "table_cloud_002"
+set = "table"
+goal = "events"
+executor = "gemma4:31b-cloud"
+
+[[runs]]
+name = "table_cloud_003"
+set = "table"
+goal = "events"
+executor = "gemma4:31b-cloud"

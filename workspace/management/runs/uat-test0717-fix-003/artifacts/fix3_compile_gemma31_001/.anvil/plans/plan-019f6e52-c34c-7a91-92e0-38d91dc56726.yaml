@@ -1,0 +1,27 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-project-config"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json and tsconfig.json to confirm Next.js, React, and TypeScript versions and build configuration.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/components/SpaceInvaders.tsx:305:22\n- error kind: Type error\n- message: Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'.\n- write-pressure target: src/app/components/SpaceInvaders.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 303 | if (keys.has(\" \") && now - lastShotRef.current > 250) { 304 | lastShotRef.current = now; 305 | s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H }); | ^ 306 | } 307 | 308 | // ── Update player bullets ──"
+    expected_paths:
+    verify:
+  - id: "inspect-error-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/components/SpaceInvaders.tsx around line 305 to examine the s.bullets.push call and locate the Bullet type definition to understand the missing properties.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/components/SpaceInvaders.tsx:305:22\n- error kind: Type error\n- message: Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'.\n- write-pressure target: src/app/components/SpaceInvaders.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 303 | if (keys.has(\" \") && now - lastShotRef.current > 250) { 304 | lastShotRef.current = now; 305 | s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H }); | ^ 306 | } 307 | 308 | // ── Update player bullets ──"
+    expected_paths:
+    verify:
+  - id: "inspect-app-routes"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx and src/app/layout.tsx to verify the component integration and ensure no route-level type errors interfere with the build.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/components/SpaceInvaders.tsx:305:22\n- error kind: Type error\n- message: Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'.\n- write-pressure target: src/app/components/SpaceInvaders.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 303 | if (keys.has(\" \") && now - lastShotRef.current > 250) { 304 | lastShotRef.current = now; 305 | s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H }); | ^ 306 | } 307 | 308 | // ── Update player bullets ──"
+    expected_paths:
+    verify:
+  - id: "verify-cause-isolated"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm the problematic file exists and contains the type mismatch pattern identified in the diagnostic.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/components/SpaceInvaders.tsx:305:22\n- error kind: Type error\n- message: Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'.\n- write-pressure target: src/app/components/SpaceInvaders.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 303 | if (keys.has(\" \") && now - lastShotRef.current > 250) { 304 | lastShotRef.current = now; 305 | s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H }); | ^ 306 | } 307 | 308 | // ── Update player bullets ──"
+    expected_paths:
+    verify:
+      - "grep -q 's.bullets.push' src/app/components/SpaceInvaders.tsx"

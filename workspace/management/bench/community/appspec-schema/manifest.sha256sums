@@ -1,0 +1,7 @@
+80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b  app-spec.schema.yaml
+515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0  app-spec.schema.sha256
+6a9a26089133877a1cf9f579047d51b5d0aedc5584839c1942d004b75c476cd0  positive/computed-chain/app.spec.yaml
+cc524dd529f8663a803a5a060b2695bb57114bf83da015673be4fbfa673aa3fe  negative/computed-self-cycle/app.spec.yaml
+a66124b3a956e4168d295aab082b02647bd639c017ce9a3136c2e8afc2fd4f78  negative/computed-mutual-cycle/app.spec.yaml
+80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b  negative/pin-mismatch/app-spec.schema.yaml
+60e05bd1b195af2f94112fa7197a5c88289058840ce7c6df9693756bc6250f55  negative/pin-mismatch/app-spec.schema.sha256

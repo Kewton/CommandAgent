@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Issue to Development"
+  short_description: "Run a CommandAgent issue through development"
+  default_prompt: "Use $pm-auto-issue2dev to review, design, implement, and verify the issue."
+policy:
+  allow_implicit_invocation: false

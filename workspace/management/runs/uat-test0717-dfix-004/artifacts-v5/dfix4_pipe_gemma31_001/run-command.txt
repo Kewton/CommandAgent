@@ -1,0 +1,4 @@
+commandagent --yes --intent fix --context-budget 65536 \
+  --model gemma4:31b --provider ollama \
+  --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama \
+  --plan-preset none --ultra-plan-run --profile data "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"

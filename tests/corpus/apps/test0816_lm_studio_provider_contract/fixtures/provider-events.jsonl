@@ -1,0 +1,4 @@
+{"chat_timeout_secs":600,"chat_timeout_source":"default:local_provider","event":"run_start","model":"qwen/test","planner_model":"qwen/test","planner_provider":"lm-studio","provider":"lm-studio","schema_version":"1"}
+{"api":"chat_completions","event":"provider_request","model":"qwen/test","provider":"lm-studio","schema_version":"1","tools":6}
+{"api":"chat_completions","attempt":1,"event":"provider_response","model":"qwen/test","provider":"lm-studio","schema_version":"1","tool_calls":1}
+{"aborted_by_user":false,"caller_scope":"executor","duration_ms":42,"event":"provider_turn_duration","model":"qwen/test","native_tools_enabled":true,"ok":true,"provider":"lm-studio","schema_version":"1","timed_out":false,"timeout_ms":600000,"timeout_secs":600,"timeout_source":"default:local_provider","tools":6}

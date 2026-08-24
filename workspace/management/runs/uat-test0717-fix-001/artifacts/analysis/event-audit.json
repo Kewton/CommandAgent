@@ -1,0 +1,64 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-001",
+  "per_run_singletons": {
+    "run_start": "6/6 exactly once",
+    "intent_resolved": "6/6 exactly once",
+    "ultra_final_acceptance": "6/6 exactly once",
+    "tui_command_stop": "6/6 exactly once",
+    "run_stop": "6/6 exactly once"
+  },
+  "intent_resolved": {
+    "expected": {
+      "value": "fix",
+      "origin": "cli",
+      "source": "fix"
+    },
+    "matching_runs": "6/6"
+  },
+  "f1_order": [
+    {"run": "fix1_compile_qwen35_001", "event_index_zero_based": 13, "writes_before_f1": 0},
+    {"run": "fix1_compile_gemma31_001", "event_index_zero_based": 13, "writes_before_f1": 0},
+    {"run": "fix1_compile_qwen35_002", "event_index_zero_based": 13, "writes_before_f1": 0},
+    {"run": "fix2_hook_qwen35_001", "event_index_zero_based": 14, "writes_before_f1": 0},
+    {"run": "fix2_hook_gemma31_001", "event_index_zero_based": 15, "writes_before_f1": 0},
+    {"run": "fix2_hook_qwen35_002", "event_index_zero_based": 14, "writes_before_f1": 0}
+  ],
+  "f1_common": {
+    "phase": "reproduce-before",
+    "stage": "before",
+    "expected_polarity": "failure",
+    "epoch": 1,
+    "executed": true,
+    "outcome": "failure",
+    "matching_runs": "6/6"
+  },
+  "full_run": {
+    "run": "fix1_compile_gemma31_001",
+    "same_reproducer_lineage": true,
+    "before_epoch": 1,
+    "after_epoch": 2,
+    "bound_regression_ids": ["profile_contract", "profile_verify_1"],
+    "regression_epochs": [3, 4],
+    "all_executed": true,
+    "all_expected_outcomes_met": true,
+    "source_file_before_sha256": "8747dc66eb1bb117a5b4967056b8ebad42638d2440b2c58c611bd437e18107b1",
+    "source_file_after_sha256": "4631b1d83dbbf71c42de3b7cd2178e97e817e36169880ee693b723305618528b"
+  },
+  "negative_guard_observation": {
+    "lineage_mismatch": 0,
+    "regression_set_shrink_or_mismatch": 0,
+    "epoch_inversion": 0,
+    "baseline_not_reproduced": 0,
+    "result": "not_exercised"
+  },
+  "phase_behavior_observation": {
+    "run": "fix1_compile_gemma31_001",
+    "phase": "isolate-cause",
+    "phase_declared_read_only": true,
+    "edit_tool_calls": 3,
+    "successful_edit_executions": 2,
+    "writes_before_f1": 0,
+    "contract_effect": "none: F1 preceded the edits and F2/F3 were independently executed afterward"
+  }
+}

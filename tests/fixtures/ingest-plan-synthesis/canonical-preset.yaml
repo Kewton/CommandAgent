@@ -1,0 +1,43 @@
+phase_order:
+  - ingest-implement
+  - ingest-run
+  - ingest-structural-gate
+plans:
+  - phase_id: ingest-implement
+    step_id: declare-ingest-inspection
+    kind: implement
+    expected_paths:
+      - output/inspection.json
+    verify: []
+  - phase_id: ingest-implement
+    step_id: implement-ingest-delivery
+    kind: implement
+    expected_paths:
+      - pipeline/main.py
+    verify: []
+  - phase_id: ingest-run
+    step_id: run-ingest-pipeline
+    kind: verify
+    expected_paths: []
+    verify:
+      - python3 -B pipeline/main.py
+  - phase_id: ingest-run
+    step_id: verify-ingest-run-outputs
+    kind: verify
+    expected_paths: []
+    verify:
+      - test -f output/records.json
+      - test -f output/report.md
+  - phase_id: ingest-structural-gate
+    step_id: verify-ingest-phase-structure
+    kind: verify
+    expected_paths: []
+    verify:
+      - anvil-ingest-check:phase_structure
+implement_guidance:
+  snapshot_files:
+    - data/snapshots/events-list.html
+  candidate_structure_markers:
+    - <article class="event" id="list-01">
+    - <article class="event" id="list-02">
+  selector_derivation_rule: true

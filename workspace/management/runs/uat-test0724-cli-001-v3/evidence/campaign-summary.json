@@ -1,0 +1,174 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0724-cli-001-v3",
+  "campaign_id": "cli-create-20260725-061205",
+  "revision": "0bc35fb441486418914bac4c66646e7f7ee77878",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24)",
+  "suite": {
+    "id": "cli-create",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "off",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "provider": "ollama"
+  },
+  "epochs": {
+    "operator_start": 1784959902,
+    "preflight_start": 1784959925,
+    "run_start": 1784960086,
+    "run_end": 1784965924,
+    "audit_end": 1784965939
+  },
+  "cost_seconds": {
+    "operator_start_to_audit_end": 6022,
+    "preflight_start_to_run_end": 5999,
+    "run_sum": 5838
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "passed": 1784,
+      "failed": 0,
+      "ignored": 30
+    },
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 0bc35fb 2026-07-25T06:14:29Z"
+  },
+  "runs": [
+    {
+      "name": "stats_qwen35_001",
+      "family": "stats",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "model_stagnation_read_only",
+      "attribution": "model",
+      "duration_seconds": 692
+    },
+    {
+      "name": "stats_gemma31_001",
+      "family": "stats",
+      "executor": "gemma4:31b",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1631
+    },
+    {
+      "name": "stats_qwen35_002",
+      "family": "stats",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 852
+    },
+    {
+      "name": "filter_qwen35_001",
+      "family": "filter",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "model_stagnation_read_only",
+      "attribution": "model",
+      "duration_seconds": 864
+    },
+    {
+      "name": "filter_gemma31_001",
+      "family": "filter",
+      "executor": "gemma4:31b",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 911
+    },
+    {
+      "name": "filter_qwen35_002",
+      "family": "filter",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (profile_not_admitted)",
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 888
+    }
+  ],
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "physical_classification_rows": {
+      "known": 12,
+      "unknown": 0,
+      "note": "classifier scanned both workspace originals and artifact copies"
+    },
+    "new_classes": 0,
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 0
+  },
+  "c_evidence": {
+    "runs_reaching_profile_acceptance": 0,
+    "case_freeze_records": 0,
+    "polarity_pairs": 0,
+    "help_binding_records": 0,
+    "claims_binding_records": 0,
+    "nearest_miss_records": 0
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "full_equivalent": "0/6",
+    "false_success": "0/6",
+    "sheet_self_supply": "6/6"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "findings": []
+  },
+  "retry": {
+    "environment_interruptions": 0,
+    "new_run_retries": 0,
+    "manual_terminal_switches": 0
+  }
+}

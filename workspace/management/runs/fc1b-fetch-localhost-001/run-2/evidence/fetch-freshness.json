@@ -1,0 +1,34 @@
+{
+  "capability_id": "ingest_fetch_freshness",
+  "status": "pass",
+  "ok": true,
+  "contract_ref": "fetch.toml",
+  "contract_sha256": "574a195ede4a6150e711ebc6f94582d6d64632ae94ba3c466b6f255c15464121",
+  "fetch_evidence_sha256": "e87838bb6972cc5d532f70232eaea90f96235ff6c67cf1a1c9eb2ef29e64237e",
+  "evaluated_at_utc": "2026-08-03T02:26:05.285Z",
+  "evaluated_at_epoch_ms": 1785723965285,
+  "freshness_max_age_seconds": 86400,
+  "sources": [
+    {
+      "source_id": "events",
+      "fetched_at_epoch_ms": 1785723965268,
+      "evaluated_at_epoch_ms": 1785723965285,
+      "age_ms": 17,
+      "max_age_ms": 86400000,
+      "status": "pass",
+      "failure_kind": null
+    }
+  ],
+  "failure_kinds": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "fetch_freshness",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": [
+      "fetch.toml"
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "basis": "origin_verify_binding:test -f pipeline/main.py",
+  "command": "test -f pipeline/main.py",
+  "lineage": "reproducer:445133cb672eb360"
+}

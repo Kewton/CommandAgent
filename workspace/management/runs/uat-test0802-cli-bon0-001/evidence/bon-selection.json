@@ -1,0 +1,500 @@
+{
+  "baseline": {
+    "fields": {
+      "api": "responses",
+      "context_budget": 65536,
+      "intent": "create",
+      "min_head": "527bdc1e",
+      "plan_preset": "default",
+      "planner_model": "qwen3.6:27b-coding-nvfp4",
+      "planner_provider": "ollama",
+      "profile": "cli",
+      "provider": "openai",
+      "tool_protocol": "native",
+      "workspace_mode": "empty"
+    },
+    "goal_sha256": "87977bbb84c010dc158eba0246c3f04794899f65303c3585292070d9b2ef4070",
+    "suite_id": "cli-create-luna",
+    "suite_sha256": "e4c04d2374aa2c0d45eaeb6cdc51a2ea3fd0692533fd66070e0df505b01da895"
+  },
+  "campaign_id": "cli-filter-bon0-20260802-153030",
+  "definition": {
+    "configuration": "bon:6",
+    "independent_workspaces": true,
+    "prediction": false,
+    "pruning": false,
+    "repair_connected": false,
+    "single_goal": "filter"
+  },
+  "identity": {
+    "all_equal": true,
+    "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+    "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+    "model_drift_probe": "requested/returned model, service tier, system fingerprint",
+    "pack_pin": null
+  },
+  "invalid_reasons": [],
+  "pricing": {
+    "basis": "Luna standard rates fixed by the 2026-08-02 F-2 campaign",
+    "usd_per_million_tokens": {
+      "cached_input": 0.1,
+      "output": 6.0,
+      "uncached_input": 1.0
+    }
+  },
+  "retention": {
+    "calibration_records_appended": 0,
+    "nonselected_evidence_preserved": 5,
+    "nonselected_runs": 5
+  },
+  "runs": [
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0567084,
+      "duration_seconds": 1539,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 22,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 17,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_001",
+      "native_tool_calls": 20,
+      "provider_turns": 17,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 114114,
+        "input_tokens": 129927,
+        "output_tokens": 4914,
+        "reasoning_tokens": 1284
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0418348,
+      "duration_seconds": 833,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 25,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 18,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_002",
+      "native_tool_calls": 18,
+      "provider_turns": 18,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 94798,
+        "input_tokens": 106375,
+        "output_tokens": 3463,
+        "reasoning_tokens": 789
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0577423,
+      "duration_seconds": 1352,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 29,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 19,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_003",
+      "native_tool_calls": 19,
+      "provider_turns": 19,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 127153,
+        "input_tokens": 141406,
+        "output_tokens": 5129,
+        "reasoning_tokens": 1200
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0502942,
+      "duration_seconds": 1308,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 24,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 19,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_004",
+      "native_tool_calls": 25,
+      "provider_turns": 19,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 124532,
+        "input_tokens": 137635,
+        "output_tokens": 4123,
+        "reasoning_tokens": 1262
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0390891,
+      "duration_seconds": 1430,
+      "earned_full": true,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 18,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 14,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_005",
+      "native_tool_calls": 14,
+      "provider_turns": 14,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 100.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 8
+      },
+      "selected": true,
+      "usage": {
+        "cached_input_tokens": 77221,
+        "input_tokens": 89256,
+        "output_tokens": 3222,
+        "reasoning_tokens": 840
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0291967,
+      "duration_seconds": 1329,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 22,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 14,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_006",
+      "native_tool_calls": 18,
+      "provider_turns": 14,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 54577,
+        "input_tokens": 63142,
+        "output_tokens": 2529,
+        "reasoning_tokens": 392
+      }
+    }
+  ],
+  "schema_version": "commandagent.bon-selection/v0",
+  "selection": {
+    "kind": "adopted_full",
+    "repair_connected": false,
+    "run": "filter_bon0_005",
+    "tie_break": [
+      "earned_full_desc",
+      "reached_score_desc",
+      "duration_seconds_asc",
+      "cost_usd_asc",
+      "run_name_asc"
+    ]
+  },
+  "summary": {
+    "cost_usd_total": 0.2748655,
+    "duration_seconds_total": 7791,
+    "earned_full": 1,
+    "reached": 6,
+    "runs": 6,
+    "score_five_number": {
+      "max": 100.0,
+      "median": 43.8,
+      "min": 25.0,
+      "q1": 25.0,
+      "q3": 62.5
+    }
+  },
+  "valid_measurement": true
+}

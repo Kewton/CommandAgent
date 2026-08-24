@@ -1,0 +1,39 @@
+case_id = "issue249-draft-local-pack"
+source = "Issue #249 external draft profile and operator-local pack contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/gate-one.md = [
+  "プロファイル: static-site（draft / 未承認 / 保証上限 static）",
+  "検証パック: static-guidance@1.0.0",
+  "供給元: ローカル（未承認・帯域未計測）",
+  "manifest:",
+  "sha256:"
+]
+fixtures/terminal.jsonl = [
+  "\"effective_profile\":\"static-site\"",
+  "\"assurance_level\":\"static\"",
+  "\"assurance_reason\":\"profile_not_admitted\"",
+  "\"status\":\"completed\""
+]

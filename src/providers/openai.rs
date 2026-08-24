@@ -1,539 +1,620 @@
-use crate::config::Provider;
-use crate::providers::usage::extract_usage;
-use crate::providers::xml_fallback::extract_tool_calls_with_content;
-use crate::providers::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
-    PlannerProvider,
-};
+use std::fmt;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
 use reqwest::blocking::Client;
 use serde_json::{Value, json};
-use std::time::Duration;
 
-pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+use crate::config::{Config, OpenAiApi, Provider, load_process_api_key};
+use crate::eval_events;
+use crate::state::ConversationMessage;
+use crate::tools::registry::ToolSpec;
 
-#[derive(Debug, Clone)]
-pub struct OpenAiClient<T = ReqwestOpenAiTransport> {
-    base_url: String,
+use super::{
+    AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions, openai_responses,
+};
+
+const OPENAI_BASE_URL: &str = "https://api.openai.com";
+const OPENAI_REASONING_EFFORT_ENV: &str = "COMMANDAGENT_OPENAI_REASONING_EFFORT";
+
+#[derive(Clone)]
+pub struct OpenAiClient {
     api_key: String,
-    transport: T,
-    timeout: Duration,
-    retries: u8,
+    http: Client,
+    base_url: String,
+    max_predict: usize,
+    retries: usize,
+    api: OpenAiApi,
+    reasoning_effort: Option<String>,
+    eval_events_path: Option<PathBuf>,
+    response_metadata: Option<ProviderResponseMetadata>,
+    responses_state: Arc<Mutex<openai_responses::ConversationState>>,
 }
 
-impl OpenAiClient<ReqwestOpenAiTransport> {
-    pub fn new(api_key: impl Into<String>) -> Result<Self, OpenAiError> {
-        Self::with_options(
-            DEFAULT_OPENAI_BASE_URL,
+impl fmt::Debug for OpenAiClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiClient")
+            .field("api_key", &"<redacted>")
+            .field("base_url", &self.base_url)
+            .field("max_predict", &self.max_predict)
+            .field("retries", &self.retries)
+            .field("api", &self.api)
+            .field("eval_events_path", &self.eval_events_path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OpenAiClient {
+    pub fn from_env(config: &Config) -> anyhow::Result<Self> {
+        let api_key = load_process_api_key("OPENAI_API_KEY")?;
+        let http = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
+            .timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
+            .build()?;
+        Ok(Self {
             api_key,
-            Duration::from_secs(120),
-            2,
+            http,
+            base_url: OPENAI_BASE_URL.to_string(),
+            max_predict: config.num_predict,
+            retries: config.chat_retries,
+            api: config.openai_api,
+            reasoning_effort: explicit_reasoning_effort(),
+            eval_events_path: config.eval_events_path.clone(),
+            response_metadata: None,
+            responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        eval_events_path: Option<PathBuf>,
+    ) -> Self {
+        Self::for_test_api(
+            api_key,
+            base_url,
+            eval_events_path,
+            OpenAiApi::ChatCompletions,
         )
     }
 
-    pub fn with_options(
-        base_url: impl Into<String>,
+    #[cfg(test)]
+    pub(crate) fn for_test_responses(
         api_key: impl Into<String>,
-        timeout: Duration,
-        retries: u8,
-    ) -> Result<Self, OpenAiError> {
-        Ok(Self::with_transport(
-            base_url,
-            api_key,
-            ReqwestOpenAiTransport::new()?,
-            timeout,
-            retries,
-        ))
+        base_url: impl Into<String>,
+        eval_events_path: Option<PathBuf>,
+    ) -> Self {
+        Self::for_test_api(api_key, base_url, eval_events_path, OpenAiApi::Responses)
     }
-}
 
-impl<T> OpenAiClient<T>
-where
-    T: OpenAiTransport,
-{
-    pub fn with_transport(
-        base_url: impl Into<String>,
+    #[cfg(test)]
+    fn for_test_api(
         api_key: impl Into<String>,
-        transport: T,
-        timeout: Duration,
-        retries: u8,
+        base_url: impl Into<String>,
+        eval_events_path: Option<PathBuf>,
+        api: OpenAiApi,
     ) -> Self {
         Self {
-            base_url: normalize_base_url(&base_url.into()),
             api_key: api_key.into(),
-            transport,
-            timeout,
-            retries,
+            http: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(2))
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .expect("test OpenAI client"),
+            base_url: base_url.into(),
+            max_predict: 128,
+            retries: 0,
+            api,
+            reasoning_effort: None,
+            eval_events_path,
+            response_metadata: None,
+            responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
         }
     }
 
-    pub fn chat(&self, request: &ChatRequest) -> Result<ChatResponse, OpenAiError> {
-        let payload = self.chat_payload(request);
-        let url = self.endpoint();
-        let response = self.send_with_retries(|| {
-            self.transport
-                .post_json(&url, &self.api_key, &payload, self.timeout)
-        })?;
-        ensure_success(response.status, &response.body)?;
-        parse_response(&response.body)
+    fn chat_completions(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let body = openai_chat_completions::build_request(
+            model,
+            messages,
+            tools,
+            native_tools_enabled,
+            self.max_predict,
+            self.reasoning_effort.as_deref(),
+        );
+        self.emit_request(model, "chat_completions", tools, native_tools_enabled);
+        let (body, attempt) =
+            self.post_json("/v1/chat/completions", model, "chat_completions", &body)?;
+        match openai_chat_completions::parse_response(&body) {
+            Ok((reply, metadata)) => {
+                self.response_metadata = Some(metadata.clone());
+                self.emit_response(model, "chat_completions", attempt, &reply, &metadata);
+                Ok(reply)
+            }
+            Err(error) => self.parse_error(model, "chat_completions", error),
+        }
     }
 
-    pub fn chat_payload(&self, request: &ChatRequest) -> Value {
-        json!({
-            "model": request.model,
-            "input": request.messages.iter().map(to_response_input_item).collect::<Vec<_>>(),
-        })
+    fn responses(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let state = self
+            .responses_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let body = openai_responses::build_request(
+            model,
+            messages,
+            tools,
+            native_tools_enabled,
+            self.max_predict,
+            self.reasoning_effort.as_deref(),
+            &state,
+        );
+        self.emit_request(model, "responses", tools, native_tools_enabled);
+        let (body, attempt) = self.post_json("/v1/responses", model, "responses", &body)?;
+        match openai_responses::parse_response(&body) {
+            Ok(parsed) => {
+                self.responses_state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .record(&parsed);
+                self.response_metadata = Some(parsed.metadata.clone());
+                self.emit_response(model, "responses", attempt, &parsed.reply, &parsed.metadata);
+                Ok(parsed.reply)
+            }
+            Err(error) => self.parse_error(model, "responses", error),
+        }
     }
 
-    pub fn request_log_payload(&self, request: &ChatRequest) -> Value {
-        json!({
+    fn emit_request(&self, model: &str, api: &str, tools: &[ToolSpec], native_tools_enabled: bool) {
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_request",
+                "provider": "openai",
+                "model": model,
+                "api": api,
+                "tools": if native_tools_enabled { tools.len() } else { 0 },
+            }),
+        );
+    }
+
+    fn emit_response(
+        &self,
+        model: &str,
+        api: &str,
+        attempt: usize,
+        reply: &AssistantReply,
+        metadata: &ProviderResponseMetadata,
+    ) {
+        let mut event = json!({
+            "event": "provider_response",
             "provider": "openai",
-            "endpoint": "/responses",
-            "base_url": self.base_url,
-            "request": self.chat_payload(request),
-        })
+            "model": model,
+            "api": api,
+            "attempt": attempt,
+            "tool_calls": reply.tool_calls.len(),
+            "response_model": metadata.model_id,
+            "system_fingerprint": metadata.system_fingerprint,
+        });
+        if api == "responses" {
+            event["response_id"] = json!(metadata.response_id);
+            event["service_tier"] = json!(metadata.service_tier);
+            event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
+        }
+        eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 
-    pub fn response_log_payload(&self, response_body: &str) -> Value {
-        json!({
-            "provider": "openai",
-            "endpoint": "/responses",
-            "base_url": self.base_url,
-            "response_body": response_body,
-        })
-    }
-
-    fn endpoint(&self) -> String {
-        format!("{}/responses", self.base_url)
-    }
-
-    fn send_with_retries<F>(&self, mut send: F) -> Result<HttpResponse, OpenAiError>
-    where
-        F: FnMut() -> Result<HttpResponse, OpenAiError>,
-    {
-        let mut last_error = None;
+    fn post_json(
+        &self,
+        endpoint: &str,
+        model: &str,
+        api: &str,
+        body: &Value,
+    ) -> anyhow::Result<(String, usize)> {
         for attempt in 0..=self.retries {
-            match send() {
-                Ok(response) if response.status < 500 => return Ok(response),
+            match self
+                .http
+                .post(format!("{}{endpoint}", self.base_url))
+                .bearer_auth(&self.api_key)
+                .json(body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    return Ok((response.text()?, attempt + 1));
+                }
+                Ok(response)
+                    if attempt == self.retries
+                        || !is_retryable_status(response.status().as_u16()) =>
+                {
+                    let status = response.status();
+                    let response_body = response.text().unwrap_or_default();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "api": api,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": attempt == self.retries,
+                            "retryable": is_retryable_status(status.as_u16()),
+                            "body_snippet": self.redacted_snippet(&response_body),
+                        }),
+                    );
+                    return Err(super::guidance::http_status_error(
+                        Provider::Openai,
+                        model,
+                        status,
+                    ));
+                }
                 Ok(response) => {
-                    last_error = Some(OpenAiError::Http {
-                        status: response.status,
-                        body: response.body,
-                    });
+                    let status = response.status();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "openai",
+                            "model": model,
+                            "api": api,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retryable": true,
+                        }),
+                    );
                 }
-                Err(err) => last_error = Some(err),
-            }
-
-            if attempt == self.retries {
-                break;
-            }
-        }
-        Err(last_error.unwrap_or_else(|| OpenAiError::Transport("request failed".to_string())))
-    }
-}
-
-impl<T> ChatProvider for OpenAiClient<T>
-where
-    T: OpenAiTransport,
-{
-    fn provider(&self) -> Provider {
-        Provider::OpenAi
-    }
-}
-
-impl<T> ExecutorProvider for OpenAiClient<T> where T: OpenAiTransport {}
-
-impl<T> PlannerProvider for OpenAiClient<T> where T: OpenAiTransport {}
-
-pub trait OpenAiTransport: Clone {
-    fn post_json(
-        &self,
-        url: &str,
-        api_key: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, OpenAiError>;
-}
-
-#[derive(Debug, Clone)]
-pub struct ReqwestOpenAiTransport {
-    client: Client,
-}
-
-impl ReqwestOpenAiTransport {
-    pub fn new() -> Result<Self, OpenAiError> {
-        let client = Client::builder()
-            .build()
-            .map_err(|err| OpenAiError::Transport(err.to_string()))?;
-        Ok(Self { client })
-    }
-}
-
-impl OpenAiTransport for ReqwestOpenAiTransport {
-    fn post_json(
-        &self,
-        url: &str,
-        api_key: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, OpenAiError> {
-        let response = self
-            .client
-            .post(url)
-            .bearer_auth(api_key)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .map_err(|err| OpenAiError::Transport(err.to_string()))?;
-        let status = response.status().as_u16();
-        let body = response
-            .text()
-            .map_err(|err| OpenAiError::Transport(err.to_string()))?;
-        Ok(HttpResponse { status, body })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub body: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OpenAiError {
-    Transport(String),
-    Http { status: u16, body: String },
-    Json(String),
-}
-
-impl std::fmt::Display for OpenAiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Transport(message) => write!(f, "OpenAI transport failed: {}", message),
-            Self::Http { status, body } => {
-                write!(
-                    f,
-                    "OpenAI Responses API failed: status {}: {}",
-                    status, body
-                )
-            }
-            Self::Json(message) => write!(f, "OpenAI JSON parse failed: {}", message),
-        }
-    }
-}
-
-impl std::error::Error for OpenAiError {}
-
-fn parse_response(body: &str) -> Result<ChatResponse, OpenAiError> {
-    let value: Value =
-        serde_json::from_str(body).map_err(|err| OpenAiError::Json(err.to_string()))?;
-    let usage = extract_usage(Provider::OpenAi, &value);
-
-    if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
-        let extraction = extract_tool_calls_with_content(output_text)
-            .map_err(|err| OpenAiError::Json(err.to_string()))?;
-        return Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage));
-    }
-
-    let mut parts = Vec::new();
-    if let Some(output) = value.get("output").and_then(Value::as_array) {
-        for item in output {
-            if item.get("type").and_then(Value::as_str) != Some("message") {
-                continue;
-            }
-            let Some(content) = item.get("content").and_then(Value::as_array) else {
-                continue;
-            };
-            for part in content {
-                match part.get("type").and_then(Value::as_str) {
-                    Some("output_text") => {
-                        if let Some(text) = part.get("text").and_then(Value::as_str) {
-                            parts.push(text.to_string());
-                        }
-                    }
-                    Some("refusal") => {
-                        if let Some(text) = part.get("refusal").and_then(Value::as_str) {
-                            parts.push(text.to_string());
-                        }
-                    }
-                    _ => {}
+                Err(error) if attempt == self.retries => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "api": api,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": true,
+                            "message": self.redacted_snippet(&error.to_string()),
+                        }),
+                    );
+                    return Err(super::guidance::connection_error(
+                        Provider::Openai,
+                        &self.base_url,
+                        error,
+                    ));
+                }
+                Err(error) => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "openai",
+                            "model": model,
+                            "api": api,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "message": self.redacted_snippet(&error.to_string()),
+                        }),
+                    );
                 }
             }
         }
+        unreachable!("retry loop always returns or bails")
     }
 
-    let content = parts.join("\n");
-    let extraction = extract_tool_calls_with_content(&content)
-        .map_err(|err| OpenAiError::Json(err.to_string()))?;
+    fn parse_error<T>(&self, model: &str, api: &str, error: anyhow::Error) -> anyhow::Result<T> {
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_parse_error",
+                "provider": "openai",
+                "model": model,
+                "api": api,
+                "error_kind": "provider_parse_error",
+                "message": self.redacted_snippet(&error.to_string()),
+            }),
+        );
+        Err(error)
+    }
 
-    Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage))
-}
+    fn redacted_snippet(&self, value: &str) -> String {
+        eval_events::body_snippet(&value.replace(&self.api_key, "<redacted>"))
+    }
 
-fn ensure_success(status: u16, body: &str) -> Result<(), OpenAiError> {
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        Err(OpenAiError::Http {
-            status,
-            body: body.to_string(),
-        })
+    fn dispatch(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.response_metadata = None;
+        match self.api {
+            OpenAiApi::ChatCompletions => {
+                self.chat_completions(model, messages, tools, native_tools_enabled)
+            }
+            OpenAiApi::Responses => self.responses(model, messages, tools, native_tools_enabled),
+        }
     }
 }
 
-fn to_response_input_item(message: &ChatMessage) -> Value {
-    let (role, content_type) = match message.role {
-        ChatRole::System => ("system", "input_text"),
-        ChatRole::User | ChatRole::Tool => ("user", "input_text"),
-        ChatRole::Assistant => ("assistant", "output_text"),
-    };
-    json!({
-        "role": role,
-        "content": [{
-            "type": content_type,
-            "text": message.content,
-        }],
-    })
+fn explicit_reasoning_effort() -> Option<String> {
+    crate::env_compat::var(OPENAI_REASONING_EFFORT_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
-fn normalize_base_url(base_url: &str) -> String {
-    base_url.trim_end_matches('/').to_string()
+impl ChatClient for OpenAiClient {
+    fn label(&self) -> &str {
+        "openai"
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        self.response_metadata.take()
+    }
+
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        true
+    }
+
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.dispatch(model, messages, tools, native_tools_enabled)
+    }
+}
+
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504)
+}
+
+pub fn build_response_request(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+) -> Value {
+    openai_responses::build_request(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        None,
+        &openai_responses::ConversationState::default(),
+    )
+}
+
+pub fn parse_openai_response(body: &str) -> anyhow::Result<AssistantReply> {
+    openai_responses::parse_response(body).map(|parsed| parsed.reply)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
     use super::*;
-    use crate::providers::ToolCallMode;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
+    use crate::state::ToolCall;
+    use crate::tools::registry::ToolRegistry;
 
     #[test]
-    fn payload_uses_input_text_for_user_and_output_text_for_assistant() {
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            MockTransport::default(),
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![
-                ChatMessage::new(ChatRole::User, "hello"),
-                ChatMessage::new(ChatRole::Assistant, "hi"),
-            ],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let payload = client.chat_payload(&request);
-
-        assert_eq!(payload["input"][0]["content"][0]["type"], "input_text");
-        assert_eq!(payload["input"][1]["content"][0]["type"], "output_text");
-    }
-
-    #[test]
-    fn chat_parses_output_message_text() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body:
-                r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}"#
-                    .to_string(),
-        })]);
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            transport.clone(),
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "ok");
-        assert!(response.tool_calls.is_empty());
-        assert_eq!(transport.last_api_key().as_deref(), Some("key"));
+    fn explicit_api_selects_endpoint_without_model_sniffing() {
+        let cases = [
+            (OpenAiApi::ChatCompletions, "/v1/chat/completions"),
+            (OpenAiApi::Responses, "/v1/responses"),
+        ];
+        for (api, endpoint) in cases {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 16_384];
+                let read = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..read]);
+                assert!(
+                    request.starts_with(&format!("POST {endpoint} ")),
+                    "{request}"
+                );
+                let body = if api == OpenAiApi::Responses {
+                    r#"{"id":"resp_1","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}"#
+                } else {
+                    r#"{"id":"chatcmpl_1","choices":[{"message":{"content":"ok"}}]}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            });
+            let mut client = OpenAiClient::for_test_api(
+                "sk-test-not-real",
+                format!("http://{address}"),
+                None,
+                api,
+            );
+            let reply = client
+                .dispatch(
+                    "same-model-id",
+                    &[ConversationMessage::user("hello")],
+                    &[],
+                    false,
+                )
+                .unwrap();
+            server.join().unwrap();
+            assert_eq!(reply.content, "ok");
+        }
     }
 
     #[test]
-    fn chat_parses_xml_tool_call_from_output_text() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>","usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}"#
-                .to_string(),
-        })]);
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "");
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "Write");
-        assert_eq!(
-            response.tool_calls[0].args_json,
-            r#"{"content":"ok","path":"hello.txt"}"#
-        );
-        assert_eq!(response.usage.input_tokens, Some(13));
-        assert_eq!(response.usage.output_tokens, Some(5));
-        assert_eq!(response.usage.total_tokens, Some(18));
-        assert!(response.usage.unavailable_reason.is_none());
-    }
-
-    #[test]
-    fn chat_parses_xml_tool_call_from_output_items() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"<commandagent_tool_call>{\"name\":\"Read\",\"args\":{\"path\":\"Cargo.toml\"}}</commandagent_tool_call>"}]}]}"#
-                .to_string(),
-        })]);
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "");
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "Read");
-        assert_eq!(response.tool_calls[0].args_json, r#"{"path":"Cargo.toml"}"#);
-    }
-
-    #[test]
-    fn chat_rejects_malformed_xml_tool_call() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Read\"}"}"#.to_string(),
-        })]);
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let err = client.chat(&request).unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("unclosed <commandagent_tool_call>")
-        );
-    }
-
-    #[test]
-    fn retries_transport_failures() {
-        let transport = MockTransport::with_responses([
-            Err(OpenAiError::Transport("temporary".to_string())),
-            Ok(HttpResponse {
-                status: 200,
-                body: r#"{"output_text":"ok"}"#.to_string(),
-            }),
-        ]);
-        let client = OpenAiClient::with_transport(
-            "https://api.openai.test/v1/",
-            "key",
-            transport.clone(),
-            Duration::from_secs(1),
-            1,
-        );
-        let request = ChatRequest {
-            model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "ok");
-        assert_eq!(transport.calls().len(), 2);
-    }
-
-    #[derive(Clone, Default)]
-    struct MockTransport {
-        inner: Rc<RefCell<MockInner>>,
-    }
-
-    #[derive(Default)]
-    struct MockInner {
-        responses: VecDeque<Result<HttpResponse, OpenAiError>>,
-        calls: Vec<String>,
-        api_keys: Vec<String>,
-        json_bodies: Vec<Value>,
-    }
-
-    impl MockTransport {
-        fn with_responses<const N: usize>(
-            responses: [Result<HttpResponse, OpenAiError>; N],
-        ) -> Self {
-            Self {
-                inner: Rc::new(RefCell::new(MockInner {
-                    responses: VecDeque::from(responses),
-                    calls: Vec::new(),
-                    api_keys: Vec::new(),
-                    json_bodies: Vec::new(),
-                })),
+    fn responses_reasoning_state_survives_provider_clone_boundary() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let captured = Arc::new(Mutex::new(Vec::<String>::new()));
+        let server_captured = captured.clone();
+        let server = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 32_768];
+                let read = stream.read(&mut request).unwrap();
+                server_captured
+                    .lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&request[..read]).to_string());
+                let body = if index == 0 {
+                    r#"{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","encrypted_content":"opaque-state"},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Read","arguments":"{\"path\":\"README.md\"}"}]}"#
+                } else {
+                    r#"{"id":"resp_2","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
             }
-        }
+        });
+        let mut client =
+            OpenAiClient::for_test_responses("sk-test-not-real", format!("http://{address}"), None);
+        let mut worker = client.clone();
+        let first = worker
+            .responses(
+                "gpt-5.6-luna",
+                &[ConversationMessage::user("inspect")],
+                ToolRegistry::default().specs(),
+                true,
+            )
+            .unwrap();
+        let messages = [
+            ConversationMessage::user("inspect"),
+            ConversationMessage::assistant(first.content, first.tool_calls),
+            ConversationMessage::tool_result("Read", Some("call_1"), "contents"),
+        ];
+        let second = client
+            .responses(
+                "gpt-5.6-luna",
+                &messages,
+                ToolRegistry::default().specs(),
+                true,
+            )
+            .unwrap();
+        server.join().unwrap();
 
-        fn calls(&self) -> Vec<String> {
-            self.inner.borrow().calls.clone()
-        }
-
-        fn last_api_key(&self) -> Option<String> {
-            self.inner.borrow().api_keys.last().cloned()
-        }
+        assert_eq!(second.content, "done");
+        let second_request = &captured.lock().unwrap()[1];
+        assert!(second_request.contains("opaque-state"), "{second_request}");
+        assert!(
+            second_request.contains("function_call_output"),
+            "{second_request}"
+        );
+        assert!(second_request.contains("call_1"), "{second_request}");
     }
 
-    impl OpenAiTransport for MockTransport {
-        fn post_json(
-            &self,
-            url: &str,
-            api_key: &str,
-            body: &Value,
-            _timeout: Duration,
-        ) -> Result<HttpResponse, OpenAiError> {
-            let mut inner = self.inner.borrow_mut();
-            inner.calls.push(format!("POST {url}"));
-            inner.api_keys.push(api_key.to_string());
-            inner.json_bodies.push(body.clone());
-            inner
-                .responses
-                .pop_front()
-                .unwrap_or_else(|| Err(OpenAiError::Transport("no response".to_string())))
-        }
+    #[test]
+    fn responses_error_redacts_api_key_from_events_and_debug() {
+        let secret = "sk-proj-responses-secret-not-real-123456789";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_secret = secret.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request).unwrap();
+            let body = format!(r#"{{"error":{{"message":"reflected {server_secret}"}}}}"#);
+            write!(
+                stream,
+                "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let tmp = tempfile::tempdir().unwrap();
+        let events = tmp.path().join("events.jsonl");
+        let mut client = OpenAiClient::for_test_responses(
+            secret,
+            format!("http://{address}"),
+            Some(events.clone()),
+        );
+        let error = client
+            .responses(
+                "gpt-5.6-luna",
+                &[ConversationMessage::user("hello")],
+                &[],
+                false,
+            )
+            .unwrap_err()
+            .to_string();
+        server.join().unwrap();
+        let outputs = format!(
+            "{error}\n{}\n{client:?}",
+            std::fs::read_to_string(events).unwrap()
+        );
+
+        assert!(!outputs.contains(secret), "secret leaked: {outputs}");
+        assert!(outputs.contains("<redacted>"), "{outputs}");
+    }
+
+    #[test]
+    fn public_response_parser_recovers_argument_aliases() {
+        let reply = parse_openai_response(
+            r#"{"output":[{"type":"function_call","name":"Write","call_id":"c1","arguments":{"file":"provider-probe.txt","body":"ok"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(reply.tool_calls[0].arguments["path"], "provider-probe.txt");
+        assert_eq!(reply.tool_calls[0].arguments["content"], "ok");
+    }
+
+    #[test]
+    fn assistant_fallback_keeps_typed_tool_call() {
+        let body = build_response_request(
+            "gpt-5.6-luna",
+            &[ConversationMessage::assistant(
+                "",
+                vec![ToolCall {
+                    id: "call-1".to_string(),
+                    name: "Read".to_string(),
+                    arguments: json!({"path": "README.md"}),
+                }],
+            )],
+            ToolRegistry::default().specs(),
+            true,
+            128,
+        );
+        assert_eq!(body["input"][0]["type"], "function_call");
+        assert_eq!(body["input"][0]["call_id"], "call-1");
     }
 }

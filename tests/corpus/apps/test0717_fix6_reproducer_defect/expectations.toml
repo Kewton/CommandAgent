@@ -1,0 +1,45 @@
+case_id = "test0717_fix6_reproducer_defect"
+source = "uat-test0717-dfix-001 Run 6 escaped-newline SyntaxError reproducer"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["before_fails", "reproducer_defect", "subject_failure"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run6-reproducer-defect.jsonl = [
+  "\"event\":\"fix_evidence_recorded\"",
+  "\"failure_classification\":\"reproducer_defect\"",
+  "SyntaxError: unexpected character after line continuation character",
+  "before-attempt-1.json",
+  "\"epoch\":2",
+  "\"outcome\":\"failure\""
+]
+fixtures/run6-rebuild-prompt.txt = [
+  "再現コマンド自体が壊れている（SyntaxError）",
+  "対象を実際に評価するRを再構築せよ",
+  "F1 is not yet confirmed",
+  "replacement verify step",
+  "without changing the workspace"
+]
+
+[fixture_ordered]
+fixtures/run6-reproducer-defect.jsonl = [
+  "\"failure_classification\":\"reproducer_defect\"",
+  "\"epoch\":2"
+]

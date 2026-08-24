@@ -1,0 +1,52 @@
+{
+  "capability_id": "data_rerun_consistency",
+  "status": "pass",
+  "ok": true,
+  "entry": "pipeline/main.py",
+  "pipeline_run_ok": true,
+  "baseline_results": {
+    "reconciliation": {
+      "input_rows": 60,
+      "used_rows": 58,
+      "excluded": [
+        {
+          "reason": "missing_fields",
+          "rows": 2
+        }
+      ]
+    },
+    "values": {
+      "regional_2026-01_東京": 19990.0,
+      "regional_2026-02_大阪": 18657.0,
+      "regional_2026-02_東京": 5000.0,
+      "regional_2026-03_名古屋": 20730.0,
+      "regional_2026-04_東京": 16824.0,
+      "regional_2026-05_大阪": 21470.0,
+      "regional_2026-06_名古屋": 19767.0,
+      "total_sales": 122438.0
+    }
+  },
+  "rerun_results": {
+    "reconciliation": {
+      "input_rows": 60,
+      "used_rows": 58,
+      "excluded": [
+        {
+          "reason": "missing_fields",
+          "rows": 2
+        }
+      ]
+    },
+    "values": {
+      "regional_2026-01_東京": 19990.0,
+      "regional_2026-02_大阪": 18657.0,
+      "regional_2026-02_東京": 5000.0,
+      "regional_2026-03_名古屋": 20730.0,
+      "regional_2026-04_東京": 16824.0,
+      "regional_2026-05_大阪": 21470.0,
+      "regional_2026-06_名古屋": 19767.0,
+      "total_sales": 122438.0
+    }
+  },
+  "failure_kinds": []
+}

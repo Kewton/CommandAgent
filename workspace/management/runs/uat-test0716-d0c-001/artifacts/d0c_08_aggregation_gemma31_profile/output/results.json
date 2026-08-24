@@ -1,0 +1,22 @@
+{
+  "reconciliation": {
+    "input_rows": 60,
+    "used_rows": 58,
+    "excluded": [
+      {
+        "reason": "missing_fields",
+        "rows": 2
+      }
+    ]
+  },
+  "values": {
+    "total_sales": 122438.0,
+    "regional_2026-01_\u6771\u4eac": 19990.0,
+    "regional_2026-02_\u5927\u962a": 18657.0,
+    "regional_2026-02_\u6771\u4eac": 5000.0,
+    "regional_2026-03_\u540d\u53e4\u5c4b": 20730.0,
+    "regional_2026-04_\u6771\u4eac": 16824.0,
+    "regional_2026-05_\u5927\u962a": 21470.0,
+    "regional_2026-06_\u540d\u53e4\u5c4b": 19767.0
+  }
+}

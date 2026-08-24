@@ -1,0 +1,2 @@
+{"assurance_level":"partial","assurance_reason":"diagnosis_claims_absent","event":"investigation_adjudicated","evidence_paths":["evidence/investigation-run.json","evidence/investigation-binding.json"],"profile":"data","schema_version":"1"}
+{"action":"UltraPlanRun","assurance_level":"partial","assurance_reason":"diagnosis_claims_absent","event":"run_stop","profile":"data","status":"completed"}

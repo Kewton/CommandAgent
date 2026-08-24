@@ -1,0 +1,10 @@
+command failed: ls -d pipeline output
+outcome: CommandFailed
+status: exit status: 1
+elapsed_ms: 23
+summary: command did not succeed: ls -d pipeline output
+stdout:
+
+stderr:
+ls: output: No such file or directory
+ls: pipeline: No such file or directory

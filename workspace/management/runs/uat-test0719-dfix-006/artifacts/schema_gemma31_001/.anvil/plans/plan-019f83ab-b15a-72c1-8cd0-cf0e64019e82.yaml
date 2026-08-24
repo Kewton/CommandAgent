@@ -1,0 +1,8 @@
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "isolate-cause"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/report.md`, `output/results.json`, `pipeline/main.py`; identify the narrow cause without changing the workspace."
+    expected_paths:
+    verify:

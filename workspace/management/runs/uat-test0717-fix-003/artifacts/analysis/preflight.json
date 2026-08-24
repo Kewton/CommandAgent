@@ -1,0 +1,69 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-003",
+  "date": "2026-07-17",
+  "timezone": "Asia/Tokyo",
+  "repository": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "branch": "develop",
+  "revision": "e0f3f67a5c03dc4aa57a34d25327ba27daa9ef17",
+  "origin_develop": "e0f3f67a5c03dc4aa57a34d25327ba27daa9ef17",
+  "minimum_revision": "e0f3f67",
+  "commits_after_minimum": [],
+  "measurement_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0717_fix_003",
+  "report_path": "workspace/management/runs/uat-test0717-fix-003",
+  "new_paths_absent_before_start": true,
+  "git_clean": {
+    "result": "pass_after_temporary_isolation",
+    "tracked_changes": 0,
+    "preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+    "action": "temporarily isolated for the clean release build, then restored without modification",
+    "sha256_before": "a1d31d87e8c020c4b2f4e2ddec13440d724ddfc58d20d865638f5e2d51d2a7bc",
+    "sha256_after": "a1d31d87e8c020c4b2f4e2ddec13440d724ddfc58d20d865638f5e2d51d2a7bc"
+  },
+  "host_environment": {
+    "node_env": "production",
+    "disk_available_start": "334 GiB",
+    "disk_available_after_runs": "332 GiB",
+    "port_3011_listener_before": false,
+    "port_3011_listener_after": false
+  },
+  "ollama_models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executors": [
+      "qwen3.6:35b-a3b-coding-nvfp4",
+      "gemma4:31b"
+    ],
+    "all_present": true
+  },
+  "cargo_test": {
+    "exit_code": 0,
+    "lib": "1395 passed; 15 ignored",
+    "adjudication_byte_fixtures": "6/6 passed",
+    "conformance": "18 passed; 1 ignored",
+    "fix_conformance": "9/9 passed",
+    "corpus": "1/1 passed",
+    "data_conformance": "10/10 passed",
+    "guardrails": "7/7 passed",
+    "doc_tests": "2/2 passed",
+    "result": "full green"
+  },
+  "release_build": {
+    "cargo_clean_package_first": true,
+    "cargo_build_release_exit_code": 0,
+    "installed_path": "/Users/maenokota/.local/bin/commandagent",
+    "target_sha256": "f5b9792ecbbf8c1ae5c6c5caa7789ad26dead1f67c119065061d38dceb2e9030",
+    "installed_sha256": "f5b9792ecbbf8c1ae5c6c5caa7789ad26dead1f67c119065061d38dceb2e9030",
+    "version": "commandagent 0.1.0 e0f3f67 2026-07-17T04:13:15Z",
+    "dirty_suffix_present": false
+  },
+  "interaction_probe": {
+    "result": "probe ready: playwright 1.61.1 (managed_interaction_probe)",
+    "ready": true
+  },
+  "execution_discipline": {
+    "outer_commandagent_invocations": 6,
+    "outer_retries": 0,
+    "user_interruptions": 0,
+    "run_order_matches_declared_matrix": true
+  }
+}

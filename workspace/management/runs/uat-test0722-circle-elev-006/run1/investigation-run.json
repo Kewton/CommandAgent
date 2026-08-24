@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "reproducer_fails",
+  "reproducer": "test -f pipeline/main.py",
+  "reproducer_lineage": "reproducer:445133cb672eb360",
+  "stage": "diagnosis",
+  "expected": "failure",
+  "epoch": 1,
+  "executed": true,
+  "outcome": "failure",
+  "stdout": "",
+  "stderr": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 21 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:"
+}

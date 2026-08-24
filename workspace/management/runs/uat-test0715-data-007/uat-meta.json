@@ -1,0 +1,396 @@
+{
+  "schema_version": 1,
+  "uat_id": "uat-test0715-data-007",
+  "record_directory": "workspace/management/runs/uat-test0715-data-007",
+  "recorded_at": "2026-07-15T22:46:58+09:00",
+  "repository": {
+    "branch": "develop",
+    "head": "7b177fe16536f61b47b14f6736918dcc7547e4a9",
+    "head_oneline": "7b177fe Bind default data verification",
+    "origin_develop_at_same_commit": true,
+    "preflight_status_clean": true,
+    "preflight_isolation": {
+      "reason": "A pre-existing untracked record from another task was isolated after user confirmation so the UAT could start from a clean status.",
+      "path": "workspace/management/runs/uat-test0715-ff1-001",
+      "stash_commit": "a591114d16452d648f86527c4f8c1f4c6633ac5f",
+      "stash_message": "On develop: uat-test0715-data-007-preflight",
+      "included_in_uat_commit": false,
+      "restore_after_uat_commit": true
+    }
+  },
+  "preflight": {
+    "initial_cargo_test": {
+      "accepted_as_preflight": false,
+      "reason": "browser probe tests were denied by sandbox permissions",
+      "observed_error": "Operation not permitted",
+      "terminated_after_permission_failure_was_confirmed": true
+    },
+    "elevated_cargo_test": {
+      "exit_code": 0,
+      "lib_passed": 1324,
+      "lib_ignored": 13,
+      "conformance_passed": 18,
+      "conformance_ignored": 1,
+      "data_profile_passed": 10,
+      "failures": 0,
+      "full_suite_green": true
+    },
+    "cargo_build_release": {
+      "exit_code": 0
+    },
+    "installed_binary": "/Users/maenokota/.local/bin/commandagent",
+    "version": "commandagent 0.1.0 7b177fe 2026-07-15T12:11:05Z",
+    "dirty_suffix_present": false,
+    "release_binary_sha256": "a977598e18c255466908ee2e2fe4c7e3b93b7ad346a64d0e543c5bb2e08e953a",
+    "installed_binary_sha256": "a977598e18c255466908ee2e2fe4c7e3b93b7ad346a64d0e543c5bb2e08e953a"
+  },
+  "measurement": {
+    "workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_007",
+    "workspace_was_new": true,
+    "profile": "data",
+    "provider": "ollama",
+    "planner_model": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider": "ollama",
+    "context_budget": 65536,
+    "ultra_plan_run": true,
+    "goal": "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。",
+    "input_sha256": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873",
+    "input_hash_matches": 6,
+    "planned_runs": 6,
+    "executed_runs": 6,
+    "execution_order": [
+      1,
+      4,
+      2,
+      5,
+      3,
+      6
+    ],
+    "one_invocation_each": true,
+    "retries": 0,
+    "interrupted_runs": 0,
+    "duration_source": "events time_profile.profile.total_ms",
+    "total_duration_seconds": 4953.315
+  },
+  "criteria": {
+    "P0-a": {
+      "status": "pass",
+      "summary": "6/6 honest classified terminals; two completed and four failed with concrete reasons; no panic, unclassified terminal, or unexplained interruption"
+    },
+    "P0-b": {
+      "status": "pass",
+      "summary": "zero assurance inflation under data profile contract section 4",
+      "projection_note": "Both E1-E4-pass runs have full in data-assurance.json and ultra_final_acceptance; tui_command_stop and run_stop conservatively project partial with completion_contract_not_bound."
+    },
+    "P0-c": {
+      "status": "pass",
+      "summary": "zero DATA-12 recurrence: no read-only exhaustion where every expected path existed and executed verification passed",
+      "short_circuit_events": 19,
+      "default_bound_events": 8
+    },
+    "preset_ab": {
+      "status": "keep_current_default",
+      "profile_completed": 1,
+      "profile_full": 1,
+      "none_completed": 1,
+      "none_full": 1,
+      "profile_strictly_outperformed_none": false,
+      "none_terminal_deaths_planner_scaffold_dominant": false,
+      "profile_default_admitted_candidate": false,
+      "additional_measurement_for_this_question": false
+    }
+  },
+  "aggregate": {
+    "successful_runs": 2,
+    "full_runs": 2,
+    "honest_terminals": 6,
+    "completed_phase_depths": {
+      "profile": {
+        "0": 2,
+        "5": 1
+      },
+      "none": {
+        "0": 2,
+        "3": 1
+      }
+    },
+    "data12": {
+      "step_short_circuited": 19,
+      "short_circuit_implement_steps": 6,
+      "short_circuit_verify_steps": 13,
+      "expected_paths_checked": 34,
+      "verify_commands_executed": 56,
+      "verify_default_bound": 8,
+      "eligible_read_only_exhaustions": 0
+    },
+    "data10": {
+      "class_recurrences": 2,
+      "gemma_inspection_non_follow_through_recurrences": 0,
+      "qwen_profile_inspection_write_required_exhaustions": 2
+    },
+    "e2": {
+      "evidence_present": 2,
+      "evidence_pass": 2,
+      "claims": 72,
+      "claims_ok": 72,
+      "violations": 0,
+      "false_positives": 0,
+      "date_label_claims": 38,
+      "reconciliation_matches": 10,
+      "nearest_miss_records": 0
+    },
+    "evidence": {
+      "pipeline_run_present": 2,
+      "pipeline_run_pass": 2,
+      "reconciliation_present": 2,
+      "reconciliation_pass": 2,
+      "claims_binding_present": 2,
+      "claims_binding_pass": 2,
+      "rerun_consistency_present": 2,
+      "rerun_consistency_pass": 2,
+      "results_schema_present": 2,
+      "results_schema_pass": 2
+    },
+    "events": {
+      "run_stop": 6,
+      "ultra_final_acceptance": 2,
+      "step_short_circuited": 19,
+      "verify_default_bound": 8,
+      "planner_error": 3,
+      "read_only_stagnation_feedback": 11,
+      "read_only_tool_rejected": 4,
+      "runtime_bash_policy": 52,
+      "verify_canonicalized": 19
+    },
+    "historical_none_before_uat7": {
+      "runs": 12,
+      "completed": 0,
+      "source_uats": [
+        "uat-test0715-data-004",
+        "uat-test0715-data-005",
+        "uat-test0715-data-006"
+      ]
+    }
+  },
+  "runs": [
+    {
+      "number": 1,
+      "name": "data7_qwen35_profile_001",
+      "run_id": "019f65b2-bb0f-7032-952c-3348527dff65",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 280.151,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "data-inspection",
+      "completed_phases": 0,
+      "total_phases": 5,
+      "stop_class": "model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json",
+      "step_id": "inspect-workspace",
+      "data12": {
+        "step_short_circuited": 0,
+        "verify_default_bound": 0,
+        "eligible_recurrence": false,
+        "reason": "output/inspection.json did not exist"
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 2,
+      "name": "data7_qwen35_profile_002",
+      "run_id": "019f65cf-2350-7c33-b4b9-3a903c3493cb",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 242.272,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "data-inspection",
+      "completed_phases": 0,
+      "total_phases": 5,
+      "stop_class": "model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json",
+      "step_id": "run-inspection",
+      "data12": {
+        "step_short_circuited": 0,
+        "verify_default_bound": 0,
+        "eligible_recurrence": false,
+        "reason": "output/inspection.json did not exist"
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 3,
+      "name": "data7_gemma31_profile_001",
+      "run_id": "019f65d7-fd53-7382-8b0e-0caa4ecf6d1c",
+      "executor": "gemma4:31b",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 0,
+      "duration_seconds": 2029.719,
+      "terminal_status": "completed",
+      "final_acceptance_status": "full_success",
+      "data_assurance_level": "full",
+      "ultra_final_acceptance_assurance_level": "full",
+      "terminal_projection_assurance_level": "partial",
+      "terminal_projection_assurance_reason": "completion_contract_not_bound",
+      "terminal_phase": "data-validation",
+      "completed_phases": 5,
+      "total_phases": 5,
+      "stop_class": "completed",
+      "data12": {
+        "step_short_circuited": 16,
+        "verify_default_bound": 4,
+        "eligible_recurrence": false,
+        "run1_shape_observed": true
+      },
+      "inspection": {
+        "initial_failure": "column_names_missing_headers:amount; input_row_count_mismatch:expected=60:reported=10",
+        "repair_count": 1,
+        "final_status": "pass",
+        "final_input_row_count": 60
+      },
+      "e2": {
+        "claims": 26,
+        "ok": 26,
+        "violations": 0,
+        "date_labels": 14,
+        "reconciliation_matches": 4,
+        "nearest_miss_records": 0
+      },
+      "evidence": {
+        "pipeline-run": "pass:exit_0:54ms",
+        "reconciliation": "pass:60=57+3",
+        "claims-binding": "pass:26_of_26",
+        "rerun-consistency": "pass",
+        "results-schema": "pass"
+      }
+    },
+    {
+      "number": 4,
+      "name": "data7_qwen35_none_001",
+      "run_id": "019f65b8-0a60-7b43-98c1-40f6aeb37997",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 0,
+      "duration_seconds": 1463.8,
+      "terminal_status": "completed",
+      "final_acceptance_status": "full_success",
+      "data_assurance_level": "full",
+      "ultra_final_acceptance_assurance_level": "full",
+      "terminal_projection_assurance_level": "partial",
+      "terminal_projection_assurance_reason": "completion_contract_not_bound",
+      "terminal_phase": "summary-report-generation",
+      "completed_phases": 3,
+      "total_phases": 3,
+      "stop_class": "completed",
+      "data12": {
+        "step_short_circuited": 3,
+        "verify_default_bound": 2,
+        "eligible_recurrence": false
+      },
+      "inspection": {
+        "final_status": "failed",
+        "failure": "missing_keys:column_names,input_row_count,type_summaries,distinct_values,sample_rows",
+        "final_acceptance_gate": false
+      },
+      "e2": {
+        "claims": 46,
+        "ok": 46,
+        "violations": 0,
+        "date_labels": 24,
+        "reconciliation_matches": 6,
+        "nearest_miss_records": 0
+      },
+      "evidence": {
+        "pipeline-run": "pass:exit_0:56ms",
+        "reconciliation": "pass:60=57+3",
+        "claims-binding": "pass:46_of_46",
+        "rerun-consistency": "pass",
+        "results-schema": "pass"
+      }
+    },
+    {
+      "number": 5,
+      "name": "data7_qwen35_none_002",
+      "run_id": "019f65d3-ae61-7b81-b96d-9d5f871768b1",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 234.149,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "validate-and-clean-data",
+      "completed_phases": 0,
+      "total_phases": 3,
+      "stop_class": "recoverable_tool_error_repeated:missing_arg",
+      "data12": {
+        "step_short_circuited": 0,
+        "verify_default_bound": 1,
+        "eligible_recurrence": false,
+        "reason": "tool argument failure occurred before pre-satisfied verification"
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 6,
+      "name": "data7_gemma31_none_001",
+      "run_id": "019f65f7-b518-7241-b015-9a0e7272c241",
+      "executor": "gemma4:31b",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 703.224,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "load-and-inspect-data",
+      "completed_phases": 0,
+      "total_phases": 4,
+      "stop_class": "artifact_follow_through_exhausted",
+      "missing_expected_paths": [
+        "output/results.json",
+        "output/report.md",
+        "check_outputs.py"
+      ],
+      "data12": {
+        "step_short_circuited": 0,
+        "verify_default_bound": 1,
+        "eligible_recurrence": false,
+        "reason": "required artifacts were missing"
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    }
+  ]
+}

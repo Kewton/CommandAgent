@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Apply Review"
+  short_description: "Apply review findings to CommandAgent design"
+  default_prompt: "Use $apply-review to apply approved review findings to the issue design."
+policy:
+  allow_implicit_invocation: false

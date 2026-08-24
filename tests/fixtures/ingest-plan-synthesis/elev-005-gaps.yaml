@@ -1,0 +1,32 @@
+source_campaign: uat-test0726-ingest-elev-005
+source_revision: 15b76541715b8767a3a26f312c1b0277a2148ee0
+source_asset_sha256:
+  events-list.html: dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07
+  events-table.html: 394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd
+tool_observation:
+  final_acceptance_reached: 4
+  snapshot_content_reads: 0
+  observed_snapshot_operations:
+    - Glob data/snapshots/*.html
+    - Bash ls -R data/snapshots/
+measured_selectors:
+  list_cloud_001:
+    declared: tr.event-row
+    actual_candidate: article.event
+    detected: 0
+  table_cloud_001:
+    declared: .event-item
+    actual_candidate: tbody > tr
+    detected: 0
+  table_cloud_002:
+    declared: div.event-item
+    actual_candidate: tbody > tr
+    detected: 0
+  table_cloud_003:
+    declared: div.event-card
+    actual_candidate: tbody > tr
+    detected: 0
+adjudication:
+  proximate: model selected without reading snapshot contents
+  design_root: machine guidance named the path but did not place bounded real structure in the implement prompt
+  resolution: inject deterministic filename-bound head and repeated-candidate contexts

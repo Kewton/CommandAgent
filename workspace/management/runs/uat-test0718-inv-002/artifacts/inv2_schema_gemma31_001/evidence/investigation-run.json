@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "reproducer_fails",
+  "reproducer": "anvil-catalog-check:data_results_schema",
+  "stage": "diagnosis",
+  "expected": "failure",
+  "epoch": 1,
+  "executed": true,
+  "outcome": "failure",
+  "stdout": "",
+  "stderr": "results.json missing required key `reconciliation`"
+}

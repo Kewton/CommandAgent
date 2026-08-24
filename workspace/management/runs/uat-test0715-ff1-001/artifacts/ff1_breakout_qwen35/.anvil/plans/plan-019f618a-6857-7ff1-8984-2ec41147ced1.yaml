@@ -1,0 +1,37 @@
+goal: "Wire controls and data-anvil observability."
+steps:
+  - id: "inspect-workspace"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "setup-scripts"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "package.json"
+    verify:
+      - "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+      - "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false : true}) ? true : process.exit(1)\""
+      - "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+  - id: "implement-game"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Replace src/app/page.tsx with a complete block breaker game implementation. Use React hooks (useState, useRef, useEffect) and requestAnimationFrame for the game loop. Implement paddle movement via mouse and keyboard, ball physics, brick collision, score tracking, and lives. Define game states: start, playing, game-over, victory. Attach data-anvil-action='primary' to the main start button. Attach data-anvil-action='restart' to all restart affordances (game-over overlay, victory overlay, and in-play restart button). Add a data-anvil-state attribute to the main game container div that renders a JSON snapshot after each render containing { paddleX, score, gameState, lives }. Use Tailwind utility classes for styling. Ensure all components are imported and route-bound within this single page file.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Required setup scaffold artifacts by completion: package.json, tsconfig.json, postcss.config.js, exactly one tailwind.config.* file, src/app/layout.tsx, src/app/page.tsx, src/app/globals.css, src/app/global.d.ts. If those files are absent, write the coherent App Router scaffold before further inspection. Use tailwind.config.ts for new scaffolds unless exactly one existing Tailwind config is already being completed. src/app/globals.css must contain the @tailwind directives, and src/app/layout.tsx must import ./globals.css. If any layout imports CSS such as ./globals.css, src/app/global.d.ts must declare module \"*.css\". package.json must include compatible next, react, react-dom, @types/react, @types/react-dom, and TypeScript 5.x dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer."
+    expected_paths:
+      - "src/app/page.tsx"
+    verify:
+      - "node -e \"process.exit(require('fs').readFileSync('src/app/page.tsx','utf8').includes('data-anvil-state') ? 0 : 1)\""
+  - id: "verify-build"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run npm run build to verify the Next.js app compiles successfully with TypeScript, resolves all imports, and satisfies the App Router structure."
+    expected_paths:
+    verify:
+      - "npm run build"

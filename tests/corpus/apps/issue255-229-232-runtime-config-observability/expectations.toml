@@ -1,0 +1,47 @@
+case_id = "issue255-229-232-runtime-config-observability"
+source = "Issues #255, #229, and #232 preset inheritance, runtime migration, and trace contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["extends", "${ENV_NAME}", ".commandagent/runs", "prompt_body_saved", "provider_turn_duration"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/config.toml = [
+  "[preset.team_base]",
+  "base_url = \"${TEAM_LLM_URL}\"",
+  "[preset.developer]",
+  "extends = \"team_base\"",
+  "model = \"${DEVELOPER_MODEL}\""
+]
+fixtures/events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"events_path\":\".commandagent/runs/018f-observe/events.jsonl\"",
+  "\"event\":\"step_prompt_contract\"",
+  "\"prompt_body_saved\":true",
+  "\"event\":\"provider_turn_duration\"",
+  "\"caller_scope\":\"executor\""
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"step_prompt_contract\"",
+  "\"event\":\"provider_turn_duration\"",
+  "\"event\":\"run_stop\""
+]

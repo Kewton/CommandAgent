@@ -1,0 +1,438 @@
+//! Deterministic earned-edge checks for workflow circles.
+use super::schema::{Route, Verdict};
+use crate::config::Provider;
+use serde::Serialize;
+use std::fs;
+use std::path::Path;
+
+use crate::planner::failure_vocabulary::{StopClassId, TerminalReasonId};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeFailure {
+    pub edge: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeEvidence {
+    pub verdict: Verdict,
+    pub evidence: bool,
+    pub adjudicated: bool,
+    pub epoch: u64,
+    pub previous_epoch: u64,
+    pub carry_present: bool,
+}
+
+pub fn edge_earned(route: &Route, edge: &str, evidence: &EdgeEvidence) -> Result<(), EdgeFailure> {
+    if evidence.verdict != route.on {
+        return Err(fail(edge, "verdict"));
+    }
+    if !evidence.evidence || !evidence.adjudicated {
+        return Err(fail(edge, "evidence"));
+    }
+    if evidence.epoch <= evidence.previous_epoch {
+        return Err(fail(edge, "epoch"));
+    }
+    if !evidence.carry_present {
+        return Err(fail(edge, "carry"));
+    }
+    Ok(())
+}
+
+fn fail(edge: &str, reason: &str) -> EdgeFailure {
+    EdgeFailure {
+        edge: edge.into(),
+        reason: StopClassId::edge_not_earned(edge, reason).to_string(),
+    }
+}
+
+pub fn origin_recovery_yamls(origin: &Path) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    for plans_dir in [
+        crate::runtime_paths::plans_dir(origin),
+        crate::runtime_paths::legacy_workspace_dir(origin).join("plans"),
+    ] {
+        paths.extend(
+            fs::read_dir(plans_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    (entry.file_name().to_string_lossy().starts_with("recovery-")
+                        && path
+                            .extension()
+                            .is_some_and(|extension| extension == "yaml"))
+                    .then_some(path)
+                }),
+        );
+    }
+    paths.sort();
+    paths
+}
+
+pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
+    !origin_recovery_yamls(origin).is_empty()
+}
+
+pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    for runs in crate::runtime_paths::run_read_dirs(origin) {
+        if let Ok(entries) = fs::read_dir(runs) {
+            for entry in entries.flatten() {
+                let path = entry.path().join("events.jsonl");
+                if path.is_file() {
+                    candidates.push(path);
+                }
+            }
+        }
+    }
+    candidates.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
+    candidates.into_iter().rev().find(|p| {
+        fs::read_to_string(p)
+            .map(|s| {
+                s.lines().any(|l| {
+                    l.contains("\"event\":\"run_stop\"") && l.contains("\"status\":\"failed\"")
+                })
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Extracts the original, user-supplied goal from the persisted `run_start`
+/// action. Workflow routing must never replace an unavailable goal with a
+/// plausible placeholder: doing so would make the child run diagnose a task
+/// that the origin did not bind.
+pub fn derive_origin_goal(events: &Path) -> Result<String, String> {
+    let text = fs::read_to_string(events).map_err(|error| {
+        TerminalReasonId::origin_goal_underivable(error.to_string()).to_string()
+    })?;
+    for line in text.lines() {
+        let value: serde_json::Value = serde_json::from_str(line).map_err(|error| {
+            TerminalReasonId::origin_goal_underivable(error.to_string()).to_string()
+        })?;
+        if value["event"] != "run_start" {
+            continue;
+        }
+        let action = value["action"]
+            .as_str()
+            .ok_or_else(|| "origin_goal_underivable:run_start action missing".to_string())?;
+        return goal_from_debug_action(action);
+    }
+    Err("origin_goal_underivable:no run_start event".into())
+}
+
+fn goal_from_debug_action(action: &str) -> Result<String, String> {
+    const GOAL_ACTIONS: [&str; 5] = [
+        "Prompt",
+        "PlanSteps",
+        "PlanRun",
+        "UltraPlan",
+        "UltraPlanRun",
+    ];
+    for variant in GOAL_ACTIONS {
+        let Some(payload) = action
+            .strip_prefix(variant)
+            .and_then(|rest| rest.strip_prefix('('))
+            .and_then(|rest| rest.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let goal: String = serde_json::from_str(payload).map_err(|error| {
+            TerminalReasonId::origin_goal_underivable(format!("invalid action goal: {error}"))
+                .to_string()
+        })?;
+        if goal.trim().is_empty() {
+            return Err("origin_goal_underivable:empty action goal".into());
+        }
+        return Ok(goal);
+    }
+    Err("origin_goal_underivable:run_start action has no goal".into())
+}
+
+pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
+    match intent {
+        "investigate" => Some(format!(
+            "『{origin_goal}』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+        )),
+        "fix" => Some(format!(
+            "『{origin_goal}』の実行が失敗し、原因調査が完了しています。診断（output/diagnosis.md）と再現手順に基づき修正してください。修正後も既存の検証が通ることを確認してください。"
+        )),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "event")]
+pub enum WorkflowEvent {
+    #[serde(rename = "workflow_started")]
+    Started { epoch: u64 },
+    #[serde(rename = "workflow_edge_fired")]
+    EdgeFired { edge: String, checks: Vec<String> },
+    #[serde(rename = "workflow_node_completed")]
+    NodeCompleted { node: String },
+    #[serde(rename = "workflow_adjudicated")]
+    Adjudicated {
+        verdict: String,
+        reason: Option<String>,
+        epoch: u64,
+    },
+}
+
+pub fn circle_adjudication(
+    verify_origin_passed: bool,
+    reason: Option<String>,
+) -> (&'static str, Option<String>) {
+    if verify_origin_passed {
+        ("circle_full", None)
+    } else {
+        (
+            "circle_failed",
+            reason.or_else(|| Some("origin_verify_failed".into())),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginBinding {
+    pub check_id: String,
+    pub lineage: Option<String>,
+}
+
+/// Derives the origin contract set exclusively from persisted binding events.
+/// An empty or malformed set is an honest underivable result; callers must not
+/// substitute a smaller verification set.
+pub fn derive_origin_bindings(events: &Path) -> Result<Vec<OriginBinding>, String> {
+    let text = fs::read_to_string(events).map_err(|error| {
+        TerminalReasonId::origin_verify_underivable(error.to_string()).to_string()
+    })?;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let value: serde_json::Value = serde_json::from_str(line).map_err(|error| {
+            TerminalReasonId::origin_verify_underivable(error.to_string()).to_string()
+        })?;
+        if value["event"] == "verify_default_bound" {
+            let Some(checks) = value["bound_checks"].as_array() else {
+                return Err("origin_verify_underivable:bound_checks".into());
+            };
+            for check in checks {
+                let Some(id) = check.as_str() else {
+                    return Err("origin_verify_underivable:check_id".into());
+                };
+                out.push(OriginBinding {
+                    check_id: id.to_string(),
+                    lineage: value["lineage"].as_str().map(str::to_string),
+                });
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err("origin_verify_underivable:no verify_default_bound events".into());
+    }
+    Ok(out)
+}
+
+pub fn verify_origin<F>(bindings: &[OriginBinding], mut verify: F) -> Result<(), String>
+where
+    F: FnMut(&OriginBinding) -> bool,
+{
+    if bindings.is_empty() {
+        return Err("origin_verify_underivable:empty set".into());
+    }
+    if bindings.iter().all(&mut verify) {
+        Ok(())
+    } else {
+        Err("origin_verify_failed".into())
+    }
+}
+
+pub fn verify_origin_from_events<F>(events: &Path, verify: F) -> Result<(), String>
+where
+    F: FnMut(&OriginBinding) -> bool,
+{
+    let bindings = derive_origin_bindings(events)?;
+    verify_origin(&bindings, verify)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NodeRunRequest {
+    pub node: String,
+    pub intent: String,
+    pub profile: String,
+    pub goal: String,
+    pub origin: std::path::PathBuf,
+    pub reproducer: Option<crate::planner::external_reproducer::ExternalReproducerBinding>,
+    pub model: String,
+    pub provider: Provider,
+    pub planner_model: Option<String>,
+    pub planner_provider: Option<Provider>,
+    pub diagnosis: Option<String>,
+}
+
+/// Integration seam for the existing single-intent executor. The callback is
+/// the existing pipeline entry; this layer only supplies the derived request
+/// and records the workflow-facing events.
+pub(crate) fn execute_node<F>(
+    request: &NodeRunRequest,
+    events: &Path,
+    execute: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&NodeRunRequest) -> Result<(), String>,
+{
+    if !request.origin.is_dir() {
+        return Err("origin workspace is missing".into());
+    }
+    if let Some(parent) = events.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut started = serde_json::json!({
+        "event":"intent_resolved",
+        "intent":request.intent,
+        "workflow_node":request.node,
+        "profile":request.profile,
+        "model":request.model,
+        "provider":request.provider.as_str(),
+    });
+    super::node_pins::add_to_event(&mut started, request);
+    fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
+    execute(request)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn investigate_goal_requires_early_diagnosis_materialization() {
+        assert_eq!(
+            derive_goal("investigate", "起点goal").as_deref(),
+            Some(
+                "『起点goal』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+            )
+        );
+    }
+
+    #[test]
+    fn origin_goal_is_derived_from_the_archived_real_layout() {
+        let events = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "workspace/management/runs/uat-test0716-data-009/artifacts/\
+             data9_ts_qwen35_profile_002/.anvil/runs/\
+             019f6951-e16e-7fc0-84a9-86f7657258ba/events.jsonl",
+        );
+        assert_eq!(
+            derive_origin_goal(&events).unwrap(),
+            "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+        );
+    }
+
+    #[test]
+    fn origin_goal_does_not_fall_back_for_a_non_goal_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"event":"run_start","action":"Repl"}
+{"event":"run_stop","status":"failed"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            derive_origin_goal(&path).unwrap_err(),
+            "origin_goal_underivable:run_start action has no goal"
+        );
+    }
+
+    #[test]
+    fn requires_all_edge_conditions() {
+        let route = Route {
+            from: "a".into(),
+            on: Verdict::Full,
+            when: None,
+            to: "b".into(),
+            carry: vec![],
+        };
+        let e = EdgeEvidence {
+            verdict: Verdict::Full,
+            evidence: true,
+            adjudicated: true,
+            epoch: 2,
+            previous_epoch: 1,
+            carry_present: true,
+        };
+        assert!(edge_earned(&route, "a_to_b", &e).is_ok());
+        assert!(edge_earned(&route, "a_to_b", &EdgeEvidence { epoch: 1, ..e }).is_err());
+    }
+
+    #[test]
+    fn origin_bindings_are_derived_from_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"event":"verify_default_bound","bound_checks":["check-a"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            derive_origin_bindings(&path).unwrap()[0].check_id,
+            "check-a"
+        );
+    }
+
+    #[test]
+    fn missing_origin_bindings_fail_honestly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(&path, "{}").unwrap();
+        assert!(
+            derive_origin_bindings(&path)
+                .unwrap_err()
+                .contains("underivable")
+        );
+    }
+
+    #[test]
+    fn origin_verification_rejects_a_failed_member_without_shrinking() {
+        let bindings = vec![
+            OriginBinding {
+                check_id: "a".into(),
+                lineage: None,
+            },
+            OriginBinding {
+                check_id: "b".into(),
+                lineage: None,
+            },
+        ];
+        assert_eq!(
+            verify_origin(&bindings, |b| b.check_id == "a").unwrap_err(),
+            "origin_verify_failed"
+        );
+    }
+
+    #[test]
+    fn node_event_preserves_hyphenated_lm_studio_provider_identity() {
+        let origin = tempfile::tempdir().unwrap();
+        let events = origin.path().join("node-events.jsonl");
+        let request = NodeRunRequest {
+            node: "inspect".to_string(),
+            intent: "investigate".to_string(),
+            profile: "generic".to_string(),
+            goal: "Inspect the failure".to_string(),
+            origin: origin.path().to_path_buf(),
+            reproducer: None,
+            model: "qwen/test".to_string(),
+            provider: Provider::LmStudio,
+            planner_model: None,
+            planner_provider: None,
+            diagnosis: None,
+        };
+
+        execute_node(&request, &events, |_| Ok(())).unwrap();
+
+        let event: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(events).unwrap()).unwrap();
+        assert_eq!(event["provider"], "lm-studio");
+        assert!(event.get("planner_model").is_none());
+        assert!(event.get("planner_provider").is_none());
+    }
+}

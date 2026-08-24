@@ -1,0 +1,174 @@
+[metadata]
+id = "data"
+display_name = "Tabular Data Pipeline"
+schema_version = "v1"
+status = "admitted"
+
+[plan]
+profile = "data"
+style = "default"
+intent = "create"
+
+[plan.placeholders]
+goal = "{goal}"
+
+[[plan.phases]]
+id = "data-inspection"
+prompt = '''Inspect the workspace CSV or TSV input for: {goal}. Write output/inspection.json with column names, input row count, type summaries, distinct observed values for every categorical column, and sample rows. Always write output/inspection.json in this literal shape: {"column_names": ["recorded_at","category","metric"], "input_row_count": 3, "type_summaries": {"recorded_at":"string","category":"string","metric":"number"}, "distinct_values": {"category": ["alpha","beta"]}, "sample_rows": [{"recorded_at":"example-1","category":"alpha","metric":1}]}. The values shown are examples only: fill every field with actual observed values from the input data, and never copy the example values as fixed data. Derive later validation rules such as categorical values and field formats only from output/inspection.json observations; never invent an unobserved value set. Verify this phase without depending on pipeline/main.py, output/results.json, or output/report.md.'''
+
+[[plan.phases]]
+id = "data-cleaning"
+prompt = '''Implement deterministic cleaning in pipeline/main.py for: {goal}. Read only the inspected workspace data input, account for every excluded row by a non-empty reason, preserve raw input files, and use Python 3 standard-library csv/json/statistics only. Derive validation rules from output/inspection.json observations and never invent unobserved regions, date formats, or category sets.'''
+
+[[plan.phases]]
+id = "data-aggregation"
+prompt = '''Compute the requested aggregates for: {goal}. Write output/results.json exactly as: {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Store every numeric claim printed in output/report.md under values. Keep all calculation and reconciliation logic in pipeline/main.py.'''
+
+[[plan.phases]]
+id = "data-reporting"
+prompt = '''Generate the required output/report.md from output/results.json; output/report.html is an optional additional artifact. output/results.json must remain exactly: {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Store every numeric claim printed in the report under values and interpolate it from those values; never write an independent numeric literal in report prose.'''
+
+[[plan.phases]]
+id = "data-validation"
+prompt = "Run only the final-bound pipeline, results-schema, reconciliation, claims-binding, and rerun-consistency checks against the canonical artifacts. data_inspection_schema belongs only to data-inspection and must not be carried into final acceptance. Do not claim full assurance unless every final-bound E1-E4 check passes from observed artifacts."
+
+[step_templates.scaffold]
+phase = ["data inspection", "inspect data", "CSV", "TSV", "データ検分"]
+phase_id = ["data-inspection"]
+port_phase_markers = []
+port_script_phase = []
+
+[step_templates.build_verify]
+phase = ["data validation", "pipeline validation", "reconciliation", "claims binding", "rerun consistency", "検証"]
+
+[step_templates.implementation_kill]
+phase = ["cleaning", "aggregation", "reporting", "クリーニング", "集計", "レポート"]
+
+[step_templates.ownership.setup_classifier]
+package_phrases = ["pipeline/main.py", "output/results.json", "output/report.md"]
+package_tokens = ["pipeline", "results", "report"]
+scaffold_phrases = ["CSV", "TSV", "tabular data"]
+scaffold_tokens = ["data"]
+scaffold_setup_markers = ["inspect", "inspection"]
+scaffold_project_marker = "pipeline"
+scaffold_dependency_exclusion = "pip install"
+
+[step_templates.ownership.template_owned_artifacts]
+package_phrases = ["pipeline/main.py"]
+package_tokens = ["pipeline"]
+scaffold_phrases = ["output/inspection.json", "output/results.json", "output/report.md", "output/report.html", "data/"]
+scaffold_tokens = ["inspection", "results", "report"]
+package_manifest_names = []
+artifact_path_suffixes = ["pipeline/main.py", "output/inspection.json", "output/results.json", "output/report.md", "output/report.html"]
+artifact_path_contains = ["data/"]
+package_check_marker = "pipeline entry"
+scaffold_check_marker = "data output artifacts"
+
+[step_templates.artifacts]
+package_script_build = ""
+package_script_dev = ""
+package_script_start = ""
+required_hooks = []
+scaffold_files = ["pipeline/main.py", "output/inspection.json", "output/results.json", "output/report.md"]
+tailwind_config_rels = []
+tailwind_config = ""
+tailwind_config_cjs = ""
+package_json = ""
+tsconfig = ""
+postcss_config = ""
+tailwind_css = ""
+global_d_ts = ""
+layout_tsx = ""
+
+[artifacts]
+required = ["pipeline/main.py", "output/inspection.json", "output/results.json"]
+
+[[artifacts.groups]]
+id = "human-report"
+cardinality = "exactly_one_of"
+paths = ["output/report.md", "output/report.html"]
+preferred = "output/report.md"
+
+[vocabulary]
+source = "evidence_knowledge"
+sections = ["vocabulary", "goal_hints.translations"]
+
+[guidance.variants.generic]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.generic.messages]
+generic_interaction = "Build one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md."
+start_interaction = "The pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/dev/data-profile-contract.md section 8."
+
+[guidance.variants.results_contract]
+triggers = [{ condition = "check_failure", values = ["data_results_schema", "data_reconciliation", "data_claims_binding"] }]
+
+[guidance.variants.results_contract.messages]
+canvas_game_interaction = '''output/results.json must have exactly this shape: {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Every numeric claim printed in output/report.md must be stored under values.'''
+canvas_render_loop_checklist = "Reconcile input rows to used rows plus reasoned exclusions before reporting, and regenerate output/results.json rather than weakening a bound check."
+
+[guidance.variants.inspection]
+triggers = [{ condition = "check_failure", values = ["data_inspection_schema"] }]
+
+[guidance.variants.inspection.messages]
+canvas_input_wiring_checklist = '''When data_inspection_schema fails, write output/inspection.json in this literal shape: {"column_names": ["recorded_at","category","metric"], "input_row_count": 3, "type_summaries": {"recorded_at":"string","category":"string","metric":"number"}, "distinct_values": {"category": ["alpha","beta"]}, "sample_rows": [{"recorded_at":"example-1","category":"alpha","metric":1}]}. The values shown are examples only: fill every field with actual observed values from the input data, and never copy the example values as fixed data. Derive validation rules only from output/inspection.json observations. Never invent valid categorical values, field formats, or category sets that are absent from the inspected data. Inspection verification may read only the input data and output/inspection.json, not later-phase artifacts.'''
+
+[guidance.variants.reproducibility]
+triggers = [{ condition = "check_failure", values = ["data_rerun_consistency"] }]
+
+[guidance.variants.reproducibility.messages]
+persistence = "A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results."
+
+[guidance.variants.hidden_path]
+triggers = [{ condition = "hidden_path", values = ["data/"] }]
+
+[guidance.variants.hidden_path.messages]
+continuation = "data/ の入力から作業を続け、output/inspection.json を作成せよ"
+
+[guidance.variants.contracts]
+triggers = [{ condition = "failure_kind_prefix", values = ["data_contract_evidence_missing", "data_claims_binding"] }]
+
+[guidance.variants.contracts.messages]
+state_binding_contract = "output/results.json is the sole machine-readable source for report numeric claims."
+input_coupled_dimension_requirement = "input_rows must equal used_rows plus the sum of excluded rows."
+contract_attribute_missing_kind = "data_contract_evidence_missing"
+contract_attribute_guidance = '''Repair pipeline/main.py and regenerate output/results.json exactly as {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Every numeric claim printed in output/report.md must be present under values. For a claims-binding nearest_miss, report each violation as: "Report claim <claim> has no corresponding results.json value. Nearest candidate <key>=<value>; absolute difference=<difference>." Then export every report numeric claim under an explicit values key, for example regional_名古屋. Never weaken or replace the manifest-bound evidence checks.'''
+state_requirement = '''Write output/results.json exactly as {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}} and store every numeric report claim under values.'''
+restart_requirement = "Rerun the same pipeline entry for reproducibility evidence."
+input_requirement = "Read a single workspace CSV or TSV input with Python standard-library modules."
+primary_requirement = "Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition."
+state_example = "{\"reconciliation\":{\"input_rows\":3,\"used_rows\":2,\"excluded\":[{\"reason\":\"missing amount\",\"rows\":1}]},\"values\":{\"total\":12.5}}"
+restart_example = "rerun the manifest-bound pipeline entry"
+input_example = "input/source.csv"
+primary_example = "pipeline/main.py"
+
+# The inspection phase prompt declares the five required fields; this bound
+# catalog adapter is the executable validation of that declaration.
+[[checks.inspection]]
+id = "data_inspection_schema"
+phases = ["data-inspection"]
+
+# `phases` is intentionally omitted from every E1-E4 binding below: omitted
+# scope means final acceptance, including a dynamically named last phase.
+[[checks.execution]]
+id = "pipeline_probe"
+params = { entry = "pipeline/main.py", timeout_seconds = 30 }
+
+[[checks.evidence]]
+id = "data_results_schema"
+
+[[checks.evidence]]
+id = "data_reconciliation"
+
+[[checks.evidence]]
+id = "data_claims_binding"
+
+[[checks.reproducibility]]
+id = "data_rerun_consistency"
+params = { entry = "pipeline/main.py", timeout_seconds = 30 }
+
+[evidence_targets.mappings]
+results_schema = ["pipeline/main.py"]
+reconciliation = ["pipeline/main.py"]
+claims_binding = ["pipeline/main.py"]
+rerun_consistency = ["pipeline/main.py"]

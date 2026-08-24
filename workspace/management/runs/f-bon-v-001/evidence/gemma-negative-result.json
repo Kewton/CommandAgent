@@ -1,0 +1,166 @@
+{
+  "schema_version": "commandagent.bon-negative-result/v0",
+  "recorded_at": "2026-08-04T09:57:34+09:00",
+  "campaign_id": "cli-gemma-negative-bon-20260803-231053",
+  "campaign_label": "bon-neg-001",
+  "valid_measurement": true,
+  "source": {
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_neg_001",
+    "uat_meta_sha256": "e988addc8fdf90940f07a5e0bc6f5a09e7f6920cc0f2082c12e16ca1e0a2ed42"
+  },
+  "preflight": {
+    "execution_revision": "26d1db81fb4f1c3e7aaf623fc20bf36985d9b959",
+    "suite_sha256": "ee2a04d77324830d62f70b073bb8ebe205e2a823d432cee55d0b9e0bf83ea2b8",
+    "binary_sha256_built": "ad191bb86baade66e35da05e02a9c820810dfbd8079bff25f9cf96e7c5afdf6b",
+    "binary_sha256_installed": "ad191bb86baade66e35da05e02a9c820810dfbd8079bff25f9cf96e7c5afdf6b",
+    "binary_pin_matches": true,
+    "predeclaration_sha256": "9c8ea6381c4fd3ac4b3e2ba08233b3661d3d1575904971731eca36197975ccfa",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0
+  },
+  "predeclared_prediction": {
+    "baseline_full_count": 0,
+    "baseline_trial_count": 6,
+    "wilson_95": [
+      2.7755575615628914e-17,
+      0.3903342879021653
+    ],
+    "beta_binomial_probability_zero_full": 0.7144960345643939,
+    "beta_binomial_probability_at_least_one_full": 0.2855039654356061,
+    "beta_binomial_expected_full_count": 0.42857142857142855,
+    "beta_binomial_95_band": [
+      0,
+      2
+    ]
+  },
+  "observed": {
+    "runs": 6,
+    "full_count": 0,
+    "full_distribution": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "duration_seconds_total": 4878,
+    "product_exit_nonzero": 6,
+    "scrub_green": 6,
+    "environment_interruptions": 0,
+    "harness_retries": 0,
+    "final_acceptance_status_counts": {
+      "not_checked": 5,
+      "incomplete": 1
+    },
+    "assurance_level_counts": {
+      "static": 5,
+      "failed": 1
+    }
+  },
+  "identity_and_diversity": {
+    "executor": "gemma4:31b-cloud / ollama",
+    "executor_matches": 6,
+    "planner": "qwen3.6:27b-coding-nvfp4 / ollama",
+    "workspace_mode": "empty",
+    "independent_workspaces": 6,
+    "seed_values_recorded": 0,
+    "temperature_values_recorded": 0,
+    "sampling_policy": "no fixed seed or temperature is supplied by the suite; provider defaults apply per request",
+    "sampling_limitation": "Ollama provider-turn events do not expose effective seed or temperature",
+    "product_tree_hashes_distinct": 6,
+    "stats_tree_hashes_distinct": 3,
+    "filter_tree_hashes_distinct": 3,
+    "interpretation": "artifact-level variation is observed within each goal, but all variants remain acceptance failures"
+  },
+  "runs": [
+    {
+      "name": "stats_gemma_neg_001",
+      "goal": "stats",
+      "duration_seconds": 1712,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "failure_kind": "process_failure",
+      "executor_turns": 19,
+      "product_tree_sha256": "2c54b7bfda0cbb8932e6bade57eba7e23f6e64af0d4bff7f16a3d7ce8edbdf2a"
+    },
+    {
+      "name": "stats_gemma_neg_002",
+      "goal": "stats",
+      "duration_seconds": 376,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "failure_kind": "process_failure",
+      "executor_turns": 7,
+      "product_tree_sha256": "f3ee1c170d9867a0411cafa30007ed31d423e67609dad54a72dc2233aa72e40d"
+    },
+    {
+      "name": "stats_gemma_neg_003",
+      "goal": "stats",
+      "duration_seconds": 361,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "failure_kind": "process_failure",
+      "executor_turns": 10,
+      "product_tree_sha256": "1445ca752df6a19c8f1a53a94960002faf69c3f122d4475bd3343b462a4de1cc"
+    },
+    {
+      "name": "filter_gemma_neg_001",
+      "goal": "filter",
+      "duration_seconds": 791,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "failure_kind": "process_failure",
+      "executor_turns": 14,
+      "product_tree_sha256": "4ed91eb63835ec363826e98fa468bfdb1422aad96c5a063156bdca54eab2d938"
+    },
+    {
+      "name": "filter_gemma_neg_002",
+      "goal": "filter",
+      "duration_seconds": 1186,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "incomplete",
+      "assurance_level": "failed",
+      "failure_kind": "process_failure",
+      "executor_turns": 15,
+      "product_tree_sha256": "4caf060182800317006d92225951517ab589ad03c9f2b64b658083a442dd8b16"
+    },
+    {
+      "name": "filter_gemma_neg_003",
+      "goal": "filter",
+      "duration_seconds": 452,
+      "product_exit": 1,
+      "scrub_ok": true,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "failure_kind": "process_failure",
+      "executor_turns": 8,
+      "product_tree_sha256": "4484c7404b907147e6432a5f4e84295cd287d013c4c136af859af33e415fe2b5"
+    }
+  ],
+  "cross_check": {
+    "observed_within_predeclared_95_band": true,
+    "observed_is_predeclared_modal_count": true,
+    "historical_plus_new_full_count": 0,
+    "historical_plus_new_trial_count": 12,
+    "pooled_wilson_95": [
+      2.7755575615628914e-17,
+      0.24249400665524085
+    ],
+    "next_n6_beta_binomial_probability_at_least_one_full": 0.18066516720871006,
+    "next_n6_beta_binomial_95_band": [
+      0,
+      1
+    ],
+    "decision": "supports_persistence_but_does_not_prove_population_probability_zero"
+  }
+}

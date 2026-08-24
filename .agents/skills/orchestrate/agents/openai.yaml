@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Orchestrate"
+  short_description: "Orchestrate Issues through guarded merge by default"
+  default_prompt: "Use $orchestrate to schedule bounded Issue batches through verified implementation, draft PR, CI, evidence-backed UAT, and guarded merge unless I specify an earlier stopping point."
+policy:
+  allow_implicit_invocation: false

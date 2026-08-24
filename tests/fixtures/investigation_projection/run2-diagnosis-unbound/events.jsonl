@@ -1,0 +1,1 @@
+{"assurance_level":"failed","assurance_reason":"diagnosis_unbound","event":"investigation_adjudicated","evidence_paths":["evidence/investigation-run.json","evidence/investigation-binding.json"],"profile":"data","schema_version":"1"}

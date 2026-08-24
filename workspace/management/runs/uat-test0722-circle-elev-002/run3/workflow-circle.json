@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "workflow": "recovery-circle-data-elevated",
+  "origin": {
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3",
+    "run_id": "019f65f7-b518-7241-b015-9a0e7272c241",
+    "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/runs/019f65f7-b518-7241-b015-9a0e7272c241/events.jsonl",
+    "recovery_yaml_paths": [
+      "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/plans/recovery-ultra-plan-phase-load-and-inspect-data-019f6602-718c-74c3-ab04-f057f28a6b41.yaml"
+    ],
+    "goal": "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+  },
+  "reproducer_suggestion": {
+    "status": "bound",
+    "attempts": [
+      {
+        "basis": "origin_workspace:pipeline_probe",
+        "command": "python3 -B pipeline/main.py",
+        "lineage": "reproducer:d6587ef46e829187",
+        "outcome": "success",
+        "subject_failure": true,
+        "reason": "command_succeeded"
+      },
+      {
+        "basis": "origin_verify_binding:anvil-catalog-check:data_inspection_schema",
+        "command": "anvil-catalog-check:data_inspection_schema",
+        "lineage": "reproducer:33eefa99a5d98b68",
+        "outcome": "failure",
+        "subject_failure": true,
+        "reason": "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values"
+      }
+    ],
+    "bound": {
+      "basis": "origin_verify_binding:anvil-catalog-check:data_inspection_schema",
+      "command": "anvil-catalog-check:data_inspection_schema",
+      "lineage": "reproducer:33eefa99a5d98b68"
+    }
+  },
+  "edges": [
+    {
+      "edge": "create->investigate",
+      "fired": true,
+      "checks": {
+        "E-A": {
+          "passed": true,
+          "detail": "origin selector verified failed run_stop in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/runs/019f65f7-b518-7241-b015-9a0e7272c241/events.jsonl"
+        },
+        "E-B": {
+          "passed": true,
+          "detail": "source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/runs/019f65f7-b518-7241-b015-9a0e7272c241/events.jsonl"
+        },
+        "E-C": {
+          "passed": true,
+          "detail": "source is in the sequential route history; target run is allocated only after firing"
+        },
+        "E-D": {
+          "passed": true,
+          "detail": "declared carries present: [Workspace, RecoveryYaml, ReproducerSuggestion]"
+        }
+      }
+    }
+  ],
+  "nodes": {
+    "investigate": {
+      "intent": "investigate",
+      "run_id": "019f8a26-64cb-7a91-9f28-8faf000f7a25",
+      "run_dir": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/runs/019f8a26-64cb-7a91-9f28-8faf000f7a25",
+      "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev002_origin_3/.anvil/runs/019f8a26-64cb-7a91-9f28-8faf000f7a25/events.jsonl"
+    }
+  },
+  "verdict": "circle_failed",
+  "reason": "node_failed:investigate"
+}

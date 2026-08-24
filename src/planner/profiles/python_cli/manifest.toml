@@ -1,0 +1,124 @@
+[metadata]
+id = "python-cli"
+display_name = "Python CLI"
+schema_version = "v1"
+status = "admitted"
+
+[plan]
+profile = "python-cli"
+style = "default"
+intent = "create"
+
+[plan.placeholders]
+goal = "{goal}"
+
+[[plan.phases]]
+id = "cli-scaffold"
+prompt = "Create pyproject.toml, exactly one src/<package>/main.py entrypoint, and one README or usage document for: {goal}. Derive <package> from an explicit requested Python filename (for example greet.py becomes src/greet/main.py); otherwise preserve the existing project identity or use src/app/main.py. Do not create a second default package. Put the representative python3 invocation of the actual entrypoint and its expected stdout in one fenced example before validation. The first invocation must use concrete arguments from bundled sample data, for example `python3 src/app/main.py data/sample.csv --column amount`; replace the entrypoint and example values with the actual package, sample path, and field or pattern. Do not use `<...>` placeholder notation such as `<CSV_FILE>` or `<COLUMN>` there because an unresolved placeholder cannot be frozen as executable argv."
+
+[[plan.phases]]
+id = "cli-implementation"
+prompt = "Implement the requested deterministic Python 3 CLI in the single goal-derived src/<package>/main.py entrypoint for: {goal}. Use argparse or an equivalent standard parser, return zero for the documented normal invocation, and reject invalid options with a non-zero unrecognized-option error."
+
+[[plan.phases]]
+id = "cli-validation"
+prompt = "Run the manifest-bound C1 cli probe, C2 help binding, C3 output-claim binding, and C4 rerun consistency checks. Do not shrink or replace the frozen usage-derived case set."
+
+[step_templates.scaffold]
+phase = ["CLI scaffold", "README", "usage"]
+phase_id = ["cli-scaffold"]
+port_phase_markers = []
+port_script_phase = []
+
+[step_templates.build_verify]
+phase = ["CLI validation", "help binding", "rerun consistency"]
+
+[step_templates.implementation_kill]
+phase = ["CLI implementation", "argparse", "deterministic output"]
+
+[step_templates.ownership.setup_classifier]
+package_phrases = ["pyproject.toml", "src/<package>/main.py"]
+package_tokens = ["pyproject", "package"]
+scaffold_phrases = ["README", "usage"]
+scaffold_tokens = ["usage"]
+scaffold_setup_markers = ["scaffold"]
+scaffold_project_marker = "python-cli"
+scaffold_dependency_exclusion = "pip install"
+
+[step_templates.ownership.template_owned_artifacts]
+package_phrases = ["pyproject.toml", "src/<package>/main.py"]
+package_tokens = ["pyproject", "package"]
+scaffold_phrases = ["README.md", "USAGE.md"]
+scaffold_tokens = ["usage"]
+package_manifest_names = ["pyproject.toml"]
+artifact_path_suffixes = ["/main.py", "README.md", "USAGE.md"]
+artifact_path_contains = []
+package_check_marker = "CLI entry"
+scaffold_check_marker = "CLI usage example"
+
+[step_templates.artifacts]
+package_script_build = ""
+package_script_dev = ""
+package_script_start = ""
+required_hooks = []
+scaffold_files = ["pyproject.toml", "README.md"]
+tailwind_config_rels = []
+tailwind_config = ""
+tailwind_config_cjs = ""
+package_json = ""
+tsconfig = ""
+postcss_config = ""
+tailwind_css = ""
+global_d_ts = ""
+layout_tsx = ""
+
+[artifacts]
+required = ["pyproject.toml"]
+
+[[artifacts.groups]]
+id = "usage-document"
+cardinality = "exactly_one_of"
+paths = ["README.md", "USAGE.md"]
+preferred = "README.md"
+
+[vocabulary]
+source = "evidence_knowledge"
+sections = ["vocabulary", "goal_hints.translations"]
+
+[guidance.variants.generation]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.generation.messages]
+determinism = "The CLI must not depend on time, randomness, or network state; the same bound argv must reproduce exit code, stdout, and stderr."
+parser = "Derive --help from argparse or an equivalent standard parser so help text and accepted options share one runtime implementation."
+package_identity = "Create exactly one src/<package>/main.py entrypoint. Derive <package> from an explicit requested .py filename, preserve an existing project identity when present, or use app; never create a second fallback package."
+concrete_usage = "Write the first README usage as an executable concrete sample command using the actual goal-derived entrypoint, for example `python3 src/app/main.py data/sample.csv --column amount`, using the actual bundled sample path and a real field or pattern. A `<...>` placeholder form is not bindable executable argv."
+
+[guidance.variants.contract]
+triggers = [{ condition = "check_failure", values = ["cli_probe", "help_binding", "cli_output_claims", "cli_rerun_consistency"] }]
+
+[guidance.variants.contract.messages]
+binding = "The normal case is the first safe Python invocation mechanically extracted from README.md then USAGE.md; it must contain concrete bundled-sample arguments such as `python3 cli/main.py data/sample.csv --column amount`, not `<...>` placeholders. The invalid case is always --anvil-invalid-probe. Frozen cases may not be replaced."
+claims = "Every stdout line shown after the bound usage command must occur in the observed normal stdout."
+
+[[checks.c1]]
+id = "cli_probe"
+params = { entry = "cli/main.py", usage_paths = ["README.md", "USAGE.md"], timeout_seconds = 5 }
+
+[[checks.c2]]
+id = "help_binding"
+params = { entry = "cli/main.py", usage_paths = ["README.md", "USAGE.md"], timeout_seconds = 5 }
+
+[[checks.c3]]
+id = "cli_output_claims"
+params = { entry = "cli/main.py", usage_paths = ["README.md", "USAGE.md"], timeout_seconds = 5 }
+
+[[checks.c4]]
+id = "cli_rerun_consistency"
+params = { entry = "cli/main.py", usage_paths = ["README.md", "USAGE.md"], timeout_seconds = 5 }
+
+[evidence_targets.mappings]
+cli_probe = ["cli/main.py", "README.md", "USAGE.md"]
+help_binding = ["cli/main.py"]
+cli_output_claims = ["cli/main.py", "README.md", "USAGE.md"]
+cli_rerun_consistency = ["cli/main.py"]

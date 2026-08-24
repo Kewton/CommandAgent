@@ -1,0 +1,994 @@
+{
+  "schema_version": "1",
+  "harness_version": "0.1",
+  "campaign_id": "dfix-synthesis-20260721-074830",
+  "mode": "run",
+  "repository_root": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "suite": {
+    "id": "dfix-synthesis",
+    "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/bench/suites/dfix-synthesis.toml",
+    "sha256": "e0218d24e4c475d0f9cac644180ea1e19015f97a456e1c62fdce63c79169878f",
+    "profile": "data",
+    "intent": "fix",
+    "plan_preset": "default",
+    "context_budget": 65536,
+    "planner_model": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider": "ollama",
+    "provider": "ollama",
+    "min_head": "56d247f",
+    "scrub_allow": []
+  },
+  "preflight": {
+    "started_epoch": 1784620524,
+    "git_status": {
+      "command_argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "command": "git status --porcelain --untracked-files=all",
+      "start_epoch": 1784620524,
+      "end_epoch": 1784620524,
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "dirty_entries": 0,
+      "self_output_entries_allowed": 0,
+      "unexpected_dirty_entries": []
+    },
+    "head": {
+      "command_argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "command": "git rev-parse HEAD",
+      "start_epoch": 1784620524,
+      "end_epoch": 1784620524,
+      "exit_code": 0,
+      "stdout_tail": "4127673704a00b3a8d2ffef897deb4aa463cd704\n",
+      "stderr_tail": ""
+    },
+    "head_sha": "4127673704a00b3a8d2ffef897deb4aa463cd704",
+    "head_log": {
+      "command_argv": [
+        "git",
+        "log",
+        "-1",
+        "--oneline"
+      ],
+      "command": "git log -1 --oneline",
+      "start_epoch": 1784620524,
+      "end_epoch": 1784620524,
+      "exit_code": 0,
+      "stdout_tail": "4127673 Update step2 acceptance diagnosis\n",
+      "stderr_tail": ""
+    },
+    "min_head": "56d247f",
+    "ancestor": {
+      "command_argv": [
+        "git",
+        "merge-base",
+        "--is-ancestor",
+        "56d247f",
+        "HEAD"
+      ],
+      "command": "git merge-base --is-ancestor 56d247f HEAD",
+      "start_epoch": 1784620524,
+      "end_epoch": 1784620524,
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    "cargo_test": {
+      "command_argv": [
+        "cargo",
+        "test"
+      ],
+      "command": "cargo test",
+      "start_epoch": 1784620524,
+      "end_epoch": 1784620616,
+      "exit_code": 0,
+      "stdout_tail": "ptance_enforces ... ok\ntest planner::runner::tests::plan_run_nextjs_game_setup_only_fails_inferred_obligation ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_emits_plan_validated_event ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_execute_failure_saves_complete_recovery_yaml_in_stop_reason ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_failure_stop_reason_and_summary_use_relative_recovery_paths ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_final_acceptance_repair_failure_saves_recovery_handoff ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_prompt_elides_unmet_requirements_and_adherence_sections ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_prompt_derives_interactive_capability_evidence_from_goal_and_phase ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_prompt_renders_missing_plan_adherence_guidance ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_profile_snapshot_runs_before_and_after_phase ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_recovery_handoff_renders_observed_missing_evidence_keys ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_non_final_contract_observation_carries_forward_and_final_phase_can_satisfy ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_step_prompt_requires_short_goal ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_summary_notes_missing_browser_evidence_when_probe_available_unexercised ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_prompt_prefix_covers_profile_contract_before_phase_fields ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_generation_normalizes_metadata ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_generation_rejects_tool_calls ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_generation_retries_invalid_output ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_scaffold_failure_saves_recovery_yaml_and_incomplete_handoff ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_observe_no_edit_contract_repair_starts_next_phase ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_planner_provider_error_names_terminal_reason ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_prompt_does_not_bake_in_game_scenario_terms ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_prompt_includes_source_parity_rules ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_phase_recovery_handoff_uses_contract_error_observations ... ok\ntest planner::runner::tests::assurance_tests::moved::fake_interaction_probe_success_passes_release_gate ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_generation_retries_transient_provider_request_error ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_run_proceeds_when_step_planner_echoes_phase_prompt_into_goal ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_run_setup_authority_falls_back_for_later_verify_and_contract_steps ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::verify_lint_rejection_flows_to_retry_event_and_repair_document ... ok\ntest planner::runner::tests::step_verify_api_mismatch_prompt_and_poll_fix_passes_build ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_python_cli_profile_runs_compile_repair_and_behavior_probe ... ok\ntest planner::runner::tests::verify_policy_error_gets_corrective_retry ... ok\ntest planner::runner::tests::verify_step_short_circuits_when_expected_path_and_verify_already_pass ... ok\ntest planner::sanitizer::tests::goal_truncation_is_idempotent ... ok\ntest planner::sanitizer::tests::sanitizer_does_not_alter_valid_plan ... ok\ntest planner::sanitizer::tests::sanitizer_drops_ambiguous_side_effect_only_when_goal_omits_token ... ok\ntest planner::sanitizer::tests::sanitizer_drops_python_side_effect_expected_paths ... ok\ntest planner::sanitizer::tests::sanitizer_drops_unambiguous_side_effect_expected_paths_before_lint ... ok\ntest planner::sanitizer::tests::sanitizer_goal_truncation_handles_japanese_boundary ... ok\ntest planner::sanitizer::tests::sanitizer_guarantees_goal_length_lint_cannot_fire ... ok\ntest planner::sanitizer::tests::sanitizer_is_idempotent ... ok\ntest planner::sanitizer::tests::sanitizer_keeps_browser_readiness_note_before_long_profile_contract ... ok\ntest planner::sanitizer::tests::sanitizer_leaves_short_goal_byte_identical ... ok\ntest planner::sanitizer::tests::sanitizer_moves_dependency_verify_after_setup_boundary ... ok\ntest planner::sanitizer::tests::sanitizer_normalizes_absolute_cd_stderr_and_exit_code_echo ... ok\ntest planner::sanitizer::tests::sanitizer_normalizes_grep_dash_pattern_and_lint_passes_idempotently ... ok\ntest planner::sanitizer::tests::sanitizer_prefers_json_parser_for_recognizable_package_script_grep ... ok\ntest planner::sanitizer::tests::sanitizer_rechecks_split_fragments_with_existing_policy_rules ... ok\ntest planner::runner::tests::verifier_command_false_negative_does_not_start_implementation_repair_turn ... ok\ntest planner::sanitizer::tests::sanitizer_rejects_non_output_limiter_pipes ... ok\ntest planner::sanitizer::tests::sanitizer_relocates_build_verify_from_setup_to_last_non_setup_step ... ok\ntest planner::sanitizer::tests::sanitizer_removes_setup_and_dev_server_verify_and_retypes_manifest_step ... ok\ntest planner::sanitizer::tests::sanitizer_strips_output_truncation_pipe_after_leading_cd ... ok\ntest planner::sanitizer::tests::sanitizer_truncates_echoed_phase_prompt_goal_before_lint ... ok\ntest planner::sanitizer::tests::sanitizer_splits_shell_control_verify_commands_and_drops_fallback_tail ... ok\ntest planner::sanitizer::tests::side_effect_expected_path_sanitization_is_idempotent_and_keeps_locks ... ok\ntest planner::sanitizer::tests::sanitizer_truncates_overlong_instruction_at_multibyte_boundary ... ok\ntest planner::setup_step_policy::preset_conversion::tests::data_inspection_invention_is_canonicalized_then_converted ... ok\ntest planner::setup_step_policy::preset_conversion::tests::data_reporting_step_is_canonicalized_without_verify_conversion ... ok\ntest planner::setup_step_policy::preset_conversion::tests::preset_game_logic_implement_step_is_not_converted ... ok\ntest planner::setup_step_policy::preset_conversion::tests::preset_implementation_setup_is_converted_and_emitted ... ok\ntest planner::setup_step_policy::preset_conversion::tests::preset_implementation_port_step_is_converted_independent_of_kind ... ok\ntest planner::setup_step_policy::tests::active_profile_manifest_drives_template_owned_artifact_tokens ... ok\ntest planner::setup_step_policy::tests::dependency_setup_without_known_profile_checks_keeps_original_runtime_step ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_final_acceptance_report_records_browser_probe_failure ... ok\ntest planner::setup_step_policy::preset_conversion::tests::setup_step_with_non_template_path_is_not_converted ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_final_profile_failure_runs_repair ... ok\ntest planner::setup_step_policy::tests::nextjs_manifest_token_sets_are_byte_compatible_with_legacy_knowledge ... ok\ntest planner::setup_step_policy::tests::setup_classification_uses_step_id_tokens ... ok\ntest planner::setup_step_policy::tests::empty_verify_implement_port_step_synthesizes_passing_profile_precheck ... ok\ntest planner::setup_step_policy::tests::template_owned_artifact_predicate_uses_every_step_field_conservatively ... ok\ntest planner::setup_step_policy::tests::template_owned_prompt_feedback_rejects_mixed_final_acceptance_scope ... ok\ntest planner::side_effect_paths::tests::ambiguous_blocked_path_reports_policy_conflict_when_goal_mentions_it ... ok\ntest planner::side_effect_paths::tests::ambiguous_paths_drop_only_without_goal_token ... ok\ntest planner::side_effect_paths::tests::unambiguous_paths_are_always_drop_candidates ... ok\ntest planner::signals::tests::bilingual_tokens_cover_japanese_goal_gates ... ok\ntest planner::setup_step_policy::tests::empty_verify_setup_scripts_synthesizes_passing_profile_precheck ... ok\ntest planner::signals::tests::requested_port_rejects_out_of_range_ports ... ok\ntest planner::source_assertion::tests::contract_hook_grep_is_not_source_detail_assertion ... ok\ntest planner::source_assertion::tests::keydown_source_detail_grep_rewrites_to_equivalent_set ... ok\ntest planner::source_assertion::tests::package_and_docs_greps_are_not_source_detail_assertions ... ok\ntest planner::state_binding_scan::tests::class_component_is_undeterminable ... ok\ntest planner::state_binding_scan::tests::embedded_contract_knowledge_keeps_input_dimension_requirement ... ok\ntest planner::state_binding_scan::tests::final_acceptance_feedback_requires_interaction_state_trigger ... ok\ntest planner::state_binding_scan::tests::input_coupled_position_state_in_snapshot_is_reactive_ok ... ok\ntest planner::signals::tests::requested_port_extracts_supported_forms_in_text_order ... ok\ntest planner::state_binding_scan::tests::no_expression_feedback_includes_contract_attribute_guidance ... ok\ntest planner::state_binding_scan::tests::referenced_identifier_scan_handles_adjacent_japanese_text ... ok\ntest planner::state_binding_scan::tests::route_entry_is_diagnosed_before_layout_for_no_expression ... ok\ntest planner::state_binding_scan::tests::static_app_without_input_does_not_emit_input_coupled_diagnosis ... ok\ntest planner::state_binding_scan::tests::undeterminable_feedback_includes_neutral_facts_and_reason_event ... ok\ntest planner::state_binding_scan::tests::use_ref_raf_loop_without_set_state_is_state_bound_to_ref ... ok\ntest planner::state_binding_scan::tests::use_state_binding_without_setter_call_is_setter_never_called ... ok\ntest planner::setup_step_policy::tests::setup_scripts_with_missing_port_does_not_pass_profile_precheck ... ok\ntest planner::state_binding_scan::tests::use_state_generic_declarations_are_captured ... ok\ntest planner::state_binding_scan::tests::use_state_handler_setter_call_is_state_reactive_ok ... ok\ntest planner::step_plan::tests::extract_step_plan_json_from_fenced_or_prefixed_text ... ok\ntest planner::step_plan::tests::fix8_duplicate_pipeline_path_is_owned_by_implement_step ... ok\ntest planner::step_plan::tests::generated_plan_repair_leaves_unsafe_shell_verify_for_lint_rejection ... ok\ntest planner::step_plan::tests::generated_plan_repair_normalizes_verify_instruction_without_paths ... ok\ntest planner::step_plan::tests::generated_plan_repair_prefers_implement_owner_for_source_paths ... ok\ntest planner::step_plan::tests::generated_plan_repair_sanitizes_common_verify_policy_issues ... ok\ntest planner::step_plan::tests::generated_step_plan_defaults_missing_expected_result ... ok\ntest planner::step_plan::tests::generated_step_plan_normalizes_numeric_id_and_prose_expected_result ... ok\ntest planner::step_plan::tests::generated_step_plan_normalizes_string_lists ... ok\ntest planner::step_plan::tests::generated_step_plan_preserves_original_goal ... ok\ntest planner::step_plan::tests::generated_step_plan_rejects_missing_goal_or_steps ... ok\ntest planner::step_plan::tests::generated_step_plan_rejects_unsafe_expected_paths ... ok\ntest planner::step_plan::tests::legacy_step_plan_defaults_kind_and_expected_result ... ok\ntest planner::step_plan::tests::missing_goal_can_be_repaired_from_user_goal_when_steps_exist ... ok\ntest planner::step_plan::tests::missing_steps_is_not_auto_repaired ... ok\ntest planner::step_plan::tests::parse_step_plan_json ... ok\ntest planner::step_plan::tests::step_plan_parses_typed_kind_and_expected_result ... ok\ntest planner::step_plan::tests::yaml_round_trip ... ok\ntest planner::ultra_plan::tests::fenced_yaml_is_supported ... ok\ntest planner::ultra_plan::tests::ultra_yaml_round_trip ... ok\ntest planner::ultra_plan::tests::ultra_yaml_round_trip_preserves_escaped_and_multiline_prompts ... ok\ntest planner::ultra_preset::tests::explicit_fix_selects_contract_shaped_plan_without_goal_detection ... ok\ntest planner::ultra_preset::tests::explicit_none_remains_cli_sourced_for_qwen27 ... ok\ntest planner::ultra_preset::tests::explicit_profile_enables_qwen27_profile_preset ... ok\ntest planner::ultra_preset::tests::gemma_tier_does_not_use_profile_preset_or_emit_event ... ok\ntest planner::ultra_preset::tests::qwen27_tier_does_not_use_profile_preset_without_flag ... ok\ntest planner::verify::shell_control::tests::controls_inside_quotes_are_literal_but_substitutions_remain_active ... ok\ntest planner::verify::shell_control::tests::every_unquoted_control_family_remains_detected ... ok\ntest planner::verify::shell_control::tests::measured_run6_python_payload_is_one_control_free_command ... ok\ntest planner::verify::shell_control::tests::sh_escapes_prevent_operator_interpretation ... ok\ntest planner::verify::shell_rewrite::tests::file_writing_redirects_remain_rejected ... ok\ntest planner::state_binding_scan::tests::write_required_feedback_uses_same_interaction_trigger ... ok\ntest planner::verify::shell_rewrite::tests::measured_cd_and_pipe_rejection_reaches_runtime_split ... ok\ntest planner::verify::shell_rewrite::tests::measured_echo_fallbacks_are_reduced_to_the_base_command ... ok\ntest planner::verify::shell_rewrite::tests::stderr_stripping_exposes_and_split_in_both_verify_paths ... ok\ntest planner::verify::shell_rewrite::tests::stderr_suppression_is_removed_in_declared_and_runtime_verify ... ok\ntest planner::verify::tests::invalid_semver_output_names_manifest_entry_and_corrected_example ... ok\ntest planner::runner::tests::step_verify_compile_regeneration_fires_after_edit_but_fail_then_compact_zero_edit ... ok\ntest planner::runner::tests::step_verify_compile_regeneration_recovers_after_compact_zero_edit ... ok\ntest planner::verify::tests::nextjs_build_missing_manifest_is_dependency_boundary_not_command_execution ... ok\ntest planner::verify::tests::nextjs_build_missing_next_binary_is_dependency_missing ... ok\ntest planner::verify::tests::nextjs_build_step_returns_dependency_lifecycle ... ok\ntest planner::verify::tests::missing_path_before_evidence ... ok\ntest planner::state_binding_scan::tests::real_state_binding_fixtures_are_input_coupled_not_snapshotted ... ok\ntest planner::verify::tests::node_test_without_package_manifest_records_dependency_lifecycle_without_execution ... ok\ntest planner::runner::tests::step_verify_compile_regeneration_restores_snapshot_when_not_improved ... ok\ntest planner::verify::tests::planner_verify_normalization_rejects_unsafe_shell_syntax ... ok\ntest planner::verify::tests::planner_verify_normalization_splits_multiline_commands ... ok\ntest planner::verify::tests::planner_verify_normalization_splits_only_allowlisted_and_commands ... ok\ntest planner::verify::tests::planner_verify_normalization_strips_status_echo_before_shell_policy ... ok\ntest planner::verify::tests::pip_install_segment_substitutes_before_remaining_python_verify ... ok\ntest planner::verify::tests::python_cli_pytest_timeout_uses_compileall_substitution_when_available ... ok\ntest planner::setup_step_policy::tests::empty_verify_scaffold_config_synthesizes_profile_file_checks ... ok\n\nrunning 1 test\ntest planner::verify::tests::contract_hook_check_failure_is_not_demoted ... ok\ntest planner::verify::tests::raw_verify_command_uses_normalized_env_child ... ignored\ntest planner::verify::tests::runtime_bash_normalizer_admits_dependency_install_segment_for_substitution ... ok\ntest planner::verify::tests::runtime_bash_normalizer_rejects_semantic_pipe_sink ... ok\ntest planner::verify::tests::runtime_bash_normalizer_splits_multiline_commands_as_sequential_segments ... ok\ntest planner::verify::tests::runtime_bash_normalizer_splits_shell_control_segments ... ok\ntest planner::verify::tests::runtime_bash_normalizer_strips_custom_status_echo_branches ... ok\ntest planner::verify::tests::runtime_oracle_keeps_normalized_grep_no_match_as_artifact_failure ... ok\ntest planner::verify::tests::runtime_oracle_repairs_grep_dash_pattern_false_negative_once ... ok\ntest planner::verify::tests::runtime_oracle_repairs_package_port_only_grep_to_json_check ... ok\ntest planner::runner::tests::step_verify_compile_repair_exhaustion_without_snapshot_still_fails ... ok\ntest planner::verify::tests::rust_manifest_path_escape_rejected ... ok\ntest planner::verify::tests::runtime_package_port_only_grep_accepts_long_port_flags ... ok\ntest planner::runner::tests::step_verify_compile_repair_recovers_in_compact_session_after_appended_no_edit ... ok\ntest planner::runner::tests::step_verify_compile_zero_edit_reanchors_then_reports_no_source_change ... ok\ntest planner::verify::tests::source_detail_grep_without_contract_check_is_not_demoted ... ok\ntest planner::verify::tests::source_detail_grep_demotes_to_advisory_after_contract_check_passes ... ok\ntest planner::verify::tests::verification_report_status_compat_accessor_matches_primary_failure ... ok\ntest planner::verify::tests::verify_command_accepts_narrow_leading_cd_for_safe_verify ... ok\ntest planner::verify::tests::verify_command_diagnoses_dev_server_probe_before_shell_syntax ... ok\ntest planner::verify::tests::verify_command_diagnoses_empty_command ... ok\ntest planner::verify::tests::verify_command_diagnoses_manifest_path_escape ... ok\ntest planner::verify::tests::verify_command_diagnoses_node_print_unbalanced_quote_with_remedy ... ok\ntest planner::verify::tests::verify_command_diagnoses_setup_or_dev_server ... ok\ntest planner::verify::tests::verify_command_diagnoses_shell_control_syntax ... ok\ntest planner::verify::tests::unrepairable_usage_error_is_verifier_command_false_negative ... ok\ntest planner::verify::tests::verify_command_keeps_real_check_instead_of_weak_downgrade ... ok\ntest planner::verify::tests::verify_command_keeps_unrelated_grep_outside_hook_repair ... ok\ntest planner::verify::tests::verify_command_keeps_unrelated_grep_outside_package_port_repair ... ok\ntest planner::verify::tests::verify_command_nonzero_fails ... ok\ntest planner::verify::tests::verify_command_normalizes_absolute_workspace_cd_with_root ... ok\ntest planner::verify::tests::verify_command_normalizes_grep_dash_pattern ... ok\ntest planner::verify::tests::verify_command_hook_grep_still_fails_when_hook_absent ... ok\ntest planner::verify::tests::verify_command_normalizes_output_truncation_pipe ... ok\ntest planner::verify::tests::verify_command_normalizes_hook_action_grep_across_quotes_and_jsx_braces ... ok\ntest planner::verify::tests::verify_command_normalizes_safe_whitespace_only ... ok\ntest minimal_loop::interaction_probe::tests::setup_interaction_probe_provisions_managed_dir_and_is_idempotent ... ok\ntest planner::verify::tests::verify_command_normalizes_stderr_exit_and_true_wrappers ... ok\ntest planner::verify::tests::verify_command_prefers_json_parser_for_package_port_only_grep ... ok\ntest planner::verify::tests::verify_command_prefers_json_parser_for_package_script_grep ... ok\ntest planner::verify::tests::verify_command_rejection_feedback_names_allowed_alternative ... ok\ntest planner::verify::tests::verify_command_rejects_install_or_dev_server ... ok\ntest planner::verify::tests::verify_command_rejects_non_output_truncation_pipe ... ok\ntest planner::verify::tests::verify_command_rejects_shell_control_syntax ... ok\ntest planner::verify::tests::verify_command_normalizes_restart_input_and_state_hook_greps ... ok\ntest planner::verify::tests::verify_expected_result_fail_accepts_nonzero_command ... ok\ntest planner::verify::tests::verify_expected_result_pass_rejects_nonzero_command ... ok\ntest planner::verify::tests::verify_redirect_rejection_names_write_tool_remedy_and_python_fixture_guidance ... ok\ntest planner::verify::tests::verify_command_normalizes_source_detail_keydown_grep_to_equivalent_forms ... ok\ntest planner::verify::tests::verify_step_aggregates_missing_paths_and_command_failures ... ok\ntest preflight::tests::busy_port_interactive_kill_path_records_owner_and_kills ... ok\ntest preflight::tests::busy_port_yes_aborts_without_kill ... ok\ntest preflight::tests::lsof_field_output_parses_pid_and_command ... ok\ntest preflight::tests::probe_missing_warns_and_continues ... ok\ntest provider_call::tests::cancellation_at_stream_chunk_boundary_keeps_delivered_prefix ... ok\ntest planner::verify::tests::verify_timeout_is_oracle_error_false_negative_not_implementation ... ok\ntest provider_call::tests::cloned_provider_call_resumes_worker_panic_on_caller_thread ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::generic_ultra_promotes_to_nextjs_after_workspace_manifest ... ok\ntest provider_call::tests::fake_client_without_stream_support_uses_legacy_chat_path ... ok\ntest provider_call::tests::ordinary_provider_call_keeps_stream_capable_client_non_streaming ... ok\ntest provider_call::tests::planner_scope_timeout_kinds_are_stable ... ok\ntest provider_call::tests::planner_scopes_stream_transport_without_forwarding_machine_chunks ... ok\ntest provider_call::tests::provider_progress_due_is_bounded_to_once_per_minute ... ok\ntest provider_call::tests::provider_scope_screen_labels_do_not_leak_enum_names ... ok\ntest provider_call::tests::provider_turn_records_estimated_stable_prefix_chars ... ok\ntest provider_call::tests::provider_turn_records_response_durations_and_derived_metrics ... ok\ntest provider_call::tests::provider_turn_records_token_usage_and_context_truncation_warning ... ok\ntest provider_call::tests::streaming_worker_delivers_incremental_chunks_and_same_final_reply ... ok\ntest providers::gemini::streaming_tests::parses_generate_content_sse_text_function_and_usage ... ok\ntest providers::gemini::streaming_tests::stream_request_maps_history_tools_and_budget ... ok\ntest providers::gemini::streaming_tests::truncated_generate_content_stream_keeps_partial_and_errors ... ok\ntest providers::gemini_function_calling::tests::extracts_interaction_id ... ok\ntest providers::gemini_function_calling::tests::handles_missing_thought ... ok\ntest providers::gemini_function_calling::tests::no_tool_planner_request_uses_text_input ... ok\ntest providers::gemini_function_calling::tests::parses_function_call_arguments_json_string ... ok\ntest providers::gemini_function_calling::tests::parses_function_call_round_trip ... ok\ntest providers::gemini_function_calling::tests::parses_model_output_content_text ... ok\ntest providers::gemini_function_calling::tests::provider_error_is_error ... ok\ntest providers::gemini_function_calling::tests::recovers_provider_argument_aliases ... ok\ntest providers::gemini_function_calling::tests::rejects_missing_function_call_arguments ... ok\ntest providers::gemini_function_calling::tests::request_keeps_gemini_model_strings ... ok\ntest providers::gemini_function_calling::tests::stateful_next_user_request_sends_latest_user_input_only ... ok\ntest providers::gemini_function_calling::tests::stateful_tool_result_request_uses_previous_interaction_id ... ok\ntest providers::guidance::tests::authentication_failures_have_fixed_key_remediation_lines ... ok\ntest providers::guidance::tests::connection_failure_has_fixed_ollama_remediation_line ... ok\ntest providers::guidance::tests::not_found_failure_has_fixed_model_remediation_line ... ok\ntest providers::ollama::tests::incomplete_ndjson_stream_returns_error_after_partial_output ... ok\ntest providers::ollama::tests::parse_chat_response_records_duration_fields ... ok\ntest providers::ollama::tests::parses_ndjson_stream_and_applies_xml_fallback_after_accumulation ... ok\ntest providers::ollama::tests::parses_tags ... ok\ntest providers::ollama::tests::request_body_is_stable_and_keeps_alive ... ok\ntest providers::ollama::tests::runtime_connection_failure_appends_actionable_hint ... ok\ntest providers::ollama::tests::runtime_not_found_failure_appends_pull_hint ... ok\ntest providers::openai::tests::malformed_sse_after_delta_keeps_partial_chunk_and_errors ... ok\ntest providers::openai::tests::parses_function_call_arguments_json_string ... ok\ntest providers::openai::tests::parses_function_call_arguments_object_for_compat ... ok\ntest providers::openai::tests::parses_responses_sse_text_tool_and_usage ... ok\ntest providers::openai::tests::recovers_provider_argument_aliases ... ok\ntest providers::openai::tests::rejects_malformed_function_call_arguments_string ... ok\ntest providers::openai::tests::rejects_non_object_function_call_arguments ... ok\ntest providers::openai::tests::request_keeps_model_string ... ok\ntest providers::parsing::tests::schema_sanitizer_drops_unsupported_keyword ... ok\ntest providers::parsing::tests::truncate_for_log_handles_multibyte_boundary ... ok\ntest providers::startup::tests::offline_and_non_interactive_actions_skip_startup_probe ... ok\ntest providers::startup::tests::reachable_ollama_uses_one_tags_request_and_warns_for_missing_model ... ok\ntest providers::startup::tests::unreachable_ollama_warning_is_bounded_and_actionable ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_non_final_tailwind_invariant_repair_completes_and_runs_next_phase ... ok\ntest providers::streaming::tests::invalid_utf8_is_a_clear_error ... ok\ntest providers::streaming::tests::ndjson_preserves_utf8_split_across_reads ... ok\ntest providers::streaming::tests::retry_is_allowed_only_before_first_chunk_and_with_budget ... ok\ntest providers::streaming::tests::sse_combines_data_lines_and_stops_at_done ... ok\ntest providers::xml_fallback::tests::extracts_source_style_function_call_tag ... ok\ntest providers::xml_fallback::tests::extracts_source_style_function_equals_tag ... ok\ntest providers::xml_fallback::tests::extracts_source_style_named_anvil_tool_call ... ok\ntest providers::xml_fallback::tests::extracts_tool_call ... ok\ntest providers::xml_fallback::tests::infers_unambiguous_tool_name_from_arguments ... ok\ntest providers::xml_fallback::tests::recovers_tool_like_argument_aliases ... ok\ntest providers::xml_fallback::tests::recovers_unterminated_closed_tool_call ... ok\ntest providers::xml_fallback::tests::rejects_ambiguous_inferred_tool_name ... ok\ntest providers::xml_fallback::tests::repairs_relaxed_json_payload ... ok\ntest repl::tests::slash_command_parse_profile_style_and_goal ... ok\ntest repl::tests::slash_command_parse_quoted_prompt ... ok\ntest runs::tests::corrupt_recovery_yaml_reports_runs_pointer ... ok\ntest runs::tests::drifted_workspace_resume_reports_gaps ... ok\ntest runs::tests::empty_inventory_is_honest ... ok\ntest runs::tests::resume_old_yaml_degrades_with_compatibility_note ... ok\ntest runs::tests::resume_resolves_run_recovery_yaml_and_confirmation_card ... ok\ntest runs::tests::runs_inventory_lists_newest_recoverable_run ... ok\ntest state::tests::resume_id_cannot_escape_state_root ... ok\ntest state::tests::session_load_rejects_unknown_schema_version ... ok\ntest state::tests::session_save_writes_schema_version_and_loads_current ... ok\ntest state::tests::state_root_keeps_legacy_anvilminimal_namespace ... ok\ntest tests::cli_run_fault_injection_finalizes_with_internal_panic_handoff ... ok\ntest tests::cli_run_keeps_handoff_when_completion_drop_also_panics ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_run_level_authority_installs_missing_dependencies_without_current_setup_step ... ok\ntest tests::data_full_evidence_projects_to_both_terminal_events ... ok\ntest tests::direct_cli_ultra_plan_run_finalizer_rewrites_interrupted_summary ... ok\ntest tests::direct_cli_error_finalizes_before_run_stop ... ok\ntest tests::run_lifecycle_does_not_label_known_profile_full_without_acceptance ... ok\ntest tests::run_lifecycle_does_not_mask_browser_http_500_release_failure_as_complete ... ok\ntest tests::direct_non_execution_actions_skip_generic_terminal_gate_card ... ok\ntest tests::run_lifecycle_does_not_mask_partial_release_gate_as_complete ... ok\ntest tests::run_lifecycle_records_incomplete_stop_reason ... ok\ntest tests::run_lifecycle_writes_events_and_summary_for_tui_exit ... ok\ntest tests::run_start_emits_one_default_intent_resolution ... ok\ntest tests::run_start_records_explicit_intent_source_value ... ok\ntest tests::run_start_records_plan_preset_value_and_origin ... ok\ntest tests::run_start_reports_host_env_contamination_once_child ... ignored\ntest provider_call::tests::cloned_provider_call_aborts_promptly_when_cancelled ... ok\ntest tests::run_stop_preserves_known_profile_from_early_death_events ... ok\ntest tests::run_stop_uses_tui_terminal_projection_after_failed_command ... ok\ntest time_profile::tests::aggregates_time_profile_from_existing_event_stream ... ok\ntest time_profile::tests::generation_profile_renders_scope_and_turn_type_breakdown ... ok\ntest time_profile::tests::missing_provider_token_fields_degrade_gracefully ... ok\ntest tools::args_recovery::tests::decodes_json_string_arguments_when_they_contain_an_object ... ok\n\nrunning 1 test\ntest tools::args_recovery::tests::does_not_decode_string_content_inside_object ... ok\ntest tools::args_recovery::tests::does_not_rewrite_arbitrary_string_arguments ... ok\ntest tools::args_recovery::tests::unwraps_json_string_inside_arguments_wrapper ... ok\ntest tools::args_recovery::tests::unwraps_nested_arguments_and_aliases_write_args ... ok\ntest tests::unadmitted_profile_caps_full_terminal_projection ... ok\ntest tools::bash::tests::bash_blocks_destructive_filesystem_command ... ok\ntest tools::bash::tests::bash_blocks_network_pipe_to_shell ... ok\ntest tests::run_start_reports_host_env_contamination_once_child ... ok\ntest tools::bash::tests::bash_keeps_path_limited_ls_and_plain_grep_unchanged ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1590 filtered out; finished in 0.00s\n\ntest tests::run_start_reports_host_env_contamination_once ... ok\ntest tools::bash::tests::bash_normalizes_pathless_recursive_grep_to_bounded_find ... ok\ntest tools::bash::tests::bash_cancel_returns_structured_outcome ... ok\ntest tools::bash::tests::bash_output_marks_absolute_paths_outside_workspace ... ok\ntest tools::bash::tests::bash_path_confinement_allows_common_commands_system_prefixes_and_workspace_absolute_paths ... ok\ntest tools::bash::tests::bash_path_confinement_rejects_outside_absolute_paths ... ok\ntest tools::bash::tests::bash_normalizes_unbounded_recursive_ls_before_execution ... ok\ntest tools::bash::tests::bash_stream_truncation_handles_multibyte_boundary ... ok\ntest tools::bash::tests::bash_large_stdout_is_truncated ... ok\ntest tools::bash::tests::bash_redacts_engine_metadata_from_workspace_root_ls ... ok\ntest tools::bash::tests::bash_test_output_extracts_failure_summary ... ok\ntest tools::bash::tests::run_checked_rejects_nonzero_for_verify ... ok\ntest tools::bash::tests::run_returns_nonzero_output_for_agent_feedback ... ok\ntest tools::edit::tests::edit_already_applied_is_success ... ok\ntest tools::edit::tests::edit_fallback_does_not_apply_when_multiple_candidates_exist ... ok\ntest tools::edit::tests::edit_noop_returns_recoverable_feedback ... ok\ntest tools::edit::tests::edit_normalized_line_fallback_applies_change ... ok\ntest tools::edit::tests::edit_normalized_multiline_fallback_applies_change ... ok\ntest tools::edit::tests::edit_token_anchor_fallback_no_longer_applies_without_normalized_match ... ok\ntest tools::grep::tests::grep_large_result_is_summarized ... ok\ntest tools::grep::tests::grep_summary_handles_multibyte_boundary ... ok\ntest tools::grep::tests::invalid_glob_is_reported_as_policy_error ... ok\ntest tools::grep::tests::invalid_regex_falls_back_to_literal_substring ... ok\ntest tools::grep::tests::normal_workspace_policy_blocks_target_grep ... ok\ntest tools::hidden_path::tests::extracts_relative_and_workspace_absolute_private_paths ... ok\ntest tools::hidden_path::tests::recognizes_task_tool_path_arguments ... ok\ntest tools::path_guard::tests::allows_missing_child_under_existing_parent ... ok\ntest tools::path_guard::tests::rejects_current_root_digit_variance_without_cross_workspace_salvage ... ok\ntest tools::path_guard::tests::rejects_escape_paths ... ok\ntest tools::path_guard::tests::rejects_missing_leading_slash_path_without_unique_root_anchor_as_malformed ... ok\ntest tools::path_guard::tests::rejects_symlink_escape ... ok\ntest tools::path_guard::tests::root_anchor_salvage_requires_unique_anchor ... ok\ntest tools::path_guard::tests::salvages_absolute_path_with_unique_root_anchor ... ok\ntest tools::path_guard::tests::salvages_missing_leading_slash_path_with_unique_root_anchor ... ok\ntest tools::path_guard::tests::strips_redundant_workspace_root_prefix ... ok\ntest tools::path_guard::tests::suggests_workdir_prefix_without_silent_normalization ... ok\ntest tools::read::tests::explicit_range_is_not_large_file_summarized ... ok\ntest tools::read::tests::read_directory_lists_entries ... ok\ntest tools::read::tests::read_large_file_is_truncated_with_marker ... ok\ntest tools::read::tests::read_truncation_handles_multibyte_boundary ... ok\ntest tools::registry::tests::absolute_internal_write_is_normalized_and_audited ... ok\ntest tools::registry::tests::absolute_internal_write_through_symlink_escape_is_rejected ... ok\ntest tools::registry::tests::absolute_outside_write_is_rejected_as_path_confinement ... ok\ntest tools::registry::tests::absolute_path_escape_remains_hard_failure ... ok\ntest tools::bash::tests::bash_timeout_returns_structured_outcome ... ok\ntest tools::registry::tests::bash_keeps_outside_root_cd_rejected_with_relative_retry_guidance ... ok\ntest tools::bash::tests::bash_timeout_returns_tool_error_kind ... ok\ntest tools::registry::tests::bash_rejects_absolute_path_outside_workspace_with_feedback_and_telemetry ... ok\ntest tools::registry::tests::bash_normalized_inspection_command_emits_eval_event ... ok\ntest tools::registry::tests::classifies_bash_command_timeout_as_recoverable ... ok\ntest tools::registry::tests::classifies_recoverable_validation_errors ... ok\ntest tools::registry::tests::dangerous_command ... ok\ntest tools::registry::tests::dot_dot_traversal_still_rejected ... ok\ntest tools::registry::tests::edit_anchor_salvage_emits_telemetry ... ok\ntest tools::registry::tests::edit_rejects_target_symlink_to_outside_before_read ... ok\ntest tools::registry::tests::glob_uses_ignore_walker ... ok\ntest tools::registry::tests::missing_leading_slash_write_is_malformed_then_root_anchor_salvaged ... ok\ntest tools::registry::tests::missing_leading_slash_write_without_anchor_is_rejected_as_malformed ... ok\ntest tools::registry::tests::near_root_digit_variance_write_rejects_without_expected_path_salvage ... ok\ntest tools::registry::tests::normal_task_blocks_anvil_consistently_for_read_glob_and_bash ... ok\ntest tools::registry::tests::normal_workspace_policy_blocks_anvil_metadata_read ... ok\ntest tools::registry::tests::normal_workspace_policy_blocks_anvil_metadata_write ... ok\ntest tools::registry::tests::normal_workspace_policy_blocks_git_metadata_edit ... ok\ntest tools::registry::tests::plan_act_tool_allowlist ... ok\ntest tools::registry::tests::recoverable_provider_aliases_are_executed ... ok\ntest tools::registry::tests::relative_write_behavior_does_not_emit_normalization_event ... ok\ntest tools::registry::tests::root_anchor_absolute_write_is_salvaged_and_audited ... ok\ntest tools::registry::tests::stale_absolute_write_falls_back_to_unique_expected_path_suffix ... ok\ntest tools::registry::tests::stale_absolute_write_rejection_names_current_root_and_nearest_expected_path ... ok\ntest tools::registry::tests::unsafe_alias_path_is_not_recoverable ... ok\ntest tools::registry::tests::bash_allows_system_prefixes_and_workspace_absolute_paths ... ok\ntest tools::registry::tests::workdir_prefix_path_miss_is_recoverable_with_hint ... ok\ntest tools::registry::tests::write_parent_dir ... ok\ntest tools::workspace_policy::tests::controller_metadata_policy_allows_anvil_but_not_git ... ok\ntest tools::workspace_policy::tests::normal_workspace_policy_blocks_metadata_components ... ok\ntest tui::banner::tests::banner_legacy_has_dynamic_lines_without_art ... ok\ntest tui::banner::tests::banner_mono_includes_ascii_art_lines ... ok\ntest tui::banner::tests::banner_non_utf8_locale_uses_ascii_art ... ok\ntest tui::banner::tests::banner_style_non_tty_or_narrow_is_legacy ... ok\ntest tools::registry::tests::write_rejects_target_symlink_to_outside ... ok\ntest tui::banner::tests::banner_style_wide_tty_uses_art ... ok\ntest tools::registry::tests::bash_strips_workspace_root_cd_prefix_and_records_event ... ok\ntest tui::editor::tests::bracketed_paste_is_explicitly_enabled ... ok\ntest tui::editor::tests::color_hint_uses_dim_sgr_only ... ok\ntest tui::editor::tests::command_and_flag_completion_are_prefix_matched ... ok\ntest tui::editor::tests::command_completion_uses_all_canonical_specs ... ok\ntest tui::editor::tests::ctrl_c_requires_two_uninterrupted_empty_line_presses ... ok\ntest tui::editor::tests::hints_prefer_history_then_fall_back_to_commands ... ok\ntest tui::editor::tests::multiline_input_normalizes_for_existing_word_parser ... ok\ntest tui::editor::tests::no_color_hints_and_continuation_prompt_are_plain_ascii ... ok\ntest tui::editor::tests::path_completion_is_workspace_relative_for_commands_and_cat ... ok\ntest tui::editor::tests::profile_completion_reads_the_domain_profile_registry ... ok\ntest tui::editor::tests::validator_detects_trailing_backslash_and_unclosed_quote ... ok\ntest tui::elapsed::tests::elapsed_time_uses_compact_minutes_after_one_minute ... ok\ntest tui::footer::tests::disabled_input_queue_does_not_claim_a_footer_line ... ok\ntest tui::footer::tests::empty_pending_footer_shows_confirmation_and_interrupt_semantics ... ok\ntest tui::footer::tests::footer_decstbm_rows_under_two_self_disable ... ok\ntest tui::footer::tests::footer_env_disable_by_env ... ok\ntest tui::footer::tests::footer_env_disable_by_flag ... ok\ntest tui::footer::tests::footer_env_disable_by_footer_off_cli_mode ... ok\ntest tui::footer::tests::footer_env_non_tty_noop ... ok\ntest tui::footer::tests::footer_env_uses_locale_without_changing_no_color_behavior ... ok\ntest tui::footer::tests::footer_frame_overwrites_without_clear_line_between_frames ... ok\ntest tui::footer::tests::footer_frame_pads_empty_rows_to_clear_stale_tails ... ok\ntest tui::footer::tests::footer_geometry_keeps_last_size_when_terminal_query_fails ... ok\ntest tui::footer::tests::footer_known_tokens_are_formatted ... ok\ntest tui::footer::tests::footer_padding_ignores_sgr_width ... ok\ntest tui::footer::tests::footer_resize_across_width_threshold_switches_one_and_two_rows ... ok\ntest tui::footer::tests::footer_resize_grow_clears_old_and_new_bottom_rows_without_scrolling ... ok\ntest tui::footer::tests::footer_resize_shrink_uses_only_visible_rows_and_clamps_body_cursor ... ok\ntest tui::footer::tests::footer_restore_sequence_clears_reserved_rows_after_panic_unwind ... ok\ntest tui::footer::tests::footer_settings_are_dim_but_active_primary_status_is_not ... ok\ntest tui::footer::tests::footer_shutdown_cleanup_uses_resized_geometry ... ok\ntest tui::footer::tests::footer_skips_render_until_composed_line_changes ... ok\ntest tui::footer::tests::footer_tiny_resize_releases_region_until_height_recovers ... ok\ntest tui::footer::tests::footer_unknown_tokens_are_na ... ok\ntest tui::footer::tests::live_footer_command_execution_replaces_provider_segment ... ok\ntest tui::command_receipt::tests::receipt_neutralizes_controls_escape_and_bidi ... ok\ntest tui::footer::tests::live_footer_force_finalize_prefix_snapshot ... ok\ntest tui::footer::tests::live_footer_ignores_last_event_ticker ... ok\ntest tui::footer::tests::live_footer_long_planner_turn_snapshot ... ok\ntest tui::footer::tests::live_footer_repair_and_interrupt_prefix_snapshot ... ok\ntest tui::footer::tests::non_utf8_footer_replaces_decorative_glyphs ... ok\ntest tui::footer::tests::pending_input_footer_echo_explains_esc_and_ctrl_c ... ok\ntest tui::footer::tests::queued_input_adds_one_resize_safe_footer_row ... ok\ntest tui::command_receipt::tests::receipt_preserves_wrapped_cjk_goal_and_explicit_fields ... ok\ntest tui::footer::tests::scrollback_transition_resets_region_and_restores_resized_footer ... ok\ntest tui::glyphs::tests::ascii_locale_replaces_presentation_glyphs_only ... ok\ntest tui::input_queue::tests::disabled_queue_discards_edits_and_clears_memory ... ok\ntest tui::input_queue::tests::pending_input_supports_unicode_backspace_and_clear ... ok\ntest tui::input_queue::tests::preview_is_unicode_safe_and_bounded_to_forty_columns ... ok\ntest tui::input_queue::tests::queue_limit_rejects_submission_without_losing_pending_line ... ok\ntest tui::input_queue::tests::pending_line_limit_counts_utf8_bytes_and_keeps_editable_text ... ok\ntest tui::input_queue::tests::submitted_lines_are_fifo_and_confirmation_clears_on_take ... ok\ntest tui::input_queue::tests::terminal_control_characters_are_not_accepted ... ok\ntest tui::input_queue::tests::unfinished_pending_input_can_move_to_the_next_prompt ... ok\ntest tui::interrupt::tests::ctrl_c_always_interrupts_and_esc_depends_on_pending_input ... ok\ntest tui::interrupt::tests::enter_queues_multiple_lines_and_backspace_edits ... ok\ntest tui::interrupt::tests::input_keys_are_ignored_without_an_enabled_queue ... ok\ntest tui::interrupt::tests::interrupt_env_disable ... ok\ntest tui::interrupt::tests::interrupt_env_non_tty_noop ... ok\ntest tui::interrupt::tests::interrupt_preset_flag ... ok\ntest tui::interrupt::tests::interrupt_press_escalates_to_force ... ok\ntest tui::markdown::highlight::tests::rust_block_comments_continue_across_lines ... ok\ntest tui::markdown::capture::tests::capture_ignores_output_from_other_test_threads ... ok\ntest tui::markdown::highlight::tests::supported_fence_tags_map_to_lightweight_lexers ... ok\ntest tui::markdown::table::tests::display_width_counts_cjk_and_ignores_sgr ... ok\ntest tui::markdown::tests::markdown_code_highlighting_sanitizes_before_adding_sgr ... ok\ntest tui::markdown::tests::markdown_headings_and_inline_sgr ... ok\ntest tui::markdown::tests::markdown_invalid_delimiter_is_emitted_literally ... ok\ntest tui::markdown::tests::markdown_invalid_table_is_emitted_literally ... ok\ntest tui::markdown::tests::markdown_known_code_fence_highlights_keyword_string_and_comment ... ok\ntest tui::markdown::tests::markdown_links_use_portable_text_and_url_form ... ok\ntest tui::markdown::tests::markdown_nested_lists_accept_two_or_four_space_steps ... ok\ntest tui::markdown::tests::markdown_no_color_keeps_known_code_fence_plain ... ok\ntest tui::markdown::tests::markdown_ordered_lists_preserve_numbers ... ok\ntest tui::markdown::tests::markdown_output_has_only_sgr_csi ... ok\ntest tui::footer::tests::live_footer_fitting_is_multibyte_safe_for_japanese_paths ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_plan_non_final_profile_repair_exhaustion_still_saves_handoff ... ok\ntest tui::markdown::tests::markdown_plain_strips_symbols ... ok\ntest tui::markdown::tests::markdown_sanitize_strips_bidi_and_controls ... ok\ntest tui::markdown::tests::markdown_table_aligns_cjk_by_display_width ... ok\ntest tui::markdown::tests::markdown_table_applies_left_center_and_right_alignment ... ok\ntest tui::markdown::tests::markdown_think_cross_chunk_is_hidden ... ok\ntest tui::markdown::tests::markdown_tables_render_across_arbitrary_chunks ... ok\ntest tui::markdown::tests::markdown_unknown_or_plain_code_fence_keeps_single_color ... ok\ntest tui::markdown::tests::terminal_stream_matches_batch_for_arbitrary_chunks ... ok\ntest tui::markdown::tests::markdown_wide_styled_table_keeps_generated_sgr_intact ... ok\ntest tui::presentation::tests::activity_narration_scripted_sequence_snapshot ... ok\ntest tui::presentation::tests::activity_projection_audits_standard_ultra_event_fixture ... ok\ntest tui::markdown::tests::markdown_buffer_cap_forces_bounded_memory ... ok\ntest tui::markdown::tests::markdown_oversized_table_falls_back_without_growing_table_buffer ... ok\ntest tui::presentation::tests::provider_turn_breadcrumb_snapshots_use_human_labels ... ok\ntest tui::presentation::tests::plan_card_and_step_block_snapshot_handle_japanese_goal ... ok\ntest tui::repl::tests::command_error_is_sent_through_markdown_renderer_once_without_error_prefix ... ok\ntest tui::repl_output::tests::interruption_is_one_distinct_block_with_resume_and_rerun ... ok\ntest tui::repl_output::tests::plain_text_guidance_sanitizes_echo_and_names_only_execution_entries ... ok\ntest tui::repl_output::tests::typo_guidance_is_two_lines_and_suggests_help ... ok\ntest tui::presentation::tests::current_plan_projection_marks_mid_run_and_post_run ... ok\ntest tui::slash::tests::data_early_failure_projection_matches_investigation_run_table ... ok\ntest tui::slash::tests::help_lists_discovery_commands_and_interrupt_semantics ... ok\ntest tui::slash::tests::parse_slash_accepts_prompt_layout_override ... ok\ntest tui::presentation::tests::plan_goal_budget_uses_display_columns_and_preserves_ascii_length ... ok\ntest tui::slash::tests::parse_slash_explicit_generic_wins_over_inference ... ok\ntest tui::slash::tests::parse_slash_infers_profile_from_goal_when_unset ... ok\ntest tui::slash::tests::parse_slash_uses_config_defaults ... ok\ntest tui::slash::tests::parses_user_ultra_plan_run_nextjs_command ... ok\ntest tui::slash::tests::slash_command_parse_profile_style_and_goal ... ok\ntest tui::slash::tests::slash_command_parse_quoted_prompt ... ok\ntest tui::slash::tests::slash_registry_is_the_help_and_alias_source ... ok\ntest tui::slash::tests::tui_command_stop_marks_generic_completion_reduced_assurance ... ok\ntest tui::slash::tests::tui_command_stop_preserves_generic_static_assurance ... ok\ntest tui::slash::tests::tui_command_stop_preserves_known_profile_from_early_death_events ... ok\ntest tui::slash::tests::tui_command_stop_reports_interaction_unverified_as_partial ... ok\ntest tui::slash::tests::unknown_slash_command_suggests_help ... ok\ntest tui::spinner::tests::spinner_detects_disable_env ... ok\ntest tui::spinner::tests::spinner_detects_non_tty ... ok\ntest tui::spinner::tests::spinner_disabled_env_does_not_spawn ... ok\ntest tui::spinner::tests::spinner_elapsed_uses_shared_minute_format ... ok\ntest tui::spinner::tests::spinner_label_sanitizes_escape_and_bidi ... ok\ntest tui::status::tests::incomplete_notice_mentions_partial_artifacts_and_summary ... ok\ntest tui::status::tests::status_token_total_unknown_stays_none ... ok\ntest tui::status::tests::status_token_total_uses_known_values_only ... ok\ntest tui::status::tests::task_failure_block_contains_phase_reason_recovery_commands_and_summary ... ok\ntest tui::status_bus::tests::bus_projects_force_finalize_interrupt ... ok\ntest tui::status_bus::tests::bus_projects_phase_step_and_provider_turns ... ok\ntest tui::status_bus::tests::bus_tracks_live_time_totals ... ok\ntest tui::status_bus::tests::command_excerpt_uses_display_columns ... ok\ntest tui::status_bus::tests::disabled_publisher_is_noop ... ok\ntest tui::slash::tests::tui_command_stop_uses_phase_scoped_recovery_paths ... ok\ntest tui::slash::tests::doctor_slash_command_renders_diagnostics_without_provider_calls ... ok\ntest tui::terminal::tests::cooked_mode_text_preserves_lf_bytes ... ok\ntest tui::terminal::tests::raw_mode_text_uses_crlf_without_changing_existing_crlf_or_utf8 ... ok\ntest tui::terminal::tests::utf8_locale_prefers_lc_all_and_recognizes_common_spellings ... ok\ntest tui::terminal_notifications::tests::bell_uses_injected_time_threshold_and_emits_once_per_command ... ok\ntest tui::terminal_notifications::tests::disabled_features_emit_nothing ... ok\ntest tui::terminal_notifications::tests::notification_env_honors_tty_current_and_legacy_disable_names ... ok\ntest tui::terminal_notifications::tests::phase_start_emits_exact_osc_2_title_and_finish_clears_it_once ... ok\ntest tui::terminal_notifications::tests::phase_title_sanitizes_controls_and_bidi_and_caps_utf8_bytes ... ok\ntest tui::terminal_summary::tests::generic_coding_summary_is_limited_to_execution_commands ... ok\ntest tui::presentation::tests::status_card_snapshot_includes_sources_port_and_probe ... ok\ntest tui::status_bus::tests::eval_event_projection_promotes_user_visible_retries ... ok\ntest tui::status_bus::tests::eval_event_projection_tracks_notable_normalization ... ok\ntest util::tests::display_width_counts_unicode_columns_and_ignores_ansi_csi ... ok\ntest util::tests::excerpt_with_marker_preserves_valid_utf8 ... ok\ntest util::tests::fit_display_width_keeps_character_combining_and_ansi_boundaries ... ok\ntest util::tests::truncate_at_char_boundary_never_panics_on_multibyte_lengths ... ok\ntest util::tests::fit_display_width_preserves_ascii_budget_and_expands_cjk_budget ... ok\ntest tui::ux_demo::tests::scripted_demo_contains_full_visual_journey ... ok\ntest tui::ux_demo::tests::scripted_demo_uses_ascii_presentation_in_non_utf8_locale ... ok\ntest planner::runner::tests::compile_error_final_acceptance_skips_readiness_probe ... ok\ntest planner::verify::tests::nextjs_cannot_find_module_build_failure_stays_dependency_missing ... ok\ntest planner::verify::tests::nextjs_swc_lifecycle_frame_is_compile_error_not_dependency_lifecycle_failure ... ok\ntest provider_call::tests::cloned_provider_call_times_out_without_waiting_for_worker ... ok\ntest planner::runner::tests::step_verify_compile_repair_exhaustion_rolls_back_snapshot_and_continues ... ok\ntest planner::verify::tests::nextjs_type_error_build_failure_is_implementation_compile_error ... ok\ntest planner::verify::tests::raw_cannot_find_module_routes_to_dependency_setup_target ... ok\ntest planner::verify::tests::raw_cannot_find_module_without_authority_reports_setup_authority_required ... ok\ntest planner::verify::tests::raw_verify_command_uses_normalized_env_child ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1590 filtered out; finished in 3.02s\n\ntest planner::verify::tests::raw_verify_command_uses_normalized_env ... ok\ntest planner::verify::tests::setup_authority_dependency_probe_installs_before_raw_verify_command ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_probe_unavailable_weak_restart_is_partial_without_repair ... ok\ntest providers::startup::tests::unresponsive_ollama_respects_two_second_probe_bound ... ok\ntest planner::verify::tests::setup_step_empty_verify_declared_dependencies_runs_state_install_lifecycle ... ok\ntest planner::verify::tests::verify_install_segment_substitutes_reconcile_then_runs_remaining_verify ... ok\ntest planner::runner::tests::compile_error_repair_prompt_anchors_file_and_then_runs_readiness ... ok\ntest planner::runner::tests::final_acceptance_budget_exhaustion_uses_last_cycle_reason ... ok\ntest planner::runner::tests::final_acceptance_repair_cycle_reprobes_restart_hook_recovery_to_pass ... ok\ntest planner::runner::tests::focused_behavioral_repair_exhaustion_handoff_uses_probe_failure ... ok\ntest planner::runner::tests::focused_behavioral_repair_prompt_and_reprobe_passes ... ok\ntest planner::runner::tests::overlay_only_restart_after_probe_success_fails_without_reachable_restart_contract ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::slash_ultra_final_flow_reaches_stop_after_fake_dev_server_cleanup ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_final_acceptance_probe_does_not_promote_missing_restart_contract ... ok\ntest planner::runner::tests::ultra_plan_flow_tests::moved::ultra_final_acceptance_runs_probe_before_behavior_arbitration ... ok\ntest planner::runner::tests::unattached_canvas_ref_guidance_leads_repair_and_reprobe_passes ... ok\n\ntest result: ok. 1576 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 64.37s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest nextjs_full_adjudication_bytes_are_compatible ... ok\ntest nextjs_interaction_partial_adjudication_bytes_are_compatible ... ok\ntest data_static_adjudication_bytes_are_compatible ... ok\ntest nextjs_build_failure_adjudication_bytes_are_compatible ... ok\ntest data_failed_adjudication_bytes_are_compatible ... ok\ntest data_full_adjudication_bytes_are_compatible ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 5 tests\ntest invalid_completion_shell_has_clap_error_and_possible_values ... ok\ntest help_lists_completion_shells_and_man_generation ... ok\ntest man_page_is_generated_to_stdout_from_the_cli_definition ... ok\ntest artifact_generation_does_not_write_to_the_working_directory ... ok\ntest completion_scripts_are_generated_to_stdout_for_supported_shells ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s\n\n\nrunning 2 tests\ntest ultra_plan_run_cli_shape ... ok\ntest ux_demo_cli_shape ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 19 tests\ntest suite::conformance_fake_dev_server_child ... ignored\ntest suite::conformance_negative_honest_terminal_rejects_false_success_run_stop_projection ... ok\ntest suite::conformance_negative_evidence_exhaustion_requires_regeneration_decision ... ok\ntest suite::conformance_negative_earned_assurance_catches_failed_python_probe_pass_fields ... ok\ntest suite::conformance_boundedness_covers_hanging_bash_tool ... ok\ntest suite::conformance_negative_precise_exhaustion_rejects_bare_iteration_reason ... ok\ntest suite::conformance_negative_hierarchy_honesty_rejects_static_route_unbound_release_failure ... ok\ntest suite::conformance_negative_monotonic_rebind_catches_smaller_rebind ... ok\ntest suite::conformance_negative_earned_assurance_catches_disconnected_gate ... ok\ntest suite::conformance_negative_timeout_loop_requires_honest_terminal_reason ... ok\ntest suite::conformance_negative_precise_exhaustion_rejects_empty_handed_no_blocker ... ok\ntest suite::conformance_negative_bounded_provider_turns_catches_silent_phase_context_window ... ok\ntest suite::conformance_negative_compile_exhaustion_requires_regeneration_decision ... ok\ntest suite::conformance_negative_precise_exhaustion_checks_final_acceptance_exhaustion ... ok\ntest suite::conformance_boundedness_covers_timeout_loop_escalation ... ok\ntest suite::conformance_negative_precise_exhaustion_rejects_no_blocker_with_pending_evidence ... ok\ntest suite::conformance_boundedness_covers_hanging_dependency_setup ... ok\ntest suite::conformance_honest_terminal_covers_simulated_panic_exit ... ok\ntest suite::conformance_matrix_runs_ultra_lifecycle_paths ... ok\n\ntest result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.23s\n\n\nrunning 1 test\ntest generated_app_corpus_matches_detector_and_probe_expectations ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.06s\n\n\nrunning 2 tests\ntest data_manifest_v1_knowledge_matches_golden ... ok\ntest inspection_literal_example_is_observation_bound_and_reaches_repair_prompt ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 10 tests\ntest measured_e2_fixtures_are_byte_identical_to_archived_uat_artifacts ... ok\ntest unexecuted_probe_is_static_and_never_projects_full ... ok\ntest reconciliation_row_mismatch_remains_a_claims_binding_violation ... ok\ntest measured_uat_run1_and_run4_pass_e2_after_calibration ... ok\ntest time_dependent_pipeline_fails_e3 ... ok\ntest full_fixture_runs_end_to_end_and_emits_full_evidence ... ok\ntest fabricated_number_fails_e2_and_cannot_earn_full ... ok\ntest silent_exclusion_fails_e1 ... ok\ntest measured_run3_earns_full_without_final_inspection_schema_gating ... ok\ntest partial_or_full_requires_both_e1_and_e3_pass_evidence ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s\n\n\nrunning 7 tests\ntest pty_test_recipe_matches_contributing_command_and_includes_ignored_tests ... ok\ntest configuration_keys_match_english_reference ... ok\ntest slash_commands_match_rendered_help_dispatch_and_english_reference ... ok\ntest repl_multiline_continuation_is_documented_in_help_and_bilingual_guides ... ok\ntest public_cli_flags_match_english_reference ... ok\ntest english_and_japanese_guides_have_matching_files_and_heading_counts ... ok\ntest demo_docs_distinguish_scripted_assets_from_provider_backed_recording ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n\nrunning 3 tests\ntest doctor_json_warn_only_exits_zero_and_redacts_credentials ... ok\ntest doctor_json_failure_exits_nonzero_and_still_emits_report ... ok\ntest doctor_reports_missing_keys_for_an_unresolvable_incomplete_preset ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n\nrunning 2 tests\ntest eval_script_contract_files_exist ... ok\ntest eval_summary_schema_mentions_required_columns ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 9 tests\ntest failing_after_reproducer_is_a_failed_verdict ... ok\ntest evidence_schema_carries_stage_polarity_lineage_and_epoch ... ok\ntest changed_regression_binding_cannot_earn_full ... ok\ntest executed_regression_failure_is_a_failed_verdict ... ok\ntest initially_passing_reproducer_cannot_earn_full ... ok\ntest switched_reproducer_lineage_cannot_earn_full ... ok\ntest unexecuted_probe_provenance_cannot_earn_full ... ok\ntest stale_after_epoch_cannot_earn_full ... ok\ntest shrunken_regression_binding_set_cannot_earn_full ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 9 tests\ntest code_line_counts_separate_cfg_test_blocks_and_items ... ok\ntest generic_profile_static_assurance_markers_render ... ok\ntest generic_profile_reduced_assurance_markers_still_render ... ok\ntest adjudication_dependency_direction_stays_create_to_skeleton ... ok\ntest manifest_execution_sections_exclude_measured_fixture_vocabulary ... ok\ntest runner_chokepoints_do_not_grow_past_interim_budget ... ok\ntest planner_lint_calls_have_one_production_chokepoint ... ok\ntest planner_template_lint_calls_have_three_audited_sites ... ok\ntest nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s\n\n\nrunning 7 tests\ntest absent_error_quote_is_diagnosis_unbound ... ok\ntest executed_failure_and_all_bound_claims_earn_full ... ok\ntest initially_passing_reproducer_cannot_earn_full ... ok\ntest unexecuted_probe_cannot_earn_assurance ... ok\ntest zero_machine_checkable_claims_caps_at_partial ... ok\ntest reproducer_defect_does_not_establish_i1 ... ok\ntest nonexistent_file_line_and_code_are_rejected ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 13 tests\ntest live_gemini_interactions_no_tool_http_smoke ... ignored\ntest live_gemini_request_shape_uses_smoke_model ... ignored\ntest live_ollama_chat_no_tool_http_smoke ... ignored\ntest live_ollama_tags_http_smoke ... ignored\ntest live_openai_request_shape_uses_smoke_model ... ignored\ntest live_openai_responses_no_tool_http_smoke ... ignored\ntest planner_live_openai_gemini_json_contract ... ok\ntest provider_probe_ollama_xml_fallback_tool_like_output ... ok\ntest provider_probe_openai_tool_args_shape_skips_without_key ... ok\ntest planner_live_provider_smoke_skips_without_keys ... ok\ntest provider_probe_gemini_function_calling_schema_skips_without_key ... ok\ntest provider_probe_parser_fixtures_cover_tool_argument_shapes ... ok\ntest provider_probe_tool_args_recovery_classification_by_provider ... ok\n\ntest result: ok. 7 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 4 tests\ntest manifest_v1_root_sections_match_golden ... ok\ntest embedded_nextjs_manifest_loads_and_resolves_every_check ... ok\ntest v1_rejects_invalid_artifact_groups_and_guidance_triggers ... ok\ntest v1_represents_both_artifact_group_cardinalities_and_rejects_v0 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n\nrunning 2 tests\ntest protection_coverage_table_rejects_unregistered_mock_sites ... ok\ntest protection_coverage_table_is_green_for_current_tree ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s\n\n\nrunning 1 test\ntest openai_and_gemini_missing_key_failures_explain_setup_and_doctor ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n\nrunning 3 tests\ntest failed_build_preserves_previous_executable_and_removes_staging ... ok\ntest failed_provenance_verification_preserves_previous_executable_and_removes_staging ... ok\ntest successful_build_publishes_only_the_executable_and_supports_launcher_symlink ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s\n\n\nrunning 5 tests\ntest release_workflow_preserves_the_distribution_contract ... ok\ntest unsupported_platform_fails_before_downloading_assets ... ok\ntest checksum_mismatch_fails_without_installing_a_binary ... ok\ntest explicit_version_and_prefix_skip_latest_release_lookup ... ok\ntest latest_release_is_verified_and_installed_into_default_directory ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s\n\n\nrunning 2 tests\ntest safety_traceability_all_sg_have_test_or_defer_note ... ok\ntest safety_traceability_has_no_defer_after_remaining_sg_completion ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\ntest benchmark_has_25_scenarios ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 7 tests\ntest check_only_reports_prerequisites_without_mutation ... ok\ntest check_only_rejects_outdated_rust_with_remediation ... ok\ntest yes_mode_installs_once_and_runs_safe_probe_defaults ... ok\ntest empty_ollama_list_uses_only_the_model_name_entered_by_the_user ... ok\ntest interactive_secret_input_creates_private_env_and_is_idempotent ... ok\ntest declined_install_uses_release_build_fallback ... ok\ntest yes_mode_installs_bash_and_fish_completions_in_user_paths ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.97s\n\n\nrunning 23 tests\ntest tui_fake_dev_server_child ... ignored\ntest in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace ... ok\ntest in_flight_provider_interrupt_finishes_before_sleep_and_writes_terminal_records ... ok\ntest plain_renderer_keeps_raw_output ... ok\ntest interrupt_boundaries_stop_before_model_call ... ok\ntest planner_uses_ui_for_planner_model_call ... ok\ntest primary_ultra_plan_run_renders_plan_then_activity_then_summary ... ok\ntest tui_help_lists_recovery_commands_without_emitting_events ... ok\ntest tui_input_errors_do_not_start_commands_or_generate_summaries ... ok\ntest tui_integration_records_model_and_tool_boundaries ... ok\ntest tui_markdown_raw_session_storage ... ok\ntest tui_provider_failure_records_run_events_and_renders_one_failure_block ... ok\ntest tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage ... ok\ntest tui_runs_lists_recent_runs_without_emitting_command_events ... ok\ntest tui_slash_completion_guard_records_aborted_on_panic ... ok\ntest tui_slash_completion_guard_records_interrupted_mid_phase ... ok\ntest tui_slash_failure_rewrites_existing_partial_summary_with_phase_breakdown ... ok\ntest tui_slash_promoted_profile_reflected_in_terminal_summary ... ok\ntest tui_slash_success_with_partial_release_gate_is_not_complete_only ... ok\ntest tui_slash_ultra_panic_records_diagnostics_and_terminal_summary ... ok\ntest tui_slash_ultra_plan_completion_records_phase_breakdown_and_acceptance ... ok\ntest tui_streamed_markdown_matches_batch_and_hides_cross_chunk_think ... ok\ntest tui_ultra_plan_run_smoke_fake_clients ... ok\n\ntest result: ok. 22 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.01s\n\n\nrunning 7 tests\ntest tui_pty_planner_stream_interrupt_cleans_spinner_and_footer ... ignored\ntest tui_pty_queues_input_during_command_and_replays_fifo ... ignored\ntest tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes ... ignored\ntest tui_pty_smoke ... ignored\ntest tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup ... ignored\ntest tui_pty_warns_when_ollama_is_stopped_and_keeps_prompt_usable ... ignored\ntest tui_pty_warns_when_ollama_model_is_missing_and_keeps_prompt_usable ... ignored\n\ntest result: ok. 0 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 4 tests\ntest slash_command_quotes_profile_style_and_goal ... ok\ntest tui_non_tty_requires_action ... ok\ntest no_footer_flag_reaches_config ... ok\ntest cli_repl_action_parity ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 2 tests\ntest unquoted_semicolon_remains_shell_control_syntax ... ok\ntest measured_run6_quoted_python_payload_passes_the_shared_verify_boundary ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 2 tests\ntest src/minimal_loop/build_verifier.rs - minimal_loop::build_verifier::parse_compile_errors (line 773) - compile fail ... ok\ntest src/planner/verify.rs - planner::verify::NormalizedVerifyCommand (line 170) - compile fail ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s\n\n",
+      "stderr_tail": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s\n     Running unittests src/lib.rs (target/debug/deps/commandagent-888ebae6faa64625)\ninternal panic caught: fault injection: CLI run panic boundary at src/cli_panic_boundary.rs:464:9\ninternal panic caught: fault injection: resumed worker panic at src/cli_panic_boundary.rs:560:17\ninternal panic caught: fault injection: CLI run panic boundary at src/cli_panic_boundary.rs:464:9\ninternal panic boundary: failed to write recovery note: Not a directory (os error 20)\ninternal panic caught: fault injection: CLI run panic boundary at src/cli_panic_boundary.rs:464:9\ninternal panic boundary: panic while finalizing a panicking direct CLI command: fault injection: direct completion finalizer panic\ninternal panic caught: fault injection: CLI run panic boundary at src/cli_panic_boundary.rs:464:9\n     Running unittests src/main.rs (target/debug/deps/commandagent-c282ad1b2b5ea5da)\n     Running tests/adjudication_compat.rs (target/debug/deps/adjudication_compat-009829e89a4d1c67)\n     Running tests/cli_artifacts.rs (target/debug/deps/cli_artifacts-ee0790d144d3e51e)\n     Running tests/cli_parse.rs (target/debug/deps/cli_parse-90a0fb1af6d0c5be)\n     Running tests/conformance.rs (target/debug/deps/conformance-b6e4e202483fcfca)\n     Running tests/corpus_regression.rs (target/debug/deps/corpus_regression-a92baf5e7cb57b2f)\n     Running tests/data_manifest_knowledge.rs (target/debug/deps/data_manifest_knowledge-b3b8803f6c85d197)\n     Running tests/data_profile_conformance.rs (target/debug/deps/data_profile_conformance-ac66836d718835c6)\n     Running tests/doc_drift.rs (target/debug/deps/doc_drift-e392fc1b591f4dd2)\n     Running tests/doctor_cli.rs (target/debug/deps/doctor_cli-bb8346470921f045)\n     Running tests/eval_script_contract.rs (target/debug/deps/eval_script_contract-4a510564514b5dd7)\n     Running tests/fix_intent_conformance.rs (target/debug/deps/fix_intent_conformance-87c1dc1e26f53cb7)\n     Running tests/generality_guardrails.rs (target/debug/deps/generality_guardrails-b96b04cbe60101e3)\n     Running tests/investigation_intent_conformance.rs (target/debug/deps/investigation_intent_conformance-6f4a57f8b333a844)\n     Running tests/live_provider.rs (target/debug/deps/live_provider-4c573de079257fae)\n     Running tests/profile_manifest_v1.rs (target/debug/deps/profile_manifest_v1-334785cd77703d6c)\n     Running tests/protection_coverage_audit.rs (target/debug/deps/protection_coverage_audit-5a017f003aaff49a)\n     Running tests/provider_onboarding.rs (target/debug/deps/provider_onboarding-ee348d2dbc664dfd)\n     Running tests/release_build.rs (target/debug/deps/release_build-38f89feeb4351e9d)\n     Running tests/release_distribution.rs (target/debug/deps/release_distribution-09666f7564d48deb)\n     Running tests/safety_parity_traceability.rs (target/debug/deps/safety_parity_traceability-54e06ce269fbf429)\n     Running tests/script_contract.rs (target/debug/deps/script_contract-996721749d585d61)\n     Running tests/setup_script.rs (target/debug/deps/setup_script-65c21f1cd51c240f)\n     Running tests/tui_integration.rs (target/debug/deps/tui_integration-07bb8bcb9cb8d010)\n     Running tests/tui_pty.rs (target/debug/deps/tui_pty-39294d71f746fe3f)\n     Running tests/tui_repl.rs (target/debug/deps/tui_repl-115111092bf2d8d4)\n     Running tests/verify_quote_aware.rs (target/debug/deps/verify_quote_aware-9624fd9adbb115b2)\n   Doc-tests commandagent\n"
+    },
+    "release_build": {
+      "command_argv": [
+        "cargo",
+        "build",
+        "--release"
+      ],
+      "command": "cargo build --release",
+      "start_epoch": 1784620616,
+      "end_epoch": 1784620616,
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "    Finished `release` profile [optimized] target(s) in 0.07s\n"
+    },
+    "install": {
+      "command_argv": [
+        "install",
+        "-m",
+        "755",
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "/Users/maenokota/.local/bin/commandagent"
+      ],
+      "command": "install -m 755 /Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent /Users/maenokota/.local/bin/commandagent",
+      "start_epoch": 1784620616,
+      "end_epoch": 1784620616,
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    "binary_sha256": {
+      "built": "3656722864bbbc32b6aa0564590535e67a169420a46ddadbec74d8d1beffeb0f",
+      "installed": "3656722864bbbc32b6aa0564590535e67a169420a46ddadbec74d8d1beffeb0f"
+    },
+    "path_commandagent": "/Users/maenokota/.local/bin/commandagent",
+    "version": {
+      "command_argv": [
+        "commandagent",
+        "--version"
+      ],
+      "command": "commandagent --version",
+      "start_epoch": 1784620616,
+      "end_epoch": 1784620617,
+      "exit_code": 0,
+      "stdout_tail": "commandagent 0.1.0 4127673 2026-07-21T07:47:54Z\n",
+      "stderr_tail": ""
+    },
+    "version_text": "commandagent 0.1.0 4127673 2026-07-21T07:47:54Z",
+    "node_env": {
+      "command_argv": [
+        "printenv",
+        "NODE_ENV"
+      ],
+      "command": "printenv NODE_ENV",
+      "start_epoch": 1784620617,
+      "end_epoch": 1784620617,
+      "exit_code": 0,
+      "stdout_tail": "production\n",
+      "stderr_tail": "",
+      "value": "production"
+    },
+    "completed_epoch": 1784620617
+  },
+  "deviations": [],
+  "created_epoch": 1784620193,
+  "runs": [
+    {
+      "name": "pipe_qwen35_001",
+      "set": "pipe-a",
+      "goal": "pipe",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "status": "completed",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "qwen3.6:35b-a3b-coding-nvfp4",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model qwen3.6:35b-a3b-coding-nvfp4 --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "4944322105b422f71338513405e3de57d2c698aab565f313fac794e4163ad1d3",
+        "output/inspection.json": "0e76d134335ffd290fb457321c2b0cd94412bd844f1f4732b9a089116aa5a6a7",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "4944322105b422f71338513405e3de57d2c698aab565f313fac794e4163ad1d3",
+        "output/inspection.json": "0e76d134335ffd290fb457321c2b0cd94412bd844f1f4732b9a089116aa5a6a7",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-B",
+          "pipeline/main.py"
+        ],
+        "command": "python3 -B pipeline/main.py",
+        "start_epoch": 1784620193,
+        "end_epoch": 1784620193,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_001/pipeline/main.py\", line 169, in <module>\n    run()\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_001/pipeline/main.py\", line 89, in run\n    amount = parse_amount(row[\"amount\"])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_001/pipeline/main.py\", line 53, in parse_amount\n    return int(val.strip())\n           ^^^^^^^^^^^^^^^^\nValueError: invalid literal for int() with base 10: ''\n",
+        "expectation": "nonzero_exit",
+        "pattern": "ValueError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620193,
+      "end_epoch": 1784620321,
+      "duration_seconds": 128,
+      "product_exit": 1,
+      "stdout_tail": "### Plan\n- Goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: data/sales....\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: data/sales.csv ...\n3. ○ repair - Apply the focused repair for the reproduced failure in: data/sales.csv を処理する pipeline/main....\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: data/sales.csv を処理する...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/inspe... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Read data/sales.csv\n→ Read pipeline/main.py\n→ Read output/inspection.json\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n#### Phase: repair\n1. ○ [implement] Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared tar... (verify 1)\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read pipeline/main.py\n→ Read data/sales.csv\n→ Read output/inspection.json\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read pipeline/main.py\n→ Read data/sales.csv\n→ Read output/inspection.json\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (5s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n→ Read data/sales.csv\n→ Read output/inspection.json\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n… still waiting (60s/600s)\n✓ repair turn finished (87s)\n↻ empty response; retry 1 (nudge_1)\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (2s)\n→ Read pipeline/main.py\n→ Read data/sales.csv\n→ Read output/inspection.json\n✓ empty response recovered after 1 retries\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (1s)\n→ Read pipeline/main.py\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (4s)\n→ Read pipeline/main.py\n✗ Phase 3/4: repair model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; ...\n✗ final acceptance failed\n",
+      "stderr_tail": "error: phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-019f83a9-0bb3-7bd2-aa02-3e39aa926c67.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-019f83a9-0bb3-7bd2-aa02-3e4e89bbb38c.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .anvil/repairs/repair-phase-repair-019f83a9-0bb3-7bd2-aa02-3e39aa926c67.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-019f83a9-0bb3-7bd2-aa02-3e4e89bbb38c.yaml\n",
+      "final_sha256": {
+        "pipeline/main.py": "4944322105b422f71338513405e3de57d2c698aab565f313fac794e4163ad1d3",
+        "output/inspection.json": "0e76d134335ffd290fb457321c2b0cd94412bd844f1f4732b9a089116aa5a6a7",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83a7-18aa-7323-846b-8fa125bd62e8/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "empty_response_escalation": 1,
+        "empty_response_recovered": 1,
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 2,
+        "phase_verification_result": 1,
+        "pipeline_error_extraction": 2,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 11,
+        "read_only_stagnation_feedback": 3,
+        "read_only_tool_rejected": 2,
+        "recovery_prompt_saved": 2,
+        "run_start": 1,
+        "run_stop": 1,
+        "step_obligation_scope": 2,
+        "step_prompt_contract": 2,
+        "time_profile": 1,
+        "tool_call_raw": 20,
+        "tool_execute": 18,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_final_acceptance": 1,
+        "ultra_partial_artifact_summary": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 2,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_failed": 1,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83a7-18aa-7323-846b-8fa125bd62e8/summary.md",
+      "verdict": "failed",
+      "verdict_source": "Task status:",
+      "assurance": "failed (after_not_executed)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data",
+      "terminal_reason_source": "Stop reason:"
+    },
+    {
+      "name": "pipe_gemma31_001",
+      "set": "pipe-b",
+      "goal": "pipe",
+      "executor": "gemma4:31b",
+      "status": "completed",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gemma4:31b",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model gemma4:31b --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-B",
+          "pipeline/main.py"
+        ],
+        "command": "python3 -B pipeline/main.py",
+        "start_epoch": 1784620321,
+        "end_epoch": 1784620321,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_gemma31_001/pipeline/main.py\", line 181, in <module>\n    run()\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_gemma31_001/pipeline/main.py\", line 164, in run\n    report_lines.append(\"## 月次×地域別売上\", \"\")\nTypeError: list.append() takes exactly one argument (2 given)\n",
+        "expectation": "nonzero_exit",
+        "pattern": "TypeError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620321,
+      "end_epoch": 1784620464,
+      "duration_seconds": 143,
+      "product_exit": 1,
+      "stdout_tail": "### Plan\n- Goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: data/sales....\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: data/sales.csv ...\n3. ○ repair - Apply the focused repair for the reproduced failure in: data/sales.csv を処理する pipeline/main....\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: data/sales.csv を処理する...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/inspe... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (19s)\n→ Glob **/*\n✓ Glob ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n#### Phase: repair\n1. ○ [implement] Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared tar... (verify 1)\n→ step implement-fix [implement]\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (8s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (4s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (7s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (gemma4, up to 600s)\n✓ repair turn finished (8s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (4s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (gemma4, up to 600s)\n✓ repair turn finished (47s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: gemma4, up to 600s)\n✓ implementation turn finished (3s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (gemma4, up to 600s)\n✓ repair turn finished (24s)\n→ Read pipeline/main.py\n→ repairing (gemma4, up to 600s)\n✓ repair turn finished (13s)\n→ Read pipeline/main.py\n✗ Phase 3/4: repair model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; ...\n✗ final acceptance failed\n",
+      "stderr_tail": "error: phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-019f83ab-3acf-7012-b862-fb8450da3d75.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-3acf-7012-b862-fb93502104e3.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .anvil/repairs/repair-phase-repair-019f83ab-3acf-7012-b862-fb8450da3d75.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-3acf-7012-b862-fb93502104e3.yaml\n",
+      "final_sha256": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83a9-0c75-7f53-ac31-c5fc6e9da32e/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "context_truncation_suspected": 1,
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 2,
+        "phase_verification_result": 1,
+        "pipeline_error_extraction": 2,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 10,
+        "read_only_stagnation_feedback": 3,
+        "read_only_tool_rejected": 2,
+        "recovery_prompt_saved": 2,
+        "run_start": 1,
+        "run_stop": 1,
+        "step_obligation_scope": 2,
+        "step_prompt_contract": 2,
+        "time_profile": 1,
+        "tool_call_raw": 10,
+        "tool_execute": 8,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_final_acceptance": 1,
+        "ultra_partial_artifact_summary": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 2,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_failed": 1,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83a9-0c75-7f53-ac31-c5fc6e9da32e/summary.md",
+      "verdict": "failed",
+      "verdict_source": "Task status:",
+      "assurance": "failed (after_not_executed)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data",
+      "terminal_reason_source": "Stop reason:"
+    },
+    {
+      "name": "pipe_qwen35_002",
+      "set": "pipe-b",
+      "goal": "pipe",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "status": "completed",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "qwen3.6:35b-a3b-coding-nvfp4",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model qwen3.6:35b-a3b-coding-nvfp4 --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-B",
+          "pipeline/main.py"
+        ],
+        "command": "python3 -B pipeline/main.py",
+        "start_epoch": 1784620464,
+        "end_epoch": 1784620464,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_002/pipeline/main.py\", line 181, in <module>\n    run()\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_002/pipeline/main.py\", line 164, in run\n    report_lines.append(\"## 月次×地域別売上\", \"\")\nTypeError: list.append() takes exactly one argument (2 given)\n",
+        "expectation": "nonzero_exit",
+        "pattern": "TypeError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620464,
+      "end_epoch": 1784620482,
+      "duration_seconds": 18,
+      "product_exit": 1,
+      "stdout_tail": "### Plan\n- Goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: data/sales....\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: data/sales.csv ...\n3. ○ repair - Apply the focused repair for the reproduced failure in: data/sales.csv を処理する pipeline/main....\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: data/sales.csv を処理する...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/inspe... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read pipeline/main.py\n→ Read output/inspection.json\n→ Read output/results.json\n→ Read data/sales.csv\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n#### Phase: repair\n1. ○ [implement] Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared tar... (verify 1)\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read pipeline/main.py\n→ Read pipeline/main.py\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n→ Read pipeline/main.py\n✓ Read ok\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n→ Read pipeline/main.py\n✓ Read ok\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (1s)\n→ Read pipeline/main.py\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (1s)\n→ Read pipeline/main.py\n✗ Phase 3/4: repair model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; ...\n✗ final acceptance failed\n",
+      "stderr_tail": "error: phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-019f83ab-8053-7e60-838b-0e14bafdd3bb.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-8053-7e60-838b-0e2e89bb9c26.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .anvil/repairs/repair-phase-repair-019f83ab-8053-7e60-838b-0e14bafdd3bb.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-8053-7e60-838b-0e2e89bb9c26.yaml\n",
+      "final_sha256": {
+        "pipeline/main.py": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+        "output/results.json": "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2",
+        "output/inspection.json": "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83ab-3b69-7263-9615-85cd9a26e796/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 2,
+        "phase_verification_result": 1,
+        "pipeline_error_extraction": 2,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 10,
+        "read_only_stagnation_feedback": 3,
+        "read_only_tool_rejected": 2,
+        "recovery_prompt_saved": 2,
+        "run_start": 1,
+        "run_stop": 1,
+        "step_obligation_scope": 2,
+        "step_prompt_contract": 2,
+        "time_profile": 1,
+        "tool_call_raw": 16,
+        "tool_execute": 14,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_final_acceptance": 1,
+        "ultra_partial_artifact_summary": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 2,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_failed": 1,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83ab-3b69-7263-9615-85cd9a26e796/summary.md",
+      "verdict": "failed",
+      "verdict_source": "Task status:",
+      "assurance": "failed (after_not_executed)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Execute exactly one StepPlan step. Overall goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。 Current step id: implement-fix Current step kind: implement Current step instruction: Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data",
+      "terminal_reason_source": "Stop reason:"
+    },
+    {
+      "name": "schema_qwen35_001",
+      "set": "schema-a",
+      "goal": "schema",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "status": "completed",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "qwen3.6:35b-a3b-coding-nvfp4",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model qwen3.6:35b-a3b-coding-nvfp4 --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-c",
+          "import json; d=json.load(open('output/results.json')); assert set(d.keys()) == {'reconciliation', 'values'} and set(d['reconciliation'].keys()) == {'input_rows', 'used_rows', 'excluded'}"
+        ],
+        "command": "python3 -c 'import json; d=json.load(open('\"'\"'output/results.json'\"'\"')); assert set(d.keys()) == {'\"'\"'reconciliation'\"'\"', '\"'\"'values'\"'\"'} and set(d['\"'\"'reconciliation'\"'\"'].keys()) == {'\"'\"'input_rows'\"'\"', '\"'\"'used_rows'\"'\"', '\"'\"'excluded'\"'\"'}'",
+        "start_epoch": 1784620482,
+        "end_epoch": 1784620482,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError\n",
+        "expectation": "nonzero_exit",
+        "pattern": "AssertionError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620482,
+      "end_epoch": 1784620495,
+      "duration_seconds": 13,
+      "product_exit": 1,
+      "stdout_tail": "### Plan\n- Goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: output/resu...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: output/results....\n3. ○ repair - Apply the focused repair for the reproduced failure in: output/results.json がデータ契約のスキー...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: output/results.json がデ...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/repor... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read output/results.json\n→ Read output/report.md\n→ Read pipeline/main.py\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n#### Phase: repair\n1. ○ [implement] Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared tar... (verify 1)\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read pipeline/main.py\n→ Glob docs/dev/data-profile-contract.md\n→ Glob **/*.py\n→ Glob data/*\n→ Glob output/*\n✓ Read ok\n✗ Glob missing_arg\n✗ Glob missing_arg\n✗ Glob missing_arg\n✗ Phase 3/4: repair recoverable tool error repeated: missing_arg\n✗ final acceptance failed\n",
+      "stderr_tail": "error: phase repair failed: recoverable tool error repeated: missing_arg; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-019f83ab-b0bf-77d0-b974-1a7988a00fb2.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-b0bf-77d0-b974-1a802c493d17.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .anvil/repairs/repair-phase-repair-019f83ab-b0bf-77d0-b974-1a7988a00fb2.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-019f83ab-b0bf-77d0-b974-1a802c493d17.yaml\n",
+      "final_sha256": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83ab-80eb-7b53-97d0-3952804df414/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 2,
+        "phase_verification_result": 1,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 4,
+        "recovery_prompt_saved": 1,
+        "run_start": 1,
+        "run_stop": 1,
+        "step_obligation_scope": 2,
+        "step_prompt_contract": 2,
+        "time_profile": 1,
+        "tool_call_raw": 12,
+        "tool_execute": 8,
+        "tool_validation_error": 3,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_final_acceptance": 1,
+        "ultra_partial_artifact_summary": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 2,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_failed": 1,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83ab-80eb-7b53-97d0-3952804df414/summary.md",
+      "verdict": "failed",
+      "verdict_source": "Task status:",
+      "assurance": "failed (after_not_executed)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "phase repair failed: recoverable tool error repeated: missing_arg; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true",
+      "terminal_reason_source": "Stop reason:"
+    },
+    {
+      "name": "schema_gemma31_001",
+      "set": "schema-b",
+      "goal": "schema",
+      "executor": "gemma4:31b",
+      "status": "interrupted(environment)",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gemma4:31b",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model gemma4:31b --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-c",
+          "import json, sys; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']"
+        ],
+        "command": "python3 -c 'import json, sys; d=json.load(open('\"'\"'output/results.json'\"'\"')); assert '\"'\"'reconciliation'\"'\"' in d and '\"'\"'values'\"'\"' in d and '\"'\"'input_rows'\"'\"' in d['\"'\"'reconciliation'\"'\"'] and '\"'\"'used_rows'\"'\"' in d['\"'\"'reconciliation'\"'\"'] and '\"'\"'excluded'\"'\"' in d['\"'\"'reconciliation'\"'\"']'",
+        "start_epoch": 1784620495,
+        "end_epoch": 1784620495,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError\n",
+        "expectation": "nonzero_exit",
+        "pattern": "AssertionError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620495,
+      "interruption_reason": "harness received KeyboardInterrupt",
+      "end_epoch": 1784620510,
+      "duration_seconds": 15,
+      "product_exit": null,
+      "final_sha256": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83ab-b156-72c0-8564-e9c071a2f0c9/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 1,
+        "phase_verification_result": 1,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 1,
+        "run_start": 1,
+        "runtime_bash_policy": 1,
+        "step_obligation_scope": 2,
+        "step_prompt_contract": 2,
+        "time_profile": 1,
+        "tool_call_raw": 1,
+        "tool_execute": 1,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 1,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83ab-b156-72c0-8564-e9c071a2f0c9/summary.md",
+      "verdict": "interrupted",
+      "verdict_source": "Task status:",
+      "assurance": "static (data_profile_probe_not_run)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "interrupted by user",
+      "terminal_reason_source": "Stop reason:"
+    },
+    {
+      "name": "schema_qwen35_002",
+      "set": "schema-a",
+      "goal": "schema",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "status": "completed",
+      "command_argv": [
+        "commandagent",
+        "--yes",
+        "--intent",
+        "fix",
+        "--context-budget",
+        "65536",
+        "--model",
+        "qwen3.6:35b-a3b-coding-nvfp4",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--ultra-plan-run",
+        "--profile",
+        "data",
+        "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+      ],
+      "command": "commandagent --yes --intent fix --context-budget 65536 --model qwen3.6:35b-a3b-coding-nvfp4 --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。'",
+      "input_sha256_expected": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "input_sha256_observed": {
+        "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "precheck": {
+        "command_argv": [
+          "python3",
+          "-c",
+          "import json; d=json.load(open('output/results.json')); assert set(d.keys()) == {'reconciliation', 'values'} and set(d['reconciliation'].keys()) == {'input_rows', 'used_rows', 'excluded'}"
+        ],
+        "command": "python3 -c 'import json; d=json.load(open('\"'\"'output/results.json'\"'\"')); assert set(d.keys()) == {'\"'\"'reconciliation'\"'\"', '\"'\"'values'\"'\"'} and set(d['\"'\"'reconciliation'\"'\"'].keys()) == {'\"'\"'input_rows'\"'\"', '\"'\"'used_rows'\"'\"', '\"'\"'excluded'\"'\"'}'",
+        "start_epoch": 1784620617,
+        "end_epoch": 1784620617,
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError\n",
+        "expectation": "nonzero_exit",
+        "pattern": "AssertionError",
+        "exit_matches": true,
+        "pattern_matches": true
+      },
+      "start_epoch": 1784620617,
+      "end_epoch": 1784620729,
+      "duration_seconds": 112,
+      "product_exit": 1,
+      "stdout_tail": "### Plan\n- Goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: output/resu...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: output/results....\n3. ○ repair - Apply the focused repair for the reproduced failure in: output/results.json がデータ契約のスキー...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: output/results.json がデ...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/repor... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Read output/results.json\n→ Read output/report.md\n→ Read pipeline/main.py\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n#### Phase: repair\n1. ○ [implement] Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared tar... (verify 1)\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n→ Glob docs/dev/data-profile-contract.md\n→ Glob data/sales.csv\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✗ Glob missing_arg\n✗ Glob missing_arg\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (4s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (18s)\n→ Read pipeline/main.py\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (1s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (2s)\n→ Read pipeline/main.py\n→ Read output/results.json\n→ Read output/report.md\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (33s)\n→ Write pipeline/main.py\n✓ Write ok\n✗ verify data_results_schema:results.json missing required key `reconciliation`\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (10s)\n→ Read pipeline/main.py\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (5s)\n→ Read pipeline/main.py\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (14s)\n→ Bash cat /Users/<user>/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-2026...\n→ Bash cat /Users/<user>/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-2026...\n→ Bash cat /Users/<user>/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-2026...\n→ Bash cat /Users/<user>/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-2026...\n✗ Phase 3/4: repair model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; ...\n✗ final acceptance failed\n",
+      "stderr_tail": "error: phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Repair step `implement-fix`. Verification failed: data_results_schema:results.json missing required key `reconciliation`. Repair target: implementation. Fix the implementation files that should satisfy the requested behavior. Make the smallest bounded change, then stop. Overall goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。 Repair\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-019f83af-449d-7ca0-8b71-6ee4f5d2fb04.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-019f83af-449d-7ca0-8b71-6ef631cae5d3.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .anvil/repairs/repair-phase-repair-019f83af-449d-7ca0-8b71-6ee4f5d2fb04.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-019f83af-449d-7ca0-8b71-6ef631cae5d3.yaml\n",
+      "final_sha256": {
+        "pipeline/main.py": "0702bc2fe14ea67912f0500917053fff171eb454a54bdef7fb4a0289cbb10434",
+        "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+        "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+        "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+      },
+      "scrub": {
+        "ok": true,
+        "findings": [],
+        "allow": []
+      },
+      "event_search": {
+        "file_glob": ".anvil/runs/**/events.jsonl",
+        "field": "event",
+        "patterns": {
+          "intent_resolved": "^intent_resolved$",
+          "host_env_normalized": "^host_env_normalized$",
+          "fix_reproducer_suggested": "^fix_reproducer_suggested$",
+          "*_plan_synthesized": "^[a-z0-9_]+_plan_synthesized$",
+          "*_adjudicated": "^[a-z0-9_]+_adjudicated$"
+        },
+        "files": [
+          ".anvil/runs/019f83ad-8dca-7440-aeca-01487f5d5b37/events.jsonl"
+        ],
+        "parse_errors": []
+      },
+      "event_counts": {
+        "intent_resolved": 1,
+        "host_env_normalized": 1,
+        "fix_reproducer_suggested": 1,
+        "*_plan_synthesized": 1,
+        "*_adjudicated": 0
+      },
+      "exact_event_counts": {
+        "escalation_carryover": 1,
+        "fix_evidence_recorded": 1,
+        "fix_plan_synthesized": 1,
+        "fix_reproducer_suggested": 1,
+        "host_env_contamination": 1,
+        "host_env_normalized": 1,
+        "intent_resolved": 1,
+        "loop_stop": 3,
+        "phase_verification_result": 1,
+        "plan_preset_resolved": 1,
+        "provider_turn_duration": 14,
+        "read_only_stagnation_feedback": 4,
+        "read_only_tool_rejected": 3,
+        "recovery_prompt_saved": 2,
+        "run_start": 1,
+        "run_stop": 1,
+        "step_obligation_scope": 3,
+        "step_prompt_contract": 2,
+        "step_verify_failure": 1,
+        "time_profile": 1,
+        "tool_call_raw": 31,
+        "tool_execute": 21,
+        "tool_validation_error": 2,
+        "tui_command_stop": 1,
+        "ultra_context_initialized": 1,
+        "ultra_final_acceptance": 1,
+        "ultra_partial_artifact_summary": 1,
+        "ultra_phase_complete": 2,
+        "ultra_phase_context_attached": 3,
+        "ultra_phase_context_updated": 2,
+        "ultra_phase_execute_complete": 2,
+        "ultra_phase_failed": 1,
+        "ultra_phase_plan_validated": 3,
+        "ultra_phase_profile_check": 2,
+        "ultra_phase_scaffold_complete": 3,
+        "ultra_phase_start": 3
+      },
+      "summary_path": ".anvil/runs/019f83ad-8dca-7440-aeca-01487f5d5b37/summary.md",
+      "verdict": "failed",
+      "verdict_source": "Task status:",
+      "assurance": "failed (after_not_executed)",
+      "assurance_source": "Assurance:",
+      "terminal_reason": "phase repair failed: model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Repair step `implement-fix`. Verification failed: data_results_schema:results.json missing required key `reconciliation`. Repair target: implementation. Fix the implementation files that should satisfy the requested behavior. Make the smallest bounded change, then stop. Overall goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。 Repair",
+      "terminal_reason_source": "Stop reason:"
+    }
+  ],
+  "resume_notes": [
+    "schema_gemma31_001 was interrupted(environment) and must not be rerun. A one-time rerun in a new directory requires review adjudication."
+  ],
+  "resume_epochs": [
+    1784620617
+  ],
+  "updated_epoch": 1784620729
+}

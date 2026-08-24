@@ -1,0 +1,9 @@
+goal: "Bind and run one deterministic failing reproducer R before any workspace change for: このNext."
+steps:
+  - id: "reproduce-build-failure"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run npm run build to confirm the build failure before any changes"
+    expected_paths:
+    verify:
+      - "npm run build"

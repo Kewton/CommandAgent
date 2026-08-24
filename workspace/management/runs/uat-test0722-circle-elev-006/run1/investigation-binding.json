@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "error_quote",
+      "value": "pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 21 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "test -f pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    }
+  ]
+}

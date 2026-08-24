@@ -1,0 +1,8 @@
+{
+  "runs": [
+    {"run": "warikan_001", "provider_total_tokens": 36184, "cached_input_tokens": 24739, "cost_usd": 0.00591378},
+    {"run": "warikan_002", "provider_total_tokens": 7529, "cached_input_tokens": 4163, "cost_usd": 0.00226446}
+  ],
+  "total_cost_usd": 0.00817824,
+  "pricing_source": "workspace/management/bench/community/pricing.toml"
+}

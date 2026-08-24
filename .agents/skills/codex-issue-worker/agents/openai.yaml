@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Issue Worker"
+  short_description: "Implement one CommandAgent issue in a worktree"
+  default_prompt: "Use $codex-issue-worker to implement and verify the assigned issue."
+policy:
+  allow_implicit_invocation: false

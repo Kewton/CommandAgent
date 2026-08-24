@@ -1,0 +1,34 @@
+[suite]
+id = "ingest-fetch-stage2"
+status = "fixture_acceptance_only"
+profile = "ingest"
+intent = "create"
+live_fetch = false
+public_site_selected = false
+
+[fetch_probe]
+contract = "tests/fixtures/fetch-probe/contracts/valid.toml"
+contract_sha256 = "574a195ede4a6150e711ebc6f94582d6d64632ae94ba3c466b6f255c15464121"
+recording = "tests/fixtures/fetch-probe/recordings/success.json"
+recording_sha256 = "5aefb98944677a1fc7b8e0966ac8571873e8a4a189cf1bb3a65cc446e33d4f39"
+recording_provenance = "localhost_fixture"
+workspace_fixture = "tests/fixtures/fetch-probe/stage2-workspace"
+stage_order = ["fetch", "ingest_fetch_freshness", "existing_n1_through_n5"]
+
+[acceptance]
+required_runs = 3
+required_assurance = "full"
+network_in_ci = false
+fetch_evidence = "evidence/fetch-evidence.json"
+freshness_evidence = "evidence/fetch-freshness.json"
+stage1_evidence = "evidence/ingest-assurance.json"
+stage2_evidence = "evidence/ingest-stage2-assurance.json"
+
+[[fixture_runs]]
+name = "localhost_recorded_001"
+
+[[fixture_runs]]
+name = "localhost_recorded_002"
+
+[[fixture_runs]]
+name = "localhost_recorded_003"

@@ -1,0 +1,17 @@
+{
+  "total_input_rows": 60,
+  "valid_rows": 56,
+  "excluded_count": 4,
+  "excluded_reasons": {
+    "invalid_date": 1,
+    "missing_amount": 1,
+    "missing_date": 1,
+    "non_positive_amount": 1
+  },
+  "notes": [
+    "Excluded 1 row(s) due to invalid_date",
+    "Excluded 1 row(s) due to missing_amount",
+    "Excluded 1 row(s) due to missing_date",
+    "Excluded 1 row(s) due to non_positive_amount"
+  ]
+}

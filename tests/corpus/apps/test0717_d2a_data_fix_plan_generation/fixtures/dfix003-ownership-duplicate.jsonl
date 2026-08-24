@@ -1,0 +1,1 @@
+{"goal":"data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。","steps":[{"id":"fix-pipeline","kind":"implement","expected_paths":["pipeline/main.py"]},{"id":"run-pipeline","kind":"verify","expected_paths":["pipeline/main.py"]}],"expected_normalized":{"owners":{"pipeline/main.py":"fix-pipeline"},"references":{"run-pipeline":["pipeline/main.py"]}}}

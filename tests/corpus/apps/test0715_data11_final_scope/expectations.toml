@@ -1,0 +1,39 @@
+case_id = "test0715_data11_final_scope"
+source = "uat-test0715-data-005 Run 3 measured E1/E2/E3 pass artifacts and dynamic final-phase plan"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data_inspection_schema", "phase_out_of_scope", "data_rerun_consistency"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data5_qwen35_none_001/final-step-plan.yaml = [
+  "final-verification-and-cleanup",
+  "anvil-catalog-check:data_inspection_schema",
+  "anvil-catalog-check:data_rerun_consistency"
+]
+fixtures/data5_qwen35_none_001/evidence/claims-binding.json = [
+  "\"status\": \"pass\"",
+  "\"failure_kinds\": []"
+]
+fixtures/data5_qwen35_none_001/evidence/inspection-schema.json = [
+  "\"status\": \"failed\"",
+  "inspection_schema_violation:missing_keys"
+]
+fixtures/data5_qwen35_none_001/evidence/reconciliation.json = ["\"status\": \"pass\""]
+fixtures/data5_qwen35_none_001/evidence/rerun-consistency.json = ["\"status\": \"pass\""]

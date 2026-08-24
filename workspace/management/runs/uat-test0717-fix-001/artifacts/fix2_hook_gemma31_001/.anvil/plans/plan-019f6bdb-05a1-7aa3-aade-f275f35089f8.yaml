@@ -1,0 +1,21 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to identify UI components, game states, and locate where restart affordances are implemented."
+    expected_paths:
+    verify:
+  - id: "inspect-layout-and-components"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx and any imported component files in src/ to check for global restart hooks or shared UI patterns."
+    expected_paths:
+    verify:
+  - id: "verify-missing-restart-hook"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Check if data-anvil-action=\"restart\" is present in the route-bound implementation files to confirm the cause of verification failure."
+    expected_paths:
+    verify:
+      - "node -e 'const fs=require(\"fs\"); const c=fs.readFileSync(\"src/app/page.tsx\",\"utf8\"); process.exit(c.includes(\"data-anvil-action=\\\"restart\\\"\")?1:0)'"

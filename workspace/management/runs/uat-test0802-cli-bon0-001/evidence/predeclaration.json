@@ -1,0 +1,14 @@
+{
+  "schema_version": "commandagent.bon-predeclaration/v0",
+  "recorded_at": "2026-08-03T00:28:21+09:00",
+  "report_sha256_before_execution": "eebcd2c951a276321ac5be7ce63e5776feaac277b778fc80df1a500385c7b425",
+  "single_run_full_rate": {
+    "full": 2,
+    "runs": 12
+  },
+  "bon_trials": 6,
+  "probability_at_least_one_full": 0.6651020233196159,
+  "prediction_used_for_selection": false,
+  "pruning_enabled": false,
+  "repair_connected": false
+}

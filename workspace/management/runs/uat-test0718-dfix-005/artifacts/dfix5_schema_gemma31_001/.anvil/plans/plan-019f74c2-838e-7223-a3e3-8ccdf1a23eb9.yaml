@@ -1,0 +1,10 @@
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "implement-fix"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (evidence_mapped); preserve the existing data contract and keep ownership of this path in this step."
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "anvil-catalog-check:data_results_schema"

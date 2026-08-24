@@ -1,0 +1,298 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0801-cli-luna-005",
+  "campaign_id": "cli-create-luna-20260801-153409",
+  "revision": "a245e926878e60ef304bb2b9e7d86b67e2727437",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24)",
+  "suite": {
+    "id": "cli-create-luna",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider": "ollama",
+    "executor": "gpt-5.6-luna",
+    "provider": "openai",
+    "tool_protocol": "text"
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "6f3f25d3c9625bcc33b1936896612a364e6c1b044bb7ffbca020cf98ad89e581",
+    "report_skeleton_sha256": "83edc49af727136127d0da0655889140e9ad0bd98aa94dc3971a2583a7992398",
+    "live_run_events_sha256": {
+      "stats_luna_001": "238cb074875c3a384d0f8e06191eca6dab542e1cf7f0787a18da9931ce23d252",
+      "stats_luna_002": "afe6fcd82c9765d4db72878fe18924a02efc21fc7a3ee1549db04520ef3af609",
+      "stats_luna_003": "a15a175c84b1e549f33327760b73f41bcfa280677a48308dea29e127226875a0",
+      "filter_luna_001": "2ec1bcee6dad76a014cb114be073bf49d33ed1922d65bdf01589b6eff5d9a332",
+      "filter_luna_002": "655bb4bbcdc7508de64a1524478df967c434c0ec98ccbff8094932edda4e9d14",
+      "filter_luna_003": "9e81fa7fdfce7cfedfc2d0ca0e5c10895d1471bb75f85ecc9d45335b111fd6a6"
+    },
+    "tool_parse_repair_evidence_sha256": {
+      "stats_luna_001/001": "d37c4295ccb2690bab8610b8dfd6d1221f009e07b15e3c93af39c70838fccf7b",
+      "stats_luna_003/001": "f7571bc291c1e292897bc50a577d8dde674f8e7b540794bfe13b1913b512b01c",
+      "stats_luna_003/002": "5e1d939d731fb59fa2c74e59048d9e054f143d09bdc5ba29d89adc8da4df4d04",
+      "filter_luna_001/001": "fc6a37ff6431c5dd147b847f68115687c85cf97d2658c10ddf6ec7c693a24302",
+      "filter_luna_002/001": "14a14b3b30ff91077660aac3a30bbb1fc18c0432db7d835622f580a684ca7bbc",
+      "filter_luna_002/002": "4d4ee478dbd0733bf88c5faf5c5bc5fe4c597a6b9f6cba87904680aa7833628f",
+      "filter_luna_002/003": "1ec0ca10a6cca3a446d9f6e25b5b15e47b4c8feec4ddfcc2471b17ba82d56b08",
+      "filter_luna_002/004": "95f45e751a1a3bffbff8705612088783528f36a36a503f1774ad75ee84795a0e",
+      "filter_luna_003/001": "6adf515514c0dac8856f35d58896fc7164cdde641f938894a7e0a0d558de1bd8"
+    },
+    "tool_parse_failure_evidence_sha256": {
+      "stats_luna_001": "951c64aefdc2bc267051e9af4a615a958ef178bd59f987420b4225091b8602bb",
+      "stats_luna_002": "a27b431e61e067ee9e122b0360b678ee2cfea6fe486f2c1b1493da305d212782",
+      "filter_luna_002": "c9c2d120ecd2a87bcf94b038651a8773b2244b6fef1a0205230890a24b3c3cce",
+      "filter_luna_003": "c0267713c29bf48bbe7ab2a0ad11e2e3396f42b8b436b0093bd3fc2a02cc6d28"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785598449,
+    "preflight_end": 1785598633,
+    "run_start": 1785598633,
+    "run_end": 1785601702
+  },
+  "cost_seconds": {
+    "run_sum": 3069,
+    "run_start_to_run_end": 3069,
+    "preflight_start_to_run_end": 3253
+  },
+  "preflight": {
+    "git_clean": true,
+    "head": "a245e926878e60ef304bb2b9e7d86b67e2727437",
+    "minimum_ancestor": "527bdc1e",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 a245e926 2026-08-01T15:36:46Z",
+    "built_binary_sha256": "43861f3483b2cdfbfaf92d4b1ba38742f0a9cc324f693277af89612702be24ab",
+    "installed_binary_sha256": "43861f3483b2cdfbfaf92d4b1ba38742f0a9cc324f693277af89612702be24ab",
+    "node_env": "production",
+    "deviations": []
+  },
+  "runs": [
+    {
+      "name": "stats_luna_001",
+      "family": "stats",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "missing tool call for action prompt after feedback",
+      "residual_class": "b",
+      "repair_applied": {
+        "first_json_value": 0,
+        "closing_tag_completed": 1
+      },
+      "duration_seconds": 777,
+      "api_input_tokens": 27888,
+      "api_output_tokens": 3461,
+      "cost_usd": 0.048654
+    },
+    {
+      "name": "stats_luna_002",
+      "family": "stats",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "missing tool call for action prompt after feedback",
+      "residual_class": "b",
+      "repair_applied": {
+        "first_json_value": 0,
+        "closing_tag_completed": 0
+      },
+      "duration_seconds": 433,
+      "api_input_tokens": 18028,
+      "api_output_tokens": 1726,
+      "cost_usd": 0.028384
+    },
+    {
+      "name": "stats_luna_003",
+      "family": "stats",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "model_empty_response after bounded recovery (4)",
+      "residual_class": "empty_response",
+      "repair_applied": {
+        "first_json_value": 0,
+        "closing_tag_completed": 2
+      },
+      "duration_seconds": 865,
+      "api_input_tokens": 26849,
+      "api_output_tokens": 1400,
+      "cost_usd": 0.035249
+    },
+    {
+      "name": "filter_luna_001",
+      "family": "filter",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "model_empty_response after bounded recovery (4)",
+      "residual_class": "empty_response",
+      "repair_applied": {
+        "first_json_value": 0,
+        "closing_tag_completed": 1
+      },
+      "duration_seconds": 316,
+      "api_input_tokens": 19520,
+      "api_output_tokens": 1770,
+      "cost_usd": 0.030140
+    },
+    {
+      "name": "filter_luna_002",
+      "family": "filter",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "missing tool call for action prompt after feedback",
+      "residual_class": "b",
+      "repair_applied": {
+        "first_json_value": 1,
+        "closing_tag_completed": 3
+      },
+      "duration_seconds": 252,
+      "api_input_tokens": 27001,
+      "api_output_tokens": 1723,
+      "cost_usd": 0.037339
+    },
+    {
+      "name": "filter_luna_003",
+      "family": "filter",
+      "executor": "gpt-5.6-luna",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "stop_detail": "missing tool call for action prompt after feedback",
+      "residual_class": "b",
+      "repair_applied": {
+        "first_json_value": 0,
+        "closing_tag_completed": 1
+      },
+      "duration_seconds": 426,
+      "api_input_tokens": 15080,
+      "api_output_tokens": 1219,
+      "cost_usd": 0.022394
+    }
+  ],
+  "repair_audit": {
+    "repair_applied_events": 9,
+    "repair_evidence_records": 9,
+    "bounded_excerpt_max_bytes": 256,
+    "repair_kinds": {
+      "first_json_value": 1,
+      "closing_tag_completed": 8
+    },
+    "residual_b": 4,
+    "residual_empty_response": 2,
+    "silent_repairs": 0,
+    "calibration_records_added": {
+      "tool_parse_repair": 9,
+      "tool_parse": 4
+    }
+  },
+  "effective_model_audit": {
+    "requested_model": "gpt-5.6-luna",
+    "requested_model_matches": "6/6",
+    "provider_response_model": "gpt-5.6-luna (81/81 turns)",
+    "system_fingerprint": null,
+    "system_fingerprint_consistency": "81/81 null",
+    "service_tier": "default (81/81 turns)"
+  },
+  "openai_cost": {
+    "usage_metadata_runs": 6,
+    "provider_turns": 81,
+    "api_input_tokens": 134366,
+    "api_output_tokens": 11299,
+    "calculated_cost_usd": 0.202160,
+    "official_rate_usd_per_million": {
+      "input": 1.0,
+      "output": 6.0
+    },
+    "note": "Calculated from returned usage at the published standard uncached rate. Actual invoice data was not observed."
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0,
+      "automatic_class": "process_failure",
+      "automatic_attribution": "model"
+    },
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 13
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 0,
+    "runs_executing_c1_through_c4": 0,
+    "c1_pass": 0,
+    "c2_pass": 0,
+    "c3_pass": 0,
+    "c3_fail": 0,
+    "c3_claims": 0,
+    "c3_violations": 0,
+    "c4_pass": 0,
+    "readme_artifacts": 6
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "sheet_self_supply": "6/6",
+    "run_scrub": "6/6",
+    "campaign_scrub": "pass",
+    "exact_api_key_matches": 0
+  }
+}

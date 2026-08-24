@@ -1,0 +1,41 @@
+case_id = "issue250-declarative-command-checks"
+source = "Issue #250 draft profile and local pack declarative command-check contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"declarative_command_check_result\"",
+  "\"source\":\"draft_profile\"",
+  "\"source\":\"local_pack\"",
+  "\"status\":\"passed\""
+]
+fixtures/summary.md = [
+  "Declarative command checks (draft_profile `static-site`): 1/1 passed",
+  "Declarative command checks (local_pack `static-validation@1.0.0`): 1/1 passed"
+]
+fixtures/terminal.jsonl = [
+  "\"effective_profile\":\"static-site\"",
+  "\"assurance_level\":\"static\"",
+  "\"assurance_reason\":\"profile_not_admitted\""
+]

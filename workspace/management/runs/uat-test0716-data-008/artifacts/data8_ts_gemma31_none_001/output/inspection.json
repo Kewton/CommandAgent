@@ -1,0 +1,15 @@
+{
+  "input_file": "data/sales.csv",
+  "columns_found": [
+    "date",
+    "region",
+    "amount"
+  ],
+  "date_format": "YYYY-MM-DD",
+  "total_input_rows": 60,
+  "valid_rows": 57,
+  "exclusion_reasons": [
+    "invalid_date_format",
+    "missing_values"
+  ]
+}

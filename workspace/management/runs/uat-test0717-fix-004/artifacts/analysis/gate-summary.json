@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-004",
+  "overall": "fail",
+  "gates": [
+    {
+      "id": "P0-a",
+      "name": "honest terminal",
+      "result": "pass",
+      "evidence": "6/6 produced failed verdicts with concrete reasons; run_start, tui_command_stop, and run_stop each occurred 6/6; panic and unclassified stops were zero"
+    },
+    {
+      "id": "P0-b",
+      "name": "contract assurance",
+      "result": "pass",
+      "evidence": "F1 passed 6/6; F2 and F3 were not executed 6/6; assurance was failed(after_not_executed) 6/6"
+    },
+    {
+      "id": "P0-c",
+      "name": "no false success",
+      "result": "pass",
+      "evidence": "full claims 0; false-full 0; no assurance was earned from unexecuted F2/F3"
+    },
+    {
+      "id": "P1-a",
+      "name": "FIX-4a effective",
+      "result": "pass",
+      "evidence": "compile old planner-lint stop fell from 2 to 0; diagnostic location/symbol facts reached persisted instructions for executed executor steps in 2/2 compile runs"
+    },
+    {
+      "id": "P1-b",
+      "name": "FIX-4b effective",
+      "result": "fail",
+      "evidence": "contract guidance and predicate-scoped page.tsx target existed 4/4, but fix4_hook_qwen35_002 later selected package.json(required_path) while repairing its independent profile invariant; strict required count was zero"
+    },
+    {
+      "id": "FIX-2-continuity",
+      "name": "reproducer suggestion/adoption",
+      "result": "pass",
+      "evidence": "suggestion 6/6, semantic adoption 6/6, relevance deviations 0"
+    },
+    {
+      "id": "intent-audit",
+      "name": "CLI fix intent resolution",
+      "result": "pass",
+      "evidence": "intent_resolved value=fix origin=cli source=fix 6/6"
+    }
+  ],
+  "measurement": {
+    "full": 0,
+    "failed": 6,
+    "raw_combined_full_rate": "1/24",
+    "environment_hold_excluded_full_rate": "1/22",
+    "admission_close": false,
+    "band_update_performed": false
+  }
+}

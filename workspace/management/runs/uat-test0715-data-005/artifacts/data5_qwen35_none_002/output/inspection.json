@@ -1,0 +1,23 @@
+{
+  "columns": ["date", "region", "amount"],
+  "total_rows": 24,
+  "valid_rows": 22,
+  "invalid_rows": 2,
+  "invalid_reasons": {
+    "invalid_date": 1,
+    "missing_date": 1
+  },
+  "regions": ["東京", "大阪", "名古屋"],
+  "months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"],
+  "amount_stats": {
+    "min": 1000,
+    "max": 1851,
+    "mean": 1417.09,
+    "total": 31176
+  },
+  "region_counts": {
+    "大阪": 7,
+    "名古屋": 8,
+    "東京": 7
+  }
+}

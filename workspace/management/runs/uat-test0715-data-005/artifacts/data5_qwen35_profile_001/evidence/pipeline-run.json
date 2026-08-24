@@ -1,0 +1,53 @@
+{
+  "capability_id": "pipeline_probe",
+  "status": "pass",
+  "ok": true,
+  "outcome": "exited",
+  "command": [
+    "python3",
+    "-B",
+    "pipeline/main.py"
+  ],
+  "duration_ms": 86,
+  "exit_code": 0,
+  "stdout": {
+    "text": "Results written to /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_005/data5_qwen35_profile_001/output/results.json\nReport written to /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_005/data5_qwen35_profile_001/output/report.md\n",
+    "captured_bytes": 276,
+    "total_bytes": 276,
+    "truncated": false
+  },
+  "stderr": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "artifacts": [
+    {
+      "path": "output/inspection.json",
+      "bytes": 411,
+      "fnv1a64": "59fa6d229eaaa27a"
+    },
+    {
+      "path": "output/report.md",
+      "bytes": 754,
+      "fnv1a64": "a7f9e4f45b621f39"
+    },
+    {
+      "path": "output/results.json",
+      "bytes": 813,
+      "fnv1a64": "a84bd9eb5f9b1f0e"
+    }
+  ],
+  "isolation": {
+    "level": "workspace_cwd_env_allowlist_bounded_offline_policy",
+    "workspace_cwd": true,
+    "environment_allowlist": true,
+    "process_group": true,
+    "bounded_timeout_ms": 30000,
+    "offline_policy_applied": true,
+    "network_namespace_enforced": false
+  },
+  "failure_kinds": [],
+  "capture_warnings": []
+}

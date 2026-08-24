@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。"
+recovery_failure_kind: "phase_execute_error"
+recovery_profile: "nextjs"
+recovery_failed_phase: "isolate-cause"
+goal: "このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。"
+profile: "nextjs"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。. Failed acceptance layer or phase: isolate-cause. Failed step: unknown. Failure kind: phase_execute_error. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-isolate-cause"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。\nFailed acceptance layer or phase: isolate-cause\nFailed step: unknown\nMissing capability or artifact signals:\n- none\nFailure evidence:\n- model_stagnation:read_only_loop: write_required exhausted for package.json; objective: Execute exactly one StepPlan step. Overall goal: このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。 Current step id: inspect-layout-and-components Current step kind: inspect Current step instruction: Read src/app/layout.tsx and any imported component files in src/ to check for global restart hooks or shared UI patterns. Before changing files, run the Pat\nRepair targets:\n- none\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: このNext.jsアプリはリスタート操作の契約フック（data-anvil-action=\"restart\"）が欠落しており検証に失敗します。原因を特定して修正してください。既存の検証が通ることを確認してください。\nFailed acceptance layer or phase: isolate-cause\nPreferred verify/browser check:\n- use deterministic file existence, build, route, and capability evidence checks\n- avoid shell control syntax and interactive dev-server-only verification\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

@@ -1,0 +1,45 @@
+case_id = "issue207-post-write-read-completion"
+source = "Issue #207 direct --prompt post-write read confirmation regression"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["post_write_read_confirmation_completed", "unverified", "model_stagnation:no_progress_recorded"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/post-write-read-completion.jsonl = [
+  "\"event\":\"tool_execute\"",
+  "\"name\":\"Write\"",
+  "\"name\":\"Edit\"",
+  "\"name\":\"Bash\"",
+  "\"name\":\"Read\"",
+  "\"event\":\"loop_stop\"",
+  "\"reason\":\"post_write_read_confirmation_completed\"",
+  "\"verification\":\"unverified\"",
+  "\"confirmation_batches\":2",
+  "\"changed_paths\":[\"hello.py\",\"README.md\"]"
+]
+
+[fixture_ordered]
+fixtures/post-write-read-completion.jsonl = [
+  "\"name\":\"Write\"",
+  "\"name\":\"Edit\"",
+  "\"name\":\"Bash\"",
+  "\"name\":\"Read\"",
+  "\"event\":\"loop_stop\""
+]

@@ -1,0 +1,93 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-002",
+  "per_run_singletons": {
+    "run_start": "6/6 exactly once",
+    "intent_resolved": "6/6 exactly once",
+    "host_env_contamination": "6/6 exactly once",
+    "host_env_normalized": "6/6 exactly once",
+    "ultra_final_acceptance": "6/6 exactly once",
+    "tui_command_stop": "6/6 exactly once",
+    "run_stop": "6/6 exactly once"
+  },
+  "intent_resolved": {
+    "expected": {
+      "value": "fix",
+      "origin": "cli",
+      "source": "fix"
+    },
+    "matching_runs": "6/6"
+  },
+  "host_environment": {
+    "detected": {
+      "event": "host_env_contamination",
+      "contamination": ["NODE_ENV=production"],
+      "matching_runs": "6/6"
+    },
+    "normalized": {
+      "event": "host_env_normalized",
+      "variables": ["NODE_ENV"],
+      "strategy": "unset_inherited",
+      "scope": "bounded_process_children",
+      "matching_runs": "6/6"
+    },
+    "dev_dependency_failure_markers": 0,
+    "dev_dependency_presence_checks": "6/6 exit 0",
+    "interpretation": "the detector event remains by design; child-process leakage and dependency-setup failures are absent"
+  },
+  "f1_order": [
+    {"run": "fix2_compile_qwen35_001", "event_index_zero_based": 14, "writes_before_f1": 0},
+    {"run": "fix2_compile_gemma31_001", "event_index_zero_based": 14, "writes_before_f1": 0},
+    {"run": "fix2_hook_qwen35_001", "event_index_zero_based": 14, "writes_before_f1": 0},
+    {"run": "fix2_hook_qwen35_002", "event_index_zero_based": 15, "writes_before_f1": 0},
+    {"run": "fix2_hook_gemma31_001", "event_index_zero_based": 16, "writes_before_f1": 0},
+    {"run": "fix2_hook_gemma31_002", "event_index_zero_based": 14, "writes_before_f1": 0}
+  ],
+  "f1_common": {
+    "phase": "reproduce-before",
+    "stage": "before",
+    "expected_polarity": "failure",
+    "epoch": 1,
+    "executed": true,
+    "matching_runs": "6/6",
+    "outcome_failure": "4/6",
+    "outcome_success_rejected_as_baseline_not_reproduced": "2/6"
+  },
+  "four_phase_fix_plan": {
+    "order": [
+      "reproduce-before",
+      "isolate-cause",
+      "repair",
+      "verify-regressions"
+    ],
+    "matching_runs": "6/6"
+  },
+  "negative_guard_observation": {
+    "lineage_mismatch": 0,
+    "regression_set_shrink_or_mismatch": 0,
+    "epoch_inversion": 0,
+    "baseline_not_reproduced": 2,
+    "baseline_rejection_exercised": true,
+    "remaining_negative_guards": "not_exercised"
+  },
+  "reproducer_binding_observations": [
+    {
+      "run": "fix2_hook_qwen35_001",
+      "selected": "npm run build",
+      "intended": "restart hook absence in src/app/page.tsx",
+      "result": "build succeeded; baseline_not_reproduced"
+    },
+    {
+      "run": "fix2_hook_qwen35_002",
+      "selected": "source-wide recursive restart-hook grep",
+      "intended": "restart hook absence in src/app/page.tsx",
+      "result": "two hooks in SpaceInvadersGame.tsx made the broad grep succeed; baseline_not_reproduced"
+    },
+    {
+      "run": "fix2_hook_gemma31_002",
+      "selected": "npm run build",
+      "intended": "restart hook absence in src/app/page.tsx",
+      "result": "an unrelated existing export defect made the selected R fail; F1 passed mechanically but did not represent the intended hook failure"
+    }
+  ]
+}

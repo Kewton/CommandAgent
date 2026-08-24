@@ -1,0 +1,60 @@
+package_json_port_script | ShellCheck
+  - port: u16 required default=-
+package_json_script_matches | ShellCheck
+  - pattern: string required default=-
+hook_attribute_present | ShellCheck
+  - attribute: enum[action,state] required default=-
+  - value: string required default=-
+  - path: path required default=-
+next_build_verify | ShellCheck
+scaffold_files_present | InternalCheck
+  - files: [path] required default=-
+nextjs_testimony_binding | InternalCheck
+browser_readiness | Probe
+browser_interaction | Probe
+data_inspection_schema | InternalCheck
+data_results_schema | InternalCheck
+data_reconciliation | InternalCheck
+data_claims_binding | InternalCheck
+pipeline_probe | Probe
+  - entry: path required default=-
+  - timeout_seconds: u16 required default=-
+data_rerun_consistency | Probe
+  - entry: path required default=-
+  - timeout_seconds: u16 required default=-
+cli_probe | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+help_binding | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+cli_output_claims | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+cli_rerun_consistency | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+ingest_source_binding | InternalCheck
+ingest_candidate_accounting | InternalCheck
+ingest_format_schema | InternalCheck
+ingest_rerun_consistency | Probe
+  - entry: path required default=-
+  - timeout_seconds: u16 required default=-
+path_layout_conforms | InternalCheck
+  - required: [glob] required default=-
+  - forbidden: [glob] optional default=[]
+design_tokens_only | InternalCheck
+  - css_globs: [glob] required default=-
+  - tokens_file: path required default=-
+  - allow: [string] optional default=[]
+lint_config_present | InternalCheck
+  - path: path required default=-
+  - must_contain: [string] optional default=[]
+command_check | CommandCheck
+  - argv: [string] required default=-
+  - cwd: enum[workspace] required default=-
+  - expect: command_expectation required default=-

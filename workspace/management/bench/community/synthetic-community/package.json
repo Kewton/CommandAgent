@@ -1,0 +1,8 @@
+{
+  "name": "cm1b-synthetic-community",
+  "private": true,
+  "dependencies": {},
+  "scripts": {
+    "build": "esbuild src/app-zone/app.ts --bundle --format=esm --outfile=dist/app.js"
+  }
+}

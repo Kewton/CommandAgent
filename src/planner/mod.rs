@@ -1,0 +1,71 @@
+pub mod adjudication;
+pub mod capability_catalog;
+pub(crate) mod completion_contract_path;
+pub mod contract_attribute_repair;
+pub(crate) mod declarative_command_checks;
+pub mod extension_profiles;
+pub(crate) mod external_reproducer;
+pub(crate) mod failure_vocabulary;
+pub(crate) mod final_acceptance_contract;
+pub(crate) mod fix_contract_predicate;
+pub(crate) mod fix_diagnostics;
+pub(crate) mod fix_plan_synthesis;
+pub(crate) mod fix_reproducer;
+pub(crate) mod fix_reproducer_defect;
+pub(crate) mod fix_runtime;
+pub mod hook_attributes;
+pub mod hook_snapshot;
+pub(crate) mod ingest_plan_synthesis;
+pub mod intent;
+pub(crate) mod intent_schema;
+pub mod interaction_qualification;
+pub(crate) mod interaction_repair;
+pub(crate) mod investigation_binding;
+pub(crate) mod investigation_output;
+pub(crate) mod investigation_plan_synthesis;
+pub(crate) mod investigation_runtime;
+pub mod lint;
+pub(crate) mod lint_rejection;
+pub mod pack;
+pub(crate) mod phase_plan_synthesis;
+pub mod plan;
+pub mod profile;
+pub(crate) mod profile_admission;
+pub(crate) mod profile_behavior;
+pub mod profile_descriptor;
+pub mod profile_manifest;
+pub(crate) mod profile_preset;
+pub(crate) mod python_cli_plan_synthesis;
+pub mod repair;
+mod repair_target_selection;
+pub mod repair_targeting;
+pub mod runner;
+pub mod sanitizer;
+pub mod setup_step_policy;
+pub mod side_effect_paths;
+pub mod signals;
+pub mod source_assertion;
+pub mod state_binding_scan;
+pub(crate) mod step_material;
+pub mod step_plan;
+pub(crate) mod step_plan_finalize;
+pub mod ultra_plan;
+pub mod ultra_preset;
+pub mod verify;
+pub mod profiles {
+    pub mod community_mini_app;
+    pub mod data;
+    pub mod ingest;
+    pub mod manifest_driven;
+    pub mod nextjs;
+    pub mod python_cli;
+    pub(crate) mod step_checks;
+}
+
+pub use runner::{
+    generate_and_run_step_plan, generate_and_run_step_plan_with_ui, generate_and_run_ultra_plan,
+    generate_and_run_ultra_plan_with_ui, generate_step_plan, generate_step_plan_with_ui,
+    generate_ultra_plan, generate_ultra_plan_with_ui, run_plan_file, run_plan_file_with_ui,
+    run_step_plan_with_ui, run_ultra_plan_file, run_ultra_plan_file_with_ui,
+    run_ultra_plan_with_ui, save_step_plan, save_ultra_plan,
+};

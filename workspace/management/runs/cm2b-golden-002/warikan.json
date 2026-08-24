@@ -1,0 +1,11 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v2",
+  "recorded_at": "2026-08-17T21:35:00+09:00",
+  "series_id": "f-bon-v-community-golden-warikan-002",
+  "execution_revision": "6afe1e8b512efb8eda2549f43913db3313cfb940",
+  "suite_sha256": "855d9f863d4b41cb4478e4fd25970eef5277e1ccf951e95879dc9530babe7b35",
+  "binary_sha256": "beb1a1048518b799d4945a9a9539132b4141db7601ec238e5e3f416141fc58e6",
+  "baseline_rate": {"full_count": 6, "trial_count": 6, "estimate": 1.0, "sources": ["indirect ingest×Luna n=6"], "confidence_interval": {"method": "wilson_score", "confidence": 0.95, "lower": 0.6096657120978346, "upper": 1.0}},
+  "predictive_distribution": {"model": "beta_binomial", "prior": {"name": "jeffreys", "alpha": 0.5, "beta": 0.5}, "trials": 12, "posterior": {"alpha": 6.5, "beta": 0.5}, "probability_at_least_one_full": 0.9999913175900778, "expected_full_count": 11.142857142857142, "full_count_band": {"method": "shortest_contiguous", "mass": 0.95, "lower": 8, "upper": 12}},
+  "hypothesis": {"point_prediction": "none; indirect baseline is contextual only", "sampling": "provider-managed"}
+}

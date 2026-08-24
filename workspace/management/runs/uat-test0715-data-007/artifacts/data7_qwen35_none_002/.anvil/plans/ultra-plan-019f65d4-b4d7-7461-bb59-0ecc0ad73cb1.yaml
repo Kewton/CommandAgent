@@ -1,0 +1,11 @@
+goal: "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+profile: "data"
+style: "default"
+intent: "create"
+phases:
+  - id: "validate-and-clean-data"
+    prompt: "data/sales.csv を読み込み、必須カラムの整合性に基づき無効な行を理由別に検出・除外し、除外件数を明記した検証ログとクリーニング済みデータを生成する"
+  - id: "aggregate-and-summarize-sales"
+    prompt: "クリーニング済みデータから月次×地域の売上集計と全体合計を計算し、集計結果と検証ログを統合した要約レポートを output/sales_summary_report.md として作成する"
+  - id: "verify-final-report"
+    prompt: "output/sales_summary_report.md が月次×地域集計表、全体合計、無効行の理由別除外件数を正確に包含していることを確認し、最終出力を確定する"

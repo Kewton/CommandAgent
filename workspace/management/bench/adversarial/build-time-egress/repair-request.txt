@@ -1,0 +1,2 @@
+Build offline from the pinned dependency graph. Remove all network side effects
+and retain only local bundle output and evidence.

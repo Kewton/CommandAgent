@@ -1,0 +1,49 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v0",
+  "recorded_at": "2026-08-03T12:14:09+09:00",
+  "execution_revision": "baaefb6307616270c865599340d372aae19fb238",
+  "report_sha256_before_execution": "e6b19cba242a03aed12520142331bab4224ee02aefcca929200f3de16fb5c7f8",
+  "suite_sha256": "209843c8bab4fcfdc028b3220383694c50b0b5e46360c284e4a83a8586cbf500",
+  "baseline_suite_sha256": "e4c04d2374aa2c0d45eaeb6cdc51a2ea3fd0692533fd66070e0df505b01da895",
+  "campaigns": [
+    "bon0-002",
+    "bon0-003",
+    "bon0-004"
+  ],
+  "trials_per_campaign": 6,
+  "expected_full_probability": 0.17,
+  "expected_full_count_per_campaign": 1.02,
+  "expected_full_count_four_campaigns": 4.08,
+  "expected_full_count_band": [
+    3.5,
+    4.5
+  ],
+  "probability_at_least_one_full_per_campaign": 0.672019118431,
+  "expected_campaigns_with_at_least_one_full": 2.688076473724,
+  "requested_value_correction": {
+    "requested": 3.4,
+    "corrected": 2.688076473724,
+    "reason": "3.4/4 is incompatible with p=0.17 and N=6"
+  },
+  "independence_test": {
+    "p_value": false,
+    "binomial_expected_variance": 0.8466,
+    "dispersion_ratio_thresholds": {
+      "underdispersed_below": 0.5,
+      "overdispersed_above": 1.5
+    }
+  },
+  "sampling": {
+    "seed_policy": "provider-managed per request; no fixed seed shared across trials",
+    "temperature_policy": "provider default per request; no fixed temperature shared across trials",
+    "trial_specific_evidence": "disjoint executor provider-response-id sets"
+  },
+  "estimated_cost_usd": 0.9,
+  "stop_conditions": [
+    "invalid_measurement",
+    "configuration_identity_mismatch",
+    "sampling_identity_mismatch",
+    "scrub_failure",
+    "single_added_campaign_full_count_at_least_4"
+  ]
+}

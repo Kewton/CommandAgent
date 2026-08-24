@@ -1,0 +1,82 @@
+case_id = "test0714_data_manifest_canonicalization"
+source = "uat-test0713-data-001 runs 1-4 canonicalization and workspace execution regressions"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data", "inspection", "results-schema", "dependency-denial", "workspace-cd"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run1-inspection-literal-grep.jsonl = [
+  "uat-test0713-data-001/run-1",
+  "\"event\":\"verify_canonicalized\"",
+  "\"original\":\"data/inspection_report.md\"",
+  "\"replacement\":\"output/inspection.json\"",
+  "grep -q 'Rows inspected' data/inspection_report.md",
+  "\"replacement\":\"advisory\"",
+  "\"event\":\"preset_step_converted\""
+]
+fixtures/run2-invented-schema-check.jsonl = [
+  "uat-test0713-data-001/run-2",
+  "python3 tests/verify_pipeline.py",
+  "anvil-catalog-check:data_results_schema",
+  "anvil-catalog-check:data_reconciliation",
+  "\"event\":\"verify_canonicalized\""
+]
+fixtures/run4-instruction-schema.jsonl = [
+  "uat-test0713-data-001/run-4",
+  "excluded_rows",
+  "\\\"reconciliation\\\"",
+  "\\\"values\\\"",
+  "anvil-catalog-check:data_results_schema",
+  "\"event\":\"dependency_denial_guidance\"",
+  "Python 3 standard library only (csv/json/statistics)",
+  "\"repair_exhausted\":false"
+]
+fixtures/run3-workspace-root-cd.jsonl = [
+  "uat-test0713-data-001/run-3",
+  "cd /Users/<user>/share/work/localwork/commandagent_mvp/01/test0713_data_001/run-3 &&",
+  "\"event\":\"workspace_cd_stripped\"",
+  "\"original_prefix\":\"cd /Users/<user>/share/work/localwork/commandagent_mvp/01/test0713_data_001/run-3 &&\"",
+  "\"normalized_command\":\"python3 pipeline/main.py\"",
+  "\"status\":\"ok\""
+]
+
+[fixture_ordered]
+fixtures/run5-hidden-plan-read.jsonl = [
+  "uat-test0714-m4-001/run-5",
+  "\"event\":\"tool_execute\",\"tool\":\"Read\",\"status\":\"ok\"",
+  "\"event\":\"hidden_path_feedback\"",
+  ".anvil はエンジン私有のメタデータであり、タスクツールから参照できない。",
+  "\"event\":\"model_tool_call\",\"tool\":\"Write\"",
+  "\"path\":\"output/inspection.json\"",
+  "\"event\":\"tool_execute\",\"tool\":\"Write\",\"status\":\"ok\""
+]
+fixtures/run1-python-traceback-repair.jsonl = [
+  "uat-test0714-m4-001/run-1",
+  "\"failure_kind\":\"pipeline_exit_nonzero\"",
+  "ValueError: invalid literal for int() with base 10: ''",
+  "\"event\":\"pipeline_error_extraction\"",
+  "\"line\":53",
+  "\"repair_target\":\"pipeline/main.py\"",
+  "\"selection_reason\":\"traceback_mapped\"",
+  "Python traceback repair guidance",
+  "do not continue with read-only inspection",
+  "\"event\":\"model_tool_call\",\"tool\":\"Write\",\"path\":\"pipeline/main.py\"",
+  "\"event\":\"pipeline_probe\",\"status\":\"passed\""
+]

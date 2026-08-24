@@ -1,0 +1,96 @@
+UAT: uat-test0717-dfix-004 v4
+preflight date: Sat Jul 18 12:08:50 JST 2026
+repository: /Users/maenokota/share/work/github_kewton/CommandAgent-develop
+
+$ git status --short --branch
+## develop...origin/develop
+
+$ git status --porcelain=v1 --untracked-files=all
+(no output)
+
+No tracked or untracked files were present, so no user material was stashed.
+`git clean -nd` named only pre-existing empty directories (Git cannot track
+directories); they were not removed or modified.
+
+$ git rev-parse HEAD
+2d357047573ac2967a1acbf44db649861fbe2d13
+
+$ git merge-base --is-ancestor 2d35704 HEAD
+exit 0
+
+$ git fetch origin develop
+From https://github.com/Kewton/CommandAgent
+ * branch            develop    -> FETCH_HEAD
+
+$ git rev-parse HEAD origin/develop FETCH_HEAD
+2d357047573ac2967a1acbf44db649861fbe2d13
+2d357047573ac2967a1acbf44db649861fbe2d13
+2d357047573ac2967a1acbf44db649861fbe2d13
+
+$ printenv NODE_ENV
+production
+
+$ cargo test
+exit 101
+
+The full suite reached the generality guardrails integration test after the
+library suite completed with 1432 passed, 0 failed, and 15 ignored. The exact
+terminal failure was:
+
+---- runner_chokepoints_do_not_grow_past_interim_budget stdout ----
+
+thread 'runner_chokepoints_do_not_grow_past_interim_budget' (48394286) panicked at tests/generality_guardrails.rs:741:5:
+src/planner/fix_runtime/data_isolate.rs production code grew to 160 lines; production code baseline is 149, allowed max is 152. Move new subsystems to new modules or land a shrinking refactor first.
+
+failures:
+    runner_chokepoints_do_not_grow_past_interim_budget
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--test generality_guardrails`
+
+Focused confirmation timing:
+$ date +%s
+1784344388
+$ date
+Sat Jul 18 12:13:08 JST 2026
+
+$ cargo test --test generality_guardrails runner_chokepoints_do_not_grow_past_interim_budget -- --exact
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/generality_guardrails.rs (target/debug/deps/generality_guardrails-59575fec294f07c9)
+
+running 1 test
+test runner_chokepoints_do_not_grow_past_interim_budget ... FAILED
+
+failures:
+
+---- runner_chokepoints_do_not_grow_past_interim_budget stdout ----
+
+thread 'runner_chokepoints_do_not_grow_past_interim_budget' (48415986) panicked at tests/generality_guardrails.rs:741:5:
+src/planner/fix_runtime/data_isolate.rs production code grew to 160 lines; production code baseline is 149, allowed max is 152. Move new subsystems to new modules or land a shrinking refactor first.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+failures:
+    runner_chokepoints_do_not_grow_past_interim_budget
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test generality_guardrails`
+exit 101
+
+$ date +%s
+1784344389
+$ date
+Sat Jul 18 12:13:09 JST 2026
+
+Gate decision: preflight was not all-green. Per the declared ordering, release
+build/install, starting-point procurement, and all six commandagent launches
+were not performed. No v4 product run was consumed.
+
+Measured v4 cost through the initial report draft:
+- preflight, origin confirmation, and focused confirmation: 259 seconds
+  (1784344130 through 1784344389)
+- starting-point procurement: 0 seconds
+- commandagent product execution: 0 seconds
+- initial report drafting: 84 seconds
+  (1784344389 through 1784344473)

@@ -1,0 +1,133 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-004",
+  "fix_2_continuity": {
+    "event_emission": "6/6",
+    "bases": {
+      "goal_failure_kind:build_or_compile": 2,
+      "goal_contract_attribute:data-anvil-action=restart": 4
+    },
+    "adoption": {
+      "semantic": "6/6",
+      "exact_bytes": "4/6",
+      "semantic_variants": [
+        "fix4_hook_gemma31_001",
+        "fix4_hook_gemma31_002"
+      ],
+      "variant_detail": "insignificant JavaScript whitespace only; route, predicate, and catalog meaning are unchanged"
+    },
+    "reproducer_relevance_deviations": 0,
+    "literal_baseline_not_reproduced_reason_codes": 0,
+    "result": "pass"
+  },
+  "fix_4a": {
+    "compile_runs": 2,
+    "old_planner_lint_signature": {
+      "uat_test0717_fix_003": 2,
+      "uat_test0717_fix_004": 0,
+      "result": "removed"
+    },
+    "executed_prompt_delivery": [
+      {
+        "run": "fix4_compile_qwen35_001",
+        "phase2_plan": "artifacts/fix4_compile_qwen35_001/.anvil/plans/plan-019f6eb9-1a0c-7e31-8144-4c2b28d822a4.yaml",
+        "executed_step": "inspect-page-source",
+        "diagnostic_facts_in_instruction": ["src/app/page.tsx", "line 250", "initGame"],
+        "execution_chain": ["step_prompt_contract", "provider_turn_duration", "tool_call_raw:Read", "tool_execute:ok"],
+        "canonical_diagnostic_block_in_step": false,
+        "raw_provider_request_saved": false
+      },
+      {
+        "run": "fix4_compile_gemma31_001",
+        "phase2_plan": "artifacts/fix4_compile_gemma31_001/.anvil/plans/plan-019f6ebc-b01f-7682-aed0-4105219b2d74.yaml",
+        "executed_steps": ["inspect-space-invaders", "verify-build-failure"],
+        "diagnostic_facts_in_instruction": ["src/app/components/SpaceInvaders.tsx", "line 305", "TypeScript error"],
+        "repair_objective_facts": ["305:22", "Bullet type mismatch", "src/app/components/SpaceInvaders.tsx"],
+        "execution_chain": ["step_prompt_contract", "provider_turn_duration", "tool execution", "step_verify_failure", "repair provider turns"],
+        "canonical_diagnostic_block_in_step": false,
+        "raw_provider_request_saved": false
+      }
+    ],
+    "executor_prompt_semantic_delivery": "2/2",
+    "archival_caveat": "step_prompt_contract records prompt_body_saved=false; delivery is proved by persisted StepPlan instruction plus matching step/provider/tool events, not by a raw HTTP request body",
+    "terminal_effects": {
+      "planner_lint_stop": 0,
+      "read_only_stagnation": 2,
+      "workspace_writes": 0
+    },
+    "p1_a": "pass"
+  },
+  "fix_4b": {
+    "hook_runs": 4,
+    "guidance_event": "4/4",
+    "phase2_plan_guidance": "4/4",
+    "phase2_inspect_execution": "4/4",
+    "predicate_scoped_target": {
+      "target": "src/app/page.tsx",
+      "selection_reason": "contract_attribute",
+      "runs": "4/4"
+    },
+    "runs": [
+      {
+        "run": "fix4_hook_qwen35_001",
+        "phase2_plan": "artifacts/fix4_hook_qwen35_001/.anvil/plans/plan-019f6ec1-ed37-7f71-8093-7db75ca1df21.yaml",
+        "guidance_present": true,
+        "predicate_target": "src/app/page.tsx",
+        "package_json_first": false,
+        "terminal_effect": "new planner_error: repair instruction too long"
+      },
+      {
+        "run": "fix4_hook_qwen35_002",
+        "phase2_plan": "artifacts/fix4_hook_qwen35_002/.anvil/plans/plan-019f6ec8-293e-7201-89d6-81cae7e6b0f5.yaml",
+        "guidance_present": true,
+        "predicate_target": "src/app/page.tsx",
+        "package_json_first": true,
+        "package_json_scope": "bounded repair after the independent missing-relative-import profile invariant, not the predicate-scoped Phase 2 guidance",
+        "package_json_selection_reason": "required_path",
+        "terminal_effect": "profile invariant failure"
+      },
+      {
+        "run": "fix4_hook_gemma31_001",
+        "phase2_plan": "artifacts/fix4_hook_gemma31_001/.anvil/plans/plan-019f6ecc-c0af-70d2-b111-520f0c3e138b.yaml",
+        "guidance_present": true,
+        "predicate_target": "src/app/page.tsx",
+        "actual_write_pressure_target": "src/app/page.tsx",
+        "actual_selection_reason": "contract_attribute",
+        "package_json_first": false,
+        "terminal_effect": "read-only stagnation on the correct target"
+      },
+      {
+        "run": "fix4_hook_gemma31_002",
+        "phase2_plan": "artifacts/fix4_hook_gemma31_002/.anvil/plans/plan-019f6ed2-adb1-7e30-ad68-fbddf44083a2.yaml",
+        "guidance_present": true,
+        "predicate_target": "src/app/page.tsx",
+        "package_json_first": false,
+        "terminal_effect": "profile invariant failure before a write-pressure target was selected"
+      }
+    ],
+    "package_json_first_strict": {
+      "count": 1,
+      "denominator": 4,
+      "predeclared_required_count": 0,
+      "result": "fail"
+    },
+    "scoped_predicate_wiring": "pass",
+    "p1_b": "fail"
+  },
+  "residual_phase2_stagnation": {
+    "terminal_model_stagnation_runs": [
+      "fix4_compile_qwen35_001",
+      "fix4_compile_gemma31_001",
+      "fix4_hook_gemma31_001"
+    ],
+    "terminal_count": 3,
+    "additional_embedded_stagnation_during_profile_invariant_repair": [
+      "fix4_hook_qwen35_002"
+    ],
+    "any_stagnation_mechanism_count": 4,
+    "workspace_write_runs": 0,
+    "new_classes": [
+      "planner_error: step add-restart-hook instruction is too long"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "commandagent.fetch-cache/v0",
+  "contract_sha256": "574a195ede4a6150e711ebc6f94582d6d64632ae94ba3c466b6f255c15464121",
+  "canonical_url": "https://events.example.test/events.html",
+  "utc_date": "2026-08-03",
+  "cache_key_sha256": "f8eed0da86a0f2b29bd3acd86dfc977f5439193774d17531f8e443e3c9df103c",
+  "fetched_at_epoch_ms": 1785723965540,
+  "fetched_at_utc": "2026-08-03T02:26:05.540Z",
+  "http_status": 200,
+  "content_sha256": "f5db7e08f869612e9d4136fc0a511128288ffc45ef35efce35df4d47f0b8399b",
+  "content_bytes": 59,
+  "robots": {
+    "robots_url": "https://events.example.test/robots.txt",
+    "checked_at_utc": "2026-08-03T02:26:05.540Z",
+    "checked_at_epoch_ms": 1785723965540,
+    "http_status": 404,
+    "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "decision": "allow",
+    "rule_group": "no_published_rules",
+    "crawl_delay_ms": 0,
+    "matched_rule": null
+  }
+}

@@ -1,0 +1,30 @@
+case_id = "test0725_cli_elev_004"
+source = "uat-test0725-cli-elev-004 filter_cloud_001 measured C1 evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["cli_probe", "normal", "invalid", "normal-rerun"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/filter_cloud_001/evidence/cli-probe.json = [
+  "\"c1_ok\": true",
+  "\"case_id\": \"normal\"",
+  "\"exit_code\": 0",
+  "2023-10-01 10:00:01 INFO System started"
+]

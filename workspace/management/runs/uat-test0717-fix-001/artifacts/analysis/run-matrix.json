@@ -1,0 +1,228 @@
+[
+  {
+    "ordinal": 1,
+    "run": "fix1_compile_qwen35_001",
+    "family": "compile",
+    "baseline_set": "A",
+    "event_run_id": "019f6bca-1667-7530-8d36-f3eae5b113e4",
+    "fix_run_id": "019f6bca-16c2-7ef1-a22a-ca92070b2945",
+    "model": "qwen3.6:35b-a3b-coding-nvfp4",
+    "exit_code": 1,
+    "terminal_status": "failed",
+    "final_acceptance_status": "failed",
+    "verdict": "failed",
+    "assurance": "failed",
+    "assurance_reason": "after_not_executed",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "not_executed",
+      "no_regression": "not_executed"
+    },
+    "before": {
+      "binding_id": "npm run build",
+      "lineage": "reproducer:a33c603932fd7056",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "fix_written": false,
+    "phases_completed": ["reproduce-before"],
+    "failure_class": "model_stagnation:read_only_loop",
+    "failure_detail": "write_required exhausted for src/app/page.tsx after implementation_compile_error: Cannot find name initGame",
+    "time_profile_total_ms": 57244,
+    "fix_evidence_file_count": 2
+  },
+  {
+    "ordinal": 2,
+    "run": "fix1_compile_gemma31_001",
+    "family": "compile",
+    "baseline_set": "B",
+    "event_run_id": "019f6bcb-78df-7231-803e-5d9710247e34",
+    "fix_run_id": "019f6bcb-791c-7ab2-b365-ce933c92c8ac",
+    "model": "gemma4:31b",
+    "exit_code": 0,
+    "terminal_status": "completed",
+    "final_acceptance_status": "full_success",
+    "verdict": "full",
+    "assurance": "full",
+    "assurance_reason": "",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "passed",
+      "no_regression": "passed"
+    },
+    "before": {
+      "binding_id": "npm run build",
+      "lineage": "reproducer:a33c603932fd7056",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "after": {
+      "binding_id": "npm run build",
+      "lineage": "reproducer:a33c603932fd7056",
+      "epoch": 2,
+      "executed": true,
+      "outcome": "success"
+    },
+    "regressions": [
+      {
+        "binding_id": "profile_contract",
+        "lineage": "regression:5653a54980e5d888",
+        "epoch": 3,
+        "executed": true,
+        "outcome": "success"
+      },
+      {
+        "binding_id": "profile_verify_1",
+        "lineage": "regression:56446385dfddfe26",
+        "epoch": 4,
+        "executed": true,
+        "outcome": "success"
+      }
+    ],
+    "fix_written": true,
+    "phases_completed": [
+      "reproduce-before",
+      "isolate-cause",
+      "repair",
+      "verify-regressions"
+    ],
+    "failure_class": "",
+    "failure_detail": "completed",
+    "time_profile_total_ms": 389930,
+    "fix_evidence_file_count": 5
+  },
+  {
+    "ordinal": 3,
+    "run": "fix1_compile_qwen35_002",
+    "family": "compile",
+    "baseline_set": "B",
+    "event_run_id": "019f6bd2-8dba-76b3-bcbc-cb3677dfb039",
+    "fix_run_id": "019f6bd2-8e14-7b70-972e-74aa40d364ec",
+    "model": "qwen3.6:35b-a3b-coding-nvfp4",
+    "exit_code": 1,
+    "terminal_status": "failed",
+    "final_acceptance_status": "failed",
+    "verdict": "failed",
+    "assurance": "failed",
+    "assurance_reason": "after_not_executed",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "not_executed",
+      "no_regression": "not_executed"
+    },
+    "before": {
+      "binding_id": "npm run build",
+      "lineage": "reproducer:a33c603932fd7056",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "fix_written": false,
+    "phases_completed": ["reproduce-before"],
+    "failure_class": "model_stagnation:read_only_loop",
+    "failure_detail": "write_required exhausted for src/app/components/SpaceInvaders.tsx after implementation_compile_error: Bullet.dy missing",
+    "time_profile_total_ms": 76311,
+    "fix_evidence_file_count": 2
+  },
+  {
+    "ordinal": 4,
+    "run": "fix2_hook_qwen35_001",
+    "family": "hook",
+    "baseline_set": "A",
+    "event_run_id": "019f6bd4-2b5b-76f3-aed2-8210b8c07cf8",
+    "fix_run_id": "019f6bd4-2b9c-7630-a30a-35841417d577",
+    "model": "qwen3.6:35b-a3b-coding-nvfp4",
+    "exit_code": 1,
+    "terminal_status": "failed",
+    "final_acceptance_status": "failed",
+    "verdict": "failed",
+    "assurance": "failed",
+    "assurance_reason": "after_not_executed",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "not_executed",
+      "no_regression": "not_executed"
+    },
+    "before": {
+      "binding_id": "grep -r 'data-anvil-action=\"restart\"' src/",
+      "lineage": "reproducer:39f63d6b307e4a98",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "fix_written": false,
+    "phases_completed": ["reproduce-before"],
+    "failure_class": "dependency_setup_missing",
+    "failure_detail": "local node_modules missing tailwindcss, postcss, and autoprefixer",
+    "time_profile_total_ms": 217009,
+    "fix_evidence_file_count": 2
+  },
+  {
+    "ordinal": 5,
+    "run": "fix2_hook_gemma31_001",
+    "family": "hook",
+    "baseline_set": "B",
+    "event_run_id": "019f6bd7-dd6d-7890-aa95-19ee93539eca",
+    "fix_run_id": "019f6bd7-ddab-74a3-b386-0e3bb4409178",
+    "model": "gemma4:31b",
+    "exit_code": 1,
+    "terminal_status": "failed",
+    "final_acceptance_status": "failed",
+    "verdict": "failed",
+    "assurance": "failed",
+    "assurance_reason": "after_not_executed",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "not_executed",
+      "no_regression": "not_executed"
+    },
+    "before": {
+      "binding_id": "semantic restart-hook check over src/app/page.tsx",
+      "lineage": "reproducer:215ef92b74567a98",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "fix_written": false,
+    "phases_completed": ["reproduce-before"],
+    "failure_class": "model_stagnation:read_only_loop",
+    "failure_detail": "write_required exhausted for package.json during isolate-cause",
+    "time_profile_total_ms": 281884,
+    "fix_evidence_file_count": 2
+  },
+  {
+    "ordinal": 6,
+    "run": "fix2_hook_qwen35_002",
+    "family": "hook",
+    "baseline_set": "A",
+    "event_run_id": "019f6bdc-de81-7c12-aae1-76d40d90466b",
+    "fix_run_id": "019f6bdc-ded2-7a42-b61a-0d8fa3918f59",
+    "model": "qwen3.6:35b-a3b-coding-nvfp4",
+    "exit_code": 1,
+    "terminal_status": "failed",
+    "final_acceptance_status": "failed",
+    "verdict": "failed",
+    "assurance": "failed",
+    "assurance_reason": "after_not_executed",
+    "requirements": {
+      "before_fails": "passed",
+      "after_passes": "not_executed",
+      "no_regression": "not_executed"
+    },
+    "before": {
+      "binding_id": "grep -rq 'data-anvil-action=\"restart\"' src/app/",
+      "lineage": "reproducer:990de9aab424c3d3",
+      "epoch": 1,
+      "executed": true,
+      "outcome": "failure"
+    },
+    "fix_written": false,
+    "phases_completed": ["reproduce-before"],
+    "failure_class": "dependency_setup_missing",
+    "failure_detail": "local node_modules missing tailwindcss, postcss, and autoprefixer",
+    "time_profile_total_ms": 217090,
+    "fix_evidence_file_count": 2
+  }
+]

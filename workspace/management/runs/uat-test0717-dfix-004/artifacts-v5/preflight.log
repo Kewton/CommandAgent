@@ -1,0 +1,55 @@
+UAT: uat-test0717-dfix-004 v5
+label: v5: 予算分離後の正式実行
+preflight start epoch: 1784351424
+preflight start: Sat Jul 18 14:10:24 JST 2026
+preflight end epoch: 1784351581
+preflight end: Sat Jul 18 14:13:01 JST 2026
+elapsed: 157 seconds
+repository: /Users/maenokota/share/work/github_kewton/CommandAgent-develop
+
+$ git status --porcelain
+(no output)
+
+No tracked or untracked user material was present. Nothing was stashed.
+The requested v5 measurement workspace did not exist before procurement.
+
+$ git log -1 --oneline
+75b6a10 Record FIX-9 budget guardrail follow-up
+
+$ git merge-base --is-ancestor 75b6a10 HEAD
+exit 0
+
+$ cargo test
+exit 0
+library: 1432 passed; 0 failed; 15 ignored
+adjudication_compat: 6 passed; 0 failed
+fix_intent_conformance: 9 passed; 0 failed
+generality_guardrails: 7 passed; 0 failed
+all remaining integration and doc tests: passed
+
+$ cargo build --release
+exit 0
+
+$ install -m 755 target/release/commandagent ~/.local/bin/commandagent
+exit 0
+
+$ commandagent --version
+commandagent 0.1.0 75b6a10 2026-07-18T05:12:18Z
+
+No +dirty suffix was present.
+
+$ shasum -a 256 target/release/commandagent ~/.local/bin/commandagent
+dd105d719ef436674f3cff688a711b9102e2ed84e483263cc63d2ccb86718f01  target/release/commandagent
+dd105d719ef436674f3cff688a711b9102e2ed84e483263cc63d2ccb86718f01  /Users/maenokota/.local/bin/commandagent
+
+$ printenv NODE_ENV
+production
+
+The initial sandboxed Ollama read-only probe was denied with
+"connect: operation not permitted". The permission-corrected read-only probe
+then succeeded and confirmed qwen3.6:27b-coding-nvfp4,
+qwen3.6:35b-a3b-coding-nvfp4, and gemma4:31b were installed. This happened
+before any product run and did not modify a run command.
+
+Gate decision: all required preflight checks were green. Procurement and the
+six formal product launches were therefore allowed to begin.

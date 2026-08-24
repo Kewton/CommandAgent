@@ -1,0 +1,71 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-003",
+  "per_run_singletons": {
+    "run_start": "6/6 exactly once",
+    "intent_resolved": "6/6 exactly once",
+    "host_env_contamination": "6/6 exactly once",
+    "host_env_normalized": "6/6 exactly once",
+    "fix_reproducer_suggested": "6/6 exactly once",
+    "fix_evidence_recorded": "6/6 exactly once",
+    "ultra_final_acceptance": "6/6 exactly once",
+    "tui_command_stop": "6/6 exactly once",
+    "run_stop": "6/6 exactly once"
+  },
+  "intent_resolved": {
+    "expected": {"value":"fix","origin":"cli","source":"fix"},
+    "matching_runs": "6/6"
+  },
+  "host_environment": {
+    "detected": {"event":"host_env_contamination","contamination":["NODE_ENV=production"],"matching_runs":"6/6"},
+    "normalized": {"event":"host_env_normalized","variables":["NODE_ENV"],"strategy":"unset_inherited","scope":"bounded_process_children","matching_runs":"6/6"},
+    "dev_dependency_failure_markers": 0
+  },
+  "four_phase_fix_plan": {
+    "order": ["reproduce-before","isolate-cause","repair","verify-regressions"],
+    "matching_runs": "6/6"
+  },
+  "f1_order": [
+    {"run":"fix3_compile_qwen35_001","event_index_zero_based":15,"writes_before_f1":0},
+    {"run":"fix3_compile_gemma31_001","event_index_zero_based":15,"writes_before_f1":0},
+    {"run":"fix3_hook_qwen35_001","event_index_zero_based":16,"writes_before_f1":0},
+    {"run":"fix3_hook_qwen35_002","event_index_zero_based":16,"writes_before_f1":0},
+    {"run":"fix3_hook_gemma31_001","event_index_zero_based":16,"writes_before_f1":0},
+    {"run":"fix3_hook_gemma31_002","event_index_zero_based":16,"writes_before_f1":0}
+  ],
+  "f1_common": {
+    "phase": "reproduce-before",
+    "stage": "before",
+    "expected_polarity": "failure",
+    "epoch": 1,
+    "executed": true,
+    "outcome_failure": "6/6",
+    "before_fails_status_passed": "6/6",
+    "writes_before_f1": 0
+  },
+  "terminal_projection": {
+    "verdict_failed": "6/6",
+    "assurance_failed": "6/6",
+    "assurance_reason_after_not_executed": "6/6",
+    "after_passes_not_executed": "6/6",
+    "no_regression_not_executed": "6/6",
+    "full_claims": 0,
+    "false_full_claims": 0
+  },
+  "negative_guard_observation": {
+    "baseline_not_reproduced": 0,
+    "lineage_mismatch": 0,
+    "regression_set_shrink_or_mismatch": 0,
+    "epoch_inversion": 0,
+    "unexecuted_probe_full": 0,
+    "remaining_negative_guards": "not exercised because no run reached F2 or F3"
+  },
+  "failure_classes": {
+    "planner_lint_error_verify_instruction_requests_file_changes": 2,
+    "model_stagnation_read_only_loop": 3,
+    "profile_invariant_missing_relative_import": 1,
+    "panic": 0,
+    "unclassified": 0,
+    "unexplained_interrupt": 0
+  }
+}

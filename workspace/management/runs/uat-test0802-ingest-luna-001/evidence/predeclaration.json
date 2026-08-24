@@ -1,0 +1,31 @@
+{
+  "schema_version": "commandagent.measurement-predeclaration/v0",
+  "uat_id": "uat-test0802-ingest-luna-001",
+  "fixed_before_execution": true,
+  "measurement_revision": "51ba4d2a557ad6cc6dd9c82a06b1f650c7cad1d3",
+  "suite": {
+    "id": "ingest-create-luna",
+    "sha256": "8258f2dc00ce9279b9c4900f1b016fcab857fcc8348029055dfb35cee3202111",
+    "runs": 6,
+    "families": {
+      "list": 3,
+      "table": 3
+    }
+  },
+  "initial_report_sha256": "16497288a674d9efe60b3b8f87b8dc7fa67f590368e7caf17c16154c21575680",
+  "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0802_ingest_luna",
+  "baseline": {
+    "uat_id": "uat-test0726-ingest-elev-008",
+    "executor": "gemma4:31b-cloud",
+    "full_equivalent": "4/6 (66.7%)",
+    "table_empty_date_accepted": "2/3"
+  },
+  "prediction": null,
+  "prediction_policy": "No Luna prediction is made from the gemma baseline: model-by-test interaction is not transportable from the CLI cell.",
+  "primary_probe": "Whether Luna excludes the table candidate with an empty date and records a reason.",
+  "retry_policy": "No sample replacement or extra run; interruption recovery may only resume the declared six runs.",
+  "purposes": [
+    "Observe the model factor in a real-demand ingest cell.",
+    "Supply measured p and token cost to the BoN-1 allocation table."
+  ]
+}

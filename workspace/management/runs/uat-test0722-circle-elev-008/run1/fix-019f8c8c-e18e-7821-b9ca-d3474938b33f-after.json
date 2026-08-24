@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "after_passes",
+  "binding_id": "test -f pipeline/main.py",
+  "stage": "after",
+  "expected": "success",
+  "lineage": "reproducer:445133cb672eb360",
+  "epoch": 2,
+  "run_id": "019f8c8c-e18e-7821-b9ca-d3474938b33f",
+  "executed": true,
+  "outcome": "success",
+  "reason": "command_succeeded"
+}

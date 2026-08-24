@@ -1,0 +1,4 @@
+{"event":"run_start","schema_version":"1","events_path":".commandagent/runs/018f-observe/events.jsonl"}
+{"event":"step_prompt_contract","schema_version":"1","step_id":"implement","prompt_body_saved":true}
+{"event":"provider_turn_duration","schema_version":"1","caller_scope":"executor","provider":"ollama","model":"test","ok":false}
+{"event":"run_stop","schema_version":"1","status":"failed","ok":false,"stop_reason":"provider_error"}

@@ -1,0 +1,44 @@
+case_id = "test0718_fix7a_existing_isolate_artifacts"
+source = "uat-test0717-dfix-002 schema Runs 4/6 absent output/inspection.json isolate-cause stall"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["F1 evidence", "output/results.json", "pipeline/main.py"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run4-isolate-plan.json = [
+  "inspect-results-json",
+  "inspect-inspection-json",
+  "output/inspection.json",
+  "inspect-pipeline-main"
+]
+fixtures/run4-isolate-calibration.txt = [
+  "Data fix cause-isolation artifact policy (runtime-bound):",
+  "Executed F1 evidence and existing workspace files",
+  "absent output/inspection.json is not requested or expected",
+  "deferred to repair"
+]
+
+[fixture_ordered]
+fixtures/run4-isolate-calibration.txt = [
+  "Before FIX-7a:",
+  "absent output/inspection.json",
+  "After FIX-7a:",
+  "deferred to repair"
+]

@@ -1,0 +1,47 @@
+[suite]
+id = "cli-create-luna"
+profile = "cli"
+intent = "create"
+plan_preset = "default"
+workspace_mode = "empty"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "openai"
+api = "responses"
+tool_protocol = "native"
+min_head = "527bdc1e"
+
+[goals]
+stats = "数値CSVを集計するCLIツール cli/main.py を作成してください。--column で対象列名を指定し、件数・合計・平均を表示します。--help で使い方を表示します。サンプル入力 data/sample.csv を同梱し、実行例と出力例を README.md に記載してください。"
+filter = "テキストファイルから指定パターンを含む行を抽出するCLIツール cli/main.py を作成してください。--pattern で検索文字列、--count で件数のみ表示を指定できます。--help で使い方を表示します。サンプル入力 data/sample.txt を同梱し、実行例と出力例を README.md に記載してください。"
+
+[[runs]]
+name = "stats_luna_001"
+goal = "stats"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "stats_luna_002"
+goal = "stats"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "stats_luna_003"
+goal = "stats"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "filter_luna_001"
+goal = "filter"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "filter_luna_002"
+goal = "filter"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "filter_luna_003"
+goal = "filter"
+executor = "gpt-5.6-luna"

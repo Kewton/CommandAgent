@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Acceptance Test"
+  short_description: "Verify CommandAgent issue acceptance criteria"
+  default_prompt: "Use $acceptance-test to verify acceptance criteria for the selected issue."
+policy:
+  allow_implicit_invocation: false

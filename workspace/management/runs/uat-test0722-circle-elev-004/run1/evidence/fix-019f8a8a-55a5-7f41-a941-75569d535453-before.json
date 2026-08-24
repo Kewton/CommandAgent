@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "test -f pipeline/main.py",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:445133cb672eb360",
+  "epoch": 1,
+  "run_id": "019f8a8a-55a5-7f41-a941-75569d535453",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 25 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:"
+}

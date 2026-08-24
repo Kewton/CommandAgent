@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "directive_round": 2,
+  "directive_hash": "sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4",
+  "target_run_id": "019fb8ce-3806-7ee0-9818-f5eab0fb0bd1",
+  "continuation_plan_path": ".anvil/plans/directive-round-2-55c180bb0fdc.yaml",
+  "same_workspace": true,
+  "ok": false
+}

@@ -1,0 +1,1 @@
+{"keep_alive":"10m","messages":[{"content":"hello","role":"user"}],"model":"qwen3.8:27b-mlx","options":{"num_ctx":4096,"num_predict":42},"stream":false,"think":"medium"}

@@ -1,0 +1,7 @@
+{"case":"full","expected_assurance":"full","probe_attempted":true,"binding_intact":true,"checks":{"cli_probe":"pass","help_binding":"pass","cli_output_claims":"pass","cli_rerun_consistency":"pass"}}
+{"case":"help_listed_unimplemented","expected_assurance":"failed","probe_attempted":true,"binding_intact":true,"checks":{"cli_probe":"pass","help_binding":"failed","cli_output_claims":"pass","cli_rerun_consistency":"pass"}}
+{"case":"invalid_exit_zero","expected_assurance":"failed","probe_attempted":true,"binding_intact":true,"checks":{"cli_probe":"failed","help_binding":"pass","cli_output_claims":"pass","cli_rerun_consistency":"pass"}}
+{"case":"output_example_absent","expected_assurance":"failed","probe_attempted":true,"binding_intact":true,"checks":{"cli_probe":"pass","help_binding":"pass","cli_output_claims":"failed","cli_rerun_consistency":"pass"}}
+{"case":"probe_unexecuted","expected_assurance":"static","probe_attempted":false,"binding_intact":true,"checks":{"cli_probe":"pass","help_binding":"pass","cli_output_claims":"pass","cli_rerun_consistency":"pass"}}
+{"case":"rerun_mismatch","expected_assurance":"failed","probe_attempted":true,"binding_intact":true,"checks":{"cli_probe":"pass","help_binding":"pass","cli_output_claims":"pass","cli_rerun_consistency":"failed"}}
+{"case":"bound_cases_replaced","expected_assurance":"failed","probe_attempted":true,"binding_intact":false,"checks":{"cli_probe":"pass","help_binding":"pass","cli_output_claims":"pass","cli_rerun_consistency":"pass"}}

@@ -1,0 +1,32 @@
+case_id = "test0727_ingest_completion_projection"
+source = "E-4b runtime-shaped ingest assurance projection fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["ingest", "pipeline_probe", "ingest_source_binding"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/assurance.jsonl = [
+  "\"fixture\":\"n1-not-executed\"",
+  "\"expected_earned\":\"static\"",
+  "\"fixture\":\"n2-claims-absent\"",
+  "\"expected_earned\":\"partial\"",
+  "\"fixture\":\"n1-through-n5-pass\"",
+  "\"expected_earned\":\"full\""
+]

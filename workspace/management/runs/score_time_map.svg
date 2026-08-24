@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GENERATED FILE: DO NOT EDIT. See the Markdown regeneration command. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<style>text{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;fill:#1d2530}.grid{stroke:#d5dae1;stroke-width:1}.axis{stroke:#303844;stroke-width:2}.label{font-size:12px}.title{font-size:22px;font-weight:700}.note{font-size:13px}</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="105" y="32" class="title">Score/time map — all-formal-run attainment</text>
+<line x1="105" y1="760.0" x2="1340" y2="760.0" class="grid"/>
+<text x="90" y="764.0" text-anchor="end" class="label">0</text>
+<line x1="105" y1="620.0" x2="1340" y2="620.0" class="grid"/>
+<text x="90" y="624.0" text-anchor="end" class="label">20</text>
+<line x1="105" y1="480.0" x2="1340" y2="480.0" class="grid"/>
+<text x="90" y="484.0" text-anchor="end" class="label">40</text>
+<line x1="105" y1="340.0" x2="1340" y2="340.0" class="grid"/>
+<text x="90" y="344.0" text-anchor="end" class="label">60</text>
+<line x1="105" y1="200.0" x2="1340" y2="200.0" class="grid"/>
+<text x="90" y="204.0" text-anchor="end" class="label">80</text>
+<line x1="105" y1="60.0" x2="1340" y2="60.0" class="grid"/>
+<text x="90" y="64.0" text-anchor="end" class="label">100</text>
+<line x1="105.0" y1="60" x2="105.0" y2="760" class="grid"/>
+<text x="105.0" y="783" text-anchor="middle" class="label">10^1s</text>
+<line x1="516.7" y1="60" x2="516.7" y2="760" class="grid"/>
+<text x="516.7" y="783" text-anchor="middle" class="label">10^2s</text>
+<line x1="928.3" y1="60" x2="928.3" y2="760" class="grid"/>
+<text x="928.3" y="783" text-anchor="middle" class="label">10^3s</text>
+<line x1="1340.0" y1="60" x2="1340.0" y2="760" class="grid"/>
+<text x="1340.0" y="783" text-anchor="middle" class="label">10^4s</text>
+<line x1="105" y1="760" x2="1340" y2="760" class="axis"/>
+<line x1="105" y1="60" x2="105" y2="760" class="axis"/>
+<text x="722.5" y="815" text-anchor="middle" class="note">mean configuration total seconds (log10)</text>
+<text x="25" y="410.0" transform="rotate(-90 25 410.0)" text-anchor="middle" class="note">mean score contribution across all formal runs</text>
+<polygon points="445.0,394.2 451.0,400.2 445.0,406.2 439.0,400.2" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P001 | gemma4:31b-cloud | circle/elevated | single | marker=verdict_mapping | n=24 reached=24 full=1 | config_seconds=66.96 score_mean=51.40 | five_number=(16.7, 33.3, 66.7, 66.7, 100.0) | mean_cost=N/A</title></polygon>
+<polygon points="686.1,598.6 692.1,604.6 686.1,610.6 680.1,604.6" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P002 | qwen3.6:27b-coding-nvfp4 | circle/local | single | marker=verdict_mapping | n=9 reached=6 full=0 | config_seconds=258.00 score_mean=22.20 | five_number=(0.0, 0.0, 33.3, 33.3, 33.3) | mean_cost=N/A</title></polygon>
+<polygon points="1211.7,754.0 1217.7,760.0 1211.7,766.0 1205.7,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P005 | gemma4:31b-cloud | cli/filter | bon:6 | marker=verdict_mapping | n=3 reached=0 full=0 | config_seconds=4878.00 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="878.4,608.2 884.4,614.2 878.4,620.2 872.4,614.2" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P008 | gemma4:31b-cloud | cli/filter | pack:cli-assist@1.0.0#sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd | marker=verdict_mapping | n=6 reached=2 full=0 | config_seconds=756.17 score_mean=20.83 | five_number=(0.0, 0.0, 0.0, 46.9, 62.5) | mean_cost=N/A</title></polygon>
+<polygon points="903.6,608.2 909.6,614.2 903.6,620.2 897.6,614.2" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P009 | gemma4:31b-cloud | cli/filter | pack:cli-assist@1.1.0#sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82 | marker=verdict_mapping | n=3 reached=1 full=0 | config_seconds=871.00 score_mean=20.83 | five_number=(0.0, 0.0, 0.0, 31.2, 62.5) | mean_cost=N/A</title></polygon>
+<polygon points="853.6,681.1 859.6,687.1 853.6,693.1 847.6,687.1" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P010 | gemma4:31b-cloud | cli/filter | single | marker=verdict_mapping | n=12 reached=3 full=0 | config_seconds=658.50 score_mean=10.42 | five_number=(0.0, 0.0, 0.0, 0.0, 62.5) | mean_cost=N/A</title></polygon>
+<polygon points="1211.7,754.0 1217.7,760.0 1211.7,766.0 1205.7,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P011 | gemma4:31b-cloud | cli/stats | bon:6 | marker=verdict_mapping | n=3 reached=0 full=0 | config_seconds=4878.00 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="931.5,754.0 937.5,760.0 931.5,766.0 925.5,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P012 | gemma4:31b-cloud | cli/stats | pack:cli-assist@1.0.0#sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd | marker=verdict_mapping | n=6 reached=0 full=0 | config_seconds=1018.00 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="931.1,754.0 937.1,760.0 931.1,766.0 925.1,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P013 | gemma4:31b-cloud | cli/stats | pack:cli-assist@1.1.0#sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82 | marker=verdict_mapping | n=3 reached=0 full=0 | config_seconds=1015.67 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="818.9,754.0 824.9,760.0 818.9,766.0 812.9,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P014 | gemma4:31b-cloud | cli/stats | single | marker=verdict_mapping | n=12 reached=0 full=0 | config_seconds=542.25 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="1299.8,488.4 1311.8,500.4 1299.8,512.4 1287.8,500.4" fill="#f0542a" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P015 | gpt-5.6-luna | cli/filter | bon:6 | marker=verdict_mapping | n=30 reached=24 full=2 | config_seconds=7987.00 score_mean=37.08 | five_number=(-12.5, 25.0, 25.0, 62.5, 100.0) | mean_cost=$0.260321</title></polygon>
+<text x="1321.8" y="492.4" class="label">P015</text>
+<polygon points="877.3,658.0 884.5,665.2 877.3,672.4 870.1,665.2" fill="#419941" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P016 | gpt-5.6-luna | cli/filter | single | marker=verdict_mapping | n=24 reached=6 full=1 | config_seconds=751.83 score_mean=13.54 | five_number=(0.0, 0.0, 0.0, 0.0, 100.0) | mean_cost=$0.025442</title></polygon>
+<text x="894.5" y="653.2" class="label">P016</text>
+<polygon points="1076.4,783.7 1085.5,792.8 1076.4,801.9 1067.2,792.8" fill="#71863a" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P017 | gpt-5.6-luna | cli/filter | single+fix | marker=verdict_mapping | n=8 reached=7 full=1 | config_seconds=2288.71 score_mean=-4.69 | five_number=(-50.0, -40.6, -12.5, 6.2, 100.0) | mean_cost=$0.089961</title></polygon>
+<polygon points="884.1,665.3 891.2,672.5 884.1,679.7 876.9,672.5" fill="#409941" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P018 | gpt-5.6-luna | cli/stats | single | marker=verdict_mapping | n=24 reached=4 full=1 | config_seconds=780.79 score_mean=12.50 | five_number=(0.0, 0.0, 0.0, 0.0, 100.0) | mean_cost=$0.024564</title></polygon>
+<polygon points="832.0,754.0 838.0,760.0 832.0,766.0 826.0,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P024 | gemma4:31b | data/timeseries | single | marker=verdict_mapping | n=4 reached=0 full=0 | config_seconds=583.50 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="752.1,754.0 758.1,760.0 752.1,766.0 746.1,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P025 | gemma4:31b-cloud | data/aggregation | single | marker=verdict_mapping | n=6 reached=0 full=0 | config_seconds=373.17 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="863.5,754.0 869.5,760.0 863.5,766.0 857.5,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P027 | qwen3.6:35b-a3b-coding-nvfp4 | data/timeseries | single | marker=verdict_mapping | n=8 reached=0 full=0 | config_seconds=696.00 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<polygon points="709.7,754.0 715.7,760.0 709.7,766.0 703.7,760.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P028 | qwen35 | data/aggregation | single | marker=verdict_mapping | n=3 reached=0 full=0 | config_seconds=294.33 score_mean=0.00 | five_number=(0.0, 0.0, 0.0, 0.0, 0.0) | mean_cost=N/A</title></polygon>
+<circle cx="689.5" cy="410.2" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P029 | gemma4:31b | fix/compile_error_fix | single | marker=checkpoint | n=4 reached=4 full=1 | config_seconds=263.00 score_mean=49.97 | five_number=(33.3, 33.3, 33.3, 50.0, 100.0) | mean_cost=N/A</title></circle>
+<circle cx="731.0" cy="526.9" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P031 | gemma4:31b | fix/contract_hook_fix | single | marker=checkpoint | n=7 reached=7 full=0 | config_seconds=331.57 score_mean=33.30 | five_number=(33.3, 33.3, 33.3, 33.3, 33.3) | mean_cost=N/A</title></circle>
+<circle cx="552.8" cy="526.9" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P033 | qwen3.6:35b-a3b-coding-nvfp4 | fix/compile_error_fix | single | marker=checkpoint | n=5 reached=5 full=0 | config_seconds=122.40 score_mean=33.30 | five_number=(33.3, 33.3, 33.3, 33.3, 33.3) | mean_cost=N/A</title></circle>
+<circle cx="636.4" cy="614.4" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P035 | qwen3.6:35b-a3b-coding-nvfp4 | fix/contract_hook_fix | single | marker=checkpoint | n=8 reached=8 full=0 | config_seconds=195.38 score_mean=20.80 | five_number=(-16.7, 20.8, 33.3, 33.3, 33.3) | mean_cost=N/A</title></circle>
+<polygon points="768.3,555.7 774.3,561.7 768.3,567.7 762.3,561.7" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P039 | gemma4:31b-cloud | ingest/list | single | marker=verdict_mapping | n=24 reached=10 full=3 | config_seconds=408.46 score_mean=28.33 | five_number=(0.0, 0.0, 0.0, 47.5, 100.0) | mean_cost=N/A</title></polygon>
+<polygon points="738.7,567.3 744.7,573.3 738.7,579.3 732.7,573.3" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P040 | gemma4:31b-cloud | ingest/table | single | marker=verdict_mapping | n=24 reached=10 full=1 | config_seconds=346.25 score_mean=26.67 | five_number=(0.0, 0.0, 0.0, 55.0, 100.0) | mean_cost=N/A</title></polygon>
+<polygon points="322.0,52.6 329.5,60.0 322.0,67.4 314.6,60.0" fill="#469740" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P041 | gpt-5.6-luna | ingest/list | single | marker=verdict_mapping | n=3 reached=3 full=3 | config_seconds=33.67 score_mean=100.00 | five_number=(100.0, 100.0, 100.0, 100.0, 100.0) | mean_cost=$0.031870</title></polygon>
+<text x="339.5" y="78.0" class="label">P041</text>
+<polygon points="316.6,52.7 323.9,60.0 316.6,67.3 309.3,60.0" fill="#439840" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P042 | gpt-5.6-luna | ingest/table | single | marker=verdict_mapping | n=3 reached=3 full=3 | config_seconds=32.67 score_mean=100.00 | five_number=(100.0, 100.0, 100.0, 100.0, 100.0) | mean_cost=$0.028242</title></polygon>
+<text x="333.9" y="50.0" class="label">P042</text>
+<circle cx="498.8" cy="410.0" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P047 | qwen3.6:35b-a3b-coding-nvfp4 | investigation/pipe | single | marker=checkpoint | n=4 reached=4 full=0 | config_seconds=90.50 score_mean=50.00 | five_number=(50.0, 50.0, 50.0, 50.0, 50.0) | mean_cost=N/A</title></circle>
+<circle cx="393.6" cy="541.2" r="6.0" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P048 | qwen3.6:35b-a3b-coding-nvfp4 | investigation/schema | single | marker=checkpoint | n=4 reached=4 full=0 | config_seconds=50.25 score_mean=31.25 | five_number=(25.0, 25.0, 25.0, 31.2, 50.0) | mean_cost=N/A</title></circle>
+<polygon points="1107.2,637.3 1113.2,643.3 1107.2,649.3 1101.2,643.3" fill="#7a8494" fill-opacity="0.78" stroke="#17202b" stroke-width="1.5"><title>P049 | qwen3.6:35b-a3b-coding-nvfp4 | nextjs/Breakout | bon:6 | marker=verdict_mapping | n=6 reached=1 full=1 | config_seconds=2719.00 score_mean=16.67 | five_number=(0.0, 0.0, 0.0, 0.0, 100.0) | mean_cost=N/A</title></polygon>
+<text x="1123.2" y="635.3" class="label">P049</text>
+<circle cx="110" cy="840" r="7" fill="#7a8494" stroke="#17202b"/><text x="125" y="844" class="note">checkpoint</text>
+<polygon points="255,833 262,840 255,847 248,840" fill="#7a8494" stroke="#17202b"/><text x="270" y="844" class="note">verdict mapping / final-only</text>
+<circle cx="500" cy="840" r="6" fill="#7a8494"/><text x="515" y="844" class="note">cost missing</text>
+<circle cx="670" cy="840" r="10" fill="#e0552d"/><text x="687" y="844" class="note">larger/redder = higher observed config cost</text>
+<text x="105" y="875" class="note">Labels mark the five reading-reference points; every point tooltip carries its table ID. n&lt;3 and incomplete-time rows are absent.</text>
+</svg>

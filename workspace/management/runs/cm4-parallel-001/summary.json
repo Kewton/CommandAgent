@@ -1,0 +1,698 @@
+{
+  "schema_version": "commandagent.cm4-parallel-probe/v1",
+  "binary_sha256": "03159d12811aa3385d877b1d81ad7f2fdd9942e1b9af1c24314b4ece63ccdbfa",
+  "suite_sha256": "215abae70c63d72be8bec4ad683b92d68b68349cd7edbeea5f741ee636cd9e0c",
+  "planner_model": "qwen3.6:27b-coding-nvfp4",
+  "planner_provider": "ollama",
+  "think": null,
+  "executor_model": "gpt-5.6-luna",
+  "executor_provider": "openai",
+  "provider_gate": {
+    "command_argv": [
+      "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent",
+      "--doctor",
+      "--json",
+      "--provider",
+      "openai",
+      "--model",
+      "gpt-5.6-luna",
+      "--planner-provider",
+      "ollama",
+      "--planner-model",
+      "qwen3.6:27b-coding-nvfp4",
+      "--api",
+      "chat-completions",
+      "--ollama-host",
+      "http://127.0.0.1:11434",
+      "--cwd",
+      "/Users/maenokota/share/work/github_kewton/CommandAgent-develop"
+    ],
+    "command": "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent --doctor --json --provider openai --model gpt-5.6-luna --planner-provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --api chat-completions --ollama-host http://127.0.0.1:11434 --cwd /Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+    "exit_code": 0,
+    "providers": [
+      {
+        "provider": "ollama",
+        "host": "http://127.0.0.1:11434",
+        "check": "models",
+        "configured_models": [
+          "qwen3.6:27b-coding-nvfp4"
+        ]
+      },
+      {
+        "provider": "openai",
+        "host": "https://api.openai.com",
+        "check": "/v1/models",
+        "key_present": true
+      }
+    ],
+    "checks": [
+      {
+        "id": "provider.ollama.reachable",
+        "category": "provider",
+        "label": "Ollama",
+        "status": "pass",
+        "message": "http://127.0.0.1:11434/api/tags reachable; 25 model tag(s)",
+        "remediation": null,
+        "details": {
+          "host": "http://127.0.0.1:11434",
+          "reachable": true,
+          "tag_count": 25
+        }
+      },
+      {
+        "id": "provider.openai.api_key",
+        "category": "provider",
+        "label": "OpenAI key",
+        "status": "pass",
+        "message": "OPENAI_API_KEY is set (source=environment; value=<redacted>)",
+        "remediation": null,
+        "details": {
+          "key": "OPENAI_API_KEY",
+          "present": true,
+          "source": "environment",
+          "value": "<redacted>"
+        }
+      },
+      {
+        "id": "provider.openai.reachable",
+        "category": "provider",
+        "label": "OpenAI",
+        "status": "pass",
+        "message": "https://api.openai.com/v1/models reachable",
+        "remediation": null,
+        "details": {
+          "endpoint": "https://api.openai.com",
+          "reachable": true,
+          "status": 200
+        }
+      }
+    ]
+  },
+  "parallelism": 4,
+  "parallel_started_epoch": 1787050836.659988,
+  "parallel_ended_epoch": 1787051487.2754712,
+  "parallel_makespan_secs": 650.6154832839966,
+  "individual_duration_secs": {
+    "min": 390.04886198043823,
+    "q1": 454.6935301423073,
+    "p50": 507.80139100551605,
+    "q3": 567.1691680550575,
+    "p95": 633.9087014317512,
+    "max": 650.5935847759247
+  },
+  "historical_single_p50_secs": 170.0,
+  "makespan_to_single_p50_ratio": 3.8271499016705683,
+  "individual_p50_to_single_p50_ratio": 2.9870670059148003,
+  "effective_speedup_vs_sequential_observed": 3.160461565391051,
+  "isolation": {
+    "workspace_paths_unique": true,
+    "state_paths_unique": true,
+    "run_ids_unique": true,
+    "summary_paths_bound_to_owner": true,
+    "foreign_path_references": [],
+    "cross_contamination_zero": true
+  },
+  "all_scrub_ok": true,
+  "records": [
+    {
+      "name": "warikan_001",
+      "goal_id": "main",
+      "workspace": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_001",
+      "state_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_001",
+      "command_argv": [
+        "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent",
+        "--yes",
+        "--intent",
+        "create",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--plan-preset",
+        "profile",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--ollama-host",
+        "http://127.0.0.1:11434",
+        "--ultra-plan-run",
+        "--profile",
+        "community-mini-app",
+        "--cwd",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_001",
+        "--state-dir",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_001",
+        "--summary-json",
+        "--no-footer",
+        "友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。"
+      ],
+      "started_epoch": 1787050836.668969,
+      "ended_epoch": 1787051226.717831,
+      "duration_secs": 390.04886198043823,
+      "exit_code": 1,
+      "stdout_sha256": "bf478e0271a8f99e39c2c3fec29da8f0ba2116a534b8e5de1d93cdd7e9751d57",
+      "stderr_sha256": "476ca2b88fd6f558a0a6ab53f5162c4a9ab9f860467092a7683963de6e9168f9",
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "warikan_001",
+        "verdict": "partial",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_001/summary.md",
+        "artifacts_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_001",
+        "events_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_001/events.jsonl",
+        "duration_secs": 389.659,
+        "provider_cost_usd": null,
+        "stop_class": "direct_cli_command_failed",
+        "directive_round": 0,
+        "model_metadata": {
+          "executor_provider": "openai",
+          "executor_model": "gpt-5.6-luna",
+          "planner_provider": "ollama",
+          "planner_model": "qwen3.6:27b-coding-nvfp4",
+          "ollama_think": null,
+          "ollama_think_request_field_present": false
+        }
+      },
+      "events_sha256": "d1d81edb4d3c59c43e0c155b5c199a89ddee917f51972b414f8991fafaf69dff",
+      "artifact_tree_sha256": "80d5f3708eacd3343ce8146b4556d31240a4ecc46d13fb4afd257064c75faccb",
+      "artifact_files": [
+        {
+          "path": ".anvil/plans/plan-01a0148d-6d53-79f2-84ee-3cf28bd86889.yaml",
+          "sha256": "edfba3142c89dbe7b194397c2a6326d50594fdf024c63ec856836432e05e5ea6"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-phase-expense-split-spec-01a0148d-b5e3-78a2-9869-756c13e234df.yaml",
+          "sha256": "ccd5424c7670cefa1f0ba1fc21f91f59fbdeccda2cc231e03b7f46300e42fa51"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-validate-spec-01a0148d-b5e2-74d3-9932-388081b1ef8d.yaml",
+          "sha256": "1bdda8c376ae0a72e87dcadb50dd4ccb7871ed7fcdeab26ed8d6a6d856c18f86"
+        },
+        {
+          "path": ".anvil/plans/ultra-plan-01a01489-43f2-7c63-8241-2d37c77268df.yaml",
+          "sha256": "cec9e9b2870b860ac4f078352e7a53a96bb1b30fc4bea9a35633f8682ce77a78"
+        },
+        {
+          "path": ".anvil/repairs/repair-phase-expense-split-spec-01a0148d-b5e3-78a2-9869-755bb453b298.md",
+          "sha256": "047240114fc8e166de278e6c62b0391016890e2e0872ae521ec11d52b2aab556"
+        },
+        {
+          "path": ".anvil/repairs/repair-validate-spec-01a0148d-b5e2-74d3-9932-387ae392816c.md",
+          "sha256": "3b403426d854b43969eb8fa8c1943da2b2e39bbd3794923a320a7a1fbf76015e"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-9087-7421-b8ec-114450d65311/events.jsonl",
+          "sha256": "20fdc3f2842e3b6a7a87b82deadd473fc83d0676a6c9651dafe2770ee862d8d6"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-9087-7421-b8ec-114450d65311/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-90b4-7293-9b3c-fb825fe6495b/events.jsonl",
+          "sha256": "20fdc3f2842e3b6a7a87b82deadd473fc83d0676a6c9651dafe2770ee862d8d6"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-90b4-7293-9b3c-fb825fe6495b/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-9fbb-7091-99e2-d657e619fbbf/events.jsonl",
+          "sha256": "20fdc3f2842e3b6a7a87b82deadd473fc83d0676a6c9651dafe2770ee862d8d6"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-9fbb-7091-99e2-d657e619fbbf/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-b5ce-72a2-ba47-973bbf4c2fb2/events.jsonl",
+          "sha256": "20fdc3f2842e3b6a7a87b82deadd473fc83d0676a6c9651dafe2770ee862d8d6"
+        },
+        {
+          "path": ".anvil/runs/01a0148d-b5ce-72a2-ba47-973bbf4c2fb2/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": "app.spec.yaml",
+          "sha256": "ae9ac0d609b617b09951ac0fd3b2de47682d6f9a98ff479119a1cb025be12330"
+        },
+        {
+          "path": "core/README.md",
+          "sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c"
+        },
+        {
+          "path": "core.sha256sums",
+          "sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af"
+        },
+        {
+          "path": "schema/app-spec.schema.sha256",
+          "sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0"
+        },
+        {
+          "path": "schema/app-spec.schema.yaml",
+          "sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b"
+        }
+      ],
+      "scrub_ok": true,
+      "scrub_findings": []
+    },
+    {
+      "name": "warikan_002",
+      "goal_id": "late",
+      "workspace": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_002",
+      "state_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_002",
+      "command_argv": [
+        "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent",
+        "--yes",
+        "--intent",
+        "create",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--plan-preset",
+        "profile",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--ollama-host",
+        "http://127.0.0.1:11434",
+        "--ultra-plan-run",
+        "--profile",
+        "community-mini-app",
+        "--cwd",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_002",
+        "--state-dir",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_002",
+        "--summary-json",
+        "--no-footer",
+        "家族で立て替えが多くなったので、レシートを全部きれいに入れなくても、参加者と支払った金額からなるべく簡単に精算できる画面がほしい。"
+      ],
+      "started_epoch": 1787050836.6708322,
+      "ended_epoch": 1787051487.264417,
+      "duration_secs": 650.5935847759247,
+      "exit_code": 1,
+      "stdout_sha256": "5c0241b076639e42d89ce7befd65bf939c324cc78446e54a163456927ac29952",
+      "stderr_sha256": "5465410997dc1dff2117f114106ce55b529ab50269c4bde5dd7bdeca75307cd9",
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "warikan_002",
+        "verdict": "partial",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_002/summary.md",
+        "artifacts_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_002",
+        "events_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_002/events.jsonl",
+        "duration_secs": 650.175,
+        "provider_cost_usd": null,
+        "stop_class": "direct_cli_command_failed",
+        "directive_round": 0,
+        "model_metadata": {
+          "executor_provider": "openai",
+          "executor_model": "gpt-5.6-luna",
+          "planner_provider": "ollama",
+          "planner_model": "qwen3.6:27b-coding-nvfp4",
+          "ollama_think": null,
+          "ollama_think_request_field_present": false
+        }
+      },
+      "events_sha256": "c57d8d5dbe598542a0c489bbc77969421560ba769c04276ea81e710b40835e6b",
+      "artifact_tree_sha256": "4c4748502521f9bd56ac4ebf9676617180ac0920c921303b9abf2f91d6d040a1",
+      "artifact_files": [
+        {
+          "path": ".anvil/plans/plan-01a01491-3b00-7b62-bc67-15dc1fc461c5.yaml",
+          "sha256": "fe0699b9ac9d0406e559485852c5f8b49f770abf34d6f3f7712e195ce0fb6004"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-phase-expense-settlement-spec-01a01491-afdd-7cf1-adee-4b7b3dccff5e.yaml",
+          "sha256": "880ebdad6e2916b6688be99365b8ba8fde593c00bf858add3cadea9db6ca4c45"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-verify-spec-01a01491-afdc-7ac0-befc-5baca0e10d36.yaml",
+          "sha256": "7846bad6a507b5ecdd0359e0a1af0860cdf83f0f6abe0e120b3161fc0e6a53e2"
+        },
+        {
+          "path": ".anvil/plans/ultra-plan-01a0148c-2ac8-70e1-8ed1-07ca79735d1c.yaml",
+          "sha256": "e5e79db0a8b238acd89af1d36ff6265129938e606b8d02a0b4bbb643031e7483"
+        },
+        {
+          "path": ".anvil/repairs/repair-phase-expense-settlement-spec-01a01491-afdd-7cf1-adee-4b6b8c2f3d47.md",
+          "sha256": "d1dd6e5a13dd7c4b080df3975c5c70751674f476a42942de54c60a4d6af5e42e"
+        },
+        {
+          "path": ".anvil/repairs/repair-verify-spec-01a01491-afdc-7ac0-befc-5b967050ea2a.md",
+          "sha256": "2e35932bbe7823e4a1b98515e190feada81b3845b4027deda8a191d3e3f4d72a"
+        },
+        {
+          "path": ".anvil/runs/01a01491-5f4d-7d53-9f0d-d677d248428b/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-5f4d-7d53-9f0d-d677d248428b/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-5f77-7be2-87db-0e39432458d6/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-5f77-7be2-87db-0e39432458d6/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-69c3-7900-a814-11fa2d7e9f07/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-69c3-7900-a814-11fa2d7e9f07/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-853e-7d30-beb2-16ad12cffcd5/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-853e-7d30-beb2-16ad12cffcd5/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-8e72-7912-9099-ca64fce9bac3/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-8e72-7912-9099-ca64fce9bac3/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-afa8-7242-956f-a8d9d56a50aa/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-afa8-7242-956f-a8d9d56a50aa/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a01491-afc4-7891-bba1-25b604725f7d/events.jsonl",
+          "sha256": "c57a3da5f1c9450dccdfe9d7c50ed75e1aee07d3ec464cc93bfa16ed202674d5"
+        },
+        {
+          "path": ".anvil/runs/01a01491-afc4-7891-bba1-25b604725f7d/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": "app.spec.yaml",
+          "sha256": "b5cfa7f52ef8a2f75266b94a8ea628c2889e4af1ad0a9b05377a7ffc0ec791a0"
+        },
+        {
+          "path": "core/README.md",
+          "sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c"
+        },
+        {
+          "path": "core.sha256sums",
+          "sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af"
+        },
+        {
+          "path": "schema/app-spec.schema.sha256",
+          "sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0"
+        },
+        {
+          "path": "schema/app-spec.schema.yaml",
+          "sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b"
+        }
+      ],
+      "scrub_ok": true,
+      "scrub_findings": []
+    },
+    {
+      "name": "warikan_003",
+      "goal_id": "mixed",
+      "workspace": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_003",
+      "state_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_003",
+      "command_argv": [
+        "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent",
+        "--yes",
+        "--intent",
+        "create",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--plan-preset",
+        "profile",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--ollama-host",
+        "http://127.0.0.1:11434",
+        "--ultra-plan-run",
+        "--profile",
+        "community-mini-app",
+        "--cwd",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_003",
+        "--state-dir",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_003",
+        "--summary-json",
+        "--no-footer",
+        "飲み会の割り勘をスマホでやりたいです。途中で人数が増えたり、払ってない人がいたりしても後から直せる感じでお願いします。"
+      ],
+      "started_epoch": 1787050836.667408,
+      "ended_epoch": 1787051312.9091609,
+      "duration_secs": 476.2417528629303,
+      "exit_code": 1,
+      "stdout_sha256": "0626463b540ac4a148bbfecfde21c5215303017b8f0a90f109473a25182be3c9",
+      "stderr_sha256": "dd32626cd9cea48037a2ab51b60d8c92266d0aa3c85273fe7bb723ad406d40ad",
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "warikan_003",
+        "verdict": "partial",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_003/summary.md",
+        "artifacts_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_003",
+        "events_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_003/events.jsonl",
+        "duration_secs": 475.929,
+        "provider_cost_usd": null,
+        "stop_class": "direct_cli_command_failed",
+        "directive_round": 0,
+        "model_metadata": {
+          "executor_provider": "openai",
+          "executor_model": "gpt-5.6-luna",
+          "planner_provider": "ollama",
+          "planner_model": "qwen3.6:27b-coding-nvfp4",
+          "ollama_think": null,
+          "ollama_think_request_field_present": false
+        }
+      },
+      "events_sha256": "e2f273c0dfb4a112fe6e41cddd8e9ce2e7b6cad6b969f491fa9b4268a6f4adf1",
+      "artifact_tree_sha256": "1c58287880625e74985369da536721c6007d4914ffb20862dc8da37e9aa30bed",
+      "artifact_files": [
+        {
+          "path": ".anvil/plans/plan-01a0148e-a3a7-7c63-9413-3446eac44ef7.yaml",
+          "sha256": "1b866d69b6f4bb53ae18b93c8348d0f538c6e4cf129f966024260cee1992d760"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-phase-create-app-spec-01a0148f-069c-7d40-8fd9-05132896f715.yaml",
+          "sha256": "12756760153842b9edb88f714e426cb827173a19dc2a4f0e3201eac8dcf75821"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-validate-spec-01a0148f-069b-7cd2-9a77-166693644849.yaml",
+          "sha256": "044c46a69bf055ae94629c83d393a54e9be464266e632abb1a0e0049c7a573b1"
+        },
+        {
+          "path": ".anvil/plans/ultra-plan-01a0148a-005f-7813-8695-3b79b0325b21.yaml",
+          "sha256": "1fb07c5cfbfb57120fde5cc635456326d255d467ed3a69e3bc65cbf8ea4b672a"
+        },
+        {
+          "path": ".anvil/repairs/repair-phase-create-app-spec-01a0148f-069c-7d40-8fd9-050bc007e33e.md",
+          "sha256": "fa62509b12620b69c1d6690fdd99fa8a525e097588bc5e04a9f59169bf47af8d"
+        },
+        {
+          "path": ".anvil/repairs/repair-validate-spec-01a0148f-069b-7cd2-9a77-165358c23512.md",
+          "sha256": "de80ed0cacff8fb79c6945b5ff6aad29ad48447c45489e819c85f4cff921ea5f"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-e306-7df2-804e-d87d41ffd7f4/events.jsonl",
+          "sha256": "461853e0808dfd53039d022730f6d5d05fe22767bfab7e8e7921651555bb4385"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-e306-7df2-804e-d87d41ffd7f4/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-e320-7c53-844f-89842963d63c/events.jsonl",
+          "sha256": "461853e0808dfd53039d022730f6d5d05fe22767bfab7e8e7921651555bb4385"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-e320-7c53-844f-89842963d63c/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-f92b-7213-8677-60aefe6195ea/events.jsonl",
+          "sha256": "461853e0808dfd53039d022730f6d5d05fe22767bfab7e8e7921651555bb4385"
+        },
+        {
+          "path": ".anvil/runs/01a0148e-f92b-7213-8677-60aefe6195ea/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": ".anvil/runs/01a0148f-068a-7e60-95b0-4a9d2be67e9e/events.jsonl",
+          "sha256": "461853e0808dfd53039d022730f6d5d05fe22767bfab7e8e7921651555bb4385"
+        },
+        {
+          "path": ".anvil/runs/01a0148f-068a-7e60-95b0-4a9d2be67e9e/summary.md",
+          "sha256": "c0846dbcc8a1aab1a94ff38ee36b23331209ee12ae7072ae839f09c5f436b60f"
+        },
+        {
+          "path": "app.spec.yaml",
+          "sha256": "2d8f04d8244db283a85f0a88f57f1090e8d87dde4f4f0911fd78c0cbc5b14c76"
+        },
+        {
+          "path": "core/README.md",
+          "sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c"
+        },
+        {
+          "path": "core.sha256sums",
+          "sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af"
+        },
+        {
+          "path": "schema/app-spec.schema.sha256",
+          "sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0"
+        },
+        {
+          "path": "schema/app-spec.schema.yaml",
+          "sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b"
+        }
+      ],
+      "scrub_ok": true,
+      "scrub_findings": []
+    },
+    {
+      "name": "warikan_004",
+      "goal_id": "main",
+      "workspace": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_004",
+      "state_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_004",
+      "command_argv": [
+        "/private/tmp/cm4-commandagent.w9NTBZ/repo/target/release/commandagent",
+        "--yes",
+        "--intent",
+        "create",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--plan-preset",
+        "profile",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--ollama-host",
+        "http://127.0.0.1:11434",
+        "--ultra-plan-run",
+        "--profile",
+        "community-mini-app",
+        "--cwd",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_004",
+        "--state-dir",
+        "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_004",
+        "--summary-json",
+        "--no-footer",
+        "友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。"
+      ],
+      "started_epoch": 1787050836.67092,
+      "ended_epoch": 1787051376.031949,
+      "duration_secs": 539.3610291481018,
+      "exit_code": 1,
+      "stdout_sha256": "6bdcc49a5f53e2b5a0706674619bf40f28ea8a2f6c9b882f1f969edecef0e64d",
+      "stderr_sha256": "d55e04b6fd88176c4f20a9cd8b672a86f7c1d2c950c57c37c4882ddb2bbe1170",
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "warikan_004",
+        "verdict": "partial",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_004/summary.md",
+        "artifacts_dir": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/workspaces/warikan_004",
+        "events_path": "/private/tmp/cm4-commandagent.w9NTBZ/parallel-001/states/warikan_004/events.jsonl",
+        "duration_secs": 539.189,
+        "provider_cost_usd": null,
+        "stop_class": "direct_cli_command_failed",
+        "directive_round": 0,
+        "model_metadata": {
+          "executor_provider": "openai",
+          "executor_model": "gpt-5.6-luna",
+          "planner_provider": "ollama",
+          "planner_model": "qwen3.6:27b-coding-nvfp4",
+          "ollama_think": null,
+          "ollama_think_request_field_present": false
+        }
+      },
+      "events_sha256": "c9b1f032c9ddb0858261753ec33586c3298b512e7a467f1d2af6e2b7cc8a65f4",
+      "artifact_tree_sha256": "a2e18696ea38c5b7832550997e5d3b0a5c12ecf8201dcfe3f4b4267c56a6e7f8",
+      "artifact_files": [
+        {
+          "path": ".anvil/plans/plan-01a0148f-d93a-7ae0-bf11-9cd733052fc4.yaml",
+          "sha256": "8db0ee08d07c7e80bccb1e35b762aaaa7154094c066e4ffac3ffde5f1db05f04"
+        },
+        {
+          "path": ".anvil/plans/recovery-ultra-plan-phase-design-and-validate-app-spec-01a0148f-fd23-7802-a0d7-7f92e03a3da7.yaml",
+          "sha256": "4702485f883e9deaf6b33d18a7f2569a3c024046ff6fdae25f22373b7b2ac5a4"
+        },
+        {
+          "path": ".anvil/plans/ultra-plan-01a0148a-fe0f-7891-82ba-98bec4967a03.yaml",
+          "sha256": "3565f81ef27fff80fd798bb31478177a6536117e6c086ddc0f6286f5e32c2c4e"
+        },
+        {
+          "path": ".anvil/repairs/repair-phase-design-and-validate-app-spec-01a0148f-fd23-7802-a0d7-7f82761edbcd.md",
+          "sha256": "aa89d35f243b797e5cde3a5f74861eaefed3fceeaa5345a15f5a5896de1ebc2c"
+        },
+        {
+          "path": "core/README.md",
+          "sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c"
+        },
+        {
+          "path": "core.sha256sums",
+          "sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af"
+        },
+        {
+          "path": "schema/app-spec.schema.sha256",
+          "sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0"
+        },
+        {
+          "path": "schema/app-spec.schema.yaml",
+          "sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b"
+        }
+      ],
+      "scrub_ok": true,
+      "scrub_findings": []
+    }
+  ]
+}

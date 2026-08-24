@@ -1,0 +1,59 @@
+profile: data
+intent: fix
+f1_execution: confirmed
+f1_evidence: evidence/fix-<run-id>-before.json
+
+phase: reproduce-before
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "reproduce-before"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the bound reproducer R to record the required F1 failing baseline before any workspace changes."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:data_results_schema"
+
+phase: isolate-cause
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "isolate-cause"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/results.json`, `pipeline/main.py`; identify the narrow cause without changing the workspace."
+    expected_paths:
+    verify:
+
+phase: repair
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "implement-fix"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (evidence_mapped); preserve the existing data contract and keep ownership of this path in this step."
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "anvil-catalog-check:data_results_schema"
+
+phase: verify-regressions
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "verify-after"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the exact F1 reproducer R after the repair to bind F2 to the same lineage."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:data_results_schema"
+  - id: "verify-regressions"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run every frozen data-profile regression check for F3 after F2."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:pipeline_probe"
+      - "anvil-catalog-check:data_reconciliation"
+      - "anvil-catalog-check:data_claims_binding"
+      - "anvil-catalog-check:data_rerun_consistency"
+      - "anvil-catalog-check:data_results_schema"

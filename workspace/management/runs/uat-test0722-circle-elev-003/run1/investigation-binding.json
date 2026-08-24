@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "code_snippet",
+      "value": "test -f pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    }
+  ]
+}

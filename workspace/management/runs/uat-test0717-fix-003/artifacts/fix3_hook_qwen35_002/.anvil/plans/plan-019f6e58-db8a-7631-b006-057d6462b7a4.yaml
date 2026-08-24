@@ -1,0 +1,38 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-package-json"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json to understand the Next.js project structure, dependencies, and build scripts."
+    expected_paths:
+    verify:
+  - id: "inspect-page-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to examine the current route-bound implementation and identify where data-anvil-action hooks are present or missing, particularly the restart hook."
+    expected_paths:
+    verify:
+  - id: "inspect-layout-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx to check the layout structure and any global observability hooks."
+    expected_paths:
+    verify:
+  - id: "inspect-evidence"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Examine the evidence directory to see the verification failure details and understand what specific restart hook is expected."
+    expected_paths:
+    verify:
+  - id: "inspect-globals-css"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/globals.css to check Tailwind directives and any existing styling for restart affordances."
+    expected_paths:
+    verify:
+  - id: "inspect-tsconfig"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read tsconfig.json to verify TypeScript configuration is coherent with the Next.js app router setup."
+    expected_paths:
+    verify:

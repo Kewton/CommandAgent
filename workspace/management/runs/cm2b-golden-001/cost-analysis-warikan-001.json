@@ -1,0 +1,9 @@
+{
+  "provider": "openai",
+  "model": "gpt-5.6-luna",
+  "provider_total_tokens": 224237,
+  "cached_input_tokens": 199864,
+  "cost_usd": 0.01628088,
+  "source": "warikan_001/.anvil/runs/01a00f69-ec80-7820-9583-a8d32c51dea5/events.jsonl",
+  "pricing_source": "workspace/management/bench/community/pricing.toml"
+}

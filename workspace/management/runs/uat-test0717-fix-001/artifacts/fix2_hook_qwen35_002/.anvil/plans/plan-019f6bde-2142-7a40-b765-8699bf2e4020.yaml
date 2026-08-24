@@ -1,0 +1,9 @@
+goal: "Bind and run one deterministic failing reproducer R before any workspace change for: このNext."
+steps:
+  - id: "reproduce-missing-restart-hook"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run a deterministic check to confirm the restart contract hook is missing from the application source."
+    expected_paths:
+    verify:
+      - "grep -rq 'data-anvil-action=\"restart\"' src/app/"

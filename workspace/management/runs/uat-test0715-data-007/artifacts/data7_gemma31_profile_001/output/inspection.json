@@ -1,0 +1,19 @@
+{
+  "column_names": ["date", "region", "amount"],
+  "input_row_count": 60,
+  "type_summaries": {
+    "date": "string(YYYY-MM-DD)",
+    "region": "string",
+    "amount": "number"
+  },
+  "distinct_values": {
+    "region": ["東京", "大阪", "名古屋"]
+  },
+  "sample_rows": [
+    {
+      "date": "2026-01-01",
+      "region": "東京",
+      "amount": 1000
+    }
+  ]
+}

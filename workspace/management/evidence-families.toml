@@ -1,0 +1,3 @@
+# E-5c transverse evidence families. Adding a family is incomplete until the
+# Rust wire enum and all three consumer adapter maps pass their guards.
+families = ["E", "F", "I", "C", "N", "T", "tool_parse", "circle", "workflow", "score", "promotion_decision"]

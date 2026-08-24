@@ -1,0 +1,20 @@
+{
+  "capability_id": "data_reconciliation",
+  "status": "pass",
+  "ok": true,
+  "input_rows": 60,
+  "used_rows": 58,
+  "excluded": [
+    {
+      "reason": "Invalid date format",
+      "rows": 1
+    },
+    {
+      "reason": "could not convert string to float: ''",
+      "rows": 1
+    }
+  ],
+  "excluded_rows": 2,
+  "equation": "60 = 58 + 2",
+  "failure_kinds": []
+}

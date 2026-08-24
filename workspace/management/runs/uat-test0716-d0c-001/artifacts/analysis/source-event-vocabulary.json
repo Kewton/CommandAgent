@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "method": "static string literals used as event values in all src/**/*.rs files",
+  "pre_d0b_commit": "6f261c0",
+  "post_d0b_commit": "df833ab",
+  "pre_d0b_event_name_count": 148,
+  "post_d0b_event_name_count": 148,
+  "added_event_names": [],
+  "removed_event_names": [],
+  "observed_current_only_but_preexisting": [
+    "hook_snapshot_feedback",
+    "route_unbound_recovery",
+    "tool_policy_error",
+    "write_required_off_target_write_allowed"
+  ],
+  "observed_reference_only_but_still_present": [
+    "bash_path_confinement_rejected",
+    "context_truncation_suspected",
+    "final_acceptance_repair_no_source_change",
+    "path_fallback_evaluated",
+    "planner_quality_retry_degraded",
+    "tool_args_path_salvaged"
+  ]
+}

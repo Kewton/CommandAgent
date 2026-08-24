@@ -1,0 +1,13 @@
+{
+  "capability_id": "data_reconciliation",
+  "status": "failed",
+  "ok": false,
+  "input_rows": null,
+  "used_rows": null,
+  "excluded": [],
+  "excluded_rows": null,
+  "equation": null,
+  "failure_kinds": [
+    "reconciliation_violation:invalid_results_schema:failed to read /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/data_agg_qwen27_plan_gemma31_exec_preset_profile_001/output/results.json: No such file or directory (os error 2)"
+  ]
+}

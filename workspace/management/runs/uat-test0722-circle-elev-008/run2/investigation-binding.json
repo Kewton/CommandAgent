@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "error_quote",
+      "value": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "output/inspection.json",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    }
+  ]
+}

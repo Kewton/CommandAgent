@@ -1,0 +1,36 @@
+case_id = "test0714_data10_phase_scope"
+source = "investigation-data10.md observed transformed inspection steps"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data-inspection", "data_inspection_schema", "phase_scope"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run1-step.json = [
+  "run-inspection",
+  "pipeline/main.py",
+  "output/results.json",
+  "output/report.md"
+]
+fixtures/run2-m4001-step.json = [
+  "generate-inspection-report",
+  "data_results_schema",
+  "data_reconciliation",
+  "data_claims_binding"
+]

@@ -1,0 +1,32 @@
+case_id = "test0715_data7_verify_rewrite"
+source = "uat-test0714-m4-003 measured runtime rejections and uat-test0714-m4-004 DATA-10 investigation runtime rejection"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["runtime_bash_policy", "shell_control_split", "fallback_echo_stripped"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/runtime-rejections.jsonl = [
+  "test0714_m4_003",
+  "pipeline dir does not exist",
+  "wc -l data/sales.csv",
+  "ls -la output/ 2>/dev/null",
+  "output directory does not exist",
+  "verify_command_violation_kind"
+]

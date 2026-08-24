@@ -1,0 +1,35 @@
+entities:
+  - name: expense
+    fields:
+      amount: number
+      payer: string
+      participants: list
+      description: string
+views:
+  - name: expenseList
+    entity: expense
+actions:
+  - name: addExpense
+    entity: expense
+validations:
+  - name: positiveAmount
+    entity: expense
+    expression: amount > 0
+computed:
+  - name: shareAmount
+    entity: expense
+    expression: amount / len(participants)
+    type: number
+  - name: netBalance
+    entity: expense
+    expression: amount - shareAmount
+    type: number
+  - name: settlementAmount
+    entity: expense
+    expression: max(0, netBalance)
+    type: number
+permissions:
+  - name: read
+    subject: minIdentity
+minIdentity:
+  mode: anonymous

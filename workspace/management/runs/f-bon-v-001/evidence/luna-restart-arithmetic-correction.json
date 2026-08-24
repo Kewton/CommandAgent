@@ -1,0 +1,30 @@
+{
+  "schema_version": "commandagent.bon-arithmetic-correction/v0",
+  "recorded_at": "2026-08-04T03:38:29+09:00",
+  "kind": "adjudicator_arithmetic_error",
+  "discovered_during": "post-campaign final review",
+  "immutable_predeclarations": [
+    {
+      "path": "evidence/luna-restart-predeclaration.json",
+      "sha256": "f6e47b7621a5d44960025cd03eecc9bc795fbae60d2694189e7f41f18d705e0e"
+    },
+    {
+      "path": "evidence/luna-restart-predeclaration-v2.json",
+      "sha256": "4ecb7544b338dde449dab8ba17afbf73bdabb140457380d17e4d0e15e17ac5ab"
+    }
+  ],
+  "expression": "4 * (1 - 0.83^6)",
+  "declared_probability_at_least_one_full_per_campaign": 0.672019118431,
+  "corrected_probability_at_least_one_full_per_campaign": 0.673059626631,
+  "declared_expected_campaigns_with_at_least_one_full": 2.688076473724,
+  "corrected_expected_campaigns_with_at_least_one_full": 2.692238506524,
+  "rounded_expectation_before": 2.69,
+  "rounded_expectation_after": 2.69,
+  "impact": {
+    "expected_full_count_total_changed": false,
+    "expected_full_count_band_changed": false,
+    "dispersion_ratio_changed": false,
+    "stop_decision_changed": false
+  },
+  "handling": "preserve executed predeclarations and record the correction separately"
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": "1",
+  "measurements": [
+    "uat-test0717-fix-001",
+    "uat-test0717-fix-002",
+    "uat-test0717-fix-003",
+    "uat-test0717-fix-004"
+  ],
+  "raw_all_24": {
+    "runs": 24,
+    "full": 1,
+    "failed": 23,
+    "full_rate": "1/24",
+    "by_family_executor": [
+      {"family":"compile","executor":"qwen35","full":0,"failed":5,"runs":5},
+      {"family":"compile","executor":"gemma31","full":1,"failed":3,"runs":4},
+      {"family":"hook","executor":"qwen35","full":0,"failed":8,"runs":8,"environment_held_in_fix_001":2},
+      {"family":"hook","executor":"gemma31","full":0,"failed":7,"runs":7}
+    ],
+    "by_family": [
+      {"family":"compile","full":1,"failed":8,"runs":9,"full_rate":"1/9"},
+      {"family":"hook","full":0,"failed":15,"runs":15,"full_rate":"0/15"}
+    ],
+    "by_executor": [
+      {"executor":"qwen35","full":0,"failed":13,"runs":13,"full_rate":"0/13"},
+      {"executor":"gemma31","full":1,"failed":10,"runs":11,"full_rate":"1/11"}
+    ]
+  },
+  "admission_view_excluding_fix_001_environment_held_runs": {
+    "excluded_runs": [
+      "uat-test0717-fix-001/fix2_hook_qwen35_001",
+      "uat-test0717-fix-001/fix2_hook_qwen35_002"
+    ],
+    "reason": "both stopped because inherited NODE_ENV=production omitted dev dependencies; FIX-1 removed this stop class in later measurements",
+    "runs": 22,
+    "full": 1,
+    "failed": 21,
+    "full_rate": "1/22",
+    "by_family_executor": [
+      {"family":"compile","executor":"qwen35","full":0,"failed":5,"runs":5},
+      {"family":"compile","executor":"gemma31","full":1,"failed":3,"runs":4},
+      {"family":"hook","executor":"qwen35","full":0,"failed":6,"runs":6},
+      {"family":"hook","executor":"gemma31","full":0,"failed":7,"runs":7}
+    ],
+    "by_family": [
+      {"family":"compile","full":1,"failed":8,"runs":9,"full_rate":"1/9"},
+      {"family":"hook","full":0,"failed":13,"runs":13,"full_rate":"0/13"}
+    ],
+    "by_executor": [
+      {"executor":"qwen35","full":0,"failed":11,"runs":11,"full_rate":"0/11"},
+      {"executor":"gemma31","full":1,"failed":10,"runs":11,"full_rate":"1/11"}
+    ]
+  },
+  "fix_004_only": {
+    "runs": 6,
+    "full": 0,
+    "failed": 6,
+    "full_rate": "0/6",
+    "by_family": {"compile":"0/2 full","hook":"0/4 full"},
+    "by_executor": {"qwen35":"0/3 full","gemma31":"0/3 full"}
+  },
+  "decision": {
+    "historical_reporting": "retain all 24 immutable observations and show 1/24",
+    "admission_denominator": "follow the prior review ruling: exclude only the two explicitly environment-held uat-test0717-fix-001 qwen35 hook runs and show 1/22 alongside raw",
+    "admission_close": "not recommended from this gate because strict P1-b failed and no fix-004 run reached F2 or F3",
+    "band_update": "not performed; this task forbids ledger and band changes"
+  }
+}

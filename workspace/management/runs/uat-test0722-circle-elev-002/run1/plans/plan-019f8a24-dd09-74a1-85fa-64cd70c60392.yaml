@@ -1,0 +1,9 @@
+goal: "『data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+steps:
+  - id: "reproduce-candidate"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Execute deterministic reproducer R at stage=diagnosis before diagnosis generation; one reproducer_defect rebuild is permitted before I1 is established."
+    expected_paths:
+    verify:
+      - "test -f pipeline/main.py"

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "reproducer_fails",
+  "reproducer": "anvil-catalog-check:data_inspection_schema",
+  "reproducer_lineage": "reproducer:33eefa99a5d98b68",
+  "stage": "diagnosis",
+  "expected": "failure",
+  "epoch": 1,
+  "executed": true,
+  "outcome": "failure",
+  "stdout": "",
+  "stderr": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json"
+}

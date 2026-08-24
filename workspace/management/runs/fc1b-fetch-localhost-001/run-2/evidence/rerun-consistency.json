@@ -1,0 +1,22 @@
+{
+  "capability_id": "ingest_rerun_consistency",
+  "status": "pass",
+  "ok": true,
+  "compared_paths": [
+    "output/records.json",
+    "output/report.md"
+  ],
+  "failure_kinds": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "rerun_consistency",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": [
+      "output/records.json",
+      "output/report.md"
+    ]
+  }
+}

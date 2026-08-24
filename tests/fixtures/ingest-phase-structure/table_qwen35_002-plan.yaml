@@ -1,0 +1,38 @@
+goal: "Original ultra goal: data/snapshots/ 配下のHTMLから自治体イベント情報を抽出し、JSON形式（フィールド: name, date (YYYY-MM-DD), location, source_file）で output/records.json に整形してください。候補検出に用いる決定的セレクタを宣言し、抽出できない候補は理由を明記して除外してください。output/report.md に件数と要約を記載してください。\nProfile: ingest\nStyle: default\nIntent: create\nPhase id: pipeline-creation\nPhase task: Create an offline deterministic main.py that reads all HTML files in data/snapshots/, applies explicit CSS selectors to locate event blocks, and extracts name, date (normalized to YYYY-MM-DD), location, and source_file into output/records.json without network access or invented values.\n\nProfile generation rules:\n- Profile ingest: implement an offline deterministic pipeline/main.py over data/snapshots. Declare candidate_selector, candidate_accounting, and record_format in output/inspection.json. Do not invent source values, splice candidate blocks, silently drop candidates, or fetch network data.\n\nDeterministic verification preference:\n- none\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/records.json\n- output/report.md"
+steps:
+  - id: "inspect-snapshots"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read sample HTML files in data/snapshots/ to identify event block structures, date formats, and location patterns for extraction."
+    expected_paths: []
+    verify: []
+  - id: "implement-pipeline"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create pipeline/main.py that reads all HTML files in data/snapshots/, applies explicit CSS selectors to locate event blocks, extracts name, date (normalized to YYYY-MM-DD), location, and source_file, and writes output/records.json, output/inspection.json (with candidate_selector, candidate_accounting, record_format), and output/report.md."
+    expected_paths:
+      - "pipeline/main.py"
+    verify: []
+  - id: "run-pipeline"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Execute python3 pipeline/main.py to generate output artifacts deterministically without network access."
+    expected_paths:
+      - "output/records.json"
+      - "output/inspection.json"
+      - "output/report.md"
+    verify: []
+  - id: "create-verify-script"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create verify_pipeline.py that loads output/records.json and asserts each record contains name, date (YYYY-MM-DD), location, source_file; loads output/inspection.json and asserts candidate_selector exists; reads output/report.md and asserts it is non-empty."
+    expected_paths:
+      - "verify_pipeline.py"
+    verify: []
+  - id: "verify-results"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run deterministic verification script to validate output artifacts against schema and content requirements."
+    expected_paths: []
+    verify:
+      - "python3 verify_pipeline.py"

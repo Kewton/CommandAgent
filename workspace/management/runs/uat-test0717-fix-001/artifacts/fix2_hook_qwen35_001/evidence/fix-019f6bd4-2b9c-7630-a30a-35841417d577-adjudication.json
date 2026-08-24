@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f6bd4-2b9c-7630-a30a-35841417d577",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f6bd4-2b9c-7630-a30a-35841417d577",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "profile_contract",
+      "profile_verify_1"
+    ],
+    "bound_regression_lineages": {
+      "profile_contract": "regression:5653a54980e5d888",
+      "profile_verify_1": "regression:56446385dfddfe26"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "grep -r 'data-anvil-action=\"restart\"' src/",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:39f63d6b307e4a98",
+      "epoch": 1,
+      "run_id": "019f6bd4-2b9c-7630-a30a-35841417d577",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 25 summary: command did not succeed: grep -r 'data-anvil-action=\"restart\"' src/ stdout: stderr:"
+    },
+    "after": null,
+    "regressions": []
+  }
+}

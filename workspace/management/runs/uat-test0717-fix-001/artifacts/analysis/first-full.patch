@@ -1,0 +1,8 @@
+--- baseline/src/app/components/SpaceInvaders.tsx
++++ final/src/app/components/SpaceInvaders.tsx
+@@ -305 +305 @@
+-      s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H });
++      s.bullets.push({ x: s.playerX + PLAYER_W / 2 - 2, y: PLAYER_Y - PLAYER_H } as any);
+@@ -356 +356 @@
+-        s.invBullets.push({ x: shooter.x + INVADER_W / 2 - 2, y: shooter.y + INVADER_H });
++         s.invBullets.push({ x: shooter.x + INVADER_W / 2 - 2, y: shooter.y + INVADER_H } as any);

@@ -1,0 +1,20 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to identify current UI structure, state management, and missing data-anvil-action=\"restart\" hook."
+    expected_paths:
+    verify:
+  - id: "inspect-layout-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx to check for global state or restart affordances that might be missing the required hook."
+    expected_paths:
+    verify:
+  - id: "inspect-evidence-logs"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read files in the evidence directory to pinpoint the exact verification failure message regarding the restart hook."
+    expected_paths:
+    verify:

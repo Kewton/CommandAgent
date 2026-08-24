@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.bon-validation-resumption/v0",
+  "recorded_at": "2026-08-03T12:29:28+09:00",
+  "report_sha256_before_valid_retry": "33c83141512dacb0a581aeada0e648642289a5e5bf63b132571b3021530da302",
+  "invalid_attempt_provider_turns": 0,
+  "invalid_attempt_statistical_trials": 0,
+  "user_authorized_environment_source": ".env",
+  "environment_probe": {
+    "openai_key": "set_redacted",
+    "responses_endpoint": "reachable",
+    "ollama": "reachable",
+    "state_directory": "writable"
+  },
+  "replacement_label": "bon0-002",
+  "replacement_workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_002_valid",
+  "failed_terminals_reused": false,
+  "declaration_changes": []
+}

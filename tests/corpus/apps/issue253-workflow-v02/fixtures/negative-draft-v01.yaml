@@ -1,0 +1,7 @@
+workflow: invalid-draft-version
+version: 0.1
+entry: create
+nodes:
+  create: { intent: create, profile: static-site }
+routes: []
+terminal: {}

@@ -1,0 +1,36 @@
+case_id = "issue364-gui-terminal-outcomes"
+source = "Issue #364 GUI Trial terminal projection regression events"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["gate_3", "gate_4", "bounded_repair", "directive_continuation"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"final_acceptance_status\":\"full_success\"",
+  "\"event\":\"run_stop\"",
+  "\"final_acceptance_status\":\"not_applicable\"",
+  "\"release_gate_reasons\":[\"browser_route_unavailable\"]",
+  "\"event\":\"final_acceptance_repair_start\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"profile_behavior_probe_status\":\"passed\"",
+  "\"event\":\"browser_probe\",\"status\":\"ready\"",
+  "\"event\":\"verify_repair_progress\",\"verdict\":\"unchanged\""
+]

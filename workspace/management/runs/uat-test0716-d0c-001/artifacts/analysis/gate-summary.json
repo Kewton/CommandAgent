@@ -1,0 +1,80 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0716-d0c-001",
+  "overall": "PASS",
+  "d0_close": true,
+  "revert_proposal_required": false,
+  "runs": 12,
+  "external_run_starts": 12,
+  "completed": 2,
+  "failed_with_reason": 10,
+  "full": 2,
+  "partial": 5,
+  "static": 1,
+  "failed_assurance": 4,
+  "total_duration_ms": 7465417,
+  "gates": {
+    "G1": {
+      "status": "PASS",
+      "honest_terminals": "12/12",
+      "run_start": 12,
+      "tui_command_stop": 12,
+      "run_stop": 12,
+      "panic": 0,
+      "unclassified": 0,
+      "unexplained_interrupt": 0
+    },
+    "G2": {
+      "status": "PASS",
+      "false_full": 0,
+      "full_runs": [
+        "d0c_06_quiz_gemma31",
+        "d0c_08_aggregation_gemma31_profile"
+      ],
+      "nextjs_full_browser_evidence": "contract/usable/primary/questionIndex+score",
+      "data_full_evidence": "pipeline probe plus E1-E4 all pass"
+    },
+    "G3": {
+      "status": "PASS",
+      "inflation": 0,
+      "deflation": 0,
+      "nextjs": "one full only after runtime/release/interaction pass; early or gate failures remain partial",
+      "data": "full=E1-E4 pass; static=pipeline generated/probe not run; failed=pipeline absent"
+    },
+    "G4": {
+      "status": "PASS",
+      "quiz_full": "1/2",
+      "required_minimum": "1/2",
+      "other_cells_within_declared_band": true
+    },
+    "G5": {
+      "status": "PASS",
+      "source_event_names_pre_d0b": 148,
+      "source_event_names_post_d0b": 148,
+      "schema_added_event_names": [],
+      "schema_removed_event_names": [],
+      "ultra_final_acceptance": {
+        "current_occurrences": 11,
+        "reference_occurrences": 11,
+        "keys": 81,
+        "key_signatures_equal": true,
+        "types_equal": true
+      },
+      "tui_command_stop": {
+        "current_occurrences": 12,
+        "reference_occurrences": 12,
+        "keys": 43,
+        "key_signatures_equal": true,
+        "types_equal": true
+      },
+      "run_stop": {
+        "current_occurrences": 12,
+        "reference_occurrences": 12,
+        "keys": 54,
+        "key_signatures_equal": true,
+        "types_equal": true
+      },
+      "byte_fixture_replay": "6/6 passed"
+    }
+  }
+}

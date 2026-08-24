@@ -1,183 +1,188 @@
-use crate::tui::progress::{sanitize_for_progress, truncate_chars};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-const UTF8_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const ASCII_FRAMES: &[&str] = &["|", "/", "-", "\\"];
-const TICK_INTERVAL: Duration = Duration::from_millis(80);
-const MAX_LABEL_CHARS: usize = 96;
-const CLEAR_LINE: &str = "\r\x1b[2K";
-const SPINNER_COLOR: &str = "\x1b[36m";
-const RESET: &str = "\x1b[0m";
+const FRAMES_UTF8: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const FRAMES_ASCII: &[&str] = &["|", "/", "-", "\\"];
+const TICK_MS: u64 = 80;
 
-#[derive(Debug, Clone, Copy)]
-pub struct WaitSpinnerConfig {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpinnerEnv {
     pub enabled: bool,
-    pub color_enabled: bool,
-    pub utf8: bool,
+    pub use_color: bool,
+    pub use_utf8: bool,
 }
 
-#[derive(Debug)]
-pub struct WaitSpinner {
-    config: WaitSpinnerConfig,
-    write_to_terminal: bool,
-    active: Option<ActiveWait>,
+impl SpinnerEnv {
+    pub fn detect() -> Self {
+        Self::detect_with(
+            |key| std::env::var_os(key).map(|value| value.to_string_lossy().into_owned()),
+            crate::tui::terminal::stderr_is_tty(),
+        )
+    }
+
+    pub fn detect_with(get_env: impl Fn(&str) -> Option<String>, stderr_is_tty: bool) -> Self {
+        if crate::tui::terminal::env_non_empty_with(&get_env, "COMMANDAGENT_NO_SPINNER") {
+            return Self {
+                enabled: false,
+                use_color: false,
+                use_utf8: false,
+            };
+        }
+        let no_color = crate::tui::terminal::env_non_empty_with(&get_env, "NO_COLOR");
+        Self {
+            enabled: stderr_is_tty,
+            use_color: !no_color,
+            use_utf8: crate::tui::terminal::utf8_locale_with(get_env),
+        }
+    }
 }
 
-#[derive(Debug)]
-struct ActiveWait {
+pub struct Spinner {
+    inner: Option<Active>,
+}
+
+struct Active {
     stop: Arc<AtomicBool>,
     wake: Arc<(Mutex<()>, Condvar)>,
     handle: Option<JoinHandle<()>>,
 }
 
-impl WaitSpinner {
-    pub fn new(config: WaitSpinnerConfig) -> Self {
-        Self {
-            config,
-            write_to_terminal: true,
-            active: None,
-        }
+impl Spinner {
+    pub fn start(label: impl Into<String>) -> Option<Self> {
+        Self::start_with_env(SpinnerEnv::detect(), label)
     }
 
-    pub fn disabled() -> Self {
-        Self::new(WaitSpinnerConfig {
-            enabled: false,
-            color_enabled: false,
-            utf8: false,
-        })
+    pub fn start_with_env(env: SpinnerEnv, label: impl Into<String>) -> Option<Self> {
+        if !env.enabled {
+            return None;
+        }
+        Some(Self::spawn(env, sanitize_label(&label.into())))
     }
 
-    #[cfg(test)]
-    fn test_without_terminal_output(config: WaitSpinnerConfig) -> Self {
-        Self {
-            config,
-            write_to_terminal: false,
-            active: None,
-        }
-    }
-
-    pub fn start(&mut self, label: impl Into<String>) {
-        self.stop();
-        if !self.config.enabled {
-            return;
-        }
-
-        let label = spinner_label(&label.into());
-        let config = self.config;
-        let write_to_terminal = self.write_to_terminal;
+    fn spawn(env: SpinnerEnv, label: String) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let wake = Arc::new((Mutex::new(()), Condvar::new()));
-        let worker_stop = Arc::clone(&stop);
-        let worker_wake = Arc::clone(&wake);
-        let handle = match thread::Builder::new()
-            .name("commandagent-spinner".into())
-            .spawn(move || {
-                render_loop(label, config, write_to_terminal, worker_stop, worker_wake);
-            }) {
-            Ok(handle) => handle,
-            Err(_) => return,
-        };
-
-        self.active = Some(ActiveWait {
-            stop,
-            wake,
-            handle: Some(handle),
-        });
+        let thread_stop = stop.clone();
+        let thread_wake = wake.clone();
+        let start = Instant::now();
+        let handle = thread::Builder::new()
+            .name("commandagent-spinner".to_string())
+            .spawn(move || render_loop(start, label, env, thread_stop, thread_wake))
+            .ok();
+        match handle {
+            Some(handle) => Self {
+                inner: Some(Active {
+                    stop,
+                    wake,
+                    handle: Some(handle),
+                }),
+            },
+            None => Self { inner: None },
+        }
     }
 
     pub fn stop(&mut self) {
-        let Some(mut active) = self.active.take() else {
+        let Some(mut active) = self.inner.take() else {
             return;
         };
         active.stop.store(true, Ordering::SeqCst);
-        let (_, cvar) = &*active.wake;
-        cvar.notify_all();
+        let (lock, cvar) = &*active.wake;
+        if let Ok(_guard) = lock.lock() {
+            cvar.notify_all();
+        }
         if let Some(handle) = active.handle.take() {
             let _ = handle.join();
         }
-        if self.write_to_terminal {
-            clear_line();
-        }
+        clear_line();
     }
 }
 
-impl Drop for WaitSpinner {
+impl Drop for Spinner {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
-fn render_loop(
-    label: String,
-    config: WaitSpinnerConfig,
-    write_to_terminal: bool,
-    stop: Arc<AtomicBool>,
-    wake: Arc<(Mutex<()>, Condvar)>,
-) {
-    let started = Instant::now();
-    let frames = spinner_frames(config.utf8);
-    let mut index = 0usize;
-    let (lock, cvar) = &*wake;
-
-    while !stop.load(Ordering::SeqCst) {
-        let frame = frames[index % frames.len()];
-        let line = render_spinner_line(
-            frame,
-            &label,
-            started.elapsed().as_secs(),
-            config.color_enabled,
-        );
-        if write_to_terminal {
-            let mut stderr = io::stderr().lock();
-            if stderr.write_all(line.as_bytes()).is_err() {
-                stop.store(true, Ordering::SeqCst);
-                return;
+pub fn sanitize_label(s: &str) -> String {
+    s.chars()
+        .map(|ch| {
+            let cp = ch as u32;
+            let is_bidi = matches!(
+                cp,
+                0x200E | 0x200F | 0x202A..=0x202E | 0x2066..=0x2069
+            );
+            if cp < 0x20 || cp == 0x7F || is_bidi {
+                '?'
+            } else {
+                ch
             }
-            let _ = stderr.flush();
-        }
-
-        index = index.wrapping_add(1);
-        let guard = lock.lock().unwrap();
-        if stop.load(Ordering::SeqCst) {
-            break;
-        }
-        let (_guard, _) = cvar.wait_timeout(guard, TICK_INTERVAL).unwrap();
-    }
+        })
+        .collect()
 }
 
 fn clear_line() {
-    let mut stderr = io::stderr().lock();
-    let _ = stderr.write_all(clear_line_sequence().as_bytes());
-    let _ = stderr.flush();
+    let mut err = io::stderr().lock();
+    let _ = err.write_all(b"\r\x1b[2K");
+    let _ = err.flush();
 }
 
-pub(crate) fn spinner_frames(utf8: bool) -> &'static [&'static str] {
-    if utf8 { UTF8_FRAMES } else { ASCII_FRAMES }
-}
-
-pub(crate) fn render_spinner_line(
-    frame: &str,
-    label: &str,
-    elapsed_secs: u64,
-    color_enabled: bool,
-) -> String {
-    if color_enabled {
-        format!("{CLEAR_LINE}{SPINNER_COLOR}{frame}{RESET} {label} {elapsed_secs}s")
+fn render_loop(
+    start: Instant,
+    label: String,
+    env: SpinnerEnv,
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<()>, Condvar)>,
+) {
+    let frames = if env.use_utf8 {
+        FRAMES_UTF8
     } else {
-        format!("{CLEAR_LINE}{frame} {label} {elapsed_secs}s")
+        FRAMES_ASCII
+    };
+    let (color_on, color_off) = if env.use_color {
+        ("\x1b[36m", "\x1b[0m")
+    } else {
+        ("", "")
+    };
+    let mut i = 0usize;
+    let (lock, cvar) = &*wake;
+    while !stop.load(Ordering::SeqCst) {
+        let frame = frames[i % frames.len()];
+        let line = format_spinner_line(
+            frame,
+            &label,
+            start.elapsed().as_secs(),
+            color_on,
+            color_off,
+        );
+        {
+            let mut err = io::stderr().lock();
+            if err.write_all(line.as_bytes()).is_err() {
+                stop.store(true, Ordering::SeqCst);
+                return;
+            }
+            let _ = err.flush();
+        }
+        i = i.wrapping_add(1);
+        if let Ok(guard) = lock.lock() {
+            let _ = cvar.wait_timeout(guard, Duration::from_millis(TICK_MS));
+        }
     }
 }
 
-pub(crate) fn clear_line_sequence() -> &'static str {
-    CLEAR_LINE
-}
-
-pub(crate) fn spinner_label(label: &str) -> String {
-    truncate_chars(&sanitize_for_progress(label), MAX_LABEL_CHARS)
+fn format_spinner_line(
+    frame: &str,
+    label: &str,
+    elapsed_secs: u64,
+    color_on: &str,
+    color_off: &str,
+) -> String {
+    format!(
+        "\r\x1b[2K{color_on}{frame}{color_off} {label} {}",
+        crate::tui::elapsed::format_elapsed(elapsed_secs)
+    )
 }
 
 #[cfg(test)]
@@ -185,59 +190,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disabled_spinner_can_start_and_stop_without_output_thread() {
-        let mut spinner = WaitSpinner::disabled();
-
-        spinner.start("model");
-        assert!(spinner.active.is_none());
-
-        spinner.stop();
-        assert!(spinner.active.is_none());
-    }
-
-    #[test]
-    fn active_spinner_stop_is_idempotent() {
-        let mut spinner = WaitSpinner::test_without_terminal_output(WaitSpinnerConfig {
-            enabled: true,
-            color_enabled: false,
-            utf8: false,
-        });
-
-        spinner.start("model");
-        spinner.stop();
-        spinner.stop();
-
-        assert!(spinner.active.is_none());
-    }
-
-    #[test]
-    fn spinner_label_sanitizes_control_characters_and_truncates() {
-        let label = spinner_label(&format!("model\n{}", "x".repeat(200)));
-
-        assert!(!label.contains('\n'));
-        assert!(label.len() < 140);
-    }
-
-    #[test]
-    fn frame_selection_uses_utf8_locale() {
-        assert_eq!(spinner_frames(true)[0], "⠋");
-        assert_eq!(spinner_frames(false)[0], "|");
-    }
-
-    #[test]
-    fn renders_spinner_line_with_clear_prefix_and_optional_color() {
-        assert_eq!(
-            render_spinner_line("|", "model", 2, false),
-            "\r\x1b[2K| model 2s"
+    fn spinner_detects_disable_env() {
+        let env = SpinnerEnv::detect_with(
+            |key| (key == "COMMANDAGENT_NO_SPINNER").then(|| "1".to_string()),
+            true,
         );
+        assert!(!env.enabled);
+    }
+
+    #[test]
+    fn spinner_detects_non_tty() {
+        let env = SpinnerEnv::detect_with(|_| None, false);
+        assert!(!env.enabled);
+    }
+
+    #[test]
+    fn spinner_elapsed_uses_shared_minute_format() {
         assert_eq!(
-            render_spinner_line("⠋", "model", 2, true),
-            "\r\x1b[2K\x1b[36m⠋\x1b[0m model 2s"
+            format_spinner_line("|", "planning", 61, "", ""),
+            "\r\x1b[2K| planning 1m01s"
         );
     }
 
     #[test]
-    fn exposes_clear_line_sequence() {
-        assert_eq!(clear_line_sequence(), "\r\x1b[2K");
+    fn spinner_label_sanitizes_escape_and_bidi() {
+        assert_eq!(sanitize_label("x\x1b[31m"), "x?[31m");
+        assert_eq!(sanitize_label("a\u{202E}b"), "a?b");
+    }
+
+    #[test]
+    fn spinner_disabled_env_does_not_spawn() {
+        let spinner = Spinner::start_with_env(
+            SpinnerEnv {
+                enabled: false,
+                use_color: false,
+                use_utf8: false,
+            },
+            "x",
+        );
+        assert!(spinner.is_none());
     }
 }

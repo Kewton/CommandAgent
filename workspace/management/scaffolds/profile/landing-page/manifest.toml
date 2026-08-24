@@ -1,0 +1,6 @@
+[manifest]
+id = "landing-page"
+kind = "profile"
+admission = "off"
+profile = ""
+intent = ""

@@ -1,10 +1,14 @@
-/target
-/eval/runs
-workspace/
-__pycache__/
+/target/
+/.anvil/
 .env
-.env.*
-!.env.example
-.commandmate.pid
-.DS_Store
-.commandagent/
+/workspace/temp/
+workspace/management/runs/*/artifacts/**/node_modules/
+workspace/management/runs/*/artifacts/**/.next/
+workspace/management/runs/*/artifacts/**/target/
+__pycache__/
+*.pyc
+# raw logは意図的に未追跡。監査本体はevents/evidence/metaであり、
+# bench preflightのclean判定との整合のためignoreで宣言する。
+workspace/management/runs/**/run*.log
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,53 @@
+{
+  "capability_id": "pipeline_probe",
+  "status": "pass",
+  "ok": true,
+  "outcome": "exited",
+  "command": [
+    "python3",
+    "-B",
+    "pipeline/main.py"
+  ],
+  "duration_ms": 49,
+  "exit_code": 0,
+  "stdout": {
+    "text": "Pipeline completed successfully.\n  inspection.json: /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_004/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/output/inspection.json\n  results.json:    /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_004/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/output/results.json\n  report.md:       /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_004/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/output/report.md\n",
+    "captured_bytes": 528,
+    "total_bytes": 528,
+    "truncated": false
+  },
+  "stderr": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "artifacts": [
+    {
+      "path": "output/inspection.json",
+      "bytes": 533,
+      "fnv1a64": "137ca5d1c0ccabd5"
+    },
+    {
+      "path": "output/report.md",
+      "bytes": 723,
+      "fnv1a64": "69ea8f063bdc8b90"
+    },
+    {
+      "path": "output/results.json",
+      "bytes": 624,
+      "fnv1a64": "cd6ec06fdedc6416"
+    }
+  ],
+  "isolation": {
+    "level": "workspace_cwd_env_allowlist_bounded_offline_policy",
+    "workspace_cwd": true,
+    "environment_allowlist": true,
+    "process_group": true,
+    "bounded_timeout_ms": 30000,
+    "offline_policy_applied": true,
+    "network_namespace_enforced": false
+  },
+  "failure_kinds": [],
+  "capture_warnings": []
+}

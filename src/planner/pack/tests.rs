@@ -1,0 +1,316 @@
+use super::*;
+
+const VALID_ASSIST: &[u8] = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: ingest-default
+  version: 1.0.0
+  profile: ingest
+  intent: create
+inject:
+  - point: declare-ingest-inspection
+    source: ingest_snapshot_structure_injected
+    required: true
+    params:
+      max_files: 8
+literals:
+  - gate: ingest_source_binding
+    example:
+      format: json
+      value: '{"date":"2026-08-03"}'
+vocabulary:
+  - point: implement-ingest-delivery
+    source: ingest_candidate_ids_injected
+    mode: verbatim
+    required: true
+    params: {}
+"#;
+
+const VALID_EVAL: &[u8] = br#"schema_version: commandagent.pack.eval/v0
+pack:
+  id: ingest-default
+  version: 1.0.0
+  profile: ingest
+  intent: create
+checks:
+  - id: ingest_source_binding
+    at:
+      kind: final_acceptance
+    extraction:
+      - source_binding.source_values
+    normalizers:
+      - identity
+    params: {}
+schemas:
+  - artifact: output/records.json
+    format: json
+    root: array
+    fields:
+      - name: name
+        type: string
+        required: true
+    additional_fields: false
+"#;
+
+#[test]
+fn strict_loader_accepts_registered_closed_vocabulary() {
+    let pack = parse_bytes(Some(VALID_ASSIST), Some(VALID_EVAL)).unwrap();
+    assert_eq!(pack.id(), "ingest-default");
+    assert_eq!(pack.identity.profile, PackProfile::Ingest);
+    assert_eq!(pack.hash.len(), "sha256:".len() + 64);
+    assert_eq!(pack.assist.as_ref().unwrap().inject.len(), 1);
+    assert_eq!(pack.eval.as_ref().unwrap().checks.len(), 1);
+}
+
+#[test]
+fn exact_byte_hash_changes_for_formatting_and_pins_absence() {
+    let first = exact_byte_hash(Some(VALID_ASSIST), None);
+    let mut changed = VALID_ASSIST.to_vec();
+    changed.push(b'\n');
+    assert_ne!(first, exact_byte_hash(Some(&changed), None));
+    assert_eq!(first, exact_byte_hash(Some(VALID_ASSIST), Some(&[])));
+}
+
+#[test]
+fn decoder_rejects_unknown_duplicate_and_yaml_extension_keys() {
+    for (needle, replacement) in [
+        ("inject:", "invented: true\ninject:"),
+        (
+            "  id: ingest-default",
+            "  id: ingest-default\n  id: duplicate",
+        ),
+        (
+            "  id: ingest-default",
+            "  id: &identity ingest-default\ncopy: *identity",
+        ),
+        ("inject:", "<<: {inject: []}\ninject:"),
+        ("inject:", "!custom\ninject:"),
+    ] {
+        let raw =
+            String::from_utf8(VALID_ASSIST.to_vec())
+                .unwrap()
+                .replacen(needle, replacement, 1);
+        assert!(parse_bytes(Some(raw.as_bytes()), None).is_err(), "{raw}");
+    }
+}
+
+#[test]
+fn decoder_rejects_invented_ids_and_invalid_source_point_pairs() {
+    let unknown = String::from_utf8(VALID_ASSIST.to_vec())
+        .unwrap()
+        .replace("ingest_source_binding", "invented_gate");
+    assert!(parse_bytes(Some(unknown.as_bytes()), None).is_err());
+
+    let wrong_point = String::from_utf8(VALID_ASSIST.to_vec())
+        .unwrap()
+        .replace("declare-ingest-inspection", "cli-implementation");
+    assert!(parse_bytes(Some(wrong_point.as_bytes()), None).is_err());
+
+    let wrong_owner = String::from_utf8(VALID_ASSIST.to_vec())
+        .unwrap()
+        .replace("profile: ingest", "profile: python-cli");
+    assert!(parse_bytes(Some(wrong_owner.as_bytes()), None).is_err());
+}
+
+#[test]
+fn cli_validation_sources_are_rejected_at_cli_implementation() {
+    for source in ["cli_probe", "c3_binding"] {
+        let cli = format!(
+            r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: cli-assist
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-implementation
+    source: {source}
+    required: true
+    params: {{}}
+"#
+        );
+        let error = parse_bytes(Some(cli.as_bytes()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(&format!(
+                "source `{source}` is incompatible with point `cli-implementation`"
+            )),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn human_directive_is_closed_to_fix_implementation_and_repair() {
+    for point in ["implement-fix", "repair"] {
+        let fix = format!(
+            r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: human-directive
+  version: 1.0.0
+  profile: python-cli
+  intent: fix
+inject:
+  - point: {point}
+    source: human_directive
+    required: true
+    params:
+      max_rendered_bytes: 24000
+"#
+        );
+        assert!(parse_bytes(Some(fix.as_bytes()), None).is_ok(), "{point}");
+    }
+
+    let invalid = r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: human-directive
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-implementation
+    source: human_directive
+    required: true
+    params: {}
+"#;
+    let error = parse_bytes(Some(invalid.as_bytes()), None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("source `human_directive` is incompatible with point `cli-implementation`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn eval_check_ids_resolve_through_capability_or_intent_registries() {
+    let fix = br#"schema_version: commandagent.pack.eval/v0
+pack:
+  id: fix-floor
+  version: 1.0.0
+  profile: data
+  intent: fix
+checks:
+  - id: before_fails
+    at:
+      kind: stage
+      id: before
+    params: {}
+"#;
+    assert!(parse_bytes(None, Some(fix)).is_ok());
+
+    let invented = String::from_utf8(fix.to_vec())
+        .unwrap()
+        .replace("before_fails", "invented_requirement");
+    assert!(parse_bytes(None, Some(invented.as_bytes())).is_err());
+}
+
+#[test]
+fn load_directory_rejects_empty_and_non_regular_pack_files() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(matches!(load_directory(root.path()), Err(PackError::Empty)));
+
+    std::fs::create_dir(root.path().join(ASSIST_FILE)).unwrap();
+    assert!(matches!(
+        load_directory(root.path()),
+        Err(PackError::NotRegularFile { .. })
+    ));
+}
+
+#[test]
+fn strict_decoder_rejects_multiple_documents_and_non_string_keys() {
+    let multiple = [VALID_ASSIST, b"\n---\n{}\n"].concat();
+    assert!(parse_bytes(Some(&multiple), None).is_err());
+
+    let non_string = String::from_utf8(VALID_ASSIST.to_vec())
+        .unwrap()
+        .replace("params:\n      max_files: 8", "params:\n      7: 8");
+    assert!(parse_bytes(Some(non_string.as_bytes()), None).is_err());
+}
+
+#[test]
+fn material_source_is_closed_and_missing_material_fails_conformance() {
+    let assist = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: material-test
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: project-setup
+    source: pack_material_document
+    params: { file: CONVENTIONS.md, max_bytes: 16384 }
+"#;
+    let pack = parse_bytes(Some(assist), None).unwrap();
+    let error = conform(&pack).unwrap_err().to_string();
+    assert!(
+        error.contains("materials/CONVENTIONS.md` is missing"),
+        "{error}"
+    );
+
+    for replacement in [
+        "params: { file: ../CONVENTIONS.md, max_bytes: 16384 }",
+        "params: { file: CONVENTIONS.md, max_bytes: 65537 }",
+        "params: { file: CONVENTIONS.md, invented: true }",
+    ] {
+        let invalid = String::from_utf8(assist.to_vec()).unwrap().replace(
+            "params: { file: CONVENTIONS.md, max_bytes: 16384 }",
+            replacement,
+        );
+        assert!(
+            parse_bytes(Some(invalid.as_bytes()), None).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
+#[test]
+fn material_members_are_hash_visible_and_membership_is_strict() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(ASSIST_FILE), VALID_ASSIST).unwrap();
+    std::fs::create_dir(root.path().join("materials")).unwrap();
+    std::fs::write(root.path().join("materials/guide.md"), "first").unwrap();
+    let first = load_directory(root.path()).unwrap();
+    assert_eq!(first.materials["guide.md"], b"first");
+    std::fs::write(root.path().join("materials/guide.md"), "second").unwrap();
+    let second = load_directory(root.path()).unwrap();
+    assert_ne!(first.hash, second.hash);
+
+    std::fs::write(root.path().join("materials/nested.txt"), "unsupported").unwrap();
+    assert!(matches!(
+        load_directory(root.path()),
+        Err(PackError::InvalidMaterialName { .. })
+    ));
+}
+
+#[test]
+fn material_credentials_and_per_file_limit_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let assist = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: material-test
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: project-setup
+    source: pack_material_document
+    params: { file: guide.md }
+"#;
+    std::fs::write(root.path().join(ASSIST_FILE), assist).unwrap();
+    std::fs::create_dir(root.path().join("materials")).unwrap();
+    std::fs::write(
+        root.path().join("materials/guide.md"),
+        format!("token={}", "a".repeat(24)),
+    )
+    .unwrap();
+    let pack = load_directory(root.path()).unwrap();
+    let error = conform(&pack).unwrap_err().to_string();
+    assert!(error.contains("credential scrub"), "{error}");
+
+    std::fs::write(root.path().join("materials/guide.md"), vec![b'x'; 65_537]).unwrap();
+    assert!(matches!(
+        load_directory(root.path()),
+        Err(PackError::MaterialTooLarge { .. })
+    ));
+}

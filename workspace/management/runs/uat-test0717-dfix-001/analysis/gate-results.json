@@ -1,0 +1,35 @@
+{
+  "campaign": "uat-test0717-dfix-001",
+  "overall": "FAIL",
+  "gates": {
+    "P0-a": {
+      "result": "PASS",
+      "evidence": "6/6 run_stop terminals; all status=failed, panic=0, unclassified=0"
+    },
+    "P0-b": {
+      "result": "PASS",
+      "evidence": "6/6 assurance=failed(reason=after_not_executed), consistent with F1 passed and F2/F3 not_executed"
+    },
+    "P0-c": {
+      "result": "PASS",
+      "evidence": "full=0; false-full=0"
+    },
+    "P1-a": {
+      "result": "FAIL",
+      "evidence": "schema suggestion 3/3, but pipe suggestion 0/3; the exact UAT wording `実行がエラーで失敗` did not match the profile terms such as `実行エラー`"
+    },
+    "P1-b": {
+      "result": "PASS",
+      "evidence": "the exact five data regression bindings and stable lineages were frozen in 6/6; shrinkage=0"
+    }
+  },
+  "record_only": {
+    "full_rate": "0/6 (0%)",
+    "family_distribution": {"pipe": {"failed": 3}, "schema": {"failed": 3}},
+    "executor_distribution": {"qwen35": {"failed": 4}, "gemma31": {"failed": 2}}
+  },
+  "procedure_caveats": [
+    "pipe/B has an executable historical traceback artifact, but its source UAT terminal record is a different failure class",
+    "schema A/B are independent copies of one unique retained historical invented-schema artifact"
+  ]
+}

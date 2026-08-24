@@ -1,0 +1,196 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-002",
+  "copy_policy": {
+    "source": "historical live Next.js UAT artifacts only",
+    "synthetic_source": false,
+    "excluded": [
+      ".git/",
+      ".anvil/",
+      "node_modules/",
+      ".next/",
+      "historical UAT metadata",
+      "logs"
+    ],
+    "git_history_carried": false,
+    "independent_run_directories": 6,
+    "npm_install_command": "env -u NODE_ENV npm install --no-audit --no-fund",
+    "npm_install_exit_zero": "6/6",
+    "npm_install_summary": "each copy added 115 packages",
+    "dev_dependency_check": "env -u NODE_ENV npm ls --depth=0 tailwindcss postcss autoprefixer typescript",
+    "dev_dependency_check_exit_zero": "6/6"
+  },
+  "sources": [
+    {
+      "set": "compile-A",
+      "source_run": "gate_breakout_combo2_qwen27_plan_gemma31_exec_preset_profile_001",
+      "source_event_run_id": "019f563b-7381-7860-abd1-34fed72300ac",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0712_g_002/gate_breakout_combo2_qwen27_plan_gemma31_exec_preset_profile_001",
+      "historical_terminal_class": "implementation_compile_error",
+      "assigned_runs": ["fix2_compile_qwen35_001"],
+      "source_tree_sha256": "b1c4f06527c651019004bcf5009be8dd421f3e4283a6e92478cc02b7c2d0215b",
+      "copies": [
+        {
+          "run": "fix2_compile_qwen35_001",
+          "copied_tree_sha256": "b1c4f06527c651019004bcf5009be8dd421f3e4283a6e92478cc02b7c2d0215b",
+          "source_file_count": 10,
+          "source_file_hash_mismatches_after_run": 0
+        }
+      ],
+      "precheck": {
+        "command": "npm run build",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "Failed to compile: src/app/page.tsx:250:5 Type error: Cannot find name 'initGame'."
+      },
+      "files": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "58d35221992c8ebf82a934db5da6d7d32e0802603ea7e540bb00b434364f9013",
+        "package.json": "f356af2825083518d2faa1c68b60dac4e1196e480ace563feb995953e0c387ae",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "416035077bde93ff78caee3493d3ea1ef119aa889bf468923adb980bd5533b65",
+        "src/app/page.tsx": "5d9a0cec08f98cb40a44f4fff2c55cce361372c543eea6d3c06528af36bd7861",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "563056c07ab905053d85cbda5397db5e20babdadd8cb02f59fff3a631b7c7d4e"
+      }
+    },
+    {
+      "set": "compile-B",
+      "source_run": "space_combo1_qwen27_plan_qwen35_exec_explicit_none_001",
+      "source_event_run_id": "019f5008-f559-7f03-8652-e77e025e220a",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0711_bs_003/space_combo1_qwen27_plan_qwen35_exec_explicit_none_001",
+      "historical_terminal_class": "implementation_compile_error",
+      "assigned_runs": ["fix2_compile_gemma31_001"],
+      "source_tree_sha256": "332c32151692e4c4a13f721a9a697708cf845c9c7f9b206f24e43b0071a7c000",
+      "copies": [
+        {
+          "run": "fix2_compile_gemma31_001",
+          "copied_tree_sha256": "332c32151692e4c4a13f721a9a697708cf845c9c7f9b206f24e43b0071a7c000",
+          "source_file_count": 11,
+          "source_file_hash_mismatches_after_run": 0
+        }
+      ],
+      "precheck": {
+        "command": "npm run build",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "Failed to compile: src/app/components/SpaceInvaders.tsx:305:22; {x,y} is not assignable to Bullet because dy is missing."
+      },
+      "files": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "d0ed9aae34c4ad29d081a6abe8da1e2a6089f22844fea7a9bf528ab1ace79c39",
+        "package.json": "f356af2825083518d2faa1c68b60dac4e1196e480ace563feb995953e0c387ae",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/components/SpaceInvaders.tsx": "8747dc66eb1bb117a5b4967056b8ebad42638d2440b2c58c611bd437e18107b1",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "416035077bde93ff78caee3493d3ea1ef119aa889bf468923adb980bd5533b65",
+        "src/app/page.tsx": "c91f4c2d9f8654bff75aed77739ca0eab3af730e978e66ecca74bd85fc526cf7",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "563056c07ab905053d85cbda5397db5e20babdadd8cb02f59fff3a631b7c7d4e"
+      }
+    },
+    {
+      "set": "hook-A",
+      "source_run": "nopreset_space_combo1_qwen27_plan_qwen35_exec_001",
+      "source_event_run_id": "019f4c99-902e-7072-a7d6-c35974ab8823",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0711_bs_001/nopreset_space_combo1_qwen27_plan_qwen35_exec_001",
+      "historical_terminal_class": "missing failure_or_collision_evidence,restart_or_recoverable_state_evidence",
+      "assigned_runs": [
+        "fix2_hook_qwen35_001",
+        "fix2_hook_gemma31_001"
+      ],
+      "source_tree_sha256": "d6a52b7f58d479f3cc1b5ab309024a71aaf0df6e8e2b512899e33c49b5e7b406",
+      "copies": [
+        {
+          "run": "fix2_hook_qwen35_001",
+          "copied_tree_sha256": "d6a52b7f58d479f3cc1b5ab309024a71aaf0df6e8e2b512899e33c49b5e7b406",
+          "source_file_count": 11,
+          "source_file_hash_mismatches_after_run": 0
+        },
+        {
+          "run": "fix2_hook_gemma31_001",
+          "copied_tree_sha256": "d6a52b7f58d479f3cc1b5ab309024a71aaf0df6e8e2b512899e33c49b5e7b406",
+          "source_file_count": 11,
+          "source_file_hash_mismatches_after_run": 0
+        }
+      ],
+      "precheck": {
+        "command": "grep -q 'data-anvil-action=\"restart\"' src/app/page.tsx",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "restart contract hook absent from page.tsx",
+        "source_wide_restart_hook_occurrences": 0,
+        "auxiliary_npm_run_build_exit_code": 0
+      },
+      "files": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "d0ed9aae34c4ad29d081a6abe8da1e2a6089f22844fea7a9bf528ab1ace79c39",
+        "package.json": "f356af2825083518d2faa1c68b60dac4e1196e480ace563feb995953e0c387ae",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/game-engine.ts": "b66885644d0b22433371a5a165e35b8864ff0e4a00cbdd2a38fc8c6e2e30b729",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "416035077bde93ff78caee3493d3ea1ef119aa889bf468923adb980bd5533b65",
+        "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "563056c07ab905053d85cbda5397db5e20babdadd8cb02f59fff3a631b7c7d4e"
+      }
+    },
+    {
+      "set": "hook-B",
+      "source_run": "cell2_space_qwen27_plan_gemma31_exec_preset_profile_001",
+      "source_event_run_id": "019f56a7-634a-71e0-bfb9-4e3a34ad848e",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0712_gab_001/cell2_space_qwen27_plan_gemma31_exec_preset_profile_001",
+      "historical_terminal_class": "missing failure_or_collision_evidence,restart_or_recoverable_state_evidence",
+      "assigned_runs": [
+        "fix2_hook_qwen35_002",
+        "fix2_hook_gemma31_002"
+      ],
+      "source_tree_sha256": "fb4ceb97240fb3a83c167de12879289a9ba08d556340b610f135c996a1ea9bda",
+      "copies": [
+        {
+          "run": "fix2_hook_qwen35_002",
+          "copied_tree_sha256": "fb4ceb97240fb3a83c167de12879289a9ba08d556340b610f135c996a1ea9bda",
+          "source_file_count": 12,
+          "source_file_hash_mismatches_after_run": 0
+        },
+        {
+          "run": "fix2_hook_gemma31_002",
+          "copied_tree_sha256": "fb4ceb97240fb3a83c167de12879289a9ba08d556340b610f135c996a1ea9bda",
+          "source_file_count": 12,
+          "source_file_hash_mismatches_after_run": 0
+        }
+      ],
+      "precheck": {
+        "command": "grep -q 'data-anvil-action=\"restart\"' src/app/page.tsx",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "restart contract hook absent from page.tsx",
+        "source_wide_restart_hook_occurrences": 2,
+        "source_wide_occurrence_paths": [
+          "src/app/SpaceInvadersGame.tsx:100",
+          "src/app/SpaceInvadersGame.tsx:115"
+        ],
+        "auxiliary_npm_run_build_exit_code": 1,
+        "auxiliary_build_result": "additional source defect: src/app/SpaceInvadersGame.tsx:4:10 imports non-exported useSpaceInvadersGame"
+      },
+      "files": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "58d35221992c8ebf82a934db5da6d7d32e0802603ea7e540bb00b434364f9013",
+        "package.json": "f356af2825083518d2faa1c68b60dac4e1196e480ace563feb995953e0c387ae",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/SpaceInvadersGame.tsx": "38dbbe03039dce332e5d15e41d5ae4855e430c546708bcd471484e5420859bda",
+        "src/app/game-engine.ts": "5b6451373c612295ac12b75e6bf6a1fcbe739bb28339c6245bae0eb6a3356d47",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "416035077bde93ff78caee3493d3ea1ef119aa889bf468923adb980bd5533b65",
+        "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "563056c07ab905053d85cbda5397db5e20babdadd8cb02f59fff3a631b7c7d4e"
+      }
+    }
+  ]
+}

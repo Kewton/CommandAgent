@@ -1,0 +1,20 @@
+[
+  {
+    "run": "stats_luna_003",
+    "raw_response_bytes": 622,
+    "start_byte": 111,
+    "text": "指定した列から、数値の件数・合計・平均を集計するコマンドラインツールです。\\n\\n## 使い方\\n\\n```bash\\npython cli/main.py <CSVファイル> --column <列名>\\n```\\n\\n- `<CSVファイル>`: 集計対象のCSVファイルパス\\n- `--column`: 集計する数値列の名前\\n- `--help`: 使い方とオプションを表示\\n\\n## 実行例\\n\\n```bash\\npython cli/main.py data/sample.csv --column value\\n```\\n\\n出力例:\\n\\n```text\\nCount: 3\\nSum: 60.0\\nAverage: 20.0\\n```\\n\"}"
+  },
+  {
+    "run": "filter_luna_002",
+    "raw_response_bytes": 1412,
+    "start_byte": 900,
+    "text": "          matches = [line for line in input_file if args.pattern in line]\\n    except FileNotFoundError:\\n        print(f\\\"Error: file not found: {args.input_file}\\\", file=sys.stderr)\\n        return 1\\n    except OSError as error:\\n        print(f\\\"Error: could not read {args.input_file}: {error}\\\", file=sys.stderr)\\n        return 1\\n\\n    if args.count:\\n        print(len(matches))\\n    else:\\n        sys.stdout.writelines(matches)\\n    return 0\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    sys.exit(main())\\n\"}"
+  },
+  {
+    "run": "filter_luna_003",
+    "raw_response_bytes": 1367,
+    "start_byte": 855,
+    "text": "e:\\n            matching_lines = [\\n                line.rstrip(\\\"\\\\n\\\")\\n                for line in input_file\\n                if args.pattern in line\\n            ]\\n    except OSError as error:\\n        print(f\\\"Error: could not read '{args.file}': {error}\\\", file=sys.stderr)\\n        return 1\\n\\n    if args.count:\\n        print(len(matching_lines))\\n    else:\\n        for line in matching_lines:\\n            print(line)\\n    return 0\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    raise SystemExit(main())\\n\"}"
+  }
+]

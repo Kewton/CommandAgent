@@ -1,0 +1,25 @@
+goal: "Original ultra goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nProfile: data\nStyle: default\nIntent: create\nPhase id: data-cleaning\nPhase task: Implement deterministic cleaning in pipeline/main.py for: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。. Read only the inspected workspace data input, account for every excluded row by a non-empty reason, preserve raw input files, and use Python 3 standard-library csv/json/statistics only. Derive validation rules from output/inspection.json observations and never invent unobserved regions, date formats, or category sets.\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n\nPrior ultra context:\n- Completed phases:\n  - data-inspection (4/4)\n- Created or changed paths:\n  - output/inspection.json\n- Recent repair changed paths:\n  - output/inspection.json\n- Pending final artifacts:\n  - pipeline/main.py\n  - output/results.json\n  - output/report.md\n- Unresolved repair targets:\n  - implementation\n  - unknown\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- account\n- actual\n- additional\n- against\n- aggregates\n- artifact\n- … and 110 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_inspection_schema\n- data_results_schema"
+steps:
+  - id: "inspect-inputs"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "test -f pipeline/main.py"
+  - id: "implement-pipeline"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create pipeline/main.py to read data/sales.csv, validate rows using rules from output/inspection.json, aggregate sales by month and region, calculate totals, and write output/results.json and output/report.md. Ensure deterministic output sorting. Also create pipeline/main.py in the project root to run the pipeline and assert output schema and content.\n\nProfile contract:\nBuild one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md.\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nA rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.\nRepair pipeline/main.py and regenerate output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Every numeric claim printed in output/report.md must be present under values. Never weaken or replace the manifest-bound evidence checks."
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+  - id: "verify-outputs"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "test -f pipeline/main.py"

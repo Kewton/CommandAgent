@@ -1,0 +1,35 @@
+case_id = "test0725_cli_elev_003"
+source = "measured cli-create-elevated-20260725-155514 filter_cloud_002 at 917acef305102a8ea3ae77a19c330cca38285cd6"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["README.md", "cli/main.py", "cli_probe", "help_binding", "cli_output_claims"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/README.md = [
+  "python3 cli/main.py <file_path> --pattern <search_string> [--count]",
+  "**Expected Output:**",
+  "An apple a day keeps the doctor away."
+]
+fixtures/evidence/help-binding.json = [
+  "\"args\": [",
+  "\"--anvil-invalid-probe\"",
+  "the following arguments are required: file, --pattern",
+  "\"candidate\": \"--pattern\""
+]

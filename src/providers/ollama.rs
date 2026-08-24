@@ -1,617 +1,790 @@
-use crate::config::Provider;
-use crate::providers::usage::extract_usage;
-use crate::providers::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
-    PlannerProvider, ToolCall, ToolCallMode, ToolSpec,
-};
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
-use std::time::Duration;
+
+use crate::config::{DEFAULT_CONTEXT_BUDGET, OllamaThink, Provider};
+use crate::state::{ConversationMessage, ToolCall};
+use crate::tools::args_recovery::recover_tool_arguments;
+use crate::tools::registry::ToolSpec;
+
+use super::parsing::tool_names;
+use super::streaming::StreamControl;
+use super::{AssistantReply, ChatClient, ResponseTiming};
 
 #[derive(Debug, Clone)]
-pub struct OllamaClient<T = ReqwestOllamaTransport> {
+pub struct OllamaClient {
     base_url: String,
-    transport: T,
-    timeout: Duration,
-    retries: u8,
+    http: Client,
+    request_options: Value,
+    think: Option<OllamaThink>,
+    keep_alive: &'static str,
+    retries: usize,
+    last_response_timing: Option<ResponseTiming>,
 }
 
-impl OllamaClient<ReqwestOllamaTransport> {
-    pub fn new(base_url: impl Into<String>) -> Result<Self, OllamaError> {
-        Self::with_options(base_url, Duration::from_secs(120), 2)
-    }
-
-    pub fn with_options(
-        base_url: impl Into<String>,
-        timeout: Duration,
-        retries: u8,
-    ) -> Result<Self, OllamaError> {
-        Ok(Self::with_transport(
+impl OllamaClient {
+    pub fn new(
+        base_url: String,
+        timeout_secs: u64,
+        max_predict: usize,
+        retries: usize,
+    ) -> anyhow::Result<Self> {
+        let http = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(timeout_secs))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .build()?;
+        Ok(Self {
             base_url,
-            ReqwestOllamaTransport::new()?,
-            timeout,
+            http,
+            request_options: json!({
+                "num_ctx": DEFAULT_CONTEXT_BUDGET,
+                "num_predict": max_predict,
+            }),
+            think: None,
+            keep_alive: "10m",
             retries,
-        ))
+            last_response_timing: None,
+        })
+    }
+
+    pub(crate) fn with_think(mut self, think: Option<OllamaThink>) -> Self {
+        self.think = think;
+        self
+    }
+
+    pub fn with_context_budget(mut self, context_budget: usize) -> Self {
+        self.request_options["num_ctx"] = json!(context_budget);
+        self
+    }
+
+    pub fn list_models(&self) -> anyhow::Result<Vec<String>> {
+        let response = self
+            .http
+            .get(format!("{}/api/tags", self.base_url))
+            .send()?;
+        if !response.status().is_success() {
+            anyhow::bail!("Ollama /api/tags failed: {}", response.status());
+        }
+        let body = response.text()?;
+        parse_tags_response(&body)
     }
 }
 
-impl<T> OllamaClient<T>
-where
-    T: OllamaTransport,
-{
-    pub fn with_transport(
-        base_url: impl Into<String>,
-        transport: T,
-        timeout: Duration,
-        retries: u8,
-    ) -> Self {
-        Self {
-            base_url: normalize_base_url(&base_url.into()),
-            transport,
-            timeout,
-            retries,
-        }
+impl ChatClient for OllamaClient {
+    fn label(&self) -> &str {
+        "ollama"
     }
 
-    pub fn base_url(&self) -> &str {
-        &self.base_url
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
     }
 
-    pub fn list_models(&self) -> Result<Vec<String>, OllamaError> {
-        let url = self.endpoint("/api/tags");
-        let response = self.send_with_retries(|| self.transport.get(&url, self.timeout))?;
-        ensure_success("/api/tags", response.status, &response.body)?;
-        parse_tags_response(&response.body)
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
     }
 
-    pub fn chat(&self, request: &ChatRequest) -> Result<ChatResponse, OllamaError> {
-        let payload = self.chat_payload(request);
-        let url = self.endpoint("/api/chat");
-        let response =
-            self.send_with_retries(|| self.transport.post_json(&url, &payload, self.timeout))?;
-        ensure_success("/api/chat", response.status, &response.body)?;
-        parse_chat_response(&response.body)
+    fn allows_xml_fallback(&self) -> bool {
+        true
     }
 
-    pub fn chat_payload(&self, request: &ChatRequest) -> Value {
-        let tools = if request.tool_call_mode == ToolCallMode::Native && !request.tools.is_empty() {
-            Some(to_ollama_tools(&request.tools))
-        } else {
-            None
-        };
-
-        serde_json::to_value(OllamaChatRequest {
-            model: request.model.clone(),
-            messages: request.messages.iter().map(to_ollama_message).collect(),
-            stream: false,
-            think: false,
-            tools,
-        })
-        .unwrap_or_else(|_| json!({}))
+    fn supports_ollama_think(&self) -> bool {
+        true
     }
 
-    pub fn request_log_payload(&self, request: &ChatRequest) -> Value {
-        json!({
-            "provider": "ollama",
-            "endpoint": "/api/chat",
-            "base_url": self.base_url,
-            "request": self.chat_payload(request),
-        })
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        self.last_response_timing.take()
     }
 
-    pub fn response_log_payload(&self, response_body: &str) -> Value {
-        json!({
-            "provider": "ollama",
-            "endpoint": "/api/chat",
-            "base_url": self.base_url,
-            "response_body": response_body,
-        })
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
-    fn endpoint(&self, path: &str) -> String {
-        format!("{}{}", self.base_url, path)
-    }
-
-    fn send_with_retries<F>(&self, mut send: F) -> Result<HttpResponse, OllamaError>
-    where
-        F: FnMut() -> Result<HttpResponse, OllamaError>,
-    {
-        let mut last_error = None;
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        let body =
+            self.chat_request_body_with_stream(model, messages, tools, native_tools_enabled, true);
         for attempt in 0..=self.retries {
-            match send() {
-                Ok(response) if response.status < 500 => return Ok(response),
-                Ok(response) => {
-                    last_error = Some(OllamaError::Http {
-                        endpoint: "ollama".to_string(),
-                        status: response.status,
-                        body: response.body,
-                    });
+            match self
+                .http
+                .post(format!("{}/api/chat", self.base_url))
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let mut delivered = false;
+                    let result = parse_chat_stream(
+                        response,
+                        &tool_names(tools),
+                        !native_tools_enabled,
+                        &mut |chunk| {
+                            delivered = true;
+                            on_chunk(chunk)
+                        },
+                    );
+                    match result {
+                        Ok((reply, timing)) => {
+                            self.last_response_timing = timing;
+                            return Ok(reply);
+                        }
+                        Err(_)
+                            if super::streaming::retry_allowed(
+                                attempt,
+                                self.retries,
+                                delivered,
+                            ) =>
+                        {
+                            continue;
+                        }
+                        Err(err) if delivered => {
+                            return Err(super::streaming::after_first_chunk(err));
+                        }
+                        Err(err) => return Err(err),
+                    }
                 }
-                Err(err) => last_error = Some(err),
-            }
-
-            if attempt == self.retries {
-                break;
+                Ok(response) if attempt == self.retries => {
+                    return Err(super::guidance::http_status_error(
+                        Provider::Ollama,
+                        model,
+                        response.status(),
+                    ));
+                }
+                Ok(_) => {}
+                Err(err) if attempt == self.retries => {
+                    return Err(super::guidance::connection_error(
+                        Provider::Ollama,
+                        &self.base_url,
+                        err,
+                    ));
+                }
+                Err(_) => {}
             }
         }
-        Err(last_error.unwrap_or_else(|| OllamaError::Transport("request failed".to_string())))
-    }
-}
-
-impl<T> ChatProvider for OllamaClient<T>
-where
-    T: OllamaTransport,
-{
-    fn provider(&self) -> Provider {
-        Provider::Ollama
-    }
-}
-
-impl<T> ExecutorProvider for OllamaClient<T> where T: OllamaTransport {}
-
-impl<T> PlannerProvider for OllamaClient<T> where T: OllamaTransport {}
-
-pub trait OllamaTransport: Clone {
-    fn get(&self, url: &str, timeout: Duration) -> Result<HttpResponse, OllamaError>;
-    fn post_json(
-        &self,
-        url: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, OllamaError>;
-}
-
-#[derive(Debug, Clone)]
-pub struct ReqwestOllamaTransport {
-    client: Client,
-}
-
-impl ReqwestOllamaTransport {
-    pub fn new() -> Result<Self, OllamaError> {
-        let client = Client::builder()
-            .build()
-            .map_err(|err| OllamaError::Transport(err.to_string()))?;
-        Ok(Self { client })
-    }
-}
-
-impl OllamaTransport for ReqwestOllamaTransport {
-    fn get(&self, url: &str, timeout: Duration) -> Result<HttpResponse, OllamaError> {
-        let response = self
-            .client
-            .get(url)
-            .timeout(timeout)
-            .send()
-            .map_err(|err| OllamaError::Transport(err.to_string()))?;
-        to_http_response(response)
+        unreachable!("retry loop always returns or bails")
     }
 
-    fn post_json(
-        &self,
-        url: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, OllamaError> {
-        let response = self
-            .client
-            .post(url)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .map_err(|err| OllamaError::Transport(err.to_string()))?;
-        to_http_response(response)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub body: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OllamaError {
-    Transport(String),
-    Http {
-        endpoint: String,
-        status: u16,
-        body: String,
-    },
-    Json(String),
-}
-
-impl std::fmt::Display for OllamaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Transport(message) => write!(f, "Ollama transport failed: {}", message),
-            Self::Http {
-                endpoint,
-                status,
-                body,
-            } => {
-                write!(f, "Ollama {} failed: status {}: {}", endpoint, status, body)
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let body = self.chat_request_body(model, messages, tools, native_tools_enabled);
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{}/api/chat", self.base_url))
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let body = response.text()?;
+                    let (reply, timing) = parse_chat_response_with_timing(
+                        &body,
+                        &tool_names(tools),
+                        !native_tools_enabled,
+                    )?;
+                    self.last_response_timing = timing;
+                    return Ok(reply);
+                }
+                Ok(response) if attempt == self.retries => {
+                    return Err(super::guidance::http_status_error(
+                        Provider::Ollama,
+                        model,
+                        response.status(),
+                    ));
+                }
+                Ok(_) => {}
+                Err(err) if attempt == self.retries => {
+                    return Err(super::guidance::connection_error(
+                        Provider::Ollama,
+                        &self.base_url,
+                        err,
+                    ));
+                }
+                Err(_) => {}
             }
-            Self::Json(message) => write!(f, "Ollama JSON parse failed: {}", message),
         }
+        unreachable!("retry loop always returns or bails")
     }
 }
 
-impl std::error::Error for OllamaError {}
+impl OllamaClient {
+    fn chat_request_body(
+        &self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> Value {
+        self.chat_request_body_with_stream(model, messages, tools, native_tools_enabled, false)
+    }
 
-#[derive(Debug, Serialize)]
-struct OllamaChatRequest {
-    model: String,
-    messages: Vec<OllamaMessage>,
-    stream: bool,
-    think: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<OllamaToolDefinition>>,
+    fn chat_request_body_with_stream(
+        &self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        stream: bool,
+    ) -> Value {
+        let mut body = json!({
+            "model": model,
+            "messages": ollama_messages(messages),
+            "stream": stream,
+            "keep_alive": self.keep_alive,
+            "options": self.request_options.clone(),
+        });
+        if native_tools_enabled && !tools.is_empty() {
+            body["tools"] = json!(tools);
+        }
+        if let Some(think) = self.think {
+            body["think"] = match think {
+                OllamaThink::True => json!(true),
+                OllamaThink::False => json!(false),
+                OllamaThink::Low => json!("low"),
+                OllamaThink::Medium => json!("medium"),
+                OllamaThink::High => json!("high"),
+            };
+        }
+        body
+    }
 }
 
-#[derive(Debug, Serialize)]
-struct OllamaMessage {
-    role: &'static str,
-    content: String,
+fn ollama_messages(messages: &[ConversationMessage]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let role = if message.role == "tool" {
+                "tool"
+            } else {
+                message.role.as_str()
+            };
+            let mut value = json!({"role": role, "content": message.content});
+            if let Some(name) = &message.name {
+                value["name"] = json!(name);
+            }
+            value
+        })
+        .collect()
 }
 
-#[derive(Debug, Serialize)]
-struct OllamaToolDefinition {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    function: OllamaToolFunction,
-}
-
-#[derive(Debug, Serialize)]
-struct OllamaToolFunction {
-    name: String,
-    description: String,
-    parameters: Value,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TagsResponse {
     #[serde(default)]
     models: Vec<TagModel>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TagModel {
     name: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaChatResponse {
-    #[serde(default)]
-    message: Option<OllamaResponseMessage>,
+pub fn parse_tags_response(body: &str) -> anyhow::Result<Vec<String>> {
+    let parsed: TagsResponse = serde_json::from_str(body)?;
+    Ok(parsed.models.into_iter().map(|model| model.name).collect())
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaResponseMessage {
+#[derive(Deserialize)]
+struct ChatResponse {
+    message: Option<ChatMessage>,
+    #[serde(default)]
+    done: bool,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(default)]
+    eval_duration: Option<u64>,
+    #[serde(default)]
+    load_duration: Option<u64>,
+    #[serde(default)]
+    total_duration: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct ChatMessage {
     #[serde(default)]
     content: String,
     #[serde(default)]
-    tool_calls: Vec<OllamaResponseToolCall>,
+    thinking: String,
+    #[serde(default)]
+    tool_calls: Vec<OllamaToolCall>,
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaResponseToolCall {
-    function: OllamaResponseToolFunction,
+#[derive(Deserialize)]
+struct OllamaToolCall {
+    function: OllamaFunctionCall,
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaResponseToolFunction {
+#[derive(Deserialize)]
+struct OllamaFunctionCall {
     name: String,
     #[serde(default)]
     arguments: Value,
 }
 
-fn parse_tags_response(body: &str) -> Result<Vec<String>, OllamaError> {
-    let parsed: TagsResponse =
-        serde_json::from_str(body).map_err(|err| OllamaError::Json(err.to_string()))?;
-    Ok(parsed.models.into_iter().map(|model| model.name).collect())
+pub fn parse_chat_response(
+    body: &str,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+) -> anyhow::Result<AssistantReply> {
+    parse_chat_response_with_timing(body, allowed_tools, xml_fallback).map(|(reply, _)| reply)
 }
 
-fn parse_chat_response(body: &str) -> Result<ChatResponse, OllamaError> {
-    let value: Value =
-        serde_json::from_str(body).map_err(|err| OllamaError::Json(err.to_string()))?;
-    let usage = extract_usage(Provider::Ollama, &value);
-    let parsed: OllamaChatResponse =
-        serde_json::from_value(value).map_err(|err| OllamaError::Json(err.to_string()))?;
-    let message = parsed.message.unwrap_or(OllamaResponseMessage {
-        content: String::new(),
-        tool_calls: Vec::new(),
+fn parse_chat_response_with_timing(
+    body: &str,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+) -> anyhow::Result<(AssistantReply, Option<ResponseTiming>)> {
+    let parsed: ChatResponse = serde_json::from_str(body)?;
+    let message = parsed
+        .message
+        .ok_or_else(|| anyhow::anyhow!("Ollama response missing message"))?;
+    let timing = Some(ResponseTiming {
+        prompt_eval_duration: parsed.prompt_eval_duration,
+        eval_duration: parsed.eval_duration,
+        load_duration: parsed.load_duration,
+        total_duration: parsed.total_duration,
     });
+    if xml_fallback {
+        let (tool_calls, content) =
+            super::xml_fallback::extract_tool_calls(&message.content, allowed_tools)?;
+        return Ok((
+            AssistantReply {
+                content,
+                tool_calls,
+                prompt_tokens: parsed.prompt_eval_count,
+                completion_tokens: parsed.eval_count,
+            },
+            timing,
+        ));
+    }
     let tool_calls = message
         .tool_calls
         .into_iter()
-        .map(|call| ToolCall {
-            id: None,
-            thought_signature: None,
-            name: call.function.name,
-            args_json: serde_json::to_string(&call.function.arguments)
-                .unwrap_or_else(|_| "{}".to_string()),
+        .map(|call| {
+            let arguments =
+                recover_tool_arguments(&call.function.name, call.function.arguments).arguments;
+            ToolCall::new(call.function.name, arguments)
         })
         .collect();
-
-    Ok(ChatResponse::new(message.content, tool_calls).with_usage(usage))
-}
-
-fn ensure_success(endpoint: &str, status: u16, body: &str) -> Result<(), OllamaError> {
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        Err(OllamaError::Http {
-            endpoint: endpoint.to_string(),
-            status,
-            body: body.to_string(),
-        })
-    }
-}
-
-fn to_http_response(response: reqwest::blocking::Response) -> Result<HttpResponse, OllamaError> {
-    let status = response.status().as_u16();
-    let body = response
-        .text()
-        .map_err(|err| OllamaError::Transport(err.to_string()))?;
-    Ok(HttpResponse { status, body })
-}
-
-fn to_ollama_message(message: &ChatMessage) -> OllamaMessage {
-    OllamaMessage {
-        role: match message.role {
-            ChatRole::System => "system",
-            ChatRole::User => "user",
-            ChatRole::Assistant => "assistant",
-            ChatRole::Tool => "tool",
+    Ok((
+        AssistantReply {
+            content: message.content,
+            tool_calls,
+            prompt_tokens: parsed.prompt_eval_count,
+            completion_tokens: parsed.eval_count,
         },
-        content: message.content.clone(),
-    }
+        timing,
+    ))
 }
 
-fn to_ollama_tools(tools: &[ToolSpec]) -> Vec<OllamaToolDefinition> {
-    tools
-        .iter()
-        .map(|tool| OllamaToolDefinition {
-            kind: "function",
-            function: OllamaToolFunction {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                parameters: tool.parameters_json_schema.clone(),
+pub fn parse_chat_stream<R: std::io::Read>(
+    reader: R,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+    on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<(AssistantReply, Option<ResponseTiming>)> {
+    let mut content = String::new();
+    let mut tool_calls = Vec::new();
+    let mut prompt_tokens = None;
+    let mut completion_tokens = None;
+    let mut timing = ResponseTiming::default();
+    let mut done = false;
+    super::streaming::read_ndjson(reader, |line| {
+        let parsed: ChatResponse = serde_json::from_str(line)
+            .map_err(|err| anyhow::anyhow!("malformed Ollama NDJSON: {err}"))?;
+        if let Some(error) = parsed.error {
+            anyhow::bail!("Ollama stream failed: {error}");
+        }
+        if let Some(message) = parsed.message {
+            if !message.content.is_empty() {
+                on_chunk(&message.content)?;
+                content.push_str(&message.content);
+            } else if !message.thinking.is_empty() || !message.tool_calls.is_empty() {
+                on_chunk("")?;
+            }
+            tool_calls.extend(message.tool_calls);
+        }
+        prompt_tokens = parsed.prompt_eval_count.or(prompt_tokens);
+        completion_tokens = parsed.eval_count.or(completion_tokens);
+        timing.prompt_eval_duration = parsed.prompt_eval_duration.or(timing.prompt_eval_duration);
+        timing.eval_duration = parsed.eval_duration.or(timing.eval_duration);
+        timing.load_duration = parsed.load_duration.or(timing.load_duration);
+        timing.total_duration = parsed.total_duration.or(timing.total_duration);
+        if parsed.done {
+            done = true;
+            return Ok(StreamControl::Stop);
+        }
+        Ok(StreamControl::Continue)
+    })?;
+    if !done {
+        anyhow::bail!("Ollama stream ended before its terminal record");
+    }
+    let has_timing = timing.prompt_eval_duration.is_some()
+        || timing.eval_duration.is_some()
+        || timing.load_duration.is_some()
+        || timing.total_duration.is_some();
+    if xml_fallback {
+        let (tool_calls, content) =
+            super::xml_fallback::extract_tool_calls(&content, allowed_tools)?;
+        return Ok((
+            AssistantReply {
+                content,
+                tool_calls,
+                prompt_tokens,
+                completion_tokens,
             },
+            has_timing.then_some(timing),
+        ));
+    }
+    let tool_calls = tool_calls
+        .into_iter()
+        .map(|call| {
+            let arguments =
+                recover_tool_arguments(&call.function.name, call.function.arguments).arguments;
+            ToolCall::new(call.function.name, arguments)
         })
-        .collect()
-}
-
-fn normalize_base_url(base_url: &str) -> String {
-    let mut value = base_url.trim().trim_end_matches('/').to_string();
-    if value == "0.0.0.0" {
-        value = "127.0.0.1:11434".to_string();
-    }
-    if !value.contains("://") {
-        value = format!("http://{value}");
-    }
-    add_default_ollama_port(value)
-}
-
-fn add_default_ollama_port(value: String) -> String {
-    let Some((scheme, rest)) = value.split_once("://") else {
-        return value;
-    };
-    let (authority, path) = rest
-        .split_once('/')
-        .map(|(authority, path)| (authority, format!("/{path}")))
-        .unwrap_or((rest, String::new()));
-    if authority.contains(':') || authority.starts_with('[') {
-        value
-    } else {
-        format!("{scheme}://{authority}:11434{path}")
-    }
+        .collect();
+    Ok((
+        AssistantReply {
+            content,
+            tool_calls,
+            prompt_tokens,
+            completion_tokens,
+        },
+        has_timing.then_some(timing),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use super::*;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
+    use crate::state::ConversationMessage;
 
     #[test]
-    fn list_models_parses_tags_response() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"models":[{"name":"qwen"},{"name":"llama"}]}"#.to_string(),
-        })]);
-        let client = OllamaClient::with_transport(
-            "http://127.0.0.1:11434/",
-            transport.clone(),
-            Duration::from_secs(1),
-            0,
-        );
-
-        let models = client.list_models().unwrap();
-
-        assert_eq!(models, vec!["qwen", "llama"]);
+    fn parses_tags() {
         assert_eq!(
-            transport.calls(),
-            vec!["GET http://127.0.0.1:11434/api/tags"]
+            parse_tags_response(r#"{"models":[{"name":"m"}]}"#).unwrap(),
+            vec!["m"]
         );
     }
 
     #[test]
-    fn normalizes_common_ollama_host_values() {
+    fn request_body_is_stable_and_keeps_alive() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+            .unwrap()
+            .with_context_budget(4096);
+        let messages = vec![ConversationMessage::user("hello")];
+        let tools: Vec<ToolSpec> = Vec::new();
+        let model = "qwen3.6:27b-coding-nvfp4";
+        let first = client.chat_request_body(model, &messages, &tools, false);
+        let second = client.chat_request_body(model, &messages, &tools, false);
+
+        assert_eq!(first, second);
+        assert_eq!(first.get("keep_alive").and_then(Value::as_str), Some("10m"));
         assert_eq!(
-            normalize_base_url("http://127.0.0.1:11434/"),
-            "http://127.0.0.1:11434"
+            first
+                .get("options")
+                .and_then(Value::as_object)
+                .and_then(|options| options.get("num_ctx"))
+                .and_then(Value::as_u64),
+            Some(4096)
         );
         assert_eq!(
-            normalize_base_url("127.0.0.1:11434"),
-            "http://127.0.0.1:11434"
+            first
+                .get("options")
+                .and_then(Value::as_object)
+                .and_then(|options| options.get("num_predict"))
+                .and_then(Value::as_u64),
+            Some(42)
         );
-        assert_eq!(normalize_base_url("localhost"), "http://localhost:11434");
-        assert_eq!(normalize_base_url("0.0.0.0"), "http://127.0.0.1:11434");
+        assert!(first.get("tools").is_none());
+        assert!(first.get("think").is_none());
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            include_str!("../../tests/corpus/apps/cm4-ollama-think/fixtures/request-unset.json")
+                .trim_end()
+        );
+        assert_eq!(
+            client.chat_request_body_with_stream(model, &messages, &tools, false, true)["stream"],
+            true
+        );
     }
 
     #[test]
-    fn chat_sends_native_tools_when_requested() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"message":{"content":"","tool_calls":[{"function":{"name":"Read","arguments":{"path":"Cargo.toml"}}}]}}"#
-                .to_string(),
-        })]);
-        let client = OllamaClient::with_transport(
-            "http://127.0.0.1:11434",
-            transport.clone(),
-            Duration::from_secs(1),
-            0,
+    fn request_body_uses_default_context_budget_without_an_override() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0).unwrap();
+        let body = client.chat_request_body(
+            "qwen3.6:27b-coding-nvfp4",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
         );
-        let request = ChatRequest {
-            model: "qwen".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "read Cargo.toml")],
-            tools: vec![ToolSpec {
-                name: "Read".to_string(),
-                description: "Read file".to_string(),
-                parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Read"),
-            }],
-            tool_call_mode: ToolCallMode::Native,
-        };
 
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "Read");
-        let posted = transport.last_json().unwrap();
-        assert!(posted.get("tools").is_some());
+        assert_eq!(
+            body["options"]["num_ctx"],
+            json!(crate::config::DEFAULT_CONTEXT_BUDGET)
+        );
     }
 
     #[test]
-    fn native_tool_schema_includes_required_write_arguments() {
-        let tools = to_ollama_tools(&[ToolSpec {
-            name: "Write".to_string(),
-            description: "write".to_string(),
-            parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Write"),
-        }]);
-        let params = &tools[0].function.parameters;
+    fn request_body_maps_think_to_the_top_level_with_the_correct_json_type() {
+        let messages = vec![ConversationMessage::user("hello")];
+        let tools: Vec<ToolSpec> = Vec::new();
 
-        assert_eq!(params["required"], json!(["path", "content"]));
-        assert_eq!(params["properties"]["content"]["type"], "string");
-        assert_eq!(params["additionalProperties"], false);
+        for (think, expected) in [
+            (OllamaThink::True, json!(true)),
+            (OllamaThink::False, json!(false)),
+            (OllamaThink::Low, json!("low")),
+            (OllamaThink::Medium, json!("medium")),
+            (OllamaThink::High, json!("high")),
+        ] {
+            let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+                .unwrap()
+                .with_context_budget(4096)
+                .with_think(Some(think));
+            let body = client.chat_request_body("m", &messages, &tools, false);
+
+            assert_eq!(body.get("think"), Some(&expected));
+            assert!(
+                body.get("options")
+                    .and_then(Value::as_object)
+                    .is_some_and(|options| !options.contains_key("think"))
+            );
+        }
     }
 
     #[test]
-    fn chat_omits_tools_for_xml_fallback_mode() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"message":{"content":"ok"},"prompt_eval_count":8,"eval_count":4}"#
-                .to_string(),
-        })]);
-        let client = OllamaClient::with_transport(
-            "http://127.0.0.1:11434",
-            transport.clone(),
-            Duration::from_secs(1),
-            0,
+    fn request_body_medium_matches_explicit_fixture() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+            .unwrap()
+            .with_context_budget(4096)
+            .with_think(Some(OllamaThink::Medium));
+        let body = client.chat_request_body(
+            "qwen3.8:27b-mlx",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
         );
-        let request = ChatRequest {
-            model: "qwen".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
-            tools: vec![ToolSpec {
-                name: "Read".to_string(),
-                description: "Read file".to_string(),
-                parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Read"),
-            }],
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
 
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "ok");
-        assert_eq!(response.usage.input_tokens, Some(8));
-        assert_eq!(response.usage.output_tokens, Some(4));
-        assert_eq!(response.usage.total_tokens, Some(12));
-        assert!(response.usage.estimated);
-        let posted = transport.last_json().unwrap();
-        assert!(posted.get("tools").is_none());
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            include_str!("../../tests/corpus/apps/cm4-ollama-think/fixtures/request-medium.json")
+                .trim_end()
+        );
     }
 
     #[test]
-    fn retries_transport_failures() {
-        let transport = MockTransport::with_responses([
-            Err(OllamaError::Transport("temporary".to_string())),
-            Ok(HttpResponse {
-                status: 200,
-                body: r#"{"models":[{"name":"qwen"}]}"#.to_string(),
-            }),
-        ]);
-        let client = OllamaClient::with_transport(
-            "http://127.0.0.1:11434",
-            transport.clone(),
-            Duration::from_secs(1),
-            1,
+    fn parse_chat_response_records_duration_fields() {
+        let (reply, timing) = parse_chat_response_with_timing(
+            r#"{
+                "message": {"content":"ok"},
+                "prompt_eval_count": 10,
+                "eval_count": 2,
+                "prompt_eval_duration": 4000000000,
+                "eval_duration": 2000000000,
+                "load_duration": 1000000000,
+                "total_duration": 7000000000
+            }"#,
+            &[],
+            false,
+        )
+        .unwrap();
+        assert_eq!(reply.prompt_tokens, Some(10));
+        let timing = timing.expect("timing");
+        assert_eq!(timing.prompt_eval_duration, Some(4_000_000_000));
+        assert_eq!(timing.eval_duration, Some(2_000_000_000));
+        assert_eq!(timing.load_duration, Some(1_000_000_000));
+        assert_eq!(timing.total_duration, Some(7_000_000_000));
+    }
+
+    #[test]
+    fn parse_chat_response_discards_separate_thinking() {
+        let reply = parse_chat_response(
+            r#"{"message":{"thinking":"private reasoning","content":"final answer"}}"#,
+            &[],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(reply.content, "final answer");
+    }
+
+    #[test]
+    fn parses_ndjson_stream_and_applies_xml_fallback_after_accumulation() {
+        let input = concat!(
+            r#"{"message":{"content":"<function=Write>{\"path\":\"a\""},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":",\"content\":\"日🙂\"}</function>"},"done":false}"#,
+            "\n",
+            r#"{"done":true,"prompt_eval_count":4,"eval_count":2,"total_duration":9}"#,
+            "\n"
         );
-
-        let models = client.list_models().unwrap();
-
-        assert_eq!(models, vec!["qwen"]);
-        assert_eq!(transport.calls().len(), 2);
+        let mut chunks = Vec::new();
+        let (reply, timing) = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &["Write".to_string()],
+            true,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            chunks.concat(),
+            "<function=Write>{\"path\":\"a\",\"content\":\"日🙂\"}</function>"
+        );
+        assert_eq!(reply.content, "");
+        assert_eq!(reply.tool_calls[0].name, "Write");
+        assert_eq!(reply.tool_calls[0].arguments["content"], "日🙂");
+        assert_eq!(reply.prompt_tokens, Some(4));
+        assert_eq!(reply.completion_tokens, Some(2));
+        assert_eq!(timing.unwrap().total_duration, Some(9));
     }
 
-    #[derive(Clone, Default)]
-    struct MockTransport {
-        inner: Rc<RefCell<MockInner>>,
+    #[test]
+    fn streamed_thinking_is_not_rendered_or_saved() {
+        let input = concat!(
+            r#"{"message":{"thinking":"private "},"done":false}"#,
+            "\n",
+            r#"{"message":{"thinking":"reasoning"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":"final answer"},"done":false}"#,
+            "\n",
+            r#"{"done":true}"#,
+            "\n"
+        );
+        let mut chunks = Vec::new();
+        let (reply, _) = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &[],
+            false,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(chunks, vec!["", "", "final answer"]);
+        assert_eq!(reply.content, "final answer");
     }
 
-    #[derive(Default)]
-    struct MockInner {
-        responses: VecDeque<Result<HttpResponse, OllamaError>>,
-        calls: Vec<String>,
-        json_bodies: Vec<Value>,
+    #[test]
+    fn streamed_thinking_propagates_callback_cancellation_before_visible_content() {
+        let input = concat!(
+            r#"{"message":{"thinking":"private reasoning"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":"must not be reached"},"done":false}"#,
+            "\n",
+            r#"{"done":true}"#,
+            "\n"
+        );
+        let mut callback_calls = 0;
+
+        let error = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &[],
+            false,
+            &mut |_| {
+                callback_calls += 1;
+                anyhow::bail!("cancelled stream receiver")
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(callback_calls, 1);
+        assert!(error.contains("cancelled stream receiver"), "{error}");
     }
 
-    impl MockTransport {
-        fn with_responses<const N: usize>(
-            responses: [Result<HttpResponse, OllamaError>; N],
-        ) -> Self {
-            Self {
-                inner: Rc::new(RefCell::new(MockInner {
-                    responses: VecDeque::from(responses),
-                    calls: Vec::new(),
-                    json_bodies: Vec::new(),
-                })),
-            }
-        }
-
-        fn calls(&self) -> Vec<String> {
-            self.inner.borrow().calls.clone()
-        }
-
-        fn last_json(&self) -> Option<Value> {
-            self.inner.borrow().json_bodies.last().cloned()
-        }
+    #[test]
+    fn incomplete_ndjson_stream_returns_error_after_partial_output() {
+        let input = "{\"message\":{\"content\":\"partial\"},\"done\":false}\n";
+        let mut chunks = Vec::new();
+        let err = parse_chat_stream(std::io::Cursor::new(input), &[], false, &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(chunks.concat(), "partial");
+        assert!(err.contains("terminal record"), "{err}");
     }
 
-    impl OllamaTransport for MockTransport {
-        fn get(&self, url: &str, _timeout: Duration) -> Result<HttpResponse, OllamaError> {
-            let mut inner = self.inner.borrow_mut();
-            inner.calls.push(format!("GET {url}"));
-            inner
-                .responses
-                .pop_front()
-                .unwrap_or_else(|| Err(OllamaError::Transport("no response".to_string())))
-        }
+    #[test]
+    fn runtime_connection_failure_appends_actionable_hint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let mut client = OllamaClient::new(host.clone(), 1, 1, 0).unwrap();
 
-        fn post_json(
-            &self,
-            url: &str,
-            body: &Value,
-            _timeout: Duration,
-        ) -> Result<HttpResponse, OllamaError> {
-            let mut inner = self.inner.borrow_mut();
-            inner.calls.push(format!("POST {url}"));
-            inner.json_bodies.push(body.clone());
-            inner
-                .responses
-                .pop_front()
-                .unwrap_or_else(|| Err(OllamaError::Transport("no response".to_string())))
-        }
+        let error = ChatClient::chat(
+            &mut client,
+            "missing:latest",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.starts_with("Ollama request failed:"), "{error}");
+        assert!(
+            error.ends_with(&format!(
+                "Hint: Start Ollama with `ollama serve`, verify `--ollama-host {host}`, then run `commandagent --doctor`."
+            )),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn runtime_not_found_failure_appends_pull_hint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let read = stream.read(&mut request).unwrap();
+            assert!(String::from_utf8_lossy(&request[..read]).starts_with("POST /api/chat "));
+            write!(
+                stream,
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let mut client = OllamaClient::new(host, 1, 1, 0).unwrap();
+
+        let error = ChatClient::chat(
+            &mut client,
+            "missing:latest",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        server.join().unwrap();
+
+        assert_eq!(
+            error,
+            "Ollama request failed: HTTP 404 Not Found\nHint: Model `missing:latest` was not found. Run `ollama pull missing:latest`, then run `commandagent --doctor`."
+        );
     }
 }

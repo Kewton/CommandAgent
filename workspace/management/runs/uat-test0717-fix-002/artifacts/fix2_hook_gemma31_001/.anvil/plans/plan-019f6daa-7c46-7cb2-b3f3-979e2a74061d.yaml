@@ -1,0 +1,21 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to identify the current UI structure, event handlers, and any existing data-anvil hooks. Look for restart affordances such as buttons, overlays, or keyboard listeners that should trigger a reset or restart flow but lack the required contract hook."
+    expected_paths:
+    verify:
+  - id: "inspect-layout-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx to check for global UI elements, script injections, or restart hooks that might be placed outside the page component."
+    expected_paths:
+    verify:
+  - id: "verify-missing-restart-hook"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm that neither src/app/page.tsx nor src/app/layout.tsx contains the required data-anvil-action=\"restart\" attribute on any restart affordance."
+    expected_paths:
+    verify:
+      - "node -e \"const fs=require('fs'); const p=fs.readFileSync('src/app/page.tsx','utf8'); const l=fs.readFileSync('src/app/layout.tsx','utf8'); if(p.includes('data-anvil-action=\\\"restart\\\"') || l.includes('data-anvil-action=\\\"restart\\\"')){process.exit(1)}\""

@@ -1,0 +1,1 @@
+{"cleared_model_verify_steps":1,"event":"python_cli_implementation_plan_canonicalized","injected_implementation_paths":["src/greet/main.py","README.md"],"removed_non_implement_steps":2,"removed_setup_paths":1,"schema_version":"1"}

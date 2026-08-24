@@ -1,0 +1,19 @@
+{
+  "capability_id": "ingest_format_schema",
+  "status": "pass",
+  "ok": true,
+  "declared_fields": [
+    "name"
+  ],
+  "record_count": 1,
+  "failure_kinds": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "format_schema",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

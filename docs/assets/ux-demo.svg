@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="630" viewBox="0 0 1000 630" role="img" aria-labelledby="title description">
+  <title id="title">CommandAgent offline UX demo</title>
+  <desc id="description">Animated terminal excerpt showing startup help and doctor guidance, an UltraPlan, verification failure, repair, interruption, and recovery summary.</desc>
+  <defs>
+    <linearGradient id="header" x1="0" x2="1">
+      <stop offset="0" stop-color="#6d5dfc"/>
+      <stop offset="1" stop-color="#24c8a5"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#071019" flood-opacity="0.42"/>
+    </filter>
+    <style>
+      .terminal-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 16px; fill: #d8e2f0; }
+      .muted { fill: #8796aa; }
+      .accent { fill: #75e6c4; }
+      .warn { fill: #ffc857; }
+      .fail { fill: #ff7b91; }
+      .heading { fill: #ffffff; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="630" rx="24" fill="#0a111a"/>
+  <rect x="22" y="22" width="956" height="586" rx="16" fill="#101925" stroke="#26364a" filter="url(#shadow)"/>
+  <rect x="22" y="22" width="956" height="48" rx="16" fill="url(#header)"/>
+  <rect x="22" y="54" width="956" height="16" fill="url(#header)"/>
+  <circle cx="51" cy="46" r="7" fill="#ff6b7a"/>
+  <circle cx="75" cy="46" r="7" fill="#ffd166"/>
+  <circle cx="99" cy="46" r="7" fill="#52d6a8"/>
+  <text x="500" y="52" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700" fill="#08131c">CommandAgent · offline UX demo</text>
+
+  <g class="terminal-text">
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.02;0.05;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="104"><tspan class="accent">$</tspan> commandagent --ux-demo</text>
+      <text x="52" y="130" class="muted">commandagent 0.1.0 · provider=ollama · profile=generic · offline</text>
+      <text x="52" y="154" class="muted" style="font-size:14px">help: /help for commands · /doctor for setup diagnostics</text>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.12;0.15;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="180" class="heading">### Plan</text>
+      <text x="52" y="208">Goal: build a tiny web app and recover from an interruption</text>
+      <text x="52" y="234"><tspan class="accent">1. ○ scaffold</tspan> — Create the app shell and first route</text>
+      <text x="52" y="260"><tspan class="muted">2. ○ verify</tspan> — Run checks, repair evidence, summarize recovery</text>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.27;0.30;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="300" class="heading">── Phase 1/2: scaffold ──</text>
+      <text x="52" y="328">→ Write src/app/page.tsx</text>
+      <text x="52" y="354" class="accent">✓ Write ok</text>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.42;0.45;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="386" class="fail">✗ verify: missing browser-readiness.json</text>
+      <text x="52" y="412" class="warn">↻ repair 1/2: browser evidence</text>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.57;0.60;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="452">→ planning steps for phase 1/2 scaffold</text>
+      <rect x="52" y="467" width="350" height="8" rx="4" fill="#26364a"/>
+      <rect x="52" y="467" width="0" height="8" rx="4" fill="#75e6c4">
+        <animate attributeName="width" values="0;0;215;215" keyTimes="0;0.58;0.70;1" dur="12s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.70;0.73;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="506" class="warn">[stopping: aborting current operation…]</text>
+    </g>
+
+    <g opacity="1">
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.80;0.83;1" dur="12s" repeatCount="indefinite"/>
+      <text x="52" y="546" class="heading">### Terminal summary</text>
+      <text x="52" y="572"><tspan class="warn">Status: interrupted</tspan> · Assurance: partial</text>
+      <text x="52" y="598" class="muted">Recovery UltraPlan: .anvil/plans/ux-demo-recovery.yaml</text>
+    </g>
+  </g>
+
+  <rect x="946" y="82" width="10" height="18" rx="2" fill="#75e6c4">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>

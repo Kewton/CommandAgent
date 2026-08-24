@@ -1,362 +1,1179 @@
-use crate::agent::event_protocol::{EventProtocolContext, EventSource, JsonlEventObserver};
-use crate::agent::minimal_loop::config::DependencySetupPolicy;
-use crate::agent::minimal_loop::loop_run::{MinimalLoopConfig, run_session_with_observer};
-use crate::agent::repl::{MinimalReplRunner, run_repl};
-use crate::agent::slash_command::parse_slash_command;
-use crate::agent::step_runner::runtime::PlannerRuntimeConfig;
-use crate::agent::step_runner::runtime::SlashRuntime;
-use crate::config::Config;
-use crate::providers::planner::resolve_targets;
-use crate::providers::request_tool_mode;
-use crate::runtime_client::{runtime_client, runtime_client_for};
-use crate::tui::terminal::{TerminalUi, render_final_answer};
-use std::ffi::OsString;
-use std::io::{self, IsTerminal};
 use std::path::PathBuf;
-use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+use clap::{ArgAction, ArgGroup, Parser, ValueEnum};
+use clap_complete::Shell;
 
-pub fn run<I, S>(args: I) -> ExitCode
-where
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
-{
-    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProviderArg {
+    Ollama,
+    LmStudio,
+    Openai,
+    Gemini,
+}
 
-    if args
-        .iter()
-        .skip(1)
-        .any(|arg| arg == "--help" || arg == "-h")
-    {
-        print_help();
-        return ExitCode::SUCCESS;
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ToolProtocolArg {
+    Native,
+    Text,
+}
 
-    if args
-        .iter()
-        .skip(1)
-        .any(|arg| arg == "--version" || arg == "-V")
-    {
-        println!("commandagent {VERSION}");
-        return ExitCode::SUCCESS;
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OpenAiApiArg {
+    ChatCompletions,
+    Responses,
+}
 
-    let cwd = match std::env::current_dir() {
-        Ok(cwd) => cwd,
-        Err(err) => {
-            eprintln!("ERROR: failed to read current directory: {err}");
-            return ExitCode::FAILURE;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FooterArg {
+    On,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum StreamArg {
+    On,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OllamaThinkArg {
+    #[value(name = "true")]
+    True,
+    #[value(name = "false")]
+    False,
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PromptLayoutArg {
+    Stable,
+    Legacy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PlanPresetArg {
+    Profile,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum IntentArg {
+    Create,
+    Fix,
+    Investigate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RunEventFilterArg {
+    Phase,
+    Tool,
+    Provider,
+}
+
+impl RunEventFilterArg {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Phase => "phase",
+            Self::Tool => "tool",
+            Self::Provider => "provider",
         }
-    };
-
-    let config = match Config::load_from(&cwd, args.clone(), |key| std::env::var(key).ok()) {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("ERROR: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    if let Some(prompt) = collect_prompt_arg(&args) {
-        return match run_one_shot(config, &prompt) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("ERROR: {err}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-
-    if io::stdin().is_terminal() {
-        return match run_interactive(config) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("ERROR: {err}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-
-    println!("CommandAgent MVP");
-    println!("Run `commandagent --help` for usage, or start without a prompt from a TTY.");
-    ExitCode::SUCCESS
-}
-
-fn print_help() {
-    println!(
-        "CommandAgent {VERSION}\n\
-\n\
-Usage:\n\
-  commandagent [OPTIONS] [PROMPT]\n\
-\n\
-Options:\n\
-  -h, --help                 Print help\n\
-  -V, --version              Print version\n\
-      --provider PROVIDER    ollama, gemini, or openai\n\
-      --model MODEL          executor model\n\
-      --planner-provider PROVIDER\n\
-                              planner provider; defaults to executor provider\n\
-      --planner-model MODEL  planner model; defaults to executor model\n\
-      --context-budget N     context budget passed through configuration\n\
-      --max-iterations N     max loop iterations\n\
-      --yes                  approve non-interactive defaults, including one bounded dependency setup recovery\n\
-      --offline              block network/dependency setup recovery\n\
-\n\
-CommandAgent is a minimal local-first coding agent. The MVP migration keeps\n\
-only the minimal loop, interactive REPL, provider adapters, built-in tools,\n\
-and /ultra-plan-run style step execution. PROMPT may be a slash command such\n\
-as `/plan-run --profile python ...` for non-interactive execution."
-    );
-}
-
-fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
-    if let Some(command) =
-        parse_slash_command(prompt, &config.cwd).map_err(|err| err.to_string())?
-    {
-        let targets = resolve_targets(&config);
-        let mut client = runtime_client_for(&config, targets.executor.provider)?;
-        let mut planner_client = runtime_client_for(&config, targets.planner.provider)?;
-        let planner_config = PlannerRuntimeConfig {
-            model: targets
-                .planner
-                .model
-                .clone()
-                .unwrap_or_else(|| "default".to_string()),
-            tool_call_mode: request_tool_mode(targets.planner.provider),
-        };
-        let output = if let Some(path) = event_jsonl_path() {
-            let ui = TerminalUi::stderr_from_env();
-            let mut observer = JsonlEventObserver::new(
-                ui,
-                path,
-                event_context(
-                    "slash",
-                    Some(targets.executor.provider.as_str().to_string()),
-                    targets
-                        .executor
-                        .model
-                        .clone()
-                        .or_else(|| config.model.clone()),
-                ),
-            )
-            .map_err(|err| err.to_string())?;
-            SlashRuntime {
-                executor: &mut client,
-                planner: &mut planner_client,
-                cwd: &config.cwd,
-                loop_config: minimal_loop_config(&config),
-                planner_config,
-            }
-            .run_with_observer(command, &mut observer)?
-        } else {
-            let mut ui = TerminalUi::stderr_from_env();
-            SlashRuntime {
-                executor: &mut client,
-                planner: &mut planner_client,
-                cwd: &config.cwd,
-                loop_config: minimal_loop_config(&config),
-                planner_config,
-            }
-            .run_with_observer(command, &mut ui)?
-        };
-        if !output.trim().is_empty() {
-            println!("{}", output.trim());
-        }
-        return Ok(());
-    }
-
-    let mut client = runtime_client(&config)?;
-    let result = if let Some(path) = event_jsonl_path() {
-        let ui = TerminalUi::stderr_from_env();
-        let mut observer = JsonlEventObserver::new(
-            ui,
-            path,
-            event_context(
-                "worker",
-                Some(config.provider.as_str().to_string()),
-                config.model.clone(),
-            ),
-        )
-        .map_err(|err| err.to_string())?;
-        run_session_with_observer(
-            &mut client,
-            &config.cwd,
-            prompt,
-            minimal_loop_config(&config),
-            &mut observer,
-        )
-        .map_err(|err| err.to_string())?
-    } else {
-        let mut ui = TerminalUi::stderr_from_env();
-        run_session_with_observer(
-            &mut client,
-            &config.cwd,
-            prompt,
-            minimal_loop_config(&config),
-            &mut ui,
-        )
-        .map_err(|err| err.to_string())?
-    };
-    if !result.final_answer.trim().is_empty() {
-        println!("{}", render_final_answer(&result.final_answer));
-    }
-    Ok(())
-}
-
-fn run_interactive(config: Config) -> Result<(), String> {
-    let targets = resolve_targets(&config);
-    let client = runtime_client_for(&config, targets.executor.provider)?;
-    let planner_client = runtime_client_for(&config, targets.planner.provider)?;
-    let planner_config = PlannerRuntimeConfig {
-        model: targets
-            .planner
-            .model
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
-        tool_call_mode: request_tool_mode(targets.planner.provider),
-    };
-    let mut runner = MinimalReplRunner::new(
-        client,
-        planner_client,
-        &config.cwd,
-        minimal_loop_config(&config),
-        planner_config,
-    )?;
-    let mut startup_ui = TerminalUi::stderr_from_env();
-    startup_ui
-        .render_startup_context(VERSION, &config, &targets)
-        .map_err(|err| err.to_string())?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    run_repl(stdin.lock(), stdout.lock(), &mut runner).map_err(|err| err.to_string())
-}
-
-fn minimal_loop_config(config: &Config) -> MinimalLoopConfig {
-    MinimalLoopConfig {
-        model: config
-            .model
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
-        max_iterations: config.max_iterations as usize,
-        initial_tool_call_mode: request_tool_mode(config.provider),
-        dependency_setup_policy: DependencySetupPolicy {
-            auto_approve: config.yes,
-            offline: config.offline,
-            timeout_secs: 600,
-        },
-        ..MinimalLoopConfig::default()
     }
 }
 
-fn event_jsonl_path() -> Option<PathBuf> {
-    std::env::var_os("COMMANDAGENT_EVENT_JSONL").map(PathBuf::from)
-}
-
-fn event_context(
-    role: &str,
-    provider: Option<String>,
-    model: Option<String>,
-) -> EventProtocolContext {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let run_id = format!("run_{}_{}", now, std::process::id());
-    let job_id = format!("job_{}_{}", now, std::process::id());
-    EventProtocolContext::new(
-        run_id,
-        job_id,
-        EventSource::commandagent(role, provider, model),
-    )
-}
-
-fn collect_prompt_arg(args: &[OsString]) -> Option<String> {
-    let mut iter = args.iter().skip(1).peekable();
-    let mut prompt = Vec::new();
-
-    while let Some(arg) = iter.next() {
-        let arg = arg.to_string_lossy();
-        if arg == "--" {
-            prompt.extend(iter.map(|value| value.to_string_lossy().to_string()));
-            break;
-        }
-        if arg.starts_with('-') {
-            if option_takes_value(&arg) && !arg.contains('=') {
-                let _ = iter.next();
-            }
-            continue;
-        }
-
-        prompt.push(arg.to_string());
-        prompt.extend(iter.map(|value| value.to_string_lossy().to_string()));
-        break;
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|error| format!("invalid positive integer `{value}`: {error}"))?;
+    if parsed == 0 {
+        return Err("value must be at least 1".to_string());
     }
-
-    if prompt.is_empty() {
-        None
-    } else {
-        Some(prompt.join(" "))
-    }
+    Ok(parsed)
 }
 
-fn option_takes_value(option: &str) -> bool {
-    matches!(
-        option,
-        "--state-dir"
-            | "--provider"
-            | "--planner-provider"
-            | "--model"
-            | "--planner-model"
-            | "--context-budget"
-            | "--max-iterations"
-            | "--timeout"
-            | "--timeout-secs"
-            | "--retries"
-            | "--resume"
-    )
+#[derive(Debug, Clone, Parser)]
+#[command(name = "commandagent")]
+#[command(
+    about = "Local-first coding agent with verified minimal-loop and structured-plan workflows"
+)]
+#[command(version = crate::build_info::VERSION)]
+#[command(group(
+    ArgGroup::new("pack_direct_action")
+        .args(["packs", "pack_verify", "pack_pin"])
+        .multiple(false)
+))]
+#[command(group(
+    ArgGroup::new("json_action")
+        .args(["doctor", "extensions", "runs"])
+        .multiple(false)
+))]
+pub struct Cli {
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Allow every tool and skip resume confirmation; recognized Bash writes remain workspace-confined. It never auto-kills a busy-port owner. Use only in a trusted workspace."
+    )]
+    pub yes: bool,
+    #[arg(
+        long,
+        value_name = "read|write|bash:verify",
+        value_delimiter = ',',
+        action = ArgAction::Append,
+        help_heading = "Workspace and State",
+        help = "Allow only the selected tool classes; repeat or comma-separate read, write, and bash:verify. Selected mutations are auto-approved, while omitted classes are blocked."
+    )]
+    pub allow: Vec<crate::tools::allow_policy::AllowTarget>,
+    #[arg(
+        long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_preset_names),
+        help_heading = "Planning and Verification",
+        help = "Select a named `[preset.<name>]` assembled from configuration files."
+    )]
+    pub preset: Option<String>,
+    #[arg(
+        long,
+        value_name = "ID@VERSION",
+        help_heading = "Planning and Verification",
+        help = "Activate an exact-version pack. A conflicting preset pack is rejected before the run."
+    )]
+    pub pack: Option<String>,
+    #[arg(
+        long,
+        value_name = "SHA256",
+        requires = "pack",
+        help_heading = "Planning and Verification",
+        help = "Require the selected pack's exact-byte hash. Requires `--pack`."
+    )]
+    pub pack_hash: Option<String>,
+    #[arg(
+        long,
+        value_name = "DIR",
+        help_heading = "Planning and Verification",
+        help = "Load local packs and `profiles/<id>/manifest.toml` draft profiles. External profiles are forced to draft and pinned by exact-byte hash."
+    )]
+    pub extension_root: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with_all = [
+            "pack", "pack_hash", "packs", "pack_verify", "pack_pin", "profile", "intent",
+            "workflow", "prompt", "plan_steps", "plan_run", "run_plan", "ultra_plan",
+            "ultra_plan_run", "run_ultra_plan", "validate_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man",
+            "init_config", "validate_manifest", "init_profile", "goal"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Inspect profiles, overlays, packs, usability reasons, and the latest journal record under the extension root."
+    )]
+    pub extensions: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires_all = ["profile", "intent"],
+        conflicts_with_all = [
+            "pack", "pack_hash", "workflow", "prompt", "plan_steps", "plan_run", "run_plan",
+            "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe", "runs",
+            "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help_heading = "Actions (use one)",
+        help = "List compatible admitted packs and conformant packs found under `--extension-root`, including each source. Requires `--profile` and `--intent`."
+    )]
+    pub packs: bool,
+    #[arg(
+        long,
+        value_name = "DIR",
+        conflicts_with_all = [
+            "pack", "pack_hash", "extension_root", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Run strict conformance for one pack directory and print the same JSON report as `pack_conformance`."
+    )]
+    pub pack_verify: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "DIR",
+        conflicts_with_all = [
+            "pack", "pack_hash", "extension_root", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan", "setup_interaction_probe",
+            "runs", "ux_demo", "model_probe", "doctor", "completions", "generate_man"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Create `pack.sha256` after green conformance, keep an identical pin unchanged, and reject a stale pin."
+    )]
+    pub pack_pin: Option<PathBuf>,
+    #[arg(
+        long,
+        help_heading = "Models and Providers",
+        help = "Set the approximate conversation compaction budget."
+    )]
+    pub context_budget: Option<usize>,
+    #[arg(
+        long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_model_ids),
+        help_heading = "Models and Providers",
+        help = "Set the executor model ID."
+    )]
+    pub model: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help_heading = "Models and Providers",
+        help = "Select the executor provider."
+    )]
+    pub provider: Option<ProviderArg>,
+    #[arg(
+        long = "api",
+        value_enum,
+        value_name = "chat-completions|responses",
+        help_heading = "Models and Providers",
+        help = "Explicitly select the OpenAI-compatible API surface; model names never select it implicitly."
+    )]
+    pub openai_api: Option<OpenAiApiArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "native|text",
+        help_heading = "Models and Providers",
+        help = "Explicitly select native function tools or the established text/XML tool protocol."
+    )]
+    pub tool_protocol: Option<ToolProtocolArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "stable|legacy",
+        help_heading = "Planning and Verification",
+        help = "Choose prompt section order for A/B measurement."
+    )]
+    pub prompt_layout: Option<PromptLayoutArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "profile|none",
+        help_heading = "Planning and Verification",
+        help = "Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent."
+    )]
+    pub plan_preset: Option<PlanPresetArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "create|fix|investigate",
+        help_heading = "Planning and Verification",
+        help = "Force intent instead of goal-based resolution."
+    )]
+    pub intent: Option<IntentArg>,
+    #[arg(
+        long,
+        conflicts_with = "intent",
+        help_heading = "Actions (use one)",
+        help = "Run a declarative workflow-circle definition. Mutually exclusive with `--intent`."
+    )]
+    pub workflow: Option<PathBuf>,
+    #[arg(
+        long,
+        requires = "workflow",
+        help_heading = "Planning and Verification",
+        help = "Supply the existing failed origin run workspace for `--workflow`."
+    )]
+    pub origin: Option<PathBuf>,
+    #[arg(
+        long,
+        add = clap_complete::ArgValueCompleter::new(crate::cli_completion::complete_model_ids),
+        help_heading = "Models and Providers",
+        help = "Set the planner model ID. Required when planner and executor providers differ."
+    )]
+    pub planner_model: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help_heading = "Models and Providers",
+        help = "Select the planner provider."
+    )]
+    pub planner_provider: Option<ProviderArg>,
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run one minimal-loop prompt instead of entering the TUI."
+    )]
+    pub prompt: Option<String>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and save a step plan for the trailing goal."
+    )]
+    pub plan_steps: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and run a step plan for the trailing goal."
+    )]
+    pub plan_run: bool,
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run an existing step-plan YAML file."
+    )]
+    pub run_plan: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and save an UltraPlan for the trailing goal."
+    )]
+    pub ultra_plan: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Generate and run an UltraPlan for the trailing goal."
+    )]
+    pub ultra_plan_run: bool,
+    #[arg(
+        long,
+        help_heading = "Actions (use one)",
+        help = "Run an existing UltraPlan YAML file."
+    )]
+    pub run_ultra_plan: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Validate a step-plan or UltraPlan YAML file without executing it; errors include line and column numbers."
+    )]
+    pub validate_plan: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Install or validate the managed Playwright interaction probe."
+    )]
+    pub setup_interaction_probe: bool,
+    #[arg(
+        long,
+        value_name = "ID",
+        num_args = 0..=1,
+        conflicts_with_all = [
+            "extensions", "completions", "generate_man", "init_config", "validate_manifest",
+            "init_profile", "doctor"
+        ],
+        help_heading = "Actions (use one)",
+        help = "List recent runs, or show one run by ID, without creating provider clients."
+    )]
+    pub runs: Option<Option<String>>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires = "runs",
+        help_heading = "Display",
+        help = "Show the selected run's events in chronological order. Requires `--runs <ID>`."
+    )]
+    pub events: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "phase|tool|provider",
+        requires = "events",
+        help_heading = "Display",
+        help = "Filter a selected run's events by phase, tool, or provider."
+    )]
+    pub filter: Option<RunEventFilterArg>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Run the offline presentation UX demo."
+    )]
+    pub ux_demo: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Run the bounded model behavior probe battery."
+    )]
+    pub model_probe: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Actions (use one)",
+        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests."
+    )]
+    pub doctor: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires = "json_action",
+        help_heading = "Display",
+        help = "Render --doctor, --extensions, or --runs output as stable machine-readable JSON."
+    )]
+    pub json: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "SHELL",
+        conflicts_with = "generate_man",
+        help_heading = "Actions (use one)",
+        help = "Generate a completion script from the current Clap definition and write it to stdout."
+    )]
+    pub completions: Option<Shell>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with = "completions",
+        help_heading = "Actions (use one)",
+        help = "Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout."
+    )]
+    pub generate_man: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "validate_manifest", "init_profile"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Create `.commandagent/config.toml` from a starter template without overwriting an existing file."
+    )]
+    pub init_config: bool,
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "init_profile"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Validate an external profile manifest without running it."
+    )]
+    pub validate_manifest: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "ID",
+        requires = "extension_root",
+        conflicts_with_all = [
+            "packs", "pack_verify", "pack_pin", "workflow", "prompt", "plan_steps", "plan_run",
+            "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor", "completions",
+            "generate_man", "init_config", "validate_manifest"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Initialize a draft profile manifest under `--extension-root`."
+    )]
+    pub init_profile: Option<String>,
+    #[arg(
+        long,
+        help_heading = "Planning and Verification",
+        help = "Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`."
+    )]
+    pub profile: Option<String>,
+    #[arg(
+        long,
+        default_value = "default",
+        help_heading = "Planning and Verification",
+        help = "Pass the plan presentation/generation style."
+    )]
+    pub style: String,
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Load the named saved minimal-loop session for a direct `--prompt` run."
+    )]
+    pub resume: Option<String>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = crate::tools::offline_policy::CLI_HELP
+    )]
+    pub offline: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Display",
+        help = "Suppress presentation narration."
+    )]
+    pub quiet: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Display",
+        help = "Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes."
+    )]
+    pub summary_json: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Opt in to scrubbed provider request and response traces under the active run directory."
+    )]
+    pub trace: bool,
+    #[arg(
+        long,
+        default_value = "http://localhost:11434",
+        help_heading = "Models and Providers",
+        help = "Set the Ollama server base URL used by CommandAgent."
+    )]
+    pub ollama_host: String,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "true|false|low|medium|high",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        help_heading = "Models and Providers",
+        help = "Enable Ollama thinking for every Ollama provider role. A bare flag means `true`; explicit values require `=`, for example `--think=high`."
+    )]
+    pub think: Option<OllamaThinkArg>,
+    #[arg(
+        long,
+        default_value = "http://localhost:1234",
+        help_heading = "Models and Providers",
+        help = "Set the LM Studio base URL; an optional trailing `/v1` is normalized."
+    )]
+    pub lm_studio_host: String,
+    #[arg(
+        long,
+        default_value_t = 8_192,
+        help_heading = "Models and Providers",
+        help = "Set the maximum provider output-token request."
+    )]
+    pub num_predict: usize,
+    #[arg(
+        long,
+        default_value_t = 12,
+        value_parser = parse_positive_usize,
+        help_heading = "Models and Providers",
+        help = "Set the minimal-loop iteration budget."
+    )]
+    pub max_iterations: usize,
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help_heading = "Models and Providers",
+        help = "Set connect and whole-request timeouts for provider calls."
+    )]
+    pub chat_timeout_secs: Option<u64>,
+    #[arg(
+        long,
+        default_value_t = 1,
+        help_heading = "Models and Providers",
+        help = "Set retries after the initial provider attempt."
+    )]
+    pub chat_retries: usize,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "on|off",
+        help_heading = "Display",
+        help = "Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY."
+    )]
+    pub stream: Option<StreamArg>,
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Override saved session and REPL history storage; the default loader retains the legacy `anvilminimal` fallback."
+    )]
+    pub state_dir: Option<PathBuf>,
+    #[arg(
+        long,
+        help_heading = "Workspace and State",
+        help = "Set and canonicalize the active workspace before config discovery and execution."
+    )]
+    pub cwd: Option<PathBuf>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help_heading = "Workspace and State",
+        help = "Ignore `--resume` and create a session for a direct `--prompt` run."
+    )]
+    pub fresh_session: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "on|off",
+        help_heading = "Display",
+        help = "Control the fixed TUI footer; off keeps scrollback breadcrumbs."
+    )]
+    pub footer: Option<FooterArg>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with = "footer",
+        help_heading = "Display",
+        help = "Disable the fixed TUI footer. Equivalent in effect to `--footer off`."
+    )]
+    pub no_footer: bool,
+    #[arg(long, hide = true)]
+    pub completion_contract_json: Option<PathBuf>,
+    #[arg(
+        trailing_var_arg = true,
+        help = "Describe the goal for plan actions; multiple trailing words are joined."
+    )]
+    pub goal: Vec<String>,
+}
+
+impl Cli {
+    pub fn trailing_goal(&self) -> Option<String> {
+        let joined = self.goal.join(" ");
+        let trimmed = joined.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
-    fn help_exits_successfully() {
-        assert_eq!(run(["commandagent", "--help"]), ExitCode::SUCCESS);
+    fn help_does_not_include_engine() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(!help.contains("--engine"));
     }
 
     #[test]
-    fn version_exits_successfully() {
-        assert_eq!(run(["commandagent", "--version"]), ExitCode::SUCCESS);
+    fn yes_help_preserves_trusted_workspace_warning() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("recognized Bash writes remain workspace-confined"));
+        assert!(help.contains("Use only in a trusted workspace"));
     }
 
     #[test]
-    fn collect_prompt_skips_option_values() {
-        let args = [
-            OsString::from("commandagent"),
-            OsString::from("--model"),
-            OsString::from("qwen"),
-            OsString::from("--yes"),
-            OsString::from("create"),
-            OsString::from("file"),
-        ];
-
-        assert_eq!(collect_prompt_arg(&args).as_deref(), Some("create file"));
-    }
-
-    #[test]
-    fn collect_prompt_supports_double_dash_literal() {
-        let args = [
-            OsString::from("commandagent"),
-            OsString::from("--"),
-            OsString::from("--not-an-option"),
-        ];
+    fn allow_parses_repeated_and_comma_delimited_policy() {
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--allow",
+            "read,write",
+            "--allow",
+            "bash:verify",
+        ])
+        .unwrap();
 
         assert_eq!(
-            collect_prompt_arg(&args).as_deref(),
-            Some("--not-an-option")
+            cli.allow,
+            [
+                crate::tools::allow_policy::AllowTarget::Read,
+                crate::tools::allow_policy::AllowTarget::Write,
+                crate::tools::allow_policy::AllowTarget::BashVerify,
+            ]
         );
+        assert!(Cli::try_parse_from(["commandagent", "--allow", "bash"]).is_err());
+    }
+
+    #[test]
+    fn offline_help_states_the_enforcement_boundary() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("npm/pnpm/yarn/cargo install"), "{help}");
+        assert!(help.contains("Provider/API requests"), "{help}");
+        assert!(
+            help.contains("other network-capable commands are unaffected"),
+            "{help}"
+        );
+    }
+
+    #[test]
+    fn help_includes_no_footer() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--no-footer"));
+    }
+
+    #[test]
+    fn help_includes_footer_mode() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--footer"));
+        assert!(help.contains("on|off"));
+    }
+
+    #[test]
+    fn help_includes_stream_mode() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--stream"));
+        assert!(help.contains("on|off"));
+    }
+
+    #[test]
+    fn think_parses_bare_and_explicit_values() {
+        let bare = Cli::try_parse_from(["commandagent", "--think"]).unwrap();
+        assert_eq!(bare.think, Some(OllamaThinkArg::True));
+
+        for (input, expected) in [
+            ("true", OllamaThinkArg::True),
+            ("false", OllamaThinkArg::False),
+            ("low", OllamaThinkArg::Low),
+            ("medium", OllamaThinkArg::Medium),
+            ("high", OllamaThinkArg::High),
+        ] {
+            let argument = format!("--think={input}");
+            let cli = Cli::try_parse_from(["commandagent", argument.as_str()]).unwrap();
+            assert_eq!(cli.think, Some(expected));
+        }
+    }
+
+    #[test]
+    fn think_requires_equals_for_an_explicit_value() {
+        let cli = Cli::try_parse_from(["commandagent", "--think", "high"]).unwrap();
+
+        assert_eq!(cli.think, Some(OllamaThinkArg::True));
+        assert_eq!(cli.goal, vec!["high"]);
+    }
+
+    #[test]
+    fn invalid_think_value_is_rejected_before_execution() {
+        let error = Cli::try_parse_from(["commandagent", "--think=maximum"]).unwrap_err();
+        assert!(error.to_string().contains("invalid value 'maximum'"));
+    }
+
+    #[test]
+    fn help_includes_think_values() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--think[=<true|false|low|medium|high>]"));
+        assert!(help.contains("A bare flag means `true`"));
+    }
+
+    #[test]
+    fn help_includes_prompt_layout() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--prompt-layout"));
+        assert!(help.contains("stable|legacy"));
+    }
+
+    #[test]
+    fn help_includes_plan_preset() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--plan-preset"));
+        assert!(help.contains("profile|none"));
+        assert!(help.contains("Override planner-tier UltraPlan preset selection"));
+        assert!(help.contains("`data/fix` can synthesize F1–F3 steps"));
+        assert!(help.contains("`nextjs/fix` remains none-equivalent"));
+    }
+
+    #[test]
+    fn help_includes_intent() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--intent"));
+        assert!(help.contains("create|fix|investigate"));
+        assert!(help.contains("Force intent instead of goal-based resolution"));
+    }
+
+    #[test]
+    fn help_includes_pack_direct_actions() {
+        let help = Cli::command().render_long_help().to_string();
+        for flag in ["--packs", "--pack-verify <DIR>", "--pack-pin <DIR>"] {
+            assert!(help.contains(flag), "missing {flag} from help:\n{help}");
+        }
+    }
+
+    #[test]
+    fn extensions_is_an_exclusive_json_capable_action() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--extensions"), "{help}");
+        assert!(help.contains("latest journal record"), "{help}");
+
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--extensions",
+            "--extension-root",
+            "extensions",
+            "--json",
+        ])
+        .unwrap();
+        assert!(cli.extensions);
+        assert!(cli.json);
+
+        assert!(Cli::try_parse_from(["commandagent", "--json"]).is_err());
+        let error = Cli::try_parse_from([
+            "commandagent",
+            "--extensions",
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+            "--packs",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn pack_direct_actions_are_mutually_exclusive() {
+        for arguments in [
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--pack-verify",
+                "packs/cli-assist/1.0.0",
+            ],
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--pack-pin",
+                "packs/cli-assist/1.0.0",
+            ],
+            vec![
+                "--pack-verify",
+                "packs/cli-assist/1.0.0",
+                "--pack-pin",
+                "packs/cli-assist/1.0.0",
+            ],
+        ] {
+            let error =
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments)).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn pack_direct_actions_conflict_with_run_and_selection_actions() {
+        for arguments in [
+            vec!["--pack-verify", "pack-dir", "--prompt", "run something"],
+            vec!["--pack-pin", "pack-dir", "--pack", "cli-assist@1.0.0"],
+            vec![
+                "--profile",
+                "python-cli",
+                "--intent",
+                "create",
+                "--packs",
+                "--runs",
+            ],
+        ] {
+            let error =
+                Cli::try_parse_from(std::iter::once("commandagent").chain(arguments)).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn packs_requires_profile_and_intent_but_allows_an_extension_root() {
+        for arguments in [
+            vec!["commandagent", "--packs"],
+            vec!["commandagent", "--profile", "python-cli", "--packs"],
+        ] {
+            assert!(Cli::try_parse_from(arguments).is_err());
+        }
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--extension-root",
+            "local-packs",
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+            "--packs",
+        ])
+        .unwrap();
+        assert!(cli.packs);
+    }
+
+    #[test]
+    fn intent_parses_three_values_and_omission() {
+        let create = Cli::try_parse_from(["commandagent", "--intent", "create"]).unwrap();
+        let fix = Cli::try_parse_from(["commandagent", "--intent", "fix"]).unwrap();
+        let investigate = Cli::try_parse_from(["commandagent", "--intent", "investigate"]).unwrap();
+        let omitted = Cli::try_parse_from(["commandagent"]).unwrap();
+
+        assert_eq!(create.intent, Some(IntentArg::Create));
+        assert_eq!(fix.intent, Some(IntentArg::Fix));
+        assert_eq!(investigate.intent, Some(IntentArg::Investigate));
+        assert_eq!(omitted.intent, None);
+    }
+
+    #[test]
+    fn invalid_intent_is_rejected_before_execution() {
+        let error = Cli::try_parse_from(["commandagent", "--intent", "research"]).unwrap_err();
+        assert!(error.to_string().contains("invalid value 'research'"));
+    }
+
+    #[test]
+    fn help_includes_runs() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--runs"));
+        assert!(help.contains("--events"));
+        assert!(help.contains("--filter"));
+        assert!(help.contains("--trace"));
+    }
+
+    #[test]
+    fn runs_accepts_optional_id_events_filter_and_json() {
+        let list = Cli::try_parse_from(["commandagent", "--runs"]).unwrap();
+        assert_eq!(list.runs, Some(None));
+
+        let detail = Cli::try_parse_from([
+            "commandagent",
+            "--runs",
+            "018f-run",
+            "--events",
+            "--filter",
+            "provider",
+            "--json",
+        ])
+        .unwrap();
+        assert_eq!(detail.runs, Some(Some("018f-run".to_string())));
+        assert!(detail.events);
+        assert_eq!(detail.filter, Some(RunEventFilterArg::Provider));
+        assert!(detail.json);
+
+        let trace = Cli::try_parse_from(["commandagent", "--trace", "--prompt", "debug"]).unwrap();
+        assert!(trace.trace);
+
+        assert!(Cli::try_parse_from(["commandagent", "--events"]).is_err());
+    }
+
+    #[test]
+    fn validate_plan_is_an_exclusive_action() {
+        let cli = Cli::try_parse_from(["commandagent", "--validate-plan", "plan.yaml"]).unwrap();
+        assert_eq!(
+            cli.validate_plan.as_deref(),
+            Some(std::path::Path::new("plan.yaml"))
+        );
+
+        let error = Cli::try_parse_from([
+            "commandagent",
+            "--validate-plan",
+            "plan.yaml",
+            "--run-plan",
+            "plan.yaml",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn help_describes_located_plan_validation() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--validate-plan <PATH>"));
+        assert!(help.contains("errors include line and column numbers"));
+    }
+
+    #[test]
+    fn help_includes_ux_demo() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--ux-demo"));
+    }
+
+    #[test]
+    fn help_includes_model_probe() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--model-probe"));
+    }
+
+    #[test]
+    fn help_includes_doctor_and_json() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--doctor"));
+        assert!(help.contains("--json"));
+        assert!(help.contains("machine-readable JSON"));
+    }
+
+    #[test]
+    fn help_includes_headless_summary_json() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--summary-json"));
+        assert!(help.contains("final stdout line"));
+    }
+
+    #[test]
+    fn help_includes_generated_cli_artifacts() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--completions <SHELL>"));
+        assert!(help.contains("bash"));
+        assert!(help.contains("zsh"));
+        assert!(help.contains("fish"));
+        assert!(help.contains("powershell"));
+        assert!(help.contains("--generate-man"));
+    }
+
+    #[test]
+    fn help_groups_public_flags_by_user_task() {
+        let help = Cli::command().render_long_help().to_string();
+        for heading in [
+            "Actions (use one):",
+            "Models and Providers:",
+            "Planning and Verification:",
+            "Workspace and State:",
+            "Display:",
+        ] {
+            assert!(
+                help.contains(heading),
+                "missing {heading} from help:\n{help}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_iteration_and_timeout_values_are_rejected_by_clap() {
+        for arguments in [
+            ["commandagent", "--max-iterations", "0"],
+            ["commandagent", "--chat-timeout-secs", "0"],
+        ] {
+            let error = Cli::try_parse_from(arguments).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+        }
+    }
+
+    #[test]
+    fn manifest_lane_arguments_parse_without_backend_behavior() {
+        let validate = Cli::try_parse_from([
+            "commandagent",
+            "--validate-manifest",
+            "profiles/static-site/manifest.toml",
+        ])
+        .unwrap();
+        assert_eq!(
+            validate.validate_manifest.as_deref(),
+            Some(std::path::Path::new("profiles/static-site/manifest.toml"))
+        );
+
+        let init = Cli::try_parse_from([
+            "commandagent",
+            "--extension-root",
+            "extensions",
+            "--init-profile",
+            "static-site",
+        ])
+        .unwrap();
+        assert_eq!(init.init_profile.as_deref(), Some("static-site"));
+
+        let error =
+            Cli::try_parse_from(["commandagent", "--init-profile", "static-site"]).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+
+    #[test]
+    fn generated_cli_artifacts_are_mutually_exclusive() {
+        let error =
+            Cli::try_parse_from(["commandagent", "--completions", "bash", "--generate-man"])
+                .unwrap_err();
+        assert!(error.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
+    fn json_requires_doctor_or_extensions() {
+        let error = Cli::try_parse_from(["commandagent", "--json"]).unwrap_err();
+        assert!(error.to_string().contains("--doctor"));
+
+        let cli = Cli::try_parse_from(["commandagent", "--doctor", "--json"]).unwrap();
+        assert!(cli.doctor);
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn help_includes_quiet() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--quiet"));
+    }
+
+    #[test]
+    fn help_hides_completion_contract_json() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(!help.contains("--completion-contract-json"));
+    }
+
+    #[test]
+    fn version_includes_embedded_build_commit_or_unknown() {
+        let version = Cli::command().render_version().to_string();
+        assert!(version.contains(env!("CARGO_PKG_VERSION")), "{version}");
+        assert!(
+            version.contains(crate::build_info::COMMIT) || version.contains("unknown"),
+            "{version}"
+        );
+        assert!(version.contains(crate::build_info::TIMESTAMP), "{version}");
+    }
+
+    #[test]
+    fn sidecar_model_is_rejected_by_default() {
+        let err = Cli::try_parse_from(["commandagent", "--sidecar-model", "x"]).unwrap_err();
+        assert!(err.to_string().contains("unexpected argument"));
+    }
+
+    #[test]
+    fn num_predict_defaults_to_source_minimal_budget() {
+        let cli = Cli::parse_from(["commandagent"]);
+        assert_eq!(cli.num_predict, 8_192);
+    }
+
+    #[test]
+    fn config_preset_fields_are_absent_until_resolved() {
+        let cli = Cli::parse_from(["commandagent"]);
+        assert_eq!(cli.model, None);
+        assert_eq!(cli.provider, None);
+        assert_eq!(cli.context_budget, None);
+    }
+
+    #[test]
+    fn lm_studio_provider_and_host_parse() {
+        let cli = Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "lm-studio",
+            "--planner-provider",
+            "lm-studio",
+            "--lm-studio-host",
+            "http://127.0.0.1:4321/v1",
+        ]);
+
+        assert_eq!(cli.provider, Some(ProviderArg::LmStudio));
+        assert_eq!(cli.planner_provider, Some(ProviderArg::LmStudio));
+        assert_eq!(cli.lm_studio_host, "http://127.0.0.1:4321/v1");
+    }
+
+    #[test]
+    fn chat_timeout_defaults_to_source_config() {
+        let cli = Cli::parse_from(["commandagent"]);
+        assert_eq!(cli.chat_timeout_secs, None);
+    }
+
+    #[test]
+    fn ultra_plan_run_allows_profile_before_goal() {
+        let cli = Cli::try_parse_from([
+            "commandagent",
+            "--provider",
+            "ollama",
+            "--model",
+            "qwen3.6:27b-coding-nvfp4",
+            "--planner-provider",
+            "gemini",
+            "--planner-model",
+            "gemini-3.5-flash",
+            "--ultra-plan-run",
+            "--profile",
+            "nextjs",
+            "3011 port app",
+        ])
+        .unwrap();
+        assert!(cli.ultra_plan_run);
+        assert_eq!(cli.profile.as_deref(), Some("nextjs"));
+        assert_eq!(cli.trailing_goal().as_deref(), Some("3011 port app"));
+    }
+
+    #[test]
+    fn profile_absent_is_distinguishable_from_explicit_generic() {
+        let implicit = Cli::parse_from(["commandagent"]);
+        assert_eq!(implicit.profile, None);
+        let explicit = Cli::parse_from(["commandagent", "--profile", "generic"]);
+        assert_eq!(explicit.profile.as_deref(), Some("generic"));
     }
 }

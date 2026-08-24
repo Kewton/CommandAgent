@@ -1,903 +1,604 @@
-use crate::config::Provider;
-use crate::providers::usage::extract_usage;
-use crate::providers::xml_fallback::extract_tool_calls_with_content;
-use crate::providers::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
-    PlannerProvider, ToolCall, ToolCallMode, ToolSpec, tool_call_parse_error_content,
-};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::Duration;
 
-pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+use crate::config::{Config, Provider, load_api_key};
+use crate::eval_events;
+use crate::state::{ConversationMessage, ToolCall};
+use crate::tools::args_recovery::recover_tool_arguments;
+use crate::tools::registry::ToolSpec;
+
+use super::parsing::sanitize_schema;
+use super::streaming::StreamControl;
+use super::{AssistantReply, ChatClient};
+
+const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 
 #[derive(Debug, Clone)]
-pub struct GeminiClient<T = ReqwestGeminiTransport> {
-    base_url: String,
+pub struct GeminiClient {
     api_key: String,
-    transport: T,
-    timeout: Duration,
-    retries: u8,
+    http: Client,
+    max_predict: usize,
+    retries: usize,
+    eval_events_path: Option<PathBuf>,
+    previous_interaction_id: Arc<Mutex<Option<String>>>,
 }
 
-impl GeminiClient<ReqwestGeminiTransport> {
-    pub fn new(api_key: impl Into<String>) -> Result<Self, GeminiError> {
-        Self::with_options(
-            DEFAULT_GEMINI_BASE_URL,
+impl GeminiClient {
+    pub fn from_env(config: &Config) -> anyhow::Result<Self> {
+        let api_key = load_api_key(&config.workspace_root, "GEMINI_API_KEY")?;
+        let http = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
+            .timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
+            .build()?;
+        Ok(Self {
             api_key,
-            Duration::from_secs(120),
-            2,
-        )
-    }
-
-    pub fn with_options(
-        base_url: impl Into<String>,
-        api_key: impl Into<String>,
-        timeout: Duration,
-        retries: u8,
-    ) -> Result<Self, GeminiError> {
-        Ok(Self::with_transport(
-            base_url,
-            api_key,
-            ReqwestGeminiTransport::new()?,
-            timeout,
-            retries,
-        ))
+            http,
+            max_predict: config.num_predict,
+            retries: config.chat_retries,
+            eval_events_path: config.eval_events_path.clone(),
+            previous_interaction_id: Arc::new(Mutex::new(None)),
+        })
     }
 }
 
-impl<T> GeminiClient<T>
-where
-    T: GeminiTransport,
-{
-    pub fn with_transport(
-        base_url: impl Into<String>,
-        api_key: impl Into<String>,
-        transport: T,
-        timeout: Duration,
-        retries: u8,
-    ) -> Self {
-        Self {
-            base_url: normalize_base_url(&base_url.into()),
-            api_key: api_key.into(),
-            transport,
-            timeout,
-            retries,
-        }
+impl ChatClient for GeminiClient {
+    fn label(&self) -> &str {
+        "gemini"
     }
 
-    pub fn chat(&self, request: &ChatRequest) -> Result<ChatResponse, GeminiError> {
-        let payload = self.chat_payload(request);
-        let url = self.endpoint(&request.model);
-        let response =
-            self.send_with_retries(|| self.transport.post_json(&url, &payload, self.timeout))?;
-        ensure_success(response.status, &response.body)?;
-        parse_generate_content_response(&response.body)
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
     }
 
-    pub fn chat_payload(&self, request: &ChatRequest) -> Value {
-        let (system_instruction, contents) =
-            to_gemini_contents(&request.messages, request.tool_call_mode);
-        let mut payload = json!({
-            "contents": contents,
-        });
-        if let Some(system_instruction) = system_instruction {
-            payload["systemInstruction"] = json!({
-                "parts": [{"text": system_instruction}],
-            });
-        }
-        if request.tool_call_mode == ToolCallMode::Native && !request.tools.is_empty() {
-            payload["tools"] = json!([{
-                "functionDeclarations": to_gemini_function_declarations(&request.tools),
-            }]);
-        }
-        payload
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
     }
 
-    pub fn request_log_payload(&self, request: &ChatRequest) -> Value {
-        json!({
-            "provider": "gemini",
-            "endpoint": "models/*:generateContent",
-            "base_url": self.base_url,
-            "request": self.chat_payload(request),
-        })
+    fn allows_xml_fallback(&self) -> bool {
+        false
     }
 
-    pub fn response_log_payload(&self, response_body: &str) -> Value {
-        json!({
-            "provider": "gemini",
-            "endpoint": "models/*:generateContent",
-            "base_url": self.base_url,
-            "response_body": response_body,
-        })
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
-    fn endpoint(&self, model: &str) -> String {
-        let model = model.strip_prefix("models/").unwrap_or(model);
-        format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, model, self.api_key
-        )
-    }
-
-    fn send_with_retries<F>(&self, mut send: F) -> Result<HttpResponse, GeminiError>
-    where
-        F: FnMut() -> Result<HttpResponse, GeminiError>,
-    {
-        let mut last_error = None;
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        let body = build_stream_generate_content_request(messages, tools, self.max_predict);
+        let normalized_model = model.strip_prefix("models/").unwrap_or(model);
+        let url = format!(
+            "{GEMINI_BASE_URL}/v1beta/models/{normalized_model}:streamGenerateContent?alt=sse"
+        );
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_request",
+                "provider": "gemini",
+                "model": model,
+                "tools": tools.len(),
+                "previous_interaction": false,
+            }),
+        );
         for attempt in 0..=self.retries {
-            match send() {
-                Ok(response) if response.status < 500 => return Ok(response),
-                Ok(response) => {
-                    last_error = Some(GeminiError::Http {
-                        status: response.status,
-                        body: response.body,
+            match self
+                .http
+                .post(&url)
+                .header("x-goog-api-key", &self.api_key)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let mut delivered = false;
+                    let parsed = parse_gemini_stream(response, &mut |chunk| {
+                        delivered = true;
+                        on_chunk(chunk)
                     });
+                    match parsed {
+                        Ok(reply) => {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_response",
+                                    "provider": "gemini",
+                                    "model": model,
+                                    "attempt": attempt + 1,
+                                    "tool_calls": reply.tool_calls.len(),
+                                }),
+                            );
+                            return Ok(reply);
+                        }
+                        Err(err)
+                            if !super::streaming::retry_allowed(
+                                attempt,
+                                self.retries,
+                                delivered,
+                            ) =>
+                        {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_parse_error",
+                                    "provider": "gemini",
+                                    "model": model,
+                                    "error_kind": "provider_stream_error",
+                                    "message": eval_events::body_snippet(&err.to_string()),
+                                }),
+                            );
+                            return Err(if delivered {
+                                super::streaming::after_first_chunk(err)
+                            } else {
+                                err
+                            });
+                        }
+                        Err(err) => emit_stream_retry(
+                            self.eval_events_path.as_deref(),
+                            model,
+                            attempt,
+                            &err,
+                        ),
+                    }
                 }
-                Err(err) => last_error = Some(err),
-            }
-
-            if attempt == self.retries {
-                break;
-            }
-        }
-        Err(last_error.unwrap_or_else(|| GeminiError::Transport("request failed".to_string())))
-    }
-}
-
-impl<T> ChatProvider for GeminiClient<T>
-where
-    T: GeminiTransport,
-{
-    fn provider(&self) -> Provider {
-        Provider::Gemini
-    }
-}
-
-impl<T> ExecutorProvider for GeminiClient<T> where T: GeminiTransport {}
-
-impl<T> PlannerProvider for GeminiClient<T> where T: GeminiTransport {}
-
-pub trait GeminiTransport: Clone {
-    fn post_json(
-        &self,
-        url: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, GeminiError>;
-}
-
-#[derive(Debug, Clone)]
-pub struct ReqwestGeminiTransport {
-    client: Client,
-}
-
-impl ReqwestGeminiTransport {
-    pub fn new() -> Result<Self, GeminiError> {
-        let client = Client::builder()
-            .build()
-            .map_err(|err| GeminiError::Transport(err.to_string()))?;
-        Ok(Self { client })
-    }
-}
-
-impl GeminiTransport for ReqwestGeminiTransport {
-    fn post_json(
-        &self,
-        url: &str,
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<HttpResponse, GeminiError> {
-        let response = self
-            .client
-            .post(url)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .map_err(|err| GeminiError::Transport(err.to_string()))?;
-        let status = response.status().as_u16();
-        let body = response
-            .text()
-            .map_err(|err| GeminiError::Transport(err.to_string()))?;
-        Ok(HttpResponse { status, body })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub body: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GeminiError {
-    Transport(String),
-    Http { status: u16, body: String },
-    Json(String),
-}
-
-impl std::fmt::Display for GeminiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Transport(message) => write!(f, "Gemini transport failed: {}", message),
-            Self::Http { status, body } => {
-                write!(
-                    f,
-                    "Gemini generateContent failed: status {}: {}",
-                    status, body
-                )
-            }
-            Self::Json(message) => write!(f, "Gemini JSON parse failed: {}", message),
-        }
-    }
-}
-
-impl std::error::Error for GeminiError {}
-
-#[derive(Debug, Serialize)]
-struct GeminiContent {
-    role: &'static str,
-    parts: Vec<GeminiPart>,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiPart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
-    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
-    function_call: Option<GeminiFunctionCallPart>,
-    #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
-    function_response: Option<GeminiFunctionResponsePart>,
-    #[serde(rename = "thoughtSignature", skip_serializing_if = "Option::is_none")]
-    thought_signature: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiFunctionDeclaration {
-    name: String,
-    description: String,
-    parameters: Value,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiFunctionCallPart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    name: String,
-    args: Value,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiFunctionResponsePart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    name: String,
-    response: Value,
-}
-
-#[derive(Debug, Deserialize)]
-struct GenerateContentResponse {
-    #[serde(default)]
-    candidates: Vec<GeminiCandidate>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiCandidate {
-    content: Option<GeminiResponseContent>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiResponseContent {
-    #[serde(default)]
-    parts: Vec<GeminiResponsePart>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiResponsePart {
-    #[serde(default)]
-    text: String,
-    #[serde(rename = "functionCall")]
-    function_call: Option<GeminiResponseFunctionCall>,
-    #[serde(rename = "thoughtSignature")]
-    thought_signature: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiResponseFunctionCall {
-    id: Option<String>,
-    name: Option<String>,
-    #[serde(default)]
-    args: Value,
-}
-
-fn parse_generate_content_response(body: &str) -> Result<ChatResponse, GeminiError> {
-    let value: Value =
-        serde_json::from_str(body).map_err(|err| GeminiError::Json(err.to_string()))?;
-    let usage = extract_usage(Provider::Gemini, &value);
-    let parsed: GenerateContentResponse =
-        serde_json::from_value(value).map_err(|err| GeminiError::Json(err.to_string()))?;
-    let mut text_parts = Vec::new();
-    let mut native_tool_calls = Vec::new();
-    let mut native_parse_errors = Vec::new();
-
-    for (index, part) in parsed
-        .candidates
-        .into_iter()
-        .filter_map(|candidate| candidate.content)
-        .flat_map(|content| content.parts)
-        .enumerate()
-    {
-        if !part.text.is_empty() {
-            text_parts.push(part.text);
-        }
-        if let Some(function_call) = part.function_call {
-            match parse_gemini_function_call(function_call, part.thought_signature, index) {
-                Ok(call) => native_tool_calls.push(call),
-                Err(err) => native_parse_errors.push(err),
+                Ok(response)
+                    if attempt == self.retries
+                        || !is_retryable_status(response.status().as_u16()) =>
+                {
+                    let status = response.status();
+                    let response_body = response.text().unwrap_or_default();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "gemini",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": attempt == self.retries,
+                            "retryable": is_retryable_status(status.as_u16()),
+                            "body_snippet": eval_events::body_snippet(&response_body),
+                        }),
+                    );
+                    return Err(super::guidance::http_status_error(
+                        Provider::Gemini,
+                        model,
+                        status,
+                    ));
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "gemini",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retryable": true,
+                        }),
+                    );
+                }
+                Err(err) if attempt == self.retries => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "gemini",
+                            "model": model,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": true,
+                            "message": eval_events::body_snippet(&err.to_string()),
+                        }),
+                    );
+                    return Err(super::guidance::connection_error(
+                        Provider::Gemini,
+                        GEMINI_BASE_URL,
+                        err,
+                    ));
+                }
+                Err(err) => {
+                    emit_stream_retry(self.eval_events_path.as_deref(), model, attempt, &err)
+                }
             }
         }
+        unreachable!("retry loop always returns or bails")
     }
 
-    if !native_parse_errors.is_empty() {
-        return Ok(ChatResponse::new(
-            tool_call_parse_error_content(native_parse_errors.join("; ")),
-            Vec::new(),
-        )
-        .with_usage(usage));
-    }
-
-    let content = text_parts.join("\n");
-    if !native_tool_calls.is_empty() {
-        return Ok(ChatResponse::new(content, native_tool_calls).with_usage(usage));
-    }
-
-    let extraction = extract_tool_calls_with_content(&content)
-        .map_err(|err| GeminiError::Json(err.to_string()))?;
-
-    Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage))
-}
-
-fn ensure_success(status: u16, body: &str) -> Result<(), GeminiError> {
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        Err(GeminiError::Http {
-            status,
-            body: body.to_string(),
-        })
-    }
-}
-
-fn to_gemini_contents(
-    messages: &[ChatMessage],
-    mode: ToolCallMode,
-) -> (Option<String>, Vec<GeminiContent>) {
-    let mut system_messages = Vec::new();
-    let mut contents = Vec::new();
-
-    for message in messages {
-        match message.role {
-            ChatRole::System => system_messages.push(message.content.clone()),
-            ChatRole::Assistant => contents.push(GeminiContent {
-                role: "model",
-                parts: assistant_parts(message, mode),
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let continues_existing_interaction = messages
+            .iter()
+            .any(|message| matches!(message.role.as_str(), "assistant" | "tool"));
+        let previous_interaction_id = if continues_existing_interaction {
+            self.previous_interaction_id
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        } else {
+            None
+        };
+        let body = super::gemini_function_calling::build_interactions_request_with_previous(
+            model,
+            messages,
+            tools,
+            self.max_predict,
+            previous_interaction_id.as_deref(),
+        );
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_request",
+                "provider": "gemini",
+                "model": model,
+                "tools": tools.len(),
+                "previous_interaction": previous_interaction_id.is_some(),
             }),
-            ChatRole::User => contents.push(GeminiContent {
-                role: "user",
-                parts: vec![text_part(message.content.clone())],
-            }),
-            ChatRole::Tool => contents.push(GeminiContent {
-                role: "user",
-                parts: tool_result_parts(message, mode),
-            }),
+        );
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{GEMINI_BASE_URL}/v1beta/interactions"))
+                .header("x-goog-api-key", &self.api_key)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let body = response.text()?;
+                    let parsed = super::gemini_function_calling::parse_interactions_response(&body);
+                    match parsed {
+                        Ok(reply) => {
+                            if let Some(id) = super::gemini_function_calling::interaction_id(&body)
+                            {
+                                *self
+                                    .previous_interaction_id
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(id);
+                            }
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_response",
+                                    "provider": "gemini",
+                                    "model": model,
+                                    "attempt": attempt + 1,
+                                    "tool_calls": reply.tool_calls.len(),
+                                }),
+                            );
+                            return Ok(reply);
+                        }
+                        Err(err) => {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_parse_error",
+                                    "provider": "gemini",
+                                    "model": model,
+                                    "error_kind": "provider_parse_error",
+                                    "message": eval_events::body_snippet(&err.to_string()),
+                                }),
+                            );
+                            return Err(err);
+                        }
+                    }
+                }
+                Ok(response)
+                    if attempt == self.retries
+                        || !is_retryable_status(response.status().as_u16()) =>
+                {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "gemini",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": attempt == self.retries,
+                            "retryable": is_retryable_status(status.as_u16()),
+                            "body_snippet": eval_events::body_snippet(&body),
+                        }),
+                    );
+                    return Err(super::guidance::http_status_error(
+                        Provider::Gemini,
+                        model,
+                        status,
+                    ));
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "gemini",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retryable": is_retryable_status(status.as_u16()),
+                        }),
+                    );
+                }
+                Err(err) if attempt == self.retries => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "gemini",
+                            "model": model,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": true,
+                            "message": eval_events::body_snippet(&err.to_string()),
+                        }),
+                    );
+                    return Err(super::guidance::connection_error(
+                        Provider::Gemini,
+                        GEMINI_BASE_URL,
+                        err,
+                    ));
+                }
+                Err(err) => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "gemini",
+                            "model": model,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "message": eval_events::body_snippet(&err.to_string()),
+                        }),
+                    );
+                }
+            }
         }
+        unreachable!("retry loop always returns or bails")
     }
-
-    let system_instruction = (!system_messages.is_empty()).then(|| system_messages.join("\n\n"));
-    (system_instruction, contents)
 }
 
-fn to_gemini_function_declarations(tools: &[ToolSpec]) -> Vec<GeminiFunctionDeclaration> {
-    tools
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504)
+}
+
+fn emit_stream_retry(
+    events_path: Option<&std::path::Path>,
+    model: &str,
+    attempt: usize,
+    err: &dyn std::fmt::Display,
+) {
+    eval_events::emit(
+        events_path,
+        json!({
+            "event": "provider_retry",
+            "provider": "gemini",
+            "model": model,
+            "error_kind": "stream_before_first_token",
+            "attempt": attempt + 1,
+            "message": eval_events::body_snippet(&err.to_string()),
+        }),
+    );
+}
+
+pub fn build_stream_generate_content_request(
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    max_predict: usize,
+) -> Value {
+    let system_text = messages
         .iter()
-        .map(|tool| GeminiFunctionDeclaration {
-            name: tool.name.clone(),
-            description: tool.description.clone(),
-            parameters: to_gemini_parameters_schema(&tool.parameters_json_schema),
-        })
-        .collect()
+        .filter(|message| matches!(message.role.as_str(), "system" | "developer"))
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let contents = messages
+        .iter()
+        .filter(|message| !matches!(message.role.as_str(), "system" | "developer"))
+        .map(gemini_stream_content)
+        .collect::<Vec<_>>();
+    let mut body = json!({
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": max_predict},
+    });
+    if !system_text.is_empty() {
+        body["systemInstruction"] = json!({"parts": [{"text": system_text}]});
+    }
+    if !tools.is_empty() {
+        body["tools"] = json!([{
+            "functionDeclarations": tools.iter().map(|tool| json!({
+                "name": tool.function.name,
+                "description": tool.function.description,
+                "parameters": sanitize_schema(&tool.function.parameters),
+            })).collect::<Vec<_>>()
+        }]);
+    }
+    body
 }
 
-fn to_gemini_parameters_schema(schema: &Value) -> Value {
-    match schema {
-        Value::Object(object) => {
-            let mut converted = serde_json::Map::new();
-            for (key, value) in object {
-                if key == "additionalProperties" {
-                    continue;
+fn gemini_stream_content(message: &ConversationMessage) -> Value {
+    if message.role == "assistant" {
+        let mut parts = Vec::new();
+        if !message.content.is_empty() {
+            parts.push(json!({"text": message.content}));
+        }
+        parts.extend(
+            message
+                .tool_calls
+                .iter()
+                .map(|call| json!({"functionCall": {"name": call.name, "args": call.arguments}})),
+        );
+        return json!({"role": "model", "parts": parts});
+    }
+    if message.role == "tool" {
+        return json!({
+            "role": "user",
+            "parts": [{
+                "functionResponse": {
+                    "name": message.name.as_deref().unwrap_or("tool"),
+                    "response": {"result": message.content},
                 }
-                converted.insert(key.clone(), to_gemini_parameters_schema(value));
-            }
-            Value::Object(converted)
-        }
-        Value::Array(items) => {
-            Value::Array(items.iter().map(to_gemini_parameters_schema).collect())
-        }
-        other => other.clone(),
+            }]
+        });
     }
+    json!({"role": "user", "parts": [{"text": message.content}]})
 }
 
-fn parse_gemini_function_call(
-    function_call: GeminiResponseFunctionCall,
-    thought_signature: Option<String>,
-    index: usize,
-) -> Result<ToolCall, String> {
-    let Some(name) = function_call
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    else {
-        return Err("gemini_native_function_call_missing_name".to_string());
-    };
-    if !function_call.args.is_object() {
-        return Err(format!(
-            "gemini_native_function_call_invalid_args: {name} args must be a JSON object"
-        ));
+pub fn parse_gemini_stream<R: std::io::Read>(
+    reader: R,
+    on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<AssistantReply> {
+    let mut content = String::new();
+    let mut tool_calls = Vec::new();
+    let mut prompt_tokens = None;
+    let mut completion_tokens = None;
+    let mut saw_event = false;
+    let mut finished = false;
+    super::streaming::read_sse(reader, |data| {
+        saw_event = true;
+        let event: Value = serde_json::from_str(data)
+            .map_err(|err| anyhow::anyhow!("malformed Gemini SSE data: {err}"))?;
+        if let Some(error) = event.get("error") {
+            anyhow::bail!("Gemini stream failed: {error}");
+        }
+        if let Some(candidates) = event.get("candidates").and_then(Value::as_array) {
+            for candidate in candidates {
+                if candidate
+                    .get("finishReason")
+                    .and_then(Value::as_str)
+                    .is_some()
+                {
+                    finished = true;
+                }
+                if let Some(parts) = candidate
+                    .get("content")
+                    .and_then(|content| content.get("parts"))
+                    .and_then(Value::as_array)
+                {
+                    for part in parts {
+                        if part.get("thought").and_then(Value::as_bool) == Some(true) {
+                            continue;
+                        }
+                        if let Some(text) = part.get("text").and_then(Value::as_str)
+                            && !text.is_empty()
+                        {
+                            on_chunk(text)?;
+                            content.push_str(text);
+                        }
+                        if let Some(call) = part.get("functionCall") {
+                            let name =
+                                call.get("name").and_then(Value::as_str).ok_or_else(|| {
+                                    anyhow::anyhow!("Gemini functionCall missing name")
+                                })?;
+                            let arguments = call.get("args").cloned().unwrap_or_else(|| json!({}));
+                            let arguments = recover_tool_arguments(name, arguments).arguments;
+                            tool_calls.push(ToolCall {
+                                id: call
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string()),
+                                name: name.to_string(),
+                                arguments,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(usage) = event.get("usageMetadata") {
+            prompt_tokens = usage.get("promptTokenCount").and_then(Value::as_u64);
+            completion_tokens = usage.get("candidatesTokenCount").and_then(Value::as_u64);
+        }
+        Ok(StreamControl::Continue)
+    })?;
+    if !saw_event {
+        anyhow::bail!("Gemini stream ended without an event");
     }
-    Ok(ToolCall {
-        id: Some(
-            function_call
-                .id
-                .filter(|id| !id.trim().is_empty())
-                .unwrap_or_else(|| format!("gemini-call-{index}")),
-        ),
-        thought_signature: thought_signature.filter(|signature| !signature.trim().is_empty()),
-        name: name.to_string(),
-        args_json: serde_json::to_string(&function_call.args).unwrap_or_else(|_| "{}".to_string()),
+    if !finished {
+        anyhow::bail!("Gemini stream ended before a finish reason");
+    }
+    Ok(AssistantReply {
+        content,
+        tool_calls,
+        prompt_tokens,
+        completion_tokens,
     })
 }
 
-fn assistant_parts(message: &ChatMessage, mode: ToolCallMode) -> Vec<GeminiPart> {
-    if mode != ToolCallMode::Native || message.tool_calls.iter().all(|call| call.id.is_none()) {
-        return vec![text_part(message.content.clone())];
-    }
-
-    let mut parts = Vec::new();
-    if !message.content.trim().is_empty() {
-        parts.push(text_part(message.content.clone()));
-    }
-    for call in message.tool_calls.iter().filter(|call| call.id.is_some()) {
-        let args = serde_json::from_str(&call.args_json).unwrap_or_else(|_| json!({}));
-        parts.push(GeminiPart {
-            text: None,
-            function_call: Some(GeminiFunctionCallPart {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                args,
-            }),
-            function_response: None,
-            thought_signature: call.thought_signature.clone(),
-        });
-    }
-    if parts.is_empty() {
-        parts.push(text_part(String::new()));
-    }
-    parts
-}
-
-fn tool_result_parts(message: &ChatMessage, mode: ToolCallMode) -> Vec<GeminiPart> {
-    if mode != ToolCallMode::Native {
-        return vec![text_part(message.content.clone())];
-    }
-    let (Some(tool_name), Some(tool_call_id)) = (&message.tool_name, &message.tool_call_id) else {
-        return vec![text_part(message.content.clone())];
-    };
-    vec![GeminiPart {
-        text: None,
-        function_call: None,
-        function_response: Some(GeminiFunctionResponsePart {
-            id: Some(tool_call_id.clone()),
-            name: tool_name.clone(),
-            response: json!({
-                "output": message.content.clone(),
-            }),
-        }),
-        thought_signature: None,
-    }]
-}
-
-fn text_part(text: String) -> GeminiPart {
-    GeminiPart {
-        text: Some(text),
-        function_call: None,
-        function_response: None,
-        thought_signature: None,
-    }
-}
-
-fn normalize_base_url(base_url: &str) -> String {
-    base_url.trim_end_matches('/').to_string()
-}
-
 #[cfg(test)]
-mod tests {
+mod streaming_tests {
     use super::*;
-    use crate::providers::ToolCallMode;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
 
     #[test]
-    fn payload_maps_system_and_roles() {
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            MockTransport::default(),
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![
-                ChatMessage::new(ChatRole::System, "system rules"),
-                ChatMessage::new(ChatRole::User, "hello"),
-                ChatMessage::new(ChatRole::Assistant, "hi"),
+    fn stream_request_maps_history_tools_and_budget() {
+        let tools = crate::tools::registry::ToolRegistry::default();
+        let body = build_stream_generate_content_request(
+            &[
+                ConversationMessage::system("rules"),
+                ConversationMessage::user("hello"),
             ],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let payload = client.chat_payload(&request);
-
-        assert_eq!(
-            payload["systemInstruction"]["parts"][0]["text"],
-            "system rules"
+            tools.specs(),
+            42,
         );
-        assert_eq!(payload["contents"][0]["role"], "user");
-        assert_eq!(payload["contents"][1]["role"], "model");
+        assert_eq!(body["systemInstruction"]["parts"][0]["text"], "rules");
+        assert_eq!(body["contents"][0]["parts"][0]["text"], "hello");
+        assert_eq!(body["generationConfig"]["maxOutputTokens"], 42);
+        assert!(body["tools"][0]["functionDeclarations"].is_array());
     }
 
     #[test]
-    fn payload_sends_function_declarations_for_native_mode() {
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            MockTransport::default(),
-            Duration::from_secs(1),
-            0,
+    fn parses_generate_content_sse_text_function_and_usage() {
+        let stream = concat!(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"日\"}]}}]}\n\n",
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"🙂\"},{\"functionCall\":{\"name\":\"Read\",\"args\":{\"path\":\"a\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":2}}\n\n"
         );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "write a file")],
-            tools: crate::tools::registry::file_tool_specs(),
-            tool_call_mode: ToolCallMode::Native,
-        };
-
-        let payload = client.chat_payload(&request);
-        let declarations = payload["tools"][0]["functionDeclarations"]
-            .as_array()
-            .unwrap();
-        let write = declarations
-            .iter()
-            .find(|declaration| declaration["name"] == "Write")
-            .unwrap();
-
-        assert_eq!(write["parameters"]["required"], json!(["path", "content"]));
-        assert_eq!(write["parameters"]["properties"]["path"]["type"], "string");
-        assert!(
-            write["parameters"]
-                .as_object()
-                .unwrap()
-                .get("additionalProperties")
-                .is_none()
-        );
+        let mut chunks = Vec::new();
+        let reply = parse_gemini_stream(std::io::Cursor::new(stream), &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(chunks.concat(), "日🙂");
+        assert_eq!(reply.content, "日🙂");
+        assert_eq!(reply.tool_calls[0].name, "Read");
+        assert_eq!(reply.tool_calls[0].arguments["path"], "a");
+        assert_eq!(reply.prompt_tokens, Some(5));
+        assert_eq!(reply.completion_tokens, Some(2));
     }
 
     #[test]
-    fn payload_omits_function_declarations_for_xml_fallback_mode() {
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            MockTransport::default(),
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "write a file")],
-            tools: crate::tools::registry::file_tool_specs(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let payload = client.chat_payload(&request);
-
-        assert!(payload.get("tools").is_none());
-    }
-
-    #[test]
-    fn payload_serializes_native_function_call_and_response_history() {
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            MockTransport::default(),
-            Duration::from_secs(1),
-            0,
-        );
-        let call = ToolCall {
-            id: Some("call-1".to_string()),
-            thought_signature: Some("sig-1".to_string()),
-            name: "Read".to_string(),
-            args_json: r#"{"path":"Cargo.toml"}"#.to_string(),
-        };
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![
-                ChatMessage::new(ChatRole::User, "read Cargo.toml"),
-                ChatMessage::assistant_with_tool_calls("", vec![call]),
-                ChatMessage::tool_result("contents", "Read", Some("call-1".to_string())),
-            ],
-            tools: crate::tools::registry::file_tool_specs(),
-            tool_call_mode: ToolCallMode::Native,
-        };
-
-        let payload = client.chat_payload(&request);
-
-        assert_eq!(
-            payload["contents"][1]["parts"][0]["functionCall"]["id"],
-            "call-1"
-        );
-        assert_eq!(
-            payload["contents"][1]["parts"][0]["functionCall"]["args"]["path"],
-            "Cargo.toml"
-        );
-        assert_eq!(
-            payload["contents"][1]["parts"][0]["thoughtSignature"],
-            "sig-1"
-        );
-        assert_eq!(
-            payload["contents"][2]["parts"][0]["functionResponse"]["id"],
-            "call-1"
-        );
-        assert_eq!(
-            payload["contents"][2]["parts"][0]["functionResponse"]["response"]["output"],
-            "contents"
-        );
-    }
-
-    #[test]
-    fn chat_parses_text_response() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"text":"hello"},{"text":"world"}]}}]}"#
-                .to_string(),
-        })]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport.clone(),
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "hello\nworld");
-        assert!(response.tool_calls.is_empty());
-        assert!(transport.calls()[0].contains("/models/gemini-3.5-flash:generateContent?key=key"));
-    }
-
-    #[test]
-    fn chat_parses_xml_tool_call_from_response_text() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>"}]}}]}"#
-                .to_string(),
-        })]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "");
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "Write");
-        assert_eq!(
-            response.tool_calls[0].args_json,
-            r#"{"content":"ok","path":"hello.txt"}"#
-        );
-    }
-
-    #[test]
-    fn chat_parses_native_function_call() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"id":"call-1","name":"Write","args":{"path":"hello.txt","content":"ok"}},"thoughtSignature":"sig-1"}]}}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7,"totalTokenCount":18}}"#
-                .to_string(),
-        })]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
-            tools: crate::tools::registry::file_tool_specs(),
-            tool_call_mode: ToolCallMode::Native,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "");
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].id.as_deref(), Some("call-1"));
-        assert_eq!(
-            response.tool_calls[0].thought_signature.as_deref(),
-            Some("sig-1")
-        );
-        assert_eq!(response.tool_calls[0].name, "Write");
-        assert_eq!(
-            response.tool_calls[0].args_json,
-            r#"{"content":"ok","path":"hello.txt"}"#
-        );
-        assert_eq!(response.usage.input_tokens, Some(11));
-        assert_eq!(response.usage.output_tokens, Some(7));
-        assert_eq!(response.usage.total_tokens, Some(18));
-        assert!(response.usage.unavailable_reason.is_none());
-    }
-
-    #[test]
-    fn chat_returns_parse_evidence_for_malformed_native_function_call() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"path":"hello.txt"}}}]}}]}"#
-                .to_string(),
-        })]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
-            tools: crate::tools::registry::file_tool_specs(),
-            tool_call_mode: ToolCallMode::Native,
-        };
-
-        let response = client.chat(&request).unwrap();
-        let error = crate::providers::tool_call_parse_error_from_content(&response.content)
-            .expect("expected provider parse evidence");
-
-        assert_eq!(error, "gemini_native_function_call_missing_name");
-        assert!(response.tool_calls.is_empty());
-    }
-
-    #[test]
-    fn chat_rejects_malformed_xml_tool_call() {
-        let transport = MockTransport::with_responses([Ok(HttpResponse {
-            status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Read\"}"}]}}]}"#
-                .to_string(),
-        })]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport,
-            Duration::from_secs(1),
-            0,
-        );
-        let request = ChatRequest {
-            model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let err = client.chat(&request).unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("unclosed <commandagent_tool_call>")
-        );
-    }
-
-    #[test]
-    fn retries_transport_failures() {
-        let transport = MockTransport::with_responses([
-            Err(GeminiError::Transport("temporary".to_string())),
-            Ok(HttpResponse {
-                status: 200,
-                body: r#"{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}"#.to_string(),
-            }),
-        ]);
-        let client = GeminiClient::with_transport(
-            "https://example.test/v1beta/",
-            "key",
-            transport.clone(),
-            Duration::from_secs(1),
-            1,
-        );
-        let request = ChatRequest {
-            model: "models/gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
-            tools: Vec::new(),
-            tool_call_mode: ToolCallMode::XmlFallback,
-        };
-
-        let response = client.chat(&request).unwrap();
-
-        assert_eq!(response.content, "ok");
-        assert_eq!(transport.calls().len(), 2);
-    }
-
-    #[derive(Clone, Default)]
-    struct MockTransport {
-        inner: Rc<RefCell<MockInner>>,
-    }
-
-    #[derive(Default)]
-    struct MockInner {
-        responses: VecDeque<Result<HttpResponse, GeminiError>>,
-        calls: Vec<String>,
-        json_bodies: Vec<Value>,
-    }
-
-    impl MockTransport {
-        fn with_responses<const N: usize>(
-            responses: [Result<HttpResponse, GeminiError>; N],
-        ) -> Self {
-            Self {
-                inner: Rc::new(RefCell::new(MockInner {
-                    responses: VecDeque::from(responses),
-                    calls: Vec::new(),
-                    json_bodies: Vec::new(),
-                })),
-            }
-        }
-
-        fn calls(&self) -> Vec<String> {
-            self.inner.borrow().calls.clone()
-        }
-    }
-
-    impl GeminiTransport for MockTransport {
-        fn post_json(
-            &self,
-            url: &str,
-            body: &Value,
-            _timeout: Duration,
-        ) -> Result<HttpResponse, GeminiError> {
-            let mut inner = self.inner.borrow_mut();
-            inner.calls.push(format!("POST {url}"));
-            inner.json_bodies.push(body.clone());
-            inner
-                .responses
-                .pop_front()
-                .unwrap_or_else(|| Err(GeminiError::Transport("no response".to_string())))
-        }
+    fn truncated_generate_content_stream_keeps_partial_and_errors() {
+        let stream =
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n";
+        let mut chunks = Vec::new();
+        let err = parse_gemini_stream(std::io::Cursor::new(stream), &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(chunks.concat(), "partial");
+        assert!(err.contains("finish reason"), "{err}");
     }
 }

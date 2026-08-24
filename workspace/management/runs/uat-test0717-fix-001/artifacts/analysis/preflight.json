@@ -1,0 +1,90 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-001",
+  "executed_on": "2026-07-17",
+  "timezone": "Asia/Tokyo",
+  "repository": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "branch": "develop",
+  "head": "d9550326b5e0c28e3fbe210ec13f5aa1a46cb0ee",
+  "head_subject": "Document intent CLI resolution",
+  "origin_develop_equal": true,
+  "d955032_is_ancestor": true,
+  "commits_after_d955032": [],
+  "git_clean_after_isolating_preexisting_untracked_path": true,
+  "isolated_preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+  "isolated_path_restored_unchanged": true,
+  "workspace_was_new": true,
+  "report_path_was_new": true,
+  "disk_available_gib": 335,
+  "models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executors": [
+      "qwen3.6:35b-a3b-coding-nvfp4",
+      "gemma4:31b"
+    ],
+    "available": true
+  },
+  "cargo_test": {
+    "status": "passed",
+    "exit_code": 0,
+    "browser_probe_permissions": "enabled",
+    "lib": {
+      "passed": 1382,
+      "failed": 0,
+      "ignored": 13
+    },
+    "adjudication_byte_fixtures": {
+      "passed": 6,
+      "failed": 0
+    },
+    "conformance": {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1
+    },
+    "corpus_regression": {
+      "passed": 1,
+      "failed": 0
+    },
+    "data_profile_conformance": {
+      "passed": 10,
+      "failed": 0
+    },
+    "fix_intent_conformance": {
+      "passed": 9,
+      "failed": 0
+    },
+    "generality_guardrails": {
+      "passed": 7,
+      "failed": 0
+    },
+    "integration_and_doc_tests": "passed"
+  },
+  "release_build": {
+    "status": "passed",
+    "exit_code": 0,
+    "target": "target/release/commandagent"
+  },
+  "install": {
+    "status": "passed",
+    "path": "/Users/maenokota/.local/bin/commandagent",
+    "target_sha256": "f81bb2f931a31b20212d114d2e6a0d61a4435dbe4b0d2f72b0fb65eb76ccd912",
+    "installed_sha256": "f81bb2f931a31b20212d114d2e6a0d61a4435dbe4b0d2f72b0fb65eb76ccd912",
+    "sha256_equal": true
+  },
+  "version": {
+    "value": "commandagent 0.1.0 d955032 2026-07-16T16:28:26Z",
+    "dirty": false
+  },
+  "interaction_probe": {
+    "status": "ready",
+    "version": "playwright 1.61.1",
+    "source": "managed_interaction_probe"
+  },
+  "port_3011_listener_before_and_after_runs": false,
+  "runtime_environment_observation": {
+    "event": "host_env_contamination",
+    "value": "NODE_ENV=production",
+    "observed_runs": 6
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "anvil-catalog-check:data_inspection_schema",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:33eefa99a5d98b68",
+  "epoch": 1,
+  "run_id": "019f8c73-8881-7a32-b48f-f01a9df95d6a",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json"
+}

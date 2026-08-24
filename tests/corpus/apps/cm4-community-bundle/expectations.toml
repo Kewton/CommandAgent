@@ -1,0 +1,26 @@
+case_id = "cm4-community-bundle"
+source = "CM-4 R2 delivery bundle manifest and deterministic reverification contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["bundle-manifest", "reverification", "SHA-256"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/promotion-record-l2.json = ["not_applicable_l2", "evidence_claim"]
+fixtures/reverification-l2.json = ["S+Z", "not_applicable_l2", "verdict_equal"]

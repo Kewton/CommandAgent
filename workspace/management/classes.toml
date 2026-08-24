@@ -1,0 +1,591 @@
+# `failure_kind`/stop fields describe terminal shape; `attribution` is the
+# adjudicated cause (model, machine, mixed, or environment), and is not
+# inferred from the terminal vocabulary.
+# category = "terminal" identifies a run-stop terminal shape.
+# category = "violation_family" identifies a comparator violation family.
+# category = "success" identifies an honest successful terminal before failure matching.
+[[class]]
+id = "success"
+category = "success"
+attribution = "not_applicable"
+first_seen = "uat-test0801-cli-luna-007"
+ledger_ref = "F-2a-8"
+note = "full/complete終端はfailure vocabularyへ流さず成功区分として表示する"
+
+[[class]]
+id = "model_stagnation_read_only"
+category = "terminal"
+attribution = "model"
+match_stop_class = "model_stagnation:read_only_loop"
+first_seen = "uat-test0717-dfix-001"
+ledger_ref = "D-3a"
+note = "モデルが書込み要求に対して読取りを反復した"
+
+[[class]]
+id = "repair_target_unresolved"
+category = "terminal"
+attribution = "machine"
+match_reason = "repair_target_unresolved"
+first_seen = "uat-test0722-circle-elev-004"
+ledger_ref = "D-3a-3i"
+note = "修復対象を解決できず正直に停止した"
+
+[[class]]
+id = "diagnosis_unbound"
+category = "terminal"
+attribution = "machine"
+match_reason = "diagnosis_unbound"
+first_seen = "uat-test0722-circle-elev-001"
+ledger_ref = "D-3a-3f"
+note = "診断主張が実証拠へ束縛されない"
+
+[[class]]
+id = "claims_absent"
+category = "terminal"
+attribution = "machine"
+match_reason = "claims_absent"
+first_seen = "uat-test0722-circle-elev-003"
+ledger_ref = "D-3a-3g"
+note = "診断に機械照合可能な主張がない"
+
+[[class]]
+id = "edge_not_earned"
+category = "terminal"
+attribution = "machine"
+match_stop_class = "edge_not_earned"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2e"
+note = "辺の成立条件不足で遷移しない"
+
+[[class]]
+id = "interrupted_environment"
+category = "terminal"
+attribution = "environment"
+match_stop_class = "interrupted(environment)"
+first_seen = "uat-test0719-dfix-006"
+ledger_ref = "bench v0"
+note = "環境中断でrun非消費となった"
+
+[[class]]
+id = "ci_infra_shallow_fetch_race"
+category = "terminal"
+attribution = "environment"
+match_reason = "fatal: shallow file has changed since we read it"
+first_seen = "github-actions-ci-32098404720-attempt-1"
+ledger_ref = "CM-2l"
+note = "解消済み(CM-2l): Detect GUI changesだけが3 attempt連続でmain/develop merge-base探索中のshallow deepenに失敗し、主CommandAgent Test and Guardrailsはsuccessだった。changes jobのcheckoutをfetch-depth 0へ固定し、paths-filter内部の並行的な追加fetchを不要にした。"
+
+[[class]]
+id = "ollama_http_500"
+category = "terminal"
+attribution = "environment"
+match_reason = "HTTP 500 Internal Server Error"
+first_seen = "uat-test0722-circle-elev-006"
+ledger_ref = "D-3a-3j"
+note = "Ollamaクラウド応答の一過性HTTP 500"
+
+[[class]]
+id = "origin_goal_underivable"
+category = "terminal"
+attribution = "machine"
+match_reason = "origin_goal_underivable"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2"
+note = "起点goalの導出不能"
+
+[[class]]
+id = "origin_verify_underivable"
+category = "terminal"
+attribution = "machine"
+match_reason = "origin_verify_underivable"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2"
+note = "起点検証集合の導出不能"
+
+[[class]]
+id = "workspace_confinement_violation"
+category = "terminal"
+attribution = "machine"
+match_reason = "workspace_confinement_violation"
+first_seen = "d3a2-smoke-v7"
+ledger_ref = "D-3a-2f"
+note = "origin外workspaceへの書込みを拒否"
+
+[[class]]
+id = "data_schema_contract_failure"
+category = "terminal"
+attribution = "machine"
+match_reason = "inspection_schema_violation"
+first_seen = "uat-test0718-dfix-005"
+ledger_ref = "DATA-"
+note = "データ契約スキーマ検証が失敗した"
+
+[[class]]
+id = "process_failure"
+category = "terminal"
+attribution = "model"
+match_stop_class = "failure_kind:process_failure"
+first_seen = "uat-test0718-dfix-005"
+ledger_ref = "DATA-"
+note = "形状既定=modelは仮置きであり本クラスは解剖必須。本件ではmachine裁定へ覆った実例あり（workspace/management/runs/uat-test0725-cli-elev-001/death-anatomy.md参照）"
+
+[[class]]
+id = "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance"
+category = "terminal"
+attribution = "machine"
+match_reason = "cli_probe_not_run"
+first_seen = "uat-test0725-cli-elev-002"
+ledger_ref = "CLI-3"
+note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなかった。CLI-3でproduction経路へ配線済み"
+
+[[class]]
+id = "bench_install_sandbox_denied"
+category = "terminal"
+attribution = "env"
+match_reason = "preflight release install failed:.*Operation not permitted"
+first_seen = "cm2f-golden-004r"
+ledger_ref = "CM-2f"
+note = "既定配置をcampaign workspace/binへ変更して解消。利用者が明示したbinary-dirのみworkspace外を許可"
+
+[[class]]
+id = "provider_unreachable_preflight"
+category = "terminal"
+attribution = "env"
+match_reason = "provider_unreachable_preflight: provider=.* host=.* check=.*"
+first_seen = "cm2b-golden-005"
+ledger_ref = "CM-2h"
+note = "suite宣言のOllama/OpenAI構成を0run目で検査し、不達時はrun workspaceを作らず停止する"
+
+[[class]]
+id = "cli_case_binding:first_usage_placeholder_masks_concrete_examples"
+category = "terminal"
+attribution = "machine"
+match_reason = "unrecognized arguments: [--count]"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "先頭usageのoptional/placeholder記法を字義argv化した。CLI-4で実sampleへの決定的正規化とcase_extraction_failedを実装済み"
+
+[[class]]
+id = "cli_help_binding:required_args_mask_unknown_option_rejection"
+category = "terminal"
+attribution = "machine"
+match_reason = "help_binding:implementation_to_help:option=--anvil-invalid-probe"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "未知option単独probeがargparse必須引数エラーに遮られた。CLI-4で凍結正常argvへの追加投与へ是正済み"
+
+[[class]]
+id = "cli_claims_binding:concrete_examples_unbound_after_template"
+category = "terminal"
+attribution = "machine"
+match_reason = "cli_output_claims:observed_stdout_mismatch"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "先頭template後の具体的README出力blockをC3が未抽出だった。CLI-4でlabel付き隣接blockを実行照合済み"
+
+[[class]]
+id = "cli_final_repair:nextjs_artifact_fallback_after_c_failure"
+category = "terminal"
+attribution = "machine"
+match_reason = "artifact_follow_through_exhausted: missing expected paths: src/app/page.ts"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "CLI C失敗後のrepairが全profile共通Next.js fallbackを選んだ。CLI-4でCLI実在artifact境界へ遮断済み"
+
+[[class]]
+id = "bench_calibration_corpus:cli_evidence_shape_unsupported"
+category = "terminal"
+attribution = "machine"
+match_reason = "bench_calibration_corpus:cli_evidence_shape_unsupported"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "collectorがCLI bindings/output_claims形を収集しなかった。CLI-4でC2/C3 nearest_missを追加しelev-003流出1件を遡及取込み済み"
+
+[[class]]
+id = "cli_claims_binding:readme_output_claim_fabricated"
+category = "terminal"
+attribution = "model"
+match_reason = "Final acceptance failure: - primary reason: cli_output_claims:observed_stdout_mismatch"
+first_seen = "uat-test0725-cli-elev-004"
+ledger_ref = "CLI-4"
+note = "CLI-4較正後のC3がREADME出力主張と実出力の不一致をlive拒否した。抽出器欠落ではなくモデル生成内容の不一致"
+
+[[class]]
+id = "cli_verify:canonical_command_dropped_positional_input"
+category = "terminal"
+attribution = "machine"
+match_reason = "verify_command_false_negative: the verify command is malformed; the artifact may already satisfy the requirement"
+first_seen = "uat-test0725-cli-elev-004"
+ledger_ref = "CLI-4"
+note = "stats_cloud_003で成功した実CLI commandからCSV位置引数を落としたverifyへ正準化され停止。修正は本計測の範囲外"
+
+[[class]]
+id = "bench_suite_schema:create_empty_sources_unsupported"
+category = "terminal"
+attribution = "machine"
+match_reason = "suite must define at least one [[sources]] table"
+first_seen = "uat-test0724-cli-001"
+ledger_ref = "bench v0.3"
+note = "bench v0.3でworkspace_mode=emptyを追加して解消済み"
+
+[[class]]
+id = "verify_dependency_classifier:python_script_misclassified_as_setup"
+category = "terminal"
+attribution = "machine"
+match_reason = "dependency_setup_authority_required: python3 verify_pipeline.py"
+first_seen = "uat-test0726-ingest-001"
+ledger_ref = "INGEST-1"
+note = "実在するworkspace内Python scriptの成果物not foundを依存欠落へ誤分類した。INGEST-1でlocal script実行とpip install等の依存導入を分離して解消済み"
+
+[[class]]
+id = "phase_execution:successful_command_no_diff_stagnation"
+category = "terminal"
+attribution = "machine"
+match_reason = "model_stagnation:no_progress_recorded"
+first_seen = "uat-test0726-ingest-elev-001"
+ledger_ref = "INGEST-2"
+note = "成功した実行専用commandを差分なしとして停滞誤殺した。INGEST-2で相異なるexit 0 commandを実行型進捗へ追加し、同一反復・非零終了・Read/Glob/Grepは非進捗のまま維持"
+
+[[class]]
+id = "ingest_phase_structure:selector_not_kind_value"
+category = "terminal"
+attribution = "machine"
+match_reason = "ingest_phase_structure:selector_not_kind_value"
+first_seen = "uat-test0726-ingest-elev-002"
+ledger_ref = "INGEST-3"
+note = "近因はmodelの文字列selector生成、設計根因は正準kind/value字義例を事前配布しないknowledge欠落。6/6同形逸脱を根拠にmachine(knowledge)へ裁定し、INGEST-3でgate全要求形の字義例・実測値置換定型・fixtureを合成/presetへ注入して解消"
+
+[[class]]
+id = "ingest_phase_verify:canonicalized_verifier_path_remains_required"
+category = "terminal"
+attribution = "machine"
+match_reason = "missing expected paths: verify-artifacts.js"
+match_stop_class = "missing expected paths: output/report.md, smoke-check.js"
+first_seen = "uat-test0726-ingest-elev-003"
+ledger_ref = "INGEST-4"
+note = "モデル自作verify commandの機械正準化後もsmoke-check.js / verify-artifacts.jsがexpected pathへ残ったcommand/path非対称。INGEST-4でingest createの計画・所有権・verifyを機械preset化し、検証script path自体を表現不能にして解消済み"
+
+[[class]]
+id = "ingest_preset:runtime_outputs_bound_before_run"
+category = "terminal"
+attribution = "machine"
+match_reason = "missing expected paths: output/records.json, output/report.md"
+match_stop_class = "missing expected paths: output/inspection.json, output/records.json, output/report.md"
+first_seen = "uat-test0726-ingest-elev-004"
+ledger_ref = "INGEST-5"
+note = "INGEST-4指示とpresetがpipeline実行で生まれるrecords/reportをimplement段のexpected_pathsへ置き、6/6をrun前に停止させた。INGEST-5でmodel-authored pipeline/inspectionだけをimplementへ残し、run command後の機械postconditionへ移して解消済み"
+
+[[class]]
+id = "ingest_selector:selector_without_snapshot_content_read"
+category = "terminal"
+attribution = "model"
+match_reason = "ingest_selector:selector_without_snapshot_content_read"
+first_seen = "uat-test0726-ingest-elev-005"
+ledger_ref = "INGEST-6"
+note = "近因はmodelがsnapshot本文をReadせず、実在しないselectorを4/4到達runで宣言したこと。設計根因はmachine guidanceが読むべきpathだけを示し、実構造材料をmodelの目前へ置かなかったこと。INGEST-6でファイル名つき・先頭行+反復候補window・上限付きの実構造注入をimplement promptへ追加"
+
+[[class]]
+id = "ingest_candidate_selector:valid_compound_css_rejected"
+category = "terminal"
+attribution = "machine"
+match_reason = "candidate_set_violation:css_selector_compound"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-7"
+note = "実HTMLに一致するtable tbody tr / table trをN runtimeがpre-evidence拒否した。INGEST-7で8段までのcompound descendant/direct-child chainを実装し、非対応CSSは構造gateで対応形つき事前拒否へ移した"
+
+[[class]]
+id = "ingest_candidate_accounting:candidate_id_path_prefix_omitted"
+category = "terminal"
+attribution = "model"
+match_reason = "candidate_set_violation:unknown_candidate:events-list.html#0"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-8"
+note = "elev-006 list 003とelev-007 6/6で凍結ID data/snapshots/events-*.html#Nからpath prefixを脱落。近因はmodel、設計根因はmachine発行の凍結語彙をgenerationへ配布しなかったknowledge gap。INGEST-8でselector暫定宣言後・pipeline実装/実行前に全正準IDを注入し、exactまたは一意suffixだけを解決過程つきで受ける。曖昧・偽ID拒否は維持"
+
+[[class]]
+id = "ingest_source_binding:document_year_context_unsupported"
+category = "terminal"
+attribution = "machine"
+match_reason = "source_binding_violation:record=1:field=date:value=2026-08-03"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-7"
+note = "候補内8/3(月)とpage title 2026年の値保存補完をv0が表現できなかった。v0.1でdocument_year_contextの宣言と両断片位置evidenceを必須にして精密化済み"
+
+[[class]]
+id = "data_assurance"
+category = "violation_family"
+attribution = "model"
+match_reason = "data_assurance_"
+first_seen = "uat-test0715-data-005"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "reconciliation_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "reconciliation_violation"
+first_seen = "uat-test0714-m4-004"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "claims_binding_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "claims_binding_violation"
+first_seen = "uat-test0714-m4-004"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "rerun_consistency_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "rerun_consistency_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "accounting_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "accounting_violation"
+first_seen = "uat-test0726-ingest-elev-005"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "format_schema_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "format_schema_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "cli_final_repair:testimony_artifact_target_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "write_required exhausted for cli/main.py"
+first_seen = "uat-test0730-cli-pack-002"
+ledger_ref = "CLI-5"
+note = "C3がprimaryでも汎用CLI fallbackがcli/main.pyを照準し、README証言修復を交絡した。CLI-5でC3 evidenceの出典成果物へ束縛済み"
+
+[[class]]
+id = "testimony_binding_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "testimony_binding_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "P-1b"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）。T1の初正式観測はuat-test0731-nextjs-t1-001で採取する"
+
+[[class]]
+id = "community_schema_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "Community Mini App workspace lacks the pinned platform-owned AppSpec schema"
+first_seen = "cm2b-golden-001"
+ledger_ref = "CM-2c"
+note = "Design-floor repayment: CM-2c supplies the pinned v0 measurement fixture; missing and pin-mismatch fixtures remain fail-closed."
+
+[[class]]
+id = "community_spec_closed_vocabulary"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_spec_closed_vocabulary"
+first_seen = "cm2f-resume-001"
+ledger_ref = "CM-2h"
+note = "解消済み(DATA-1): 3件ともschema専用metadata keysをapp.spec rootへ写した。schema由来root一覧とverifier通過済み字義例へ是正し、schema pinは不変。"
+
+[[class]]
+id = "community_computed_expression_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_computed_expression_missing"
+first_seen = "cm2b-golden-005-instrument-window"
+ledger_ref = "CM-2h"
+note = "解消済み(DATA-1追補): computed entryの正形{name,expression,type}を未配布でfunction/source形を誘発。validator定数由来の完全形と非空のverifier通過字義例を追加。"
+
+[[class]]
+id = "community_computed_unregistered"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_computed_unregistered:.*"
+first_seen = "cm2b-golden-005-warikan-001"
+ledger_ref = "CM-2h"
+note = "局所連鎖分は解消済み(CM-2i schema設計gap(b)へ訂正): v0.1でentityを明示し、同一entity内DAG参照とtopological評価を許可。CM-2k golden-008 mochimono_003でcollection/global参照packingItemを再観測した。このglobal集約は契約どおりQUEUEDで、自己/相互循環拒否と局所DAG対応は維持する。"
+
+[[class]]
+id = "community_core_manifest_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_core_manifest_missing"
+first_seen = "cm2b-golden-005-warikan-002"
+ledger_ref = "CM-2h"
+note = "解消済み(CM-2i): golden empty workspaceへ合成テンプレのcore/とcore.sha256sumsをschemaと同じprocurement段階で注入。製品のmanifest欠落負例は維持しfail closed。"
+
+[[class]]
+id = "community_build_inputs_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_build_inputs_missing"
+first_seen = "cm2b-golden-006-warikan-001"
+ledger_ref = "CM-2i"
+note = "解消印(CM-2k、golden-007の不正昇格経路): promotionなしzoneは先にcommunity_promotion_missingで拒否される。正当なpromotion付きL3/L4では従来どおりB系必須で、不完全zoneはこのクラスでfail closedするためクラス自体はQUEUED保持。"
+
+[[class]]
+id = "community_promotion_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_promotion_missing"
+first_seen = "cm2k-promotion-negative-fixture"
+ledger_ref = "CM-2k"
+note = "app-zone/L3成果物が存在するが、閉集合reason_classと先行L2 pass参照を持つ有効なevidence/promotion-decision.jsonがないZ系violation。planner側もzone stepより前のpromotion stepを要求する。"
+
+[[class]]
+id = "community_package_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_package_missing"
+first_seen = "cm3-matrix-001-arm-d"
+ledger_ref = "CM-3b"
+note = "解消済み(伝達床): Luna plannerのL3計画3件がapp-zoneのみを列挙し、B検証に必須のpackage.json/package-lock.jsonを計画しなかった。community限定のUltraPlan/StepPlan lintが、先行app.spec.yamlと両build materialをL3計画の必須要件として有界リトライへ戻す。verifierと一般/L2経路は不変。"
+
+[[class]]
+id = "community_spec_artifact_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: app.spec.yaml"
+first_seen = "cm3-matrix-001-arm-d"
+ledger_ref = "CM-3"
+note = "Luna planner/Luna executor armで必須L2成果物app.spec.yamlをexecutorが生成しないままphaseが終端。比較観測の失敗署名として登録し、artifact gateは不変。"
+
+[[class]]
+id = "community_schema_pin_path_invented"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: schema/app-spec.schema.sha256sums"
+first_seen = "cm3-matrix-002-arm-b-prime"
+ledger_ref = "CM-3b"
+note = "ローカルexecutorが供給済みschema/app-spec.schema.sha256ではなく未宣言のsha256sums pathを発明してreadし停止。B側の完全語彙注入は届いており、較正対象外のmodel署名として保持する。"
+
+[[class]]
+id = "community_verify_instruction_not_executable"
+category = "terminal"
+attribution = "model"
+match_reason = "dependency_setup_authority_required: not applicable|dependency_setup_authority_required: app.spec.yaml の内容|stdin is not a TTY"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "plannerがimplement stepのverifyへ`not applicable`、自然言語指示、または引数なしの対話起動形をcommandとして記載し、閉じたsetup authority/TTY境界でfail closed。CM-4x E拡張でもqwen3.8 mediumの正当L3昇格1件が裸のcommandagentを呼びstdin非TTYで停止した。伝達床とは別のmodel計画署名であり、本較正では補修しない。"
+
+[[class]]
+id = "community_esbuild_script_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "community_profile_violation:community_esbuild_script_missing"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "L3計画はpackage.json/package-lock.jsonを明記して新ゲートを通過したが、executorが生成したpackage manifestにB系必須のesbuild scriptがなくfail closed。計画伝達床返済後に残るmodel実装署名。"
+
+[[class]]
+id = "community_package_artifact_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: package.json"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "L3 UltraPlanとStepPlanはpackage.json/package-lock.jsonの生成を明記して新ゲートを通過したが、executorが作成前にpackage.jsonをreadして停止。旧community_package_missingの伝達床とは分離したmodel実行署名。"
+
+[[class]]
+id = "community_l3_verify_command_timeout"
+category = "terminal"
+attribution = "machine"
+match_reason = "verify_command_timeout:commandagent --offline --profile community-mini-app"
+first_seen = "cm2b-golden-007-warikan-002"
+ledger_ref = "CM-2j"
+note = "golden-007の不正昇格経路にはCM-2k解消印: promotion手順なしzoneは計画品質/Zゲートで先に拒否する。正当なpromotion後にも同じverify形が生成される可能性は未観測のため、L3契約床としてQUEUED保持し今は塞がない。"
+
+[[class]]
+id = "community_planner_empty_response"
+category = "terminal"
+attribution = "model"
+match_reason = "planner_empty_response: planner returned empty content"
+first_seen = "cm4-planner-cand-001-arm-f-warikan-004"
+ledger_ref = "CM-4"
+note = "qwen3.8:27b-mlx/think=highがStepPlan corrective retryの全attemptで空contentを返した比較観測。到達性・binary/model pinは正常で、製品側のhonest-failureを維持したままmodel署名として登録する。"
+
+[[class]]
+id = "community_schema_version_invalid"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_schema_version_invalid"
+first_seen = "cm4-parallel-001-warikan-001"
+ledger_ref = "CM-4x"
+note = "CM-4xで誤帰属を訂正し解消済み(stale machine): 3 workspaceの供給schemaは同一v0.1/SHAで、生成AppSpec rootにschema_versionがないのも契約どおり。外側campaign binaryは26b4705a/SHA 03159d…だが、計画内の裸のcommandagentはPATH上の178e09c2/SHA 878616…(v1期待)へ解決していた。parallel probeが子process PATHをピン済みcampaign binaryへ固定し、負例guardと同一binary/suiteの4並行再実行でfinal_acceptance full_success 4/4・交差汚染0を確認。"
+
+[[class]]
+id = "community_core_manifest_path_malformed"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: core.sha256sums.*invalid quote path"
+first_seen = "cm4-parallel-001-warikan-004"
+ledger_ref = "CM-4"
+note = "qwen3.6 plannerが供給済みcore.sha256sumsのRead pathへ自然言語断片を混入したtool argument署名。CM-4xの三点対照でも供給manifest/path/SHAは正常でmodel帰属を維持する。同一binary/suiteの再実行は4/4 full_successだったが、単発再現なしを普遍的解消とは扱わず製品側のpath fail-closedを維持する。"
+
+[[class]]
+id = "community_dangerous_command_blocked"
+category = "terminal"
+attribution = "model"
+match_reason = "dangerous command blocked"
+first_seen = "cm4-planner-cand-002-arm-e-warikan-010"
+ledger_ref = "CM-4x"
+note = "qwen3.8 medium executorが生成したshell commandを既存dangerous-command policyが拒否した比較観測。安全境界は意図どおりfail closedしており、較正のために緩和しない。"
+
+[[class]]
+id = "community_workspace_path_invented"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: .bench-product-stdout.md|path does not exist: core.yaml"
+first_seen = "cm4-planner-cand-002-arm-e-vote-007"
+ledger_ref = "CM-4x"
+note = "qwen3.8 medium executorが供給されていない`.bench-product-stdout.md`または`core.yaml`をread対象として発明し停止した比較観測。workspace供給物とsuite pinは正常で、path fail-closedを維持する。"
+
+[[class]]
+id = "community_l2_verify_invocation_incomplete"
+category = "terminal"
+attribution = "machine"
+match_reason = "commandagent --offline --profile community-mini-app.*stdin is not a TTY; pass --prompt or an action flag"
+first_seen = "cm2b-golden-008-mochimono-002"
+ledger_ref = "CM-2k"
+note = "QUEUED: Community DATA-1 guidance contains the complete --prompt form, but the shared deterministic-verification preference still supplied the shorter interactive form. The planner selected that conflicting machine-provided form and bounded repair made no change. Outside the CM-2k promotion-gate repayment scope."
+
+[[class]]
+id = "planner_quality_exhausted"
+category = "terminal"
+attribution = "machine"
+match_stop_class = "planner_quality_exhausted"
+first_seen = "cm2d-golden-003"
+ledger_ref = "CM-2d"
+note = "Declared profile quality requirements remained retryable after the bounded planner repair budget; the run stops honestly instead of returning a weak plan."
+
+[[class]]
+id = "openai_param_rejected:reasoning_effort_with_function_tools"
+category = "terminal"
+attribution = "machine"
+match_reason = "Function tools with reasoning_effort are not supported"
+first_seen = "uat-test0801-cli-luna-001"
+ledger_ref = "F-2a-3"
+note = "OpenAI Chat Completions endpointがfunction toolsと未指定時のreasoning_effort既定の組合せを拒否した停止形。F-2a-2でクライアント側parameterを宣言時のみ送信に固定してもluna-002の6/6で再現したため、endpoint tool境界をmachineとして確定。F-2a-3は明示tool_protocol=textで既存text装備へ迂回する"
+
+[[class]]
+id = "cli_assurance_projection:c3_claims_absent_after_c1_c2_c4_pass"
+category = "terminal"
+attribution = "machine"
+match_reason = "C1/C2/C4 pass + C3 claims_absent"
+first_seen = "uat-test0801-cli-luna-006"
+ledger_ref = "F-2a-7"
+note = "契約§4がpartialと定める実測形をclassifyがfailedへ過小投影した。F-2a-7でC2 passをpartial条件へ追加し、violation→failed等の既存形は維持して解消"

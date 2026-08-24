@@ -1,0 +1,57 @@
+{
+  "capability_id": "ingest_source_binding",
+  "status": "pass",
+  "ok": true,
+  "records_path": "output/records.json",
+  "bindings": [
+    {
+      "record_index": 0,
+      "candidate_id": "data/snapshots/events.html#0",
+      "candidate_id_resolution": {
+        "provided_id": "data/snapshots/events.html#0",
+        "status": "exact",
+        "matched_ids": [
+          "data/snapshots/events.html#0"
+        ],
+        "resolved_id": "data/snapshots/events.html#0"
+      },
+      "source_path": "data/snapshots/events.html",
+      "candidate_byte_start": 12,
+      "candidate_byte_end": 44,
+      "field": "name",
+      "output_value": "fixture event",
+      "declared_normalizations": [
+        "identity"
+      ],
+      "raw_source": "fixture event",
+      "normalized_source": "fixture event",
+      "transformations": [
+        "identity"
+      ],
+      "matched": true,
+      "nearest_miss": null
+    }
+  ],
+  "failure_kinds": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "source_binding",
+    "epoch": 1785723965,
+    "claims": [
+      {
+        "index": 0,
+        "label": "name",
+        "judgement": "matched",
+        "observation": "fixture event",
+        "source_ref": "data/snapshots/events.html",
+        "direction": null
+      }
+    ],
+    "nearest_miss": [],
+    "source_refs": [
+      "data/snapshots/events.html",
+      "output/records.json"
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "campaign": "uat-test0717-dfix-001",
+  "source_policy": "historical UAT artifacts only",
+  "sales_csv_supplemented": false,
+  "sales_csv_sha256": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873",
+  "sets": [
+    {
+      "set": "pipe/A",
+      "source_campaign": "uat-test0714-m4-001",
+      "source_run": "data_agg_qwen27_plan_qwen35_exec_preset_profile_001",
+      "pipeline_sha256": "4944322105b422f71338513405e3de57d2c698aab565f313fac794e4163ad1d3",
+      "source_manifest_sha256": "b814ddf0b3a93b83001f4436daa4c2683049825ce7b829036dc013b98368fa83",
+      "reproducer": "python3 -B pipeline/main.py",
+      "exit_code": 1,
+      "symptom": "ValueError: invalid literal for int() with base 10: '' at pipeline/main.py:53",
+      "source_record_concordance": "exact; preserved pipeline-run.json and B-2d investigation record the same traceback"
+    },
+    {
+      "set": "pipe/B",
+      "source_campaign": "uat-test0715-data-005",
+      "source_run": "data5_qwen35_none_002",
+      "pipeline_sha256": "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b",
+      "source_manifest_sha256": "67d80da61ddfaad833e083b4a143e18f38b58f49429aa09c6334347decf775db",
+      "reproducer": "python3 -B pipeline/main.py",
+      "exit_code": 1,
+      "symptom": "TypeError: list.append() takes exactly one argument (2 given) at pipeline/main.py:164",
+      "source_record_concordance": "caveat; the retained historical artifact deterministically has this traceback, but the source UAT report terminated earlier as artifact_follow_through_exhausted and did not record this R as its terminal class"
+    },
+    {
+      "set": "schema/A",
+      "source_campaign": "uat-test0713-data-001",
+      "source_run": "data_agg_qwen27_plan_gemma31_exec_preset_profile_001",
+      "pipeline_sha256": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+      "results_sha256": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+      "source_manifest_sha256": "8dc77e8d85aa847e7f664da7943c7a46cc80e48b3c39704bcf151c71408816de",
+      "reproducer": "product data_results_schema check",
+      "exit_code": 1,
+      "symptom": "results.json missing required key `reconciliation`",
+      "source_record_concordance": "exact invented-schema artifact"
+    },
+    {
+      "set": "schema/B",
+      "source_campaign": "uat-test0713-data-001",
+      "source_run": "data_agg_qwen27_plan_gemma31_exec_preset_profile_001",
+      "pipeline_sha256": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+      "results_sha256": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+      "source_manifest_sha256": "8dc77e8d85aa847e7f664da7943c7a46cc80e48b3c39704bcf151c71408816de",
+      "reproducer": "product data_results_schema check",
+      "exit_code": 1,
+      "symptom": "results.json missing required key `reconciliation`",
+      "source_record_concordance": "exact; independent copy of schema/A because the historical archive contains only one retained pre-contract invented-schema result"
+    }
+  ],
+  "qualification": {
+    "synthesized_broken_artifacts": 0,
+    "independent_run_directories": 6,
+    "schema_source_diversity": "1 unique historical source copied independently as A and B",
+    "pipe_b_provenance_caveat": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "plan_final_contract": {
+    "profile": "python-cli",
+    "runtime_acceptance_status": "pass",
+    "final_acceptance_status": "full_success",
+    "release_gate_status": "pass",
+    "assurance_level": "full",
+    "assurance_reason": "",
+    "profile_behavior_probe_status": "pass",
+    "profile_behavior_probe_evidence_path": ".commandagent/evidence/python-cli-behavior.json"
+  },
+  "headless_summary": {
+    "assurance": "full",
+    "verdict": "full"
+  }
+}

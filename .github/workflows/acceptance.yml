@@ -1,0 +1,34 @@
+name: acceptance
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: install acceptance dependencies
+        run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Repository acceptance suite
+        run: bash scripts/ci.sh
+      - name: scrub changed files
+        run: |
+          set -e
+          git diff --name-only HEAD^ HEAD | while read -r path; do
+            [ -f "$path" ] || continue
+            python workspace/management/scripts/bench.py scrub --path "$path"
+          done

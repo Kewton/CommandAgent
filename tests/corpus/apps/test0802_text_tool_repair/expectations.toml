@@ -1,0 +1,47 @@
+case_id = "test0802_text_tool_repair"
+source = "F-2a-6 additive, self-reporting text tool-call dialect repair"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["repair_applied", "first_json_value", "closing_tag_completed"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/tool-parse-repair.jsonl = [
+  "\"event\":\"repair_applied\"",
+  "\"repair_kind\":\"first_json_value\"",
+  "\"operation\":\"discarded\"",
+  "\"max_bytes\":256",
+  "\"family\":\"tool_parse\"",
+  "\"kind\":\"repair_applied\"",
+  "\"evidence_recorded\":true"
+]
+fixtures/tool-parse-repair.json = [
+  "\"protocol\": \"text\"",
+  "\"repair_kind\": \"first_json_value\"",
+  "\"operation\": \"discarded\"",
+  "\"max_bytes\": 256",
+  "\"family\": \"tool_parse\"",
+  "\"judgement\": \"observed\""
+]
+fixtures/luna004-malformed-excerpts.json = [
+  "\"run\": \"stats_luna_003\"",
+  "\"run\": \"filter_luna_002\"",
+  "\"run\": \"filter_luna_003\"",
+  "\"raw_response_bytes\": 1412"
+]

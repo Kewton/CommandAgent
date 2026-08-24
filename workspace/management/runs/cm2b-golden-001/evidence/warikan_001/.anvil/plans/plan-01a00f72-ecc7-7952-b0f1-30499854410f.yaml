@@ -1,0 +1,38 @@
+goal: "Original ultra goal: 友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。\nProfile: community-mini-app\nStyle: default\nIntent: create\nPhase id: settlement-logic-and-view\nPhase task: Implement the settlement calculation logic and results display using bounded computed expressions and registered pure functions. Calculate net balances per user and generate an optimal list of who owes whom. Render the settlement view clearly. Verify that computed fields are statically typed, avoid raw fetch or build-time egress, and correctly output settlement pairs for sample inputs.\n\nWorkspace snapshot:\n- .bench-product-stderr\n- .bench-product-stdout\n- app.spec.yaml\n- smoke-check.js\n- src\n- uat-console.log\n\nPrior ultra context:\n- Completed phases:\n  - spec-generation-l2 (2/2)\n  - expense-input-implementation (5/5)\n- Created or changed paths:\n  - app.spec.yaml\n  - smoke-check.js\n  - src/app-zone/index.html\n  - src/app-zone/app.js\n  - src/app-zone/promotion_decision.json\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- are\n- avoid\n- balances\n- based\n- bind\n- bounded\n- … and 76 more\n\nProfile generation rules:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n\nProfile runtime contract:\n- Keep the Community Mini App at the lowest level that satisfies the goal.\n- Emit app.spec.yaml for L1/L2; use src/app-zone/ only with promotion_decision evidence.\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- test -f app.spec.yaml\n\n\nRequired final artifacts:\n- app.spec.yaml"
+steps:
+  - id: "inspect-workspace"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read app.spec.yaml, src/app-zone/app.js, and src/app-zone/index.html to assess current structure and identify insertion points for settlement logic and view."
+    expected_paths:
+    verify:
+  - id: "implement-settlement-logic"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Add pure functions to src/app-zone/app.js for calculating net balances per user and generating an optimal settlement list. Ensure all computed expressions are bounded, statically typed, and avoid raw fetch or build-time egress."
+    expected_paths:
+      - "src/app-zone/app.js"
+    verify:
+  - id: "implement-settlement-view"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update src/app-zone/index.html to render the settlement results clearly, displaying who owes whom and the amount."
+    expected_paths:
+      - "src/app-zone/index.html"
+    verify:
+      - "test -f src/app-zone/index.html"
+  - id: "update-spec-computed"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update app.spec.yaml to declare computed fields for balances and settlements under the computed section, ensuring static typing and bounded expressions.\n\nProfile contract:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    expected_paths:
+      - "app.spec.yaml"
+    verify:
+      - "test -f app.spec.yaml"
+  - id: "verify-settlement"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run smoke-check.js to verify settlement logic correctness, static typing, and spec structure."
+    expected_paths:
+    verify:
+      - "node smoke-check.js"

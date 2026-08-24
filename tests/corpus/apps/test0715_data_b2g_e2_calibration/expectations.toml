@@ -1,0 +1,59 @@
+case_id = "test0715_data_b2g_e2_calibration"
+source = "uat-test0715-data-004 Run 1 / Run 4 report.md and results.json archived with investigation-e2.md; uat-test0715-data-005 Run 1 nearest_miss violations extracted without value changes"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["claims_binding", "date_label", "nearest_miss", "reconciliation.input_rows"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data4_qwen35_profile_001/output/report.md = [
+  "入力行数: 60",
+  "2026-01",
+  "117438.00"
+]
+fixtures/data4_qwen35_profile_001/output/results.json = [
+  "\"input_rows\": 60",
+  "\"used_rows\": 57",
+  "\"grand_total\": 117438.0"
+]
+fixtures/data4_qwen35_none_002/output/report.md = [
+  "Input rows: 60",
+  "2026-01",
+  "117938.00"
+]
+fixtures/data4_qwen35_none_002/output/results.json = [
+  "\"input_rows\": 60",
+  "\"used_rows\": 56",
+  "\"total_sales\": 117938.0"
+]
+fixtures/reconciliation-row-mismatch/output/report.md = ["Input rows: 61"]
+fixtures/reconciliation-row-mismatch/output/results.json = [
+  "\"input_rows\": 60",
+  "\"used_rows\": 56",
+  "\"rows\": 4"
+]
+fixtures/data5_qwen35_profile_001/evidence/claims-binding.json = [
+  "\"raw\": \"40497.00\"",
+  "\"raw\": \"40127.00\"",
+  "\"raw\": \"36814.00\"",
+  "\"key\": \"2026-05_大阪\"",
+  "\"absolute_difference\": 19027.0",
+  "\"absolute_difference\": 18657.0",
+  "\"absolute_difference\": 15344.0"
+]

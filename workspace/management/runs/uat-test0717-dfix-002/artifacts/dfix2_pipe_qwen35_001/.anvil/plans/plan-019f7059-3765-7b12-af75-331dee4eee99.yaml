@@ -1,0 +1,21 @@
+goal: "Original ultra goal: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。\nProfile: data\nStyle: default\nIntent: fix\nPhase id: isolate-cause\nPhase task: Isolate the cause of the reproduced failure without modifying the workspace for: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n- pipeline\n- uat-console.log\n\nPrior ultra context:\n- Pending final artifacts:\n  - output/results.json\n  - output/report.md\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- any\n- apply\n- before\n- behavior\n- bind\n- bound\n- … and 18 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema\n\nFix contract phase role: cause_isolation. Inspect and narrow the cause of the observed failure without writing, editing, setting up, installing, or repairing.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: pipeline/main.py:53\n- error kind: ValueError\n- message: invalid literal for int() with base 10: ''\n- write-pressure target: pipeline/main.py (selection_reason=traceback_mapped)\n- excerpt: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0717_dfix_002/runs/dfix2_pipe_qwen35_001/pipeline/main.py:53 in parse_amount"
+steps:
+  - id: "inspect-pipeline-code"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read pipeline/main.py to locate the parse_amount function around line 53 and identify how it attempts to convert the amount field to an integer."
+    expected_paths:
+    verify:
+  - id: "inspect-sales-data"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read data/sales.csv to examine the header row and scan for rows where the amount column is empty or contains non-numeric values."
+    expected_paths:
+    verify:
+  - id: "verify-empty-amounts"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run a single-line Python command to count rows with empty amount fields and confirm the ValueError trigger."
+    expected_paths:
+    verify:
+      - "python -c \"print(sum(1 for r in __import__('csv').DictReader(open('data/sales.csv')) if not r.get('amount','').strip()))\""

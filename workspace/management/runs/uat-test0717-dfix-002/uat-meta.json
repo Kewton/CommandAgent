@@ -1,0 +1,35 @@
+{
+  "campaign": "uat-test0717-dfix-002",
+  "date": "2026-07-17",
+  "head": "a89db526f4b0f0d66c5dc55cb17d36d8c72d1935",
+  "profile": "data",
+  "intent": "fix",
+  "run_count": 6,
+  "retry_count": 0,
+  "full_count": 0,
+  "failed_count": 6,
+  "overall_gate": "PASS",
+  "failed_gate": null,
+  "fix6a_pipe_suggestion": "3/3",
+  "fix6a_pipe_exact_adoption": "3/3",
+  "fix6b_reproducer_defect": "not_exercised",
+  "combined_dfix_001_002": {
+    "denominator": 12,
+    "full": 0,
+    "failed": 12
+  },
+  "cost_seconds": {
+    "acquisition": 280,
+    "execution_campaign_wall": 3396,
+    "execution_run_sum": 3098,
+    "reporting": 545,
+    "total_measured": 4221
+  },
+  "analysis": [
+    "analysis/preflight.json",
+    "analysis/source-provenance.json",
+    "analysis/run-matrix.json",
+    "analysis/fix-evidence-audit.json",
+    "analysis/gate-results.json"
+  ]
+}

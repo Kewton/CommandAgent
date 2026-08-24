@@ -1,11 +1,2012 @@
-pub mod agent;
+//! CommandAgent's CLI runtime and reusable planning/execution components.
+//!
+//! [`run`] is the top-level CLI entry point. Callers that consume run evidence
+//! may continue to use [`eval_events::emit`] with `serde_json::Value`; internal
+//! lifecycle producers use typed schemas before crossing that compatible
+//! boundary. Minimal-loop failures expose structured contract data through
+//! [`minimal_loop::loop_run::RunSessionErrorContext`] without requiring callers
+//! to parse display text.
+
+#![recursion_limit = "256"]
+
+pub mod bounded_process;
+pub mod build_info;
 pub mod cli;
+mod cli_artifacts;
+mod cli_completion;
+mod cli_config_template;
+mod cli_pack;
+mod cli_panic_boundary;
+mod completion_metadata;
 pub mod config;
-pub mod logging;
+pub mod doctor;
+pub mod env_compat;
+pub mod eval_events;
+mod evidence_envelope;
+mod extension_inventory;
+pub mod fetch_probe;
+mod headless_summary;
+pub mod minimal_loop;
+pub mod mode;
+pub mod model_probe;
+mod openai_model;
+mod pack_actions;
+pub mod planner;
+pub mod preflight;
+pub mod provider_call;
+pub mod provider_cli;
 pub mod providers;
-pub mod runtime_client;
-pub mod safety;
-pub mod session;
+pub mod repl;
+mod run_trace;
+pub mod runs;
+pub mod runtime_paths;
+pub mod state;
+pub mod time_profile;
 pub mod tools;
 pub mod tui;
 pub mod util;
+pub mod workflow;
+mod workspace_lock;
+
+use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::Context;
+use cli::Cli;
+use config::{Action, Config};
+use serde_json::json;
+use signal_hook::consts::SIGINT;
+use signal_hook::iterator::{Handle as SignalHandle, Signals};
+use tui::OutputRenderer;
+use tui::TerminalUi;
+use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
+
+pub fn run(cli: Cli) -> anyhow::Result<()> {
+    run_with_provider_options(cli, config::ProviderCliOptions::default())
+}
+
+pub fn run_with_provider_options(
+    cli: Cli,
+    provider_options: config::ProviderCliOptions,
+) -> anyhow::Result<()> {
+    let _tool_allow_policy = tools::allow_policy::install(cli.yes, &cli.allow);
+    let _trace = run_trace::install(cli.trace);
+    if extension_inventory::run_if_requested(&cli)? {
+        return Ok(());
+    }
+    if pack_actions::run_if_requested(&cli)? {
+        return Ok(());
+    }
+    if let Some(shell) = cli.completions {
+        let stdout = std::io::stdout();
+        return cli_artifacts::write_completions(shell, &mut stdout.lock());
+    }
+    if cli.generate_man {
+        let stdout = std::io::stdout();
+        return cli_artifacts::write_man_page(&mut stdout.lock())
+            .context("failed to write commandagent man page");
+    }
+    if cli.init_config {
+        let path = cli_config_template::create(&cli)?;
+        println!("created config template at {}", path.display());
+        return Ok(());
+    }
+    if let Some(path) = cli.validate_plan.as_deref() {
+        let workspace_root = cli
+            .cwd
+            .clone()
+            .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
+            .canonicalize()
+            .context("failed to canonicalize workspace root")?;
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            workspace_root.join(path)
+        };
+        let validation = planner::plan::validate_plan_file(&path, &workspace_root)?;
+        println!("{}", validation.render_success(&path));
+        return Ok(());
+    }
+    if let Some(path) = cli.validate_manifest.as_deref() {
+        planner::profile_manifest::commands::validate_file(path)?;
+        println!("valid external profile manifest: {}", path.display());
+        return Ok(());
+    }
+    if let Some(id) = cli.init_profile.as_deref() {
+        let extension_root = cli
+            .extension_root
+            .as_deref()
+            .context("--init-profile requires --extension-root")?;
+        let path = planner::profile_manifest::commands::init_profile(extension_root, id)?;
+        println!("created profile manifest at {}", path.display());
+        return Ok(());
+    }
+    if cli.doctor {
+        return doctor::run_cli_with_provider_options(cli, provider_options);
+    }
+    let pack_cli = cli.clone();
+    let summary_json = cli.summary_json;
+    let config = Config::from_cli_with_provider_options(cli, provider_options)?;
+    for profile in planner::extension_profiles::registered() {
+        for warning in &profile.warnings {
+            eprintln!("warning: {warning}");
+        }
+    }
+    let pack = cli_pack::resolve(&pack_cli, &config)?;
+    let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
+    let summary_source =
+        summary_json.then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
+    let result = run_resolved_config_with_summary(config, summary_source.clone());
+    if let Some(source) = summary_source {
+        println!("{}", headless_summary::render(&source));
+    }
+    result
+}
+
+pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
+    if error
+        .chain()
+        .any(|cause| cause.is::<cli_pack::PackCliError>())
+    {
+        2
+    } else if error_is_interrupted(error) {
+        130
+    } else {
+        1
+    }
+}
+
+#[cfg(test)]
+fn run_resolved_config(config: Config) -> anyhow::Result<()> {
+    run_resolved_config_with_summary(config, None)
+}
+
+fn run_resolved_config_with_summary(
+    config: Config,
+    summary_source: Option<headless_summary::Source>,
+) -> anyhow::Result<()> {
+    let _workspace_lock = action_uses_workspace_lock(&config.action)
+        .then(|| {
+            workspace_lock::acquire(&config.workspace_root, config.eval_events_path.as_deref())
+        })
+        .transpose()?;
+    let _git_reporter = (!matches!(
+        config.action,
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe
+    ))
+    .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
+    cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
+}
+
+pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result<()> {
+    // This runs *inside* the outer CLI panic boundary:
+    // run_resolved_config_with_summary already wrapped the workflow invocation in
+    // catch_cli_run, which holds the process-wide, non-reentrant PANIC_HOOK_LOCK for
+    // the whole run. Re-entering catch_cli_run here makes the same thread re-lock that
+    // mutex and self-deadlock. Run the resolved config directly; the outer boundary
+    // still catches any panic raised by this child node run.
+    run_config(config, None)
+}
+
+fn run_config(
+    config: Config,
+    summary_source: Option<headless_summary::Source>,
+) -> anyhow::Result<()> {
+    if let Action::Workflow(definition, origin) = &config.action {
+        return workflow::orchestrator::run_workflow(&config, definition, origin);
+    }
+    if let Action::Runs(request) = &config.action {
+        println!(
+            "{}",
+            runs::render_runs_request(&config.workspace_root, request)?
+        );
+        return Ok(());
+    }
+    let _terminal_notification_guard = tui::terminal_notifications::install();
+    let _presentation_guard = tui::presentation::install(&config);
+    emit_run_start(&config);
+    if let Some(estimate) = tui::footer::startup_duration_estimate(&config) {
+        eprintln!("{estimate}");
+    }
+    let direct_command_guard = if let Some(source) = summary_source {
+        DirectCommandCompletionGuard::start_with_summary(&config, source)
+    } else {
+        DirectCommandCompletionGuard::start(&config)
+    };
+    if let Some(warning) =
+        tools::approval::startup_warning(&config.action, config.yes, tui::terminal::stdin_is_tty())
+    {
+        eprintln!("{warning}");
+    }
+    #[cfg(test)]
+    cli_panic_boundary::inject_test_fault_if_requested();
+    let result = (|| -> anyhow::Result<()> {
+        preflight::run_for_action(&config)?;
+        match config.action.clone() {
+            Action::Repl => repl::run_repl(config.clone()),
+            Action::Prompt(prompt)
+                if config.profile == planner::profiles::community_mini_app::PROFILE_ID
+                    && config.offline =>
+            {
+                let report = planner::profile::verify_profile_final(
+                    &config.workspace_root,
+                    planner::profiles::community_mini_app::PROFILE_ID,
+                    &prompt,
+                );
+                let ok = report.is_pass();
+                let violation = if ok {
+                    String::new()
+                } else {
+                    report.primary_reason()
+                };
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "community_profile_verification",
+                        "profile": planner::profiles::community_mini_app::PROFILE_ID,
+                        "verdict": if ok { "full" } else { "failed" },
+                        "assurance": if ok { "full" } else { "failed" },
+                        "violation": violation,
+                        "ok": ok,
+                    }),
+                );
+                if ok {
+                    Ok(())
+                } else {
+                    anyhow::bail!("community_profile_violation:{}", report.primary_reason())
+                }
+            }
+            Action::Prompt(prompt) => {
+                let mut client = providers::client_from_config(&config, false)?;
+                let ui = DirectActionUi::new(&config);
+                let resume = if config.fresh_session {
+                    None
+                } else {
+                    config.resume.as_deref()
+                };
+                let mut session =
+                    state::SessionStore::new(config.state_dir.clone()).load_or_create(resume)?;
+                let reply = minimal_loop::loop_run::run_session_with_required_paths_with_ui(
+                    &mut *client,
+                    &mut session,
+                    &prompt,
+                    &[],
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                state::SessionStore::new(config.state_dir.clone()).save(&session)?;
+                drop(ui);
+                PlainRenderer.render_assistant(&reply)?;
+                Ok(())
+            }
+            Action::PlanSteps(goal) => {
+                let mut planner = providers::client_from_config(&config, true)?;
+                let ui = DirectActionUi::new(&config);
+                let plan = planner::generate_step_plan_with_ui(
+                    &mut *planner,
+                    &goal,
+                    &config,
+                    ui.as_interaction(),
+                )
+                .context("failed to generate step plan")?;
+                let path = planner::save_step_plan(&config.workspace_root, &plan)?;
+                drop(ui);
+                println!("{}", path.display());
+                println!(
+                    "{}",
+                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Step)
+                );
+                Ok(())
+            }
+            Action::PlanRun(goal) => {
+                let mut execution = providers::client_from_config(&config, false)?;
+                let mut planner_client = providers::client_from_config(&config, true)?;
+                let ui = DirectActionUi::new(&config);
+                let report = planner::generate_and_run_step_plan_with_ui(
+                    &mut *planner_client,
+                    &mut *execution,
+                    &goal,
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                drop(ui);
+                println!("{report}");
+                Ok(())
+            }
+            Action::RunPlan(path) => {
+                let mut execution = providers::client_from_config(&config, false)?;
+                let ui = DirectActionUi::new(&config);
+                let report = planner::run_plan_file_with_ui(
+                    &mut *execution,
+                    &path,
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                drop(ui);
+                println!("{report}");
+                Ok(())
+            }
+            Action::UltraPlan(goal) => {
+                let mut planner_client = providers::client_from_config(&config, true)?;
+                let ui = DirectActionUi::new(&config);
+                let plan = planner::generate_ultra_plan_with_ui(
+                    &mut *planner_client,
+                    &goal,
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                let path = planner::save_ultra_plan(&config.workspace_root, &plan)?;
+                drop(ui);
+                println!("{}", path.display());
+                println!(
+                    "{}",
+                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Ultra)
+                );
+                Ok(())
+            }
+            Action::UltraPlanRun(goal) => {
+                let mut execution = providers::client_from_config(&config, false)?;
+                let mut planner_client = providers::client_from_config(&config, true)?;
+                let ui = DirectActionUi::new(&config);
+                let report = planner::generate_and_run_ultra_plan_with_ui(
+                    &mut *planner_client,
+                    &mut *execution,
+                    &goal,
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                drop(ui);
+                println!("{report}");
+                Ok(())
+            }
+            Action::RunUltraPlan(path) => {
+                let mut execution = providers::client_from_config(&config, false)?;
+                let mut planner_client = providers::client_from_config(&config, true)?;
+                let ui = DirectActionUi::new(&config);
+                let report = planner::run_ultra_plan_file_with_ui(
+                    &mut *planner_client,
+                    &mut *execution,
+                    &path,
+                    &config,
+                    ui.as_interaction(),
+                )?;
+                drop(ui);
+                println!("{report}");
+                Ok(())
+            }
+            Action::SetupInteractionProbe => {
+                let report =
+                    minimal_loop::interaction_probe::setup_interaction_probe_with_stdout_progress(
+                    )?;
+                for line in report.summary_lines() {
+                    println!("{line}");
+                }
+                Ok(())
+            }
+            Action::ModelProbe => {
+                let mut execution = providers::client_from_config(&config, false)?;
+                let mut planner_client = providers::client_from_config(&config, true)?;
+                let output =
+                    model_probe::run_configured(&config, &mut *planner_client, &mut *execution)?;
+                println!("{}", output.card);
+                Ok(())
+            }
+            Action::Doctor => {
+                let report = doctor::diagnose(&config);
+                println!("{}", report.render_human());
+                if report.failed() {
+                    anyhow::bail!("doctor found failed checks");
+                }
+                Ok(())
+            }
+            Action::Workflow(..) => unreachable!("workflow action dispatched before match"),
+            Action::UxDemo => tui::ux_demo::run(&config),
+            Action::Runs(_) => Ok(()),
+        }
+    })();
+    if let Some(guard) = direct_command_guard.as_ref() {
+        guard.finalize(&result);
+    }
+    emit_run_stop(&config, &result);
+    result
+}
+
+fn action_uses_workspace_lock(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe | Action::Doctor
+    )
+}
+
+enum DirectActionUi {
+    Terminal(TerminalUi),
+    Noop,
+}
+
+impl DirectActionUi {
+    fn new(config: &Config) -> Self {
+        if tui::footer::FooterEnv::detect(config).enabled {
+            Self::Terminal(TerminalUi::new(config))
+        } else {
+            Self::Noop
+        }
+    }
+
+    fn as_interaction(&self) -> &dyn tui::InteractionUi {
+        match self {
+            Self::Terminal(ui) => ui,
+            Self::Noop => &tui::NOOP_UI,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectCommandStatus {
+    Completed,
+    Partial,
+    Failed,
+    Interrupted,
+}
+
+impl DirectCommandStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Partial => "partial",
+            Self::Failed => "failed",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    fn ok(self) -> bool {
+        matches!(self, Self::Completed | Self::Partial)
+    }
+
+    fn failure_kind(self) -> &'static str {
+        match self {
+            Self::Completed | Self::Partial => "",
+            Self::Failed => "direct_cli_command_failed",
+            Self::Interrupted => "direct_cli_command_interrupted",
+        }
+    }
+}
+
+struct DirectCommandCompletionGuard {
+    config: Config,
+    command: String,
+    finalized: Arc<AtomicBool>,
+    signal_handle: Option<SignalHandle>,
+    _signal_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DirectCommandCompletionGuard {
+    fn start(config: &Config) -> Option<Self> {
+        Self::start_inner(config, None)
+    }
+
+    fn start_with_summary(config: &Config, source: headless_summary::Source) -> Option<Self> {
+        Self::start_inner(config, Some(source))
+    }
+
+    fn start_inner(
+        config: &Config,
+        summary_source: Option<headless_summary::Source>,
+    ) -> Option<Self> {
+        let command = direct_command_for_action(&config.action)?.to_string();
+        tui::terminal_notifications::command_started();
+        let finalized = Arc::new(AtomicBool::new(false));
+        let mut signal_handle = None;
+        let mut signal_thread = None;
+
+        match Signals::new([SIGINT]) {
+            Ok(mut signals) => {
+                let handle = signals.handle();
+                let signal_config = config.clone();
+                let signal_command = command.clone();
+                let signal_finalized = finalized.clone();
+                signal_thread = Some(std::thread::spawn(move || {
+                    if signals.forever().next().is_some() {
+                        if !signal_finalized.swap(true, Ordering::AcqRel) {
+                            let result: anyhow::Result<()> =
+                                Err(anyhow::anyhow!("interrupted by user"));
+                            bounded_process::reap_registered_server_children_for_workspace(
+                                signal_config.eval_events_path.as_deref(),
+                                "direct_cli_sigint",
+                                &signal_config.workspace_root,
+                            );
+                            emit_direct_command_stop_with_status(
+                                &signal_config,
+                                &signal_command,
+                                &result,
+                                DirectCommandStatus::Interrupted,
+                            );
+                            tui::terminal_notifications::finish_process();
+                            let mut stdout = std::io::stdout().lock();
+                            if let Err(err) = write_interrupted_headless_summary(
+                                summary_source.as_ref(),
+                                signal_config.eval_events_path.as_deref(),
+                                &mut stdout,
+                            ) {
+                                eprintln!(
+                                    "warning: failed to write interrupted headless summary: {err}"
+                                );
+                            }
+                            // Keep stdout locked until exit so the JSON remains the final line.
+                            std::process::exit(130);
+                        }
+                        std::process::exit(130);
+                    }
+                }));
+                signal_handle = Some(handle);
+            }
+            Err(err) => {
+                eprintln!("warning: failed to install direct CLI SIGINT finalizer: {err}");
+            }
+        }
+
+        Some(Self {
+            config: config.clone(),
+            command,
+            finalized,
+            signal_handle,
+            _signal_thread: signal_thread,
+        })
+    }
+
+    fn finalize(&self, result: &anyhow::Result<()>) {
+        let status = match result {
+            Ok(()) => DirectCommandStatus::Completed,
+            Err(err) if error_is_interrupted(err) => DirectCommandStatus::Interrupted,
+            Err(_) => DirectCommandStatus::Failed,
+        };
+        self.finalize_with_status(result, status);
+    }
+
+    fn finalize_with_status(&self, result: &anyhow::Result<()>, status: DirectCommandStatus) {
+        #[cfg(test)]
+        cli_panic_boundary::inject_test_finalizer_fault_if_requested();
+        if self.finalized.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        emit_direct_command_stop_with_status(&self.config, &self.command, result, status);
+    }
+}
+
+fn write_interrupted_headless_summary(
+    source: Option<&headless_summary::Source>,
+    events_path: Option<&std::path::Path>,
+    output: &mut impl Write,
+) -> std::io::Result<bool> {
+    let Some(source) = source else {
+        return Ok(false);
+    };
+    if events_path
+        .is_none_or(|path| eval_events::terminal_report::read_events(Some(path)).is_empty())
+    {
+        return Ok(false);
+    }
+    let source = source
+        .clone()
+        .with_terminal_status(headless_summary::TerminalStatus::Interrupted)
+        .with_exit_code(130);
+    writeln!(output, "{}", headless_summary::render(&source))?;
+    output.flush()?;
+    Ok(true)
+}
+
+impl Drop for DirectCommandCompletionGuard {
+    fn drop(&mut self) {
+        if let Some(handle) = self.signal_handle.take() {
+            handle.close();
+        }
+        if self.finalized.load(Ordering::Acquire) {
+            return;
+        }
+        let reason = if std::thread::panicking() {
+            "internal_panic"
+        } else {
+            "direct CLI command exited before completion finalizer"
+        };
+        let result: anyhow::Result<()> = Err(anyhow::anyhow!(reason));
+        if std::thread::panicking() {
+            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.finalize_with_status(&result, DirectCommandStatus::Failed);
+            })) {
+                cli_panic_boundary::report_secondary_panic(
+                    "finalizing a panicking direct CLI command",
+                    payload,
+                );
+            }
+        } else {
+            self.finalize_with_status(&result, DirectCommandStatus::Failed);
+        }
+    }
+}
+
+fn direct_command_for_action(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::Repl | Action::Runs(_) | Action::UxDemo => None,
+        Action::Prompt(_) => Some("--prompt"),
+        Action::PlanSteps(_) => Some("--plan-steps"),
+        Action::PlanRun(_) => Some("--plan-run"),
+        Action::RunPlan(_) => Some("--run-plan"),
+        Action::UltraPlan(_) => Some("--ultra-plan"),
+        Action::UltraPlanRun(_) => Some("--ultra-plan-run"),
+        Action::RunUltraPlan(_) => Some("--run-ultra-plan"),
+        Action::SetupInteractionProbe => Some("--setup-interaction-probe"),
+        Action::ModelProbe => Some("--model-probe"),
+        Action::Doctor => Some("--doctor"),
+        Action::Workflow(..) => Some("--workflow"),
+    }
+}
+
+fn emit_direct_command_stop_with_status(
+    config: &Config,
+    command: &str,
+    result: &anyhow::Result<()>,
+    requested_status: DirectCommandStatus,
+) -> eval_events::CompletionProjection {
+    bounded_process::reap_registered_server_children_for_workspace(
+        config.eval_events_path.as_deref(),
+        "direct_cli_stop",
+        &config.workspace_root,
+    );
+    let requested_ok = requested_status.ok();
+    let mut completion_snapshot =
+        eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());
+    completion_metadata::apply_config_completion_metadata(config, &mut completion_snapshot);
+    let mut completion = eval_events::project_completion(requested_ok, &completion_snapshot);
+    completion_metadata::apply_config_completion_projection(config, &mut completion);
+    let terminal_status = effective_direct_status(requested_status, &completion);
+    let ok = terminal_status.ok();
+    let failure_kind = terminal_status.failure_kind();
+    let stop_reason = direct_stop_reason_for_result(result, terminal_status);
+    let event_projection = direct_event_projection_for_status(&completion, terminal_status);
+    let time_profile = time_profile::aggregate_event_path(config.eval_events_path.as_deref());
+    let time_profile_event = time_profile.to_event_json();
+
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "tui_command_stop",
+            "lifecycle_stage": "direct_cli_command",
+            "command": command,
+            "ok": ok,
+            "status": terminal_status.as_str(),
+            "build_commit": build_info::COMMIT,
+            "build_dirty": build_info::dirty(),
+            "build_timestamp": build_info::TIMESTAMP,
+            "failure_kind": failure_kind,
+            "stop_reason": stop_reason,
+            "completion_status": &completion.status,
+            "task_status": &event_projection.task_status,
+            "profile": &completion.profile,
+            "effective_profile": &completion.effective_profile,
+            "prompt_layout": config.prompt_layout.as_str(),
+            "contract_origin": &completion.contract_origin,
+            "assurance_level": &completion.assurance_level,
+            "assurance_reason": &completion.assurance_reason,
+            "profile_inferred": &completion.profile_inferred,
+            "profile_inference_source": &completion.profile_inference_source,
+            "session_status": "process_exited",
+            "repl_status": "not_applicable",
+            "command_completion_state": &event_projection.command_completion,
+            "runtime_acceptance_status": &completion.runtime_acceptance,
+            "final_acceptance_status": &completion.final_acceptance,
+            "release_gate_status": &completion.release_gate,
+            "next_action": &event_projection.next_action,
+            "recovery_next_action": &event_projection.next_action,
+            "recovery_prompt_path": &completion.recovery_prompt_path,
+            "recovery_ultra_plan_path": &completion.recovery_ultra_plan_path,
+            "suggested_recovery_command": &completion.suggested_recovery_command,
+            "suggested_recovery_yaml_command": &completion.suggested_recovery_yaml_command,
+            "time_profile_total_ms": time_profile.total_ms(),
+            "time_profile_provider_ms": time_profile.provider.total_ms(),
+            "time_profile_provider_prompt_eval_duration": time_profile.provider_durations.prompt_eval_duration,
+            "time_profile_provider_eval_duration": time_profile.provider_durations.eval_duration,
+            "time_profile_provider_load_duration": time_profile.provider_durations.load_duration,
+            "time_profile_provider_total_duration": time_profile.provider_durations.total_duration,
+            "time_profile_installs_ms": time_profile.installs_ms,
+            "time_profile_builds_ms": time_profile.builds_ms,
+            "time_profile_probe_ms": time_profile.probe_ms,
+            "time_profile": time_profile_event,
+        }),
+    );
+    if time_profile.total_ms() > 0 {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "time_profile",
+                "lifecycle_stage": "direct_cli_command",
+                "command": command,
+                "profile": time_profile.to_event_json(),
+            }),
+        );
+    }
+    eval_events::write_tui_command_completion_summary(
+        config.eval_events_path.as_deref(),
+        command,
+        &stop_reason,
+        failure_kind,
+        terminal_status.as_str(),
+        &completion,
+    );
+    if tui::terminal_summary::applies_to(command) {
+        render_terminal_summary_card_to_stdout(
+            config.eval_events_path.as_deref(),
+            &stop_reason,
+            &event_projection,
+        );
+    }
+    event_projection
+}
+
+fn direct_stop_reason_for_result(
+    result: &anyhow::Result<()>,
+    terminal_status: DirectCommandStatus,
+) -> String {
+    match result {
+        Ok(()) => "completed".to_string(),
+        Err(err) => {
+            let reason = eval_events::render_stop_reason_text(&err.to_string());
+            if terminal_status == DirectCommandStatus::Interrupted && reason.trim().is_empty() {
+                "interrupted by user".to_string()
+            } else {
+                reason
+            }
+        }
+    }
+}
+
+fn effective_direct_status(
+    requested: DirectCommandStatus,
+    completion: &eval_events::CompletionProjection,
+) -> DirectCommandStatus {
+    if requested == DirectCommandStatus::Completed
+        && completion.release_gate == "partial"
+        && completion
+            .release_gate_reasons
+            .iter()
+            .any(|reason| reason.contains("interaction_unverified:probe_unavailable"))
+    {
+        DirectCommandStatus::Partial
+    } else {
+        requested
+    }
+}
+
+fn direct_event_projection_for_status(
+    completion: &eval_events::CompletionProjection,
+    terminal_status: DirectCommandStatus,
+) -> eval_events::CompletionProjection {
+    let mut projection = completion.clone();
+    if matches!(
+        terminal_status,
+        DirectCommandStatus::Completed | DirectCommandStatus::Partial
+    ) {
+        return projection;
+    }
+    projection.status = terminal_status.as_str().to_string();
+    projection.command_completion = terminal_status.as_str().to_string();
+    projection.task_status = terminal_status.as_str().to_string();
+    projection.next_action = match terminal_status {
+        DirectCommandStatus::Interrupted => "resume_or_rerun_command".to_string(),
+        DirectCommandStatus::Failed => "fix_command_failure".to_string(),
+        DirectCommandStatus::Completed | DirectCommandStatus::Partial => projection.next_action,
+    };
+    projection
+}
+
+fn error_is_interrupted(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.to_string().contains("interrupted by user"))
+}
+
+fn emit_run_start(config: &Config) {
+    let host_env_contamination = minimal_loop::verifier_env::host_env_contamination();
+    let inherited_node_env_normalized = host_env_contamination
+        .iter()
+        .any(|entry| entry.starts_with("NODE_ENV="));
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "run_start",
+            "workspace_root": eval_events::body_snippet(&config.workspace_root.display().to_string()),
+            "provider": config.provider_label(config::ProviderRole::Executor),
+            "model": eval_events::body_snippet(&config.model),
+            "planner_provider": config.provider_label(config::ProviderRole::Planner),
+            "planner_model": eval_events::body_snippet(&config.planner_model),
+            "chat_timeout_secs": config.chat_timeout_secs,
+            "chat_timeout_source": config.chat_timeout_source,
+            "prompt_layout": config.prompt_layout.as_str(),
+            "plan_preset": config.plan_preset.as_str(),
+            "plan_preset_origin": config.plan_preset_origin(),
+            "plan_preset_source": config.field_sources.plan_preset,
+            "profile": config.profile,
+            "profile_inferred": config
+                .profile_inference
+                .map(|inference| inference.profile)
+                .unwrap_or(""),
+            "profile_inference_source": config
+                .profile_inference
+                .map(|inference| inference.source.as_str())
+                .unwrap_or(""),
+            "style": config.style,
+            "action": format!("{:?}", config.action),
+            "eval_events_override": eval_events::is_eval_events_override(),
+            "build_commit": build_info::COMMIT,
+            "build_dirty": build_info::dirty(),
+            "build_timestamp": build_info::TIMESTAMP,
+        }),
+    );
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "intent_resolved",
+            "value": config.resolved_run_intent().as_str(),
+            "origin": config.intent_origin(),
+            "source": config.intent_source(),
+        }),
+    );
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "plan_preset_resolved",
+            "plan_preset": config.plan_preset.as_str(),
+            "origin": config.plan_preset_origin(),
+            "source": config.field_sources.plan_preset,
+        }),
+    );
+    if let Some(inference) = config.profile_inference {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "profile_inferred",
+                "profile": inference.profile,
+                "from": inference.source.as_str(),
+                "lifecycle_stage": "process",
+            }),
+        );
+    }
+    if !host_env_contamination.is_empty() {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "host_env_contamination",
+                "contamination": host_env_contamination.clone(),
+                "lifecycle_stage": "process",
+            }),
+        );
+    }
+    if inherited_node_env_normalized {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "host_env_normalized",
+                "variables": ["NODE_ENV"],
+                "strategy": "unset_inherited",
+                "scope": "bounded_process_children",
+                "lifecycle_stage": "process",
+            }),
+        );
+    }
+    let events_path = config
+        .eval_events_path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "unavailable".to_string());
+    let host_env_line = if host_env_contamination.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nHost env: {} detected (verifiers ran with a cleaned environment)",
+            host_env_contamination.join(", ")
+        )
+    };
+    eval_events::write_run_summary(
+        config.eval_events_path.as_deref(),
+        &format!(
+            "Status: running\nAction: {:?}\nEvents: {}{}{}",
+            config.action,
+            events_path,
+            config
+                .profile_inference
+                .map(|inference| format!("\n{}", inference.summary_line()))
+                .unwrap_or_default(),
+            host_env_line
+        ),
+    );
+}
+
+fn emit_run_stop(config: &Config, result: &anyhow::Result<()>) {
+    bounded_process::reap_registered_server_children_for_workspace(
+        config.eval_events_path.as_deref(),
+        "run_stop",
+        &config.workspace_root,
+    );
+    let (ok, stop_reason, failure_kind) = match result {
+        Ok(()) => (true, "completed".to_string(), ""),
+        Err(err) => {
+            let text = err.to_string();
+            let failure_kind = if text.starts_with("community_profile_violation:") {
+                "community_profile_violation"
+            } else {
+                "process_failure"
+            };
+            (
+                false,
+                eval_events::render_stop_reason_text(&text),
+                failure_kind,
+            )
+        }
+    };
+    let mut completion_snapshot =
+        eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());
+    completion_metadata::apply_config_completion_metadata(config, &mut completion_snapshot);
+    let terminal_stop =
+        eval_events::latest_tui_command_stop_event(config.eval_events_path.as_deref());
+    let terminal_ok = terminal_stop
+        .as_ref()
+        .and_then(|event| event.get("ok").and_then(serde_json::Value::as_bool))
+        .unwrap_or(ok);
+    let mut completion = eval_events::project_completion(terminal_ok, &completion_snapshot);
+    if let Some(event) = terminal_stop.as_ref() {
+        eval_events::apply_tui_command_stop_projection(&mut completion, event);
+    }
+    completion_metadata::apply_config_completion_projection(config, &mut completion);
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "run_stop",
+            "ok": ok,
+            "lifecycle_stage": "process",
+            "action": format!("{:?}", config.action),
+            "stop_reason": stop_reason,
+            "failure_kind": failure_kind,
+            "status": &completion.status,
+            "completion_status": &completion.status,
+            "task_status": &completion.task_status,
+            "profile": &completion.profile,
+            "effective_profile": &completion.effective_profile,
+            "prompt_layout": config.prompt_layout.as_str(),
+            "contract_origin": &completion.contract_origin,
+            "assurance_level": &completion.assurance_level,
+            "assurance_reason": &completion.assurance_reason,
+            "profile_inferred": &completion.profile_inferred,
+            "profile_inference_source": &completion.profile_inference_source,
+            "requested_port": &completion.requested_port,
+            "session_status": "process_exited",
+            "repl_status": "not_applicable",
+            "process_completion_state": &completion.command_completion,
+            "command_completion_state": &completion.command_completion,
+            "runtime_acceptance_status": &completion.runtime_acceptance,
+            "final_acceptance_status": &completion.final_acceptance,
+            "release_gate_status": &completion.release_gate,
+            "completion_contract_verification_enabled": completion.completion_contract_verification_enabled,
+            "completion_contract_path_merge_enabled": completion.completion_contract_path_merge_enabled,
+            "completion_contract_path": &completion.completion_contract_path,
+            "completion_contract_generated": completion.completion_contract_generated,
+            "external_contract_checked": completion.external_contract_checked,
+            "external_contract_ok": completion.external_contract_ok,
+            "release_gate_reasons": &completion.release_gate_reasons,
+            "browser_readiness_applicable": completion.browser_readiness_applicable,
+            "browser_readiness_execution_status": &completion.browser_readiness_execution_status,
+            "browser_readiness_status": &completion.browser_readiness,
+            "browser_readiness_evidence_path": &completion.browser_readiness_evidence_path,
+            "interaction_evidence_applicable": completion.interaction_evidence_applicable,
+            "interaction_evidence_execution_status": &completion.interaction_evidence_execution_status,
+            "interaction_evidence_status": &completion.interaction_evidence,
+            "interaction_evidence_path": &completion.interaction_evidence_path,
+            "release_quality_completion": &completion.release_quality_completion,
+            "next_action": &completion.next_action,
+            "recovery_next_action": &completion.next_action,
+            "recovery_prompt_path": &completion.recovery_prompt_path,
+            "recovery_ultra_plan_path": &completion.recovery_ultra_plan_path,
+            "suggested_recovery_command": &completion.suggested_recovery_command,
+            "suggested_recovery_yaml_command": &completion.suggested_recovery_yaml_command,
+            "planner_verify_normalization_count": completion.planner_verify_normalization_count,
+            "planner_retry_count": completion.planner_retry_count,
+            "planner_quality_warning_count": completion.planner_quality_warning_count,
+            "planner_quality_issue_count": completion.planner_quality_issue_count,
+            "planner_repaired": completion.planner_repaired,
+            "planner_release_risk": completion.planner_release_risk,
+        }),
+    );
+    eval_events::append_completion_summary(
+        config.eval_events_path.as_deref(),
+        "process",
+        Some(&format!("{:?}", config.action)),
+        None,
+        &stop_reason,
+        failure_kind,
+        &completion,
+    );
+}
+
+fn render_terminal_summary_card_to_stdout(
+    path: Option<&std::path::Path>,
+    stop_reason: &str,
+    projection: &eval_events::CompletionProjection,
+) {
+    if !tui::terminal::stdout_is_tty() && !tui::markdown::capture::is_active() {
+        return;
+    }
+    let card = eval_events::render_terminal_summary_card(path, stop_reason, projection);
+    let renderer = TerminalMarkdownRenderer::for_stdout();
+    let _ = renderer.render_assistant(&card);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::config::{Action, Provider};
+    use clap::Parser;
+    use serde_json::{Value, json};
+
+    fn config(root: PathBuf) -> Config {
+        Config {
+            workspace_root: root,
+            state_dir: PathBuf::from("state"),
+            eval_events_path: None,
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 1000,
+            model: "m".to_string(),
+            provider: Provider::Ollama,
+            tool_protocol: None,
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
+            prompt_layout: crate::config::PromptLayout::Stable,
+            plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::Ollama,
+            planner_think: Some(crate::config::OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::Ollama,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: "http://localhost:1234".to_string(),
+            num_predict: 100,
+            max_iterations: 4,
+            chat_timeout_secs: 1,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: crate::config::ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: crate::config::NarrationMode::Normal,
+            profile: "generic".to_string(),
+            profile_explicit: false,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    #[test]
+    fn workspace_lock_covers_execution_but_not_read_only_observers() {
+        assert!(action_uses_workspace_lock(&Action::Repl));
+        assert!(action_uses_workspace_lock(&Action::PlanSteps(
+            "goal".to_string()
+        )));
+        assert!(action_uses_workspace_lock(&Action::RunPlan(PathBuf::from(
+            "plan.yaml"
+        ))));
+        assert!(!action_uses_workspace_lock(&Action::Runs(
+            crate::config::RunsRequest::default()
+        )));
+        assert!(!action_uses_workspace_lock(&Action::ModelProbe));
+        assert!(!action_uses_workspace_lock(&Action::Doctor));
+    }
+
+    #[test]
+    fn workflow_child_execution_does_not_install_nested_panic_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::Runs(crate::config::RunsRequest::default());
+        cli_panic_boundary::reset_test_panic_hook_install_count();
+
+        run_resolved_config_for_workflow(cfg).unwrap();
+
+        assert_eq!(cli_panic_boundary::test_panic_hook_install_count(), 0);
+    }
+
+    #[test]
+    fn cli_exit_code_maps_nested_interruption_to_130() {
+        let interrupted = anyhow::anyhow!("interrupted by user").context("provider stopped");
+
+        assert_eq!(cli_error_exit_code(&interrupted), 130);
+        assert_eq!(
+            cli_error_exit_code(&anyhow::anyhow!("validation failed")),
+            1
+        );
+    }
+
+    #[test]
+    fn run_lifecycle_writes_events_and_summary_for_tui_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        let result: anyhow::Result<()> = Ok(());
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(event_text.contains("\"event\":\"run_start\""));
+        assert!(event_text.contains("\"event\":\"run_stop\""));
+        let first_event = event_text.lines().next().unwrap();
+        let first_event: serde_json::Value = serde_json::from_str(first_event).unwrap();
+        assert_eq!(
+            first_event
+                .get("build_commit")
+                .and_then(|value| value.as_str()),
+            Some(build_info::COMMIT)
+        );
+        assert_eq!(
+            first_event
+                .get("build_dirty")
+                .and_then(|value| value.as_bool()),
+            Some(build_info::dirty())
+        );
+        assert_eq!(
+            first_event
+                .get("build_timestamp")
+                .and_then(|value| value.as_str()),
+            Some(build_info::TIMESTAMP)
+        );
+        assert!(event_text.contains("\"task_status\":\"completed (reduced assurance)\""));
+        assert!(event_text.contains("\"assurance_level\":\"reduced\""));
+        assert!(event_text.contains("\"session_status\":\"process_exited\""));
+        assert!(event_text.contains("\"repl_status\":\"not_applicable\""));
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(
+            summary.starts_with(&format!("{}\n", build_info::summary_line())),
+            "{summary}"
+        );
+        assert!(summary.contains("Status: running"));
+        assert!(summary.contains("Action: Repl"));
+        assert!(summary.contains("Status: complete"));
+        assert!(summary.contains("Command status: completed"));
+        assert!(summary.contains("Command completion: completed"));
+        assert!(summary.contains("Task status: completed (reduced assurance)"));
+        assert!(summary.contains(
+            "Assurance: reduced (generic profile — no capability contract, no behavioral verification)"
+        ));
+        assert!(summary.contains("Session/REPL status: process_exited"));
+        assert!(summary.contains("Final acceptance: not_checked"));
+        assert!(summary.contains("Stop reason: completed"));
+    }
+
+    #[test]
+    fn run_start_records_plan_preset_value_and_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let cwd = dir.path().to_string_lossy().to_string();
+        let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--planner-model",
+            "qwen3.6:27b-coding-nvfp4",
+        ]))
+        .unwrap();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(event_text.contains("\"event\":\"run_start\""));
+        assert!(event_text.contains("\"plan_preset\":\"none\""));
+        assert!(event_text.contains("\"plan_preset_origin\":\"default\""));
+        assert!(event_text.contains("\"plan_preset_source\":\"default:qwen27_planner\""));
+        assert!(event_text.contains("\"event\":\"plan_preset_resolved\""));
+        assert!(event_text.contains("\"origin\":\"default\""));
+        assert!(event_text.contains("\"source\":\"default:qwen27_planner\""));
+    }
+
+    #[test]
+    fn run_start_records_hyphenated_lm_studio_provider_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.provider = Provider::LmStudio;
+        cfg.planner_provider = Provider::LmStudio;
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let event = std::fs::read_to_string(events).unwrap();
+        let start: Value = serde_json::from_str(event.lines().next().unwrap()).unwrap();
+        assert_eq!(start["provider"], "lm-studio");
+        assert_eq!(start["planner_provider"], "lm-studio");
+    }
+
+    #[test]
+    fn run_start_emits_one_default_intent_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let cwd = dir.path().to_string_lossy().to_string();
+        let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let resolved = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|event| event.get("event").and_then(Value::as_str) == Some("intent_resolved"))
+            .collect::<Vec<_>>();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].get("value").and_then(Value::as_str),
+            Some("fix")
+        );
+        assert_eq!(
+            resolved[0].get("origin").and_then(Value::as_str),
+            Some("default")
+        );
+        assert_eq!(resolved[0].get("source").and_then(Value::as_str), Some(""));
+    }
+
+    #[test]
+    fn run_start_records_explicit_intent_source_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let cwd = dir.path().to_string_lossy().to_string();
+        let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let resolved = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .find(|event| event.get("event").and_then(Value::as_str) == Some("intent_resolved"))
+            .unwrap();
+        assert_eq!(
+            resolved.get("value").and_then(Value::as_str),
+            Some("create")
+        );
+        assert_eq!(resolved.get("origin").and_then(Value::as_str), Some("cli"));
+        assert_eq!(
+            resolved.get("source").and_then(Value::as_str),
+            Some("create")
+        );
+    }
+
+    #[test]
+    fn run_stop_uses_tui_terminal_projection_after_failed_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "failed",
+                "command_completion_state": "failed",
+                "completion_status": "incomplete",
+                "task_status": "failed",
+                "profile": "nextjs",
+                "effective_profile": "nextjs",
+                "contract_origin": "initial",
+                "assurance_level": "partial",
+                "assurance_reason": "missing_required_evidence:restart_or_recoverable_state_evidence",
+                "runtime_acceptance_status": "failed",
+                "final_acceptance_status": "incomplete",
+                "release_gate_status": "failed",
+                "release_quality_completion": "failed",
+                "next_action": "repair_release_gate_failure",
+            }),
+        );
+
+        let result: anyhow::Result<()> = Ok(());
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        let run_stop = event_text
+            .lines()
+            .rfind(|line| line.contains(r#""event":"run_stop""#))
+            .unwrap();
+        let run_stop: serde_json::Value = serde_json::from_str(run_stop).unwrap();
+        assert_eq!(
+            run_stop.get("ok").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            run_stop.get("status").and_then(|value| value.as_str()),
+            Some("failed")
+        );
+        assert_eq!(
+            run_stop
+                .get("completion_status")
+                .and_then(|value| value.as_str()),
+            Some("failed")
+        );
+        assert_eq!(
+            run_stop.get("task_status").and_then(|value| value.as_str()),
+            Some("failed")
+        );
+        assert_eq!(
+            run_stop
+                .get("release_quality_completion")
+                .and_then(|value| value.as_str()),
+            Some("failed")
+        );
+        assert_eq!(
+            run_stop.get("next_action").and_then(|value| value.as_str()),
+            Some("repair_release_gate_failure")
+        );
+    }
+
+    #[test]
+    fn data_full_evidence_projects_to_both_terminal_events() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/test0715_data_b2j_terminal_projection/fixtures/data7_gemma31_profile_001",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(fixture);
+        cfg.eval_events_path = Some(events.clone());
+        cfg.profile = "data".to_string();
+        cfg.profile_explicit = true;
+        cfg.action = Action::UltraPlanRun("measured data full".to_string());
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "profile": "data",
+                "effective_profile": "data",
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "full_success",
+                "release_gate_status": "pass",
+                "assurance_level": "full",
+                "completion_contract_verification_enabled": false,
+                "external_contract_checked": false,
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        let projection = emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+        emit_run_stop(&cfg, &result);
+
+        assert_eq!(projection.assurance_level, "full");
+        assert!(projection.assurance_reason.is_empty());
+        let terminal_events = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| {
+                matches!(
+                    event.get("event").and_then(serde_json::Value::as_str),
+                    Some("tui_command_stop" | "run_stop")
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(terminal_events.len(), 2);
+        for event in terminal_events {
+            assert_eq!(
+                event
+                    .get("assurance_level")
+                    .and_then(serde_json::Value::as_str),
+                Some("full")
+            );
+            assert_eq!(
+                event
+                    .get("assurance_reason")
+                    .and_then(serde_json::Value::as_str),
+                Some("")
+            );
+        }
+    }
+
+    #[test]
+    fn unadmitted_profile_caps_full_terminal_projection() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/test0715_data_b2j_terminal_projection/fixtures/data7_qwen35_none_001",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(fixture);
+        cfg.eval_events_path = Some(events.clone());
+        cfg.profile = "external-draft".to_string();
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "profile": "external-draft",
+                "effective_profile": "external-draft",
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "full_success",
+                "release_gate_status": "pass",
+                "assurance_level": "full",
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        let projection = emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+
+        assert_eq!(projection.assurance_level, "static");
+        assert_eq!(
+            projection.assurance_reason,
+            planner::profile_admission::PROFILE_NOT_ADMITTED_REASON
+        );
+    }
+
+    #[test]
+    fn run_stop_preserves_known_profile_from_early_death_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "tui_command_start",
+                "command": "/ultra-plan-run",
+                "profile": "nextjs",
+            }),
+        );
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_context_initialized",
+                "profile": "nextjs",
+                "requested_port": "3011 (goal)",
+            }),
+        );
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "planner_error",
+                "planner_error_kind": "verify_command_policy_error",
+            }),
+        );
+
+        let result: anyhow::Result<()> =
+            Err(anyhow::anyhow!("invalid StepPlan after corrective retries"));
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        let run_stop = event_text
+            .lines()
+            .rfind(|line| line.contains(r#""event":"run_stop""#))
+            .unwrap();
+        assert!(
+            run_stop.contains(r#""effective_profile":"nextjs""#),
+            "{run_stop}"
+        );
+        assert!(
+            run_stop.contains(r#""assurance_level":"partial""#),
+            "{run_stop}"
+        );
+        assert!(
+            run_stop.contains(r#""assurance_reason":"acceptance_not_full_success""#),
+            "{run_stop}"
+        );
+        assert!(!run_stop.contains("generic_profile_reduced_assurance"));
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Effective profile: nextjs"), "{summary}");
+        assert!(!summary.contains("Assurance: reduced"), "{summary}");
+    }
+
+    #[test]
+    fn direct_cli_ultra_plan_run_finalizer_rewrites_interrupted_summary() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir
+            .path()
+            .join(".anvil/runs/direct-ultra-plan-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::UltraPlanRun("Create a smoke app".to_string());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        let guard = DirectCommandCompletionGuard::start(&cfg).expect("direct command guard");
+        let result: anyhow::Result<()> = Err(anyhow::anyhow!("interrupted by user"));
+        guard.finalize_with_status(&result, DirectCommandStatus::Interrupted);
+        drop(guard);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(event_text.contains("\"event\":\"tui_command_stop\""));
+        assert!(event_text.contains("\"lifecycle_stage\":\"direct_cli_command\""));
+        assert!(event_text.contains("\"command\":\"--ultra-plan-run\""));
+        assert!(event_text.contains("\"status\":\"interrupted\""));
+        assert!(event_text.contains("\"failure_kind\":\"direct_cli_command_interrupted\""));
+
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Status: interrupted"), "{summary}");
+        assert!(summary.contains("Command status: interrupted"), "{summary}");
+        assert!(!summary.contains("Status: running"), "{summary}");
+    }
+
+    #[test]
+    fn interrupted_headless_summary_requires_evidence_and_projects_exit_130() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/interrupted/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::UltraPlanRun("Create a smoke app".to_string());
+        cfg.eval_events_path = Some(events.clone());
+        let source = headless_summary::Source::from_config(&cfg, None);
+        let mut output = Vec::new();
+
+        assert!(
+            !write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+        assert!(output.is_empty());
+
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        std::fs::File::create(&events).unwrap();
+        assert!(
+            !write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+        assert!(output.is_empty());
+
+        emit_run_start(&cfg);
+        assert!(
+            write_interrupted_headless_summary(Some(&source), Some(&events), &mut output).unwrap()
+        );
+
+        assert!(output.ends_with(b"\n"));
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let value: Value = serde_json::from_str(text.trim_end()).unwrap();
+        assert_eq!(value["schema_version"], "commandagent.headless-summary/v1");
+        assert_eq!(value["status"], "interrupted");
+        assert_eq!(value["exit_code"], 130);
+        assert_eq!(value["events_path"], events.display().to_string());
+    }
+
+    #[test]
+    fn direct_non_execution_actions_skip_generic_terminal_gate_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(
+            dir.path()
+                .join(".anvil/runs/direct-summary-audit/events.jsonl"),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        for command in [
+            "--setup-interaction-probe",
+            "--model-probe",
+            "--plan-steps",
+            "--ultra-plan",
+        ] {
+            let capture = tui::markdown::capture::start();
+            emit_direct_command_stop_with_status(
+                &cfg,
+                command,
+                &result,
+                DirectCommandStatus::Completed,
+            );
+            assert_eq!(capture.output(), "", "{command}");
+        }
+
+        let capture = tui::markdown::capture::start();
+        emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+        let output = capture.output();
+        assert!(output.contains("### Terminal summary"), "{output}");
+    }
+
+    #[test]
+    fn direct_cli_error_finalizes_before_run_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_dir = dir.path().join("state");
+        let cli = Cli::parse_from([
+            "commandagent".to_string(),
+            "--cwd".to_string(),
+            dir.path().display().to_string(),
+            "--state-dir".to_string(),
+            state_dir.display().to_string(),
+            "--run-plan".to_string(),
+            "missing-plan.yaml".to_string(),
+            "--model".to_string(),
+            "m".to_string(),
+            "--yes".to_string(),
+        ]);
+
+        let err = run(cli).expect_err("missing run plan should fail");
+
+        assert!(
+            err.to_string().contains("missing-plan.yaml")
+                || err.to_string().contains("No such file")
+                || err.to_string().contains("failed to"),
+            "{err:?}"
+        );
+        let runs_dir = dir.path().join(".commandagent/runs");
+        assert!(!dir.path().join(".anvil").exists());
+        let events_path = std::fs::read_dir(&runs_dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path().join("events.jsonl"))
+            .find(|path| path.is_file())
+            .expect("events path");
+        let event_text = std::fs::read_to_string(events_path).unwrap();
+        assert!(
+            !event_text.contains("direct CLI command exited before completion finalizer"),
+            "{event_text}"
+        );
+        let command_stop = event_text.find("\"event\":\"tui_command_stop\"").unwrap();
+        let run_stop = event_text.find("\"event\":\"run_stop\"").unwrap();
+        assert!(command_stop < run_stop, "{event_text}");
+        assert!(event_text.contains("\"command\":\"--run-plan\""));
+        assert!(event_text.contains("\"status\":\"failed\""));
+        assert!(event_text.contains("\"failure_kind\":\"direct_cli_command_failed\""));
+    }
+
+    #[test]
+    fn cli_run_fault_injection_finalizes_with_internal_panic_handoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/internal-panic/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::UltraPlanRun("fault injection".to_string());
+        cfg.eval_events_path = Some(events.clone());
+        cli_panic_boundary::request_test_fault();
+
+        let err = run_resolved_config(cfg).expect_err("fault injection must fail");
+
+        assert!(err.to_string().contains("internal_panic"), "{err:#}");
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        let event_values = event_text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let command_stops = event_values
+            .iter()
+            .filter(|event| {
+                event.get("event").and_then(serde_json::Value::as_str) == Some("tui_command_stop")
+            })
+            .collect::<Vec<_>>();
+        let run_stops = event_values
+            .iter()
+            .filter(|event| {
+                event.get("event").and_then(serde_json::Value::as_str) == Some("run_stop")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(command_stops.len(), 1, "{event_text}");
+        assert_eq!(run_stops.len(), 1, "{event_text}");
+        assert_eq!(
+            command_stops[0]
+                .get("stop_reason")
+                .and_then(serde_json::Value::as_str),
+            Some("internal_panic")
+        );
+        let stop = run_stops[0];
+        assert_eq!(
+            stop.get("reason").and_then(serde_json::Value::as_str),
+            Some("internal_panic")
+        );
+        assert_eq!(
+            stop.get("panic_message")
+                .and_then(serde_json::Value::as_str),
+            Some("fault injection: CLI run panic boundary")
+        );
+        assert!(
+            stop.get("panic_location")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|location| location.contains("cli_panic_boundary.rs")),
+            "{stop:#}"
+        );
+        for field in [
+            "completion_status",
+            "task_status",
+            "assurance_level",
+            "assurance_reason",
+            "effective_profile",
+            "contract_origin",
+            "runtime_acceptance_status",
+            "final_acceptance_status",
+            "release_gate_status",
+            "release_quality_completion",
+            "next_action",
+        ] {
+            if let Some(expected) = command_stops[0].get(field) {
+                assert_eq!(stop.get(field), Some(expected), "{field}");
+            }
+        }
+        let recovery = stop
+            .get("recovery_note_path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+        assert!(recovery.starts_with(".commandagent/repairs/repair-internal-panic-"));
+        assert!(dir.path().join(recovery).is_file());
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Status: failed"), "{summary}");
+        assert!(
+            summary.contains("Failure kind: internal_panic"),
+            "{summary}"
+        );
+        assert!(!summary.contains("Status: running"), "{summary}");
+    }
+
+    #[test]
+    fn cli_run_keeps_handoff_when_completion_drop_also_panics() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/double-panic/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::UltraPlanRun("double panic fault injection".to_string());
+        cfg.eval_events_path = Some(events.clone());
+        cli_panic_boundary::request_test_fault();
+        cli_panic_boundary::request_test_finalizer_fault();
+
+        let err = run_resolved_config(cfg).expect_err("fault injection must fail");
+
+        assert!(err.to_string().contains("internal_panic"), "{err:#}");
+        assert!(
+            err.to_string()
+                .contains("fault injection: CLI run panic boundary"),
+            "{err:#}"
+        );
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        let event_values = event_text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            event_values
+                .iter()
+                .filter(|event| {
+                    event.get("event").and_then(serde_json::Value::as_str) == Some("run_stop")
+                })
+                .count(),
+            1,
+            "{event_text}"
+        );
+        assert!(
+            event_values.iter().all(|event| {
+                event.get("event").and_then(serde_json::Value::as_str) != Some("tui_command_stop")
+            }),
+            "{event_text}"
+        );
+        let stop = event_values.last().unwrap();
+        assert_eq!(
+            stop.get("reason").and_then(serde_json::Value::as_str),
+            Some("internal_panic")
+        );
+        assert_eq!(
+            stop.get("panic_message")
+                .and_then(serde_json::Value::as_str),
+            Some("fault injection: CLI run panic boundary")
+        );
+        let recovery = stop
+            .get("recovery_note_path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+        assert!(dir.path().join(recovery).is_file());
+    }
+
+    #[test]
+    fn run_lifecycle_does_not_label_known_profile_full_without_acceptance() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "nextjs".to_string();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        let result: anyhow::Result<()> = Ok(());
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(event_text.contains("\"assurance_level\":\"partial\""));
+        assert!(!event_text.contains("\"assurance_level\":\"full\""));
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Assurance: partial"));
+        assert!(!summary.contains("Assurance: full"));
+        assert!(summary.contains("Task status: complete"));
+        assert!(!summary.contains("completed (full assurance)"));
+    }
+
+    #[test]
+    fn run_start_reports_host_env_contamination_once() {
+        let status = run_ignored_self_test(
+            "tests::run_start_reports_host_env_contamination_once_child",
+            &[("NODE_ENV", "production")],
+        );
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn run_start_reports_host_env_contamination_once_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert_eq!(
+            event_text
+                .matches("\"event\":\"host_env_contamination\"")
+                .count(),
+            1
+        );
+        assert_eq!(
+            event_text
+                .matches("\"event\":\"host_env_normalized\"")
+                .count(),
+            1
+        );
+        assert!(event_text.contains("NODE_ENV=production"), "{event_text}");
+        assert!(
+            event_text.contains("\"variables\":[\"NODE_ENV\"]"),
+            "{event_text}"
+        );
+        assert!(
+            event_text.contains("\"strategy\":\"unset_inherited\""),
+            "{event_text}"
+        );
+        assert!(
+            event_text.contains("\"scope\":\"bounded_process_children\""),
+            "{event_text}"
+        );
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(
+            summary.contains(
+                "Host env: NODE_ENV=production detected (verifiers ran with a cleaned environment)"
+            ),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn run_lifecycle_records_incomplete_stop_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        let result: anyhow::Result<()> = Err(anyhow::anyhow!("boom"));
+        emit_run_stop(&cfg, &result);
+
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Status: incomplete"));
+        assert!(summary.contains("Command status: failed"));
+        assert!(summary.contains("Command completion: failed"));
+        assert!(summary.contains("Task status: failed"));
+        assert!(summary.contains("Process: REPL exited cleanly (not task status)"));
+        assert!(summary.contains("Session/REPL status: process_exited"));
+        assert!(summary.contains("Recovery next action: fix_command_failure"));
+        assert!(summary.contains("Stop reason: boom"));
+        assert!(summary.contains("Failure kind: process_failure"));
+    }
+
+    #[test]
+    fn run_lifecycle_does_not_mask_partial_release_gate_as_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "runtime_acceptance_passed": true,
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "partial",
+                "release_gate_status": "partial",
+                "release_gate_reasons": ["browser_readiness_or_interaction_evidence_required:browser_readiness_evidence_missing"],
+                "browser_readiness_status": "unavailable:browser_readiness_evidence_missing",
+                "interaction_evidence_status": "unavailable:interaction_evidence_missing",
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(
+            event_text.contains("\"completion_status\":\"complete_with_partial_release_gate\"")
+        );
+        assert!(event_text.contains("\"task_status\":\"partial\""));
+        assert!(event_text.contains("\"release_gate_status\":\"partial\""));
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Status: complete_with_partial_release_gate"));
+        assert!(summary.contains("Task status: partial"));
+        assert!(summary.contains("Command completion: completed"));
+        assert!(summary.contains("Runtime acceptance: pass"));
+        assert!(summary.contains("Final acceptance: partial"));
+        assert!(summary.contains("Release gate: partial"));
+        assert!(
+            summary.contains(
+                "Next action: collect_missing_release_evidence_or_continue_release_recovery"
+            ),
+            "{summary}"
+        );
+        assert!(!summary.contains("\nStatus: complete\nAction: Repl\nStop reason: completed"));
+    }
+
+    #[test]
+    fn run_lifecycle_does_not_mask_browser_http_500_release_failure_as_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "runtime_acceptance_passed": true,
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "incomplete",
+                "release_gate_status": "failed",
+                "release_gate_reasons": ["browser_readiness_failed:http_500"],
+                "browser_readiness_status": "failed:http_500",
+                "interaction_evidence_status": "not_checked",
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+        emit_run_stop(&cfg, &result);
+
+        let event_text = std::fs::read_to_string(&events).unwrap();
+        assert!(event_text.contains("\"completion_status\":\"incomplete_release_gate_failed\""));
+        assert!(event_text.contains("\"task_status\":\"failed\""));
+        assert!(event_text.contains("\"browser_readiness_status\":\"failed:http_500\""));
+        let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("Status: incomplete_release_gate_failed"));
+        assert!(summary.contains("Task status: failed"));
+        assert!(summary.contains("Release gate: failed"));
+        assert!(summary.contains("- browser_readiness_failed:http_500"));
+        assert!(!summary.contains("\nStatus: complete\nAction: Repl\nStop reason: completed"));
+    }
+
+    fn run_ignored_self_test(test_name: &str, envs: &[(&str, &str)]) -> std::process::ExitStatus {
+        let exe = std::env::current_exe().unwrap();
+        let mut command = std::process::Command::new(exe);
+        command.args(["--ignored", "--exact", test_name, "--nocapture"]);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        command.status().unwrap()
+    }
+}

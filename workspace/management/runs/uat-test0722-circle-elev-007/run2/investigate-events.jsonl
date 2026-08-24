@@ -1,0 +1,1 @@
+{"event":"intent_resolved","intent":"investigate","model":"gemma4:31b-cloud","profile":"data","provider":"ollama","workflow_node":"investigate"}

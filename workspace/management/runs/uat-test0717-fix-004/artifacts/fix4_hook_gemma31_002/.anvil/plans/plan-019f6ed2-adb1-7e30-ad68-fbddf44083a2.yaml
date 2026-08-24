@@ -1,0 +1,21 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to locate restart buttons or game-over overlays and confirm the absence of the data-anvil-action=\"restart\" attribute.\n\nFix F1 profile contract predicate (runtime-bound):\n- capability: hook_attribute_present\n- write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)\n\nContract attribute repair guidance:\n- classification: contract_attribute_missing\n- missing attribute: `data-anvil-action=\"restart\"`\n- target source file: `src/app/page.tsx`\n- contract requirement: mark every restart, retry, or new-game affordance that resets observable state; the primary action alone is not restart evidence.\n- location directive: add the missing attribute to the route-bound container, control, or status element in the same rendered hierarchy as the existing hooks below.\nExisting hook locations:\n- no existing data-anvil hook lines found; likely insertion area\n- near line 41\n    39 |     };\n    40 |     window.addEventListener(\"keydown\", onKey);\n    41 |     return () => window.removeEventListener(\"keydown\", onKey);\n    42 |   }, [player]);\n    43 |\nGeneric one-line example:\n- data-anvil-action=\"restart\""
+    expected_paths:
+    verify:
+  - id: "inspect-scaffold-integrity"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json, tsconfig.json, and src/app/layout.tsx to verify the Next.js app router scaffold is coherent and dependencies match the profile requirements.\n\nFix F1 profile contract predicate (runtime-bound):\n- capability: hook_attribute_present\n- write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)\n\nContract attribute repair guidance:\n- classification: contract_attribute_missing\n- missing attribute: `data-anvil-action=\"restart\"`\n- target source file: `src/app/page.tsx`\n- contract requirement: mark every restart, retry, or new-game affordance that resets observable state; the primary action alone is not restart evidence.\n- location directive: add the missing attribute to the route-bound container, control, or status element in the same rendered hierarchy as the existing hooks below.\nExisting hook locations:\n- no existing data-anvil hook lines found; likely insertion area\n- near line 41\n    39 |     };\n    40 |     window.addEventListener(\"keydown\", onKey);\n    41 |     return () => window.removeEventListener(\"keydown\", onKey);\n    42 |   }, [player]);\n    43 |\nGeneric one-line example:\n- data-anvil-action=\"restart\""
+    expected_paths:
+    verify:
+  - id: "verify-cause-isolated"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm that src/app/page.tsx exists and explicitly lacks the data-anvil-action=\"restart\" attribute, validating the reported contract failure."
+    expected_paths:
+    verify:
+      - "node -e \"require('fs').readFileSync('src/app/page.tsx','utf8').includes('data-anvil-action=\\\"restart\\\"') ? process.exit(1) : process.exit(0)\""

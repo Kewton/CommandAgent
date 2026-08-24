@@ -1,0 +1,47 @@
+case_id = "test0717_fix4b_predicate_targeting"
+source = "uat-test0717-fix-003 hook Runs 3/4/5 package.json read-only stagnation"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["hook_attribute_present", "Contract attribute repair guidance", "src/app/page.tsx", "contract_attribute"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix4b-predicate-targeting.txt = [
+  "F1 observed outcome: failure",
+  "profile predicate: hook_attribute_present(action,restart,path=src/app/page.tsx)",
+  "Fix F1 profile contract predicate (runtime-bound):",
+  "write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)",
+  "Contract attribute repair guidance:",
+  "missing attribute: `data-anvil-action=\"restart\"`",
+  "target source file: `src/app/page.tsx`",
+  "Generic one-line example:",
+  "package.json is not selected",
+  "verify instruction: unchanged"
+]
+
+[fixture_ordered]
+fixtures/fix4b-predicate-targeting.txt = [
+  "Measured pre-FIX-4b context:",
+  "F1 observed outcome: failure",
+  "Post-FIX-4b Phase 2 context:",
+  "Fix F1 profile contract predicate (runtime-bound):",
+  "Contract attribute repair guidance:",
+  "Write-pressure resolution:",
+  "package.json is not selected"
+]

@@ -1,0 +1,124 @@
+[suite]
+id = "community-cm4-arm-e-extension-qwen38-medium"
+profile = "community-mini-app"
+intent = "create"
+plan_preset = "profile"
+workspace_mode = "empty"
+context_budget = 65536
+planner_model = "qwen3.8:27b-mlx"
+planner_provider = "ollama"
+provider = "openai"
+api = "responses"
+tool_protocol = "native"
+think = "medium"
+bon_series = "cm4-planner-cand-002-arm-e"
+
+[goals]
+warikan_main = "友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。"
+warikan_late = "家族で立て替えが多くなったので、レシートを全部きれいに入れなくても、参加者と支払った金額からなるべく簡単に精算できる画面がほしい。"
+warikan_mixed = "飲み会の割り勘をスマホでやりたいです。途中で人数が増えたり、払ってない人がいたりしても後から直せる感じでお願いします。"
+mochimono_main = "キャンプに持っていくものをみんなで相談できるリストを作りたいです。誰が持ってくるか決められて、足りないものがなんとなく分かれば十分です。"
+mochimono_late = "子どもの合宿の持ち物、去年のままだと多分足りないので、家にある物と買う物を家族で更新できるようにして。"
+mochimono_mixed = "友人との旅行の荷物を共有したい。担当を決めても忘れるので、持ったかどうかも気軽にチェックできる画面がいいです。"
+vote_main = "週末にどこへ行くか決められないので、みんなが候補を出して一票ずつ入れられるものを作って。結果はあとで見返せればいいです。"
+vote_late = "友だちの予定を聞くと返信がばらばらになるから、行きたい場所をいくつか並べて投票できる簡単なページがほしい。"
+vote_mixed = "家族会議で夕飯を決めるのに使いたいです。途中で候補を追加しても、誰が投票したかは重く考えずに済む感じで。"
+
+[[runs]]
+name = "e_warikan_005"
+goal = "warikan_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_006"
+goal = "warikan_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_007"
+goal = "warikan_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_008"
+goal = "warikan_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_009"
+goal = "warikan_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_010"
+goal = "warikan_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_011"
+goal = "warikan_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_warikan_012"
+goal = "warikan_mixed"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "e_mochimono_005"
+goal = "mochimono_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_006"
+goal = "mochimono_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_007"
+goal = "mochimono_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_008"
+goal = "mochimono_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_009"
+goal = "mochimono_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_010"
+goal = "mochimono_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_011"
+goal = "mochimono_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_mochimono_012"
+goal = "mochimono_mixed"
+executor = "gpt-5.6-luna"
+
+[[runs]]
+name = "e_vote_005"
+goal = "vote_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_006"
+goal = "vote_main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_007"
+goal = "vote_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_008"
+goal = "vote_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_009"
+goal = "vote_late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_010"
+goal = "vote_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_011"
+goal = "vote_mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "e_vote_012"
+goal = "vote_mixed"
+executor = "gpt-5.6-luna"

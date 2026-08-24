@@ -1,0 +1,31 @@
+case_id = "test0715_ff1b_contract_guidance"
+source = "uat-test0715-ff1-001 restart contract guidance trigger gap"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["contract_instrumentation_missing:restart", "contract_attribute_repair_guidance"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/restart-guidance.jsonl = [
+  "uat-test0715-ff1-001/ff1_space_qwen35",
+  "contract_instrumentation_missing:restart",
+  "contract_attribute_repair_guidance",
+  "data-anvil-action=\\\"restart\\\"",
+  "src/app/page.tsx"
+]

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python -c \"import json; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation']\"",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:34d5b2a5b9e5635d",
+  "epoch": 1,
+  "run_id": "019f7076-04b4-7593-841c-dfd91d0dcf81",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 170 summary: AssertionError stdout: stderr: Traceback (most recent call last): File \"<string>\", line 1, in <module> AssertionError"
+}

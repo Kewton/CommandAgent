@@ -1,0 +1,44 @@
+case_id = "cm0-headless-summary"
+source = "CM-0 headless summary full, failed, static, and opt-out byte contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["summary-json", "full", "failed", "static"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/full/events.jsonl = [
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"verdict\":\"full\"",
+  "\"assurance_level\":\"full\"",
+  "\"release_gate_status\":\"pass\"",
+  "\"verify_commands\":[\"cargo test --test smoke\"]",
+  "\"caller_scope\":\"planner_step\"",
+  "\"provider_reasoning_tokens\":40"
+]
+fixtures/failed/events.jsonl = [
+  "\"status\":\"failed\"",
+  "\"assurance_level\":\"failed\"",
+  "\"next_action\":\"fix_command_failure\"",
+  "\"failure_kind\":\"direct_cli_command_failed\""
+]
+fixtures/static/events.jsonl = [
+  "\"status\":\"completed\"",
+  "\"assurance_level\":\"static\"",
+  "\"release_gate_status\":\"not_applicable\""
+]

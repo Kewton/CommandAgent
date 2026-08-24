@@ -1,0 +1,20 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to identify the main UI components and check for existing data-anvil-action attributes, specifically looking for where a restart action should be triggered."
+    expected_paths:
+    verify:
+  - id: "inspect-evidence-logs"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read files in the evidence/ directory to examine the verification failure output and confirm exactly which restart affordance is missing or incorrectly instrumented."
+    expected_paths:
+    verify:
+  - id: "inspect-component-tree"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read any component files referenced in src/app/page.tsx to trace the full interactive surface and locate game-over, victory, or in-play states that require data-anvil-action='restart'."
+    expected_paths:
+    verify:

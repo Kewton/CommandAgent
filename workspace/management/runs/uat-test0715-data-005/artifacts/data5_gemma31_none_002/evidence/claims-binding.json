@@ -1,0 +1,10 @@
+{
+  "capability_id": "data_claims_binding",
+  "status": "failed",
+  "ok": false,
+  "report_paths": [],
+  "claims": [],
+  "failure_kinds": [
+    "claims_binding_violation:invalid_results_schema:failed to read /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_005/data5_gemma31_none_002/output/results.json: No such file or directory (os error 2)"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@community/sdk": "1.0.0"
+  },
+  "lockfile": "sealed-sha256-pin"
+}

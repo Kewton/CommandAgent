@@ -1,0 +1,24 @@
+{
+  "required_paths": [],
+  "verify_commands": [],
+  "profile": null,
+  "goal": "Isolate the cause of the reproduced failure without modifying the workspace for: このNext.",
+  "required_capabilities": [],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "nextjs_route_evidence",
+    "build_command_or_dependency_missing_boundary"
+  ],
+  "evidence_hint_tokens": [
+    "isolate",
+    "cause",
+    "reproduced",
+    "failure",
+    "without",
+    "modifying",
+    "workspace"
+  ],
+  "required_obligations": [],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}

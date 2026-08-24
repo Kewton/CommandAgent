@@ -1,0 +1,6 @@
+[manifest]
+id = "investigate"
+kind = "intent"
+admission = "off"
+profile = ""
+intent = ""

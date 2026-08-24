@@ -1,0 +1,10 @@
+{
+  "capability_id": "data_inspection_schema",
+  "status": "failed",
+  "ok": false,
+  "inspection_path": "output/inspection.json",
+  "input_path": "data/sales.csv",
+  "failure_kinds": [
+    "inspection_schema_violation:distinct_values_missing_categorical_columns:date"
+  ]
+}

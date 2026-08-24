@@ -1,0 +1,45 @@
+{
+  "capability_id": "pipeline_probe",
+  "status": "failed",
+  "ok": false,
+  "outcome": "exited",
+  "command": [
+    "python3",
+    "-B",
+    "pipeline/main.py"
+  ],
+  "duration_ms": 348,
+  "exit_code": 1,
+  "stdout": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/pipeline/main.py\", line 169, in <module>\n    run()\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/pipeline/main.py\", line 89, in run\n    amount = parse_amount(row[\"amount\"])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/data_agg_qwen27_plan_qwen35_exec_preset_profile_001/pipeline/main.py\", line 53, in parse_amount\n    return int(val.strip())\n           ^^^^^^^^^^^^^^^^\nValueError: invalid literal for int() with base 10: ''\n",
+    "captured_bytes": 760,
+    "total_bytes": 760,
+    "truncated": false
+  },
+  "artifacts": [
+    {
+      "path": "output/inspection.json",
+      "bytes": 302,
+      "fnv1a64": "99a62a23b16ccbbd"
+    }
+  ],
+  "isolation": {
+    "level": "workspace_cwd_env_allowlist_bounded_offline_policy",
+    "workspace_cwd": true,
+    "environment_allowlist": true,
+    "process_group": true,
+    "bounded_timeout_ms": 30000,
+    "offline_policy_applied": true,
+    "network_namespace_enforced": false
+  },
+  "failure_kinds": [
+    "pipeline_exit_nonzero"
+  ],
+  "capture_warnings": []
+}

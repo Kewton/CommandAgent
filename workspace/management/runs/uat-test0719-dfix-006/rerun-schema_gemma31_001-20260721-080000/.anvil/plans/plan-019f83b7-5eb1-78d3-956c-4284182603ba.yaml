@@ -1,0 +1,9 @@
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+steps:
+  - id: "reproduce-before"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the bound reproducer R to record the required F1 failing baseline before any workspace changes."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:data_results_schema"

@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f6dab-f684-7392-980f-252c642ae067",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f6dab-f684-7392-980f-252c642ae067",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "profile_contract",
+      "profile_verify_1"
+    ],
+    "bound_regression_lineages": {
+      "profile_contract": "regression:5653a54980e5d888",
+      "profile_verify_1": "regression:56446385dfddfe26"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "npm run build",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:a33c603932fd7056",
+      "epoch": 1,
+      "run_id": "019f6dab-f684-7392-980f-252c642ae067",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 2626 summary: Failed to compile. Type error: Module '\"./game-engine\"' has no exported member 'useSpaceInvadersGame'. stdout: > anvilminimal-nextjs-app@1.0.0 build > next build ▲ Next.js 14.2.35 Creating an optimized production build ... ✓ Compiled successfully Linting and checking validity of types ... stderr: Failed to compile. ./src/app/SpaceInvadersGame.tsx:4:10 Type error: Module '\"./game-engine\"' has no exported member 'useSpaceInvad"
+    },
+    "after": null,
+    "regressions": []
+  }
+}

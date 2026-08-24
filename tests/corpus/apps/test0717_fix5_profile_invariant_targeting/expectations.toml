@@ -1,0 +1,42 @@
+case_id = "test0717_fix5_profile_invariant_targeting"
+source = "uat-test0717-fix-004 fix4_hook_qwen35_002 profile-invariant bounded repair"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["useSpaceInvadersGame", "src/app/game-engine.ts", "diagnosis_mapped"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix5-profile-invariant-targeting.txt = [
+  "profile-invariant bounded repair",
+  "useSpaceInvadersGame",
+  "src/app/game-engine.ts does not export useSpaceInvadersGame",
+  "write-pressure target: src/app/game-engine.ts (selection_reason=diagnosis_mapped)",
+  "diagnosis_mapped > contract_attribute > evidence_mapped > required_path",
+  "package.json is not selected while the diagnosed definition source is available"
+]
+
+[fixture_ordered]
+fixtures/fix5-profile-invariant-targeting.txt = [
+  "Measured pre-FIX-5 context:",
+  "Exact invariant reason:",
+  "Pre-FIX-5 write-pressure resolution:",
+  "Post-FIX-5 bounded-repair prompt:",
+  "Unified fix target priority:",
+  "Post-FIX-5 write-pressure resolution:"
+]

@@ -1,0 +1,13 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: static-guidance
+  version: 1.0.0
+  profile: static-site
+  intent: create
+inject:
+  - point: core-implementation
+    source: pack_material_document
+    required: true
+    params:
+      file: BRIEF.md
+      max_bytes: 4096

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "no_regression",
+  "binding_id": "data_results_schema",
+  "stage": "after",
+  "expected": "success",
+  "lineage": "regression:292fa5e5cb8065da",
+  "epoch": 7,
+  "run_id": "019f8c8c-e18e-7821-b9ca-d3474938b33f",
+  "executed": true,
+  "outcome": "success",
+  "reason": ""
+}

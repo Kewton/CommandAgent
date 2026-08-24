@@ -1,0 +1,97 @@
+{
+  "schema_version": "commandagent.cm4x-settlement/v2",
+  "series_id": "cm4x-settlement-v2",
+  "parent": {
+    "sha": "e4ece796b5827c1e43e759b11420c031b8266d28",
+    "ci": {
+      "run_id": 32132994172,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "acceptance": {
+      "run_id": 32132994180,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  },
+  "parallel_attribution": {
+    "schema_version_invalid_cases": {
+      "count": 3,
+      "primary_classification": "machine:stale_nested_verifier_binary",
+      "secondary_model_repair_error_count": 1
+    },
+    "core_manifest_path_malformed_cases": {
+      "count": 1,
+      "classification": "model:malformed_read_path"
+    },
+    "rerun": {
+      "completed": 4,
+      "denominator": 4,
+      "exit_zero": 4,
+      "final_acceptance_full_success": 4,
+      "headless_partial_completion_contract_not_bound": 4,
+      "cross_contamination_count": 0,
+      "effective_speedup": 3.2966753577039936,
+      "makespan_secs": 635.845253944397,
+      "cost_usd": 0.00507942
+    }
+  },
+  "planner_candidate_e": {
+    "n": 36,
+    "one_shot_full": 18,
+    "one_shot_full_rate": 0.5,
+    "one_shot_full_wilson_95": [
+      0.3447432540962683,
+      0.6552567459037317
+    ],
+    "repair_included_full": 24,
+    "repair_included_full_rate": 0.6666666666666666,
+    "repair_included_full_wilson_95": [
+      0.5033399787115652,
+      0.7978538117569468
+    ],
+    "duration_p50_secs": 61.5,
+    "duration_p95_secs": 129.5,
+    "cost_usd": 0.07234546,
+    "a_to_e36_full_difference": -0.16666666666666674,
+    "a_to_e36_full_difference_newcombe_95": [
+      -0.36916126403136795,
+      0.14377797831028816
+    ],
+    "adoption_decision": "owner_adjudication_pending"
+  },
+  "sealed_anchors": {
+    "golden_suites_outer_sha256": "4ea74f2fe2687989467a9019c4f72a160d38e77097ea441e6de4a066748dad86",
+    "schema_fixture_outer_sha256": "6242f3549c8b7eea08dd75067fd7e338e24659b76079d03c6ed5185fa58572c1",
+    "adversarial_fixture_outer_sha256": "792c9696ca86127966810ec4a376a3815c4fb93de4ad2c9d6aa205dad09a2b0b",
+    "all_inner_entries_match": true
+  },
+  "cost_settlement_usd": {
+    "cm4_original_live": 0.06372048,
+    "cm4x_parallel_rerun": 0.00507942,
+    "cm4x_e_extension": 0.05106268,
+    "cm4_and_cm4x_live": 0.11986258,
+    "decision_window_total": 0.54765442,
+    "pricing_resolvable_known_lower_bound": 0.59891944,
+    "unknowns": [
+      "Phase 0 summary cost was null",
+      "some excluded windows have no usage-cost record",
+      "local-model electricity was not measured"
+    ]
+  },
+  "verification": {
+    "cargo_test_passed": 2103,
+    "cargo_test_failed": 0,
+    "cargo_test_ignored": 34,
+    "cargo_fmt": "pass",
+    "cargo_clippy_all_targets_deny_warnings": "pass",
+    "focused_python_tests": 44,
+    "focused_python_tests_failed": 0,
+    "ruff_changed_modules": "pass",
+    "new_evidence_scrub": "pass"
+  },
+  "queued": [
+    "L2 verifier invocation form unification",
+    "global aggregation as a schema v0.2 candidate"
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "schema_version": "commandagent.bon-selection-accounting/v0",
+  "recorded_at": "2026-08-04T10:24:00+09:00",
+  "scope": "post-projection Luna bon:6 windows admitted by the close decision",
+  "metric_declaration": {
+    "source_commit": "14f569bbc7bc9e9de24b58c0ddf22ad4b40078da",
+    "source_path": "workspace/management/runs/f-bon-v-001/evidence/quality-audit.json",
+    "source_sha256": "85e20788fd81cc8c8647376f6b6ee350f12d2187bfd15d06ed2a592a8d80ef5b",
+    "tree_hash_algorithm": "sha256(lexicographically_sorted_lines_of_sha256_two_spaces_relative_path)",
+    "tree_hash_excludes": [
+      ".anvil/**",
+      "evidence/**",
+      "**/__pycache__/**",
+      "uat-console.log"
+    ],
+    "oracle_at_6": "at least one earned full exists in the six-run pool",
+    "selector_at_6": "the sealed selector selected an earned full",
+    "selection_gap": "maximum reached score minus selected reached score"
+  },
+  "campaigns": [
+    {
+      "window": "bon0-001",
+      "campaign_id": "cli-filter-bon0-20260802-153030",
+      "instrument_cohort": "pre-deterministic-build-pin",
+      "selection_source": "workspace/management/runs/uat-test0802-cli-bon0-001/evidence/bon-selection.json",
+      "selection_source_sha256": "6c99fad22f8ba429725ef0a9be796d86813495997b5eca2af15aa15077da3637",
+      "full_count": 1,
+      "oracle_at_6": true,
+      "selector_at_6": true,
+      "selected_run": "filter_bon0_005",
+      "selected_reached_score": 100.0,
+      "oracle_reached_score": 100.0,
+      "selection_gap": 0.0,
+      "product_tree_sha256": [
+        "4afd930ba8b55ccddeb4e8227fea1772988d4eed20632d99ebff464a1b2a3ae1",
+        "b133e3b437fe3fe0553de4fa66555fd6c3c5272246cac70de3bb778689804b5d",
+        "831189e35b811221d5be81c43fc48218f117aca469633d6e4e97aeb177998cd6",
+        "ad7b9b756c7c5732daef5e8258a0278540ef6d084e70e96a52b82a894019ba82",
+        "cec60db0b81d3f8900bff46015e9aff72922f7f979c8c96e96f66471a0b44517",
+        "b8e897ccfc16c544ab900438f8669472b466f68bd51e6a7584787fca52d948d8"
+      ],
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    {
+      "window": "bon0-001r2",
+      "campaign_id": "cli-filter-bon0-20260803-092213",
+      "instrument_cohort": "deterministic-build-pinned",
+      "selection_source": "workspace/management/runs/f-bon-v-001/evidence/bon0-001r2-selection.json",
+      "selection_source_sha256": "007ff4f8ddbae852df0b82dd1fe57e19800b7e002032f6430a9d58e0097195f3",
+      "full_count": 1,
+      "oracle_at_6": true,
+      "selector_at_6": true,
+      "selected_run": "filter_bon0_004",
+      "selected_reached_score": 100.0,
+      "oracle_reached_score": 100.0,
+      "selection_gap": 0.0,
+      "product_tree_sha256": [
+        "0dd9028df8e3cdbef7ab73ef7f268b7463c3993b5e4b87dd99859e48ddf475f7",
+        "06faeb9be59fdf1811bb78cdf8d7892ef8eb1f3d21303a6a8fcb0352b942f956",
+        "6ca8e333db505d20fb555a6ade55460c1a5aeba3f6d03fbada7fb7d0f1f925ea",
+        "2c4c1aa3b1423cbf541ec083e83dafeb192d7c971e3e0d9d509d729e105c0c8a",
+        "6187449fe9e75d867fe988bea79f9a125fdb8d6574a7adecf4bb3917db5ae718",
+        "d41862378a3ff49461b5f74eee02103a273faa7868e2561b9299060afe9288c6"
+      ],
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    {
+      "window": "bon0-002r",
+      "campaign_id": "cli-filter-bon0-20260803-115414",
+      "instrument_cohort": "deterministic-build-pinned",
+      "selection_source": "workspace/management/runs/f-bon-v-001/evidence/bon0-002r-selection.json",
+      "selection_source_sha256": "36906fa06336de79cbb724ca3918b2721b8e8157cc60b5be57f4bea756064d92",
+      "full_count": 0,
+      "oracle_at_6": false,
+      "selector_at_6": false,
+      "selected_run": "filter_bon0_006",
+      "selected_reached_score": 37.5,
+      "oracle_reached_score": 37.5,
+      "selection_gap": 0.0,
+      "product_tree_sha256": [
+        "e0bb93af6fbaa40dfbe59b6469d43399eee1d5fe88c7c5f39a6fa4d485f5149f",
+        "ace5ec4d3c1dc71a73f4b7aa2b793c613274861fe6ec413f0945767147cf3599",
+        "ec0f5f1aa1db536e9e474293d7b19ef25b47187d28cad5f0c51fd6fd8bdefa1f",
+        "a5f465fe752d17360adc243240e9019160eb1bcb4e2f4c9b41053852f3310ea6",
+        "7af755604b6aa08653a20c9e8c430e5c622f8f61886f4f5df7bd3ad9259e8be0",
+        "10fe690516e7d13b5d95b0af92dc320c46f9a2eca569483694ed3c9df87b1186"
+      ],
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    {
+      "window": "bon0-003r",
+      "campaign_id": "cli-filter-bon0-20260803-134215",
+      "instrument_cohort": "deterministic-build-pinned",
+      "selection_source": "workspace/management/runs/f-bon-v-001/evidence/bon0-003r-selection.json",
+      "selection_source_sha256": "54aac00003bc7bb8cd1c0eb4482a6ee2d150d34063cdbfc1be5972180f274c8b",
+      "full_count": 0,
+      "oracle_at_6": false,
+      "selector_at_6": false,
+      "selected_run": "filter_bon0_006",
+      "selected_reached_score": 62.5,
+      "oracle_reached_score": 62.5,
+      "selection_gap": 0.0,
+      "product_tree_sha256": [
+        "f0a0a32f73ec0c8dbdcf7b9171659508824a1846611117976d53ae1507f68b5c",
+        "7cd1d201a0b000d9e9a0ae9146c3916f91862a0d4eb7467f8eb470b89a366a85",
+        "34c42fc96c81bb0759ba71831d0d6423da0cc63bb840ad63da44709356f1dd33",
+        "268ff8d3434a8565237a2ca0e035348083a3339de318acb72e75575aac11d12f",
+        "3405c5ef273133ab421d056e0567527adec306dc8f656713e29d7b814a5d24e0",
+        "3f063ada08c88452ac6ac29a4c18565f516b5ad0937c55a6c94a76979d3fe499"
+      ],
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    {
+      "window": "bon0-004r",
+      "campaign_id": "cli-filter-bon0-20260803-160629",
+      "instrument_cohort": "deterministic-build-pinned",
+      "selection_source": "workspace/management/runs/f-bon-v-001/evidence/bon0-004r-selection.json",
+      "selection_source_sha256": "90ffc20b51a725ca2f1035f755471c1f0a9bad4c9ffa1e8d963e754a4b80103a",
+      "full_count": 0,
+      "oracle_at_6": false,
+      "selector_at_6": false,
+      "selected_run": "filter_bon0_004",
+      "selected_reached_score": 62.5,
+      "oracle_reached_score": 62.5,
+      "selection_gap": 0.0,
+      "product_tree_sha256": [
+        "d2262173bc983bf5e944b078d624b817b612fe850bcded84379e7f9d4bf80f81",
+        "ebc04af03ecd966b3649098977fc689f68730d1d63d40d38af33afd702b1f653",
+        "5b1064b4ec7052020492a5bb5187dff6c835bfaaf23f7709d22cff60c702f84e",
+        "a76977063f68bd0c0b121f7065a69281376a5c1c26774acb5abce9dd2d3ebe2f",
+        "5d204b3f0bf74c10251c78cfc85fb144e7f877fab8b6620741185d7ee7cac0bd",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      "tree_diversity": "6/6",
+      "non_empty_trees": "5/6"
+    }
+  ],
+  "aggregate": {
+    "campaigns": 5,
+    "trials": 30,
+    "full_count": 2,
+    "oracle_at_6": "2/5",
+    "selector_at_6": "2/5",
+    "conditional_full_recovery": "2/2",
+    "campaigns_with_zero_selection_gap": "5/5",
+    "selection_gap_mean": 0.0,
+    "tree_diversity": "30/30",
+    "non_empty_trees": "29/30"
+  },
+  "interpretation": "The sealed selector recovered both observed full opportunities and chose the maximum reached-score run in every window. Tree uniqueness is complete, but one failed run produced an empty product tree, so uniqueness is not conflated with useful artifact production."
+}

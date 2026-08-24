@@ -1,0 +1,40 @@
+{
+  "campaign": "uat-test0717-dfix-002",
+  "status": "pass",
+  "branch": "develop",
+  "head": "a89db526f4b0f0d66c5dc55cb17d36d8c72d1935",
+  "required_ancestor": "a89db52",
+  "required_ancestor_is_present": true,
+  "git": {
+    "tracked_tree_clean": true,
+    "origin_develop_equal_before_measurement": true,
+    "preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+    "preexisting_untracked_path_temporarily_isolated": true,
+    "preexisting_untracked_manifest_sha256_before": "70c3eed26095bf24195fcb459e420172e58496c604b9ed08cdc67e252127adb1",
+    "preexisting_untracked_manifest_sha256_after": "70c3eed26095bf24195fcb459e420172e58496c604b9ed08cdc67e252127adb1",
+    "preexisting_untracked_content_hashes_preserved": true
+  },
+  "cargo_test": {
+    "status": "pass",
+    "unit": "1421 passed; 15 ignored",
+    "adjudication_byte_compat": "6/6 passed",
+    "fix_intent_conformance": "9/9 passed",
+    "corpus_regression": "passed",
+    "data_profile_conformance": "10/10 passed"
+  },
+  "release": {
+    "status": "pass",
+    "binary_sha256": "80eff03e43b66d4ce61f7c1b3b6156d8087e16cb6b2ce42938853e7f16a625cb",
+    "installed_sha256": "80eff03e43b66d4ce61f7c1b3b6156d8087e16cb6b2ce42938853e7f16a625cb",
+    "version": "commandagent 0.1.0 a89db52 2026-07-17T13:35:25Z",
+    "dirty": false
+  },
+  "host_node_env": "production",
+  "interaction_probe": "not_applicable_data_only",
+  "models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "qwen35": "qwen3.6:35b-a3b-coding-nvfp4",
+    "gemma31": "gemma4:31b",
+    "ollama_inventory_verified": true
+  }
+}

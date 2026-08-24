@@ -1,0 +1,105 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-003",
+  "policy": {
+    "synthetic_baselines": false,
+    "history_copied": false,
+    "excluded_from_copies": [
+      ".git",
+      ".anvil",
+      "node_modules",
+      ".next",
+      "evidence",
+      "uat-*"
+    ],
+    "tree_sha256_method": "reuse the canonical source-file manifest recorded by uat-test0717-fix-002 and require zero rsync checksum differences for every fresh copy",
+    "content_mismatches_before_runs": 0,
+    "content_mismatches_after_runs": 0,
+    "mtime_only_differences_after_install_or_run": [
+      "package-lock.json",
+      "package.json on some hook copies"
+    ]
+  },
+  "common_setup": {
+    "command": "env -u NODE_ENV npm install --no-audit --no-fund",
+    "successful_copies": "6/6",
+    "packages_added_per_copy": 115,
+    "dev_dependency_check": "env -u NODE_ENV npm ls tailwindcss postcss autoprefixer typescript --depth=0",
+    "dev_dependency_check_result": "6/6 exit 0"
+  },
+  "sources": [
+    {
+      "set": "compile-A",
+      "source_run": "gate_breakout_combo2_qwen27_plan_gemma31_exec_preset_profile_001",
+      "source_event_run_id": "019f563b-7381-7860-abd1-34fed72300ac",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0712_g_002/gate_breakout_combo2_qwen27_plan_gemma31_exec_preset_profile_001",
+      "assigned_runs": ["fix3_compile_qwen35_001"],
+      "source_file_count": 10,
+      "source_tree_sha256": "b1c4f06527c651019004bcf5009be8dd421f3e4283a6e92478cc02b7c2d0215b",
+      "copy_tree_sha256": "b1c4f06527c651019004bcf5009be8dd421f3e4283a6e92478cc02b7c2d0215b",
+      "precheck": {
+        "command": "env -u NODE_ENV npm run build",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "src/app/page.tsx:250:5 Type error: Cannot find name 'initGame'."
+      }
+    },
+    {
+      "set": "compile-B",
+      "source_run": "space_combo1_qwen27_plan_qwen35_exec_explicit_none_001",
+      "source_event_run_id": "019f5008-f559-7f03-8652-e77e025e220a",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0711_bs_003/space_combo1_qwen27_plan_qwen35_exec_explicit_none_001",
+      "assigned_runs": ["fix3_compile_gemma31_001"],
+      "source_file_count": 11,
+      "source_tree_sha256": "332c32151692e4c4a13f721a9a697708cf845c9c7f9b206f24e43b0071a7c000",
+      "copy_tree_sha256": "332c32151692e4c4a13f721a9a697708cf845c9c7f9b206f24e43b0071a7c000",
+      "precheck": {
+        "command": "env -u NODE_ENV npm run build",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "src/app/components/SpaceInvaders.tsx:305:22 Type error: Bullet.dy is missing."
+      }
+    },
+    {
+      "set": "hook-A",
+      "source_run": "nopreset_space_combo1_qwen27_plan_qwen35_exec_001",
+      "source_event_run_id": "019f4c99-902e-7072-a7d6-c35974ab8823",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0711_bs_001/nopreset_space_combo1_qwen27_plan_qwen35_exec_001",
+      "assigned_runs": ["fix3_hook_qwen35_001", "fix3_hook_gemma31_001"],
+      "source_file_count": 11,
+      "source_tree_sha256": "d6a52b7f58d479f3cc1b5ab309024a71aaf0df6e8e2b512899e33c49b5e7b406",
+      "copy_tree_sha256": "d6a52b7f58d479f3cc1b5ab309024a71aaf0df6e8e2b512899e33c49b5e7b406",
+      "precheck": {
+        "command": "grep -q 'data-anvil-action=\"restart\"' src/app/page.tsx",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "restart contract hook absent from route-bound page.tsx",
+        "source_wide_restart_hook_occurrences": 0,
+        "auxiliary_npm_run_build_exit_code": 0
+      }
+    },
+    {
+      "set": "hook-B",
+      "source_run": "cell2_space_qwen27_plan_gemma31_exec_preset_profile_001",
+      "source_event_run_id": "019f56a7-634a-71e0-bfb9-4e3a34ad848e",
+      "source_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0712_gab_001/cell2_space_qwen27_plan_gemma31_exec_preset_profile_001",
+      "assigned_runs": ["fix3_hook_qwen35_002", "fix3_hook_gemma31_002"],
+      "source_file_count": 12,
+      "source_tree_sha256": "fb4ceb97240fb3a83c167de12879289a9ba08d556340b610f135c996a1ea9bda",
+      "copy_tree_sha256": "fb4ceb97240fb3a83c167de12879289a9ba08d556340b610f135c996a1ea9bda",
+      "precheck": {
+        "command": "grep -q 'data-anvil-action=\"restart\"' src/app/page.tsx",
+        "exit_code": 1,
+        "same_failure_class_as_source": true,
+        "result": "restart contract hook absent from route-bound page.tsx",
+        "source_wide_restart_hook_occurrences": 2,
+        "source_wide_occurrence_paths": [
+          "src/app/SpaceInvadersGame.tsx:100",
+          "src/app/SpaceInvadersGame.tsx:115"
+        ],
+        "auxiliary_npm_run_build_exit_code": 1,
+        "auxiliary_build_result": "independent source defect at src/app/SpaceInvadersGame.tsx:4:10: useSpaceInvadersGame is not exported"
+      }
+    }
+  ]
+}

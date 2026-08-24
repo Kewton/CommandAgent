@@ -1,0 +1,70 @@
+{
+  "model": "gpt-fixture",
+  "protocol": "text",
+  "failure_kind": "json_trailing",
+  "parse_error": "trailing characters at line 1 column 17",
+  "raw_excerpt": {
+    "text": "{\"name\":\"Write\"} trailing",
+    "max_bytes": 512,
+    "raw_response_bytes": 26,
+    "start_byte": 0,
+    "end_byte": 26,
+    "truncated_before": false,
+    "truncated_after": false
+  },
+  "phase": "create-sample-data",
+  "claims": [
+    {
+      "claim": "json_trailing",
+      "observation": {
+        "model": "gpt-fixture",
+        "protocol": "text",
+        "failure_kind": "json_trailing",
+        "parse_error": "trailing characters at line 1 column 17",
+        "raw_excerpt": {
+          "text": "{\"name\":\"Write\"} trailing",
+          "max_bytes": 512,
+          "raw_response_bytes": 26,
+          "start_byte": 0,
+          "end_byte": 26,
+          "truncated_before": false,
+          "truncated_after": false
+        },
+        "phase": "create-sample-data"
+      }
+    }
+  ],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "tool_parse",
+    "kind": "tool_parse_failure",
+    "epoch": 1785579000,
+    "claims": [
+      {
+        "index": 0,
+        "label": "json_trailing",
+        "judgement": "observed",
+        "observation": {
+          "model": "gpt-fixture",
+          "protocol": "text",
+          "failure_kind": "json_trailing",
+          "parse_error": "trailing characters at line 1 column 17",
+          "raw_excerpt": {
+            "text": "{\"name\":\"Write\"} trailing",
+            "max_bytes": 512,
+            "raw_response_bytes": 26,
+            "start_byte": 0,
+            "end_byte": 26,
+            "truncated_before": false,
+            "truncated_after": false
+          },
+          "phase": "create-sample-data"
+        },
+        "source_ref": null,
+        "direction": null
+      }
+    ],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

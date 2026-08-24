@@ -6,92 +6,86 @@ on:
   pull_request:
     branches: [main, develop, "release/**"]
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  fmt:
-    name: fmt
+  changes:
+    name: Detect GUI changes
+    runs-on: ubuntu-latest
+    outputs:
+      gui: ${{ steps.filter.outputs.gui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gui:
+              - 'gui/**'
+              - 'src/bin/gui_server.rs'
+              - 'src/bin/gui_server/**'
+              - 'tests/gui_*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+
+  commandagent-guardrails:
+    name: CommandAgent Test and Guardrails
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install harness test dependencies
+        run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Repository acceptance suite
+        run: bash scripts/ci.sh
 
-  clippy:
-    name: clippy
+  gui-dashboard:
+    name: GUI Dashboard
+    needs: changes
+    if: needs.changes.outputs.gui == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+      - name: Install pinned GUI dependencies
+        working-directory: gui
+        run: npm ci --include=dev
+      - name: Audit internal paths
+        working-directory: gui
+        run: npm run lint
+      - name: Type check
+        working-directory: gui
+        run: npm run typecheck
+      - name: Build root-path export
+        working-directory: gui
+        run: GUI_BASE_PATH=/ npm run build
+      - name: Build proxy-path export
+        working-directory: gui
+        run: GUI_BASE_PATH=/proxy/commandagent/ npm run build
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
-
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test
-
-  shell-lint:
-    name: shell-lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash -n scripts/*.sh
-      - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck -S warning scripts/*.sh
-
-  python-check:
-    name: python-check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-      - run: python3 -m py_compile scripts/eval_report.py scripts/codex_orchestrate.py
-      - run: python3 -m unittest discover -s tests -p 'test_codex_orchestrate.py'
-
-  offline-smoke:
-    name: offline-smoke
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - run: bash scripts/eval_smoke.sh
-
-  build:
-    name: build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    needs: [fmt, clippy, test, shell-lint, python-check, offline-smoke]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release
+          workspaces: . -> target
+      - name: Verify read-only GUI server
+        run: |
+          cargo clippy --features gui --bin gui_server -- -D warnings
+          cargo test --features gui --test gui_server
