@@ -21,6 +21,7 @@ pub struct PackSummary {
     expected_hash: Option<String>,
     observed_hash: Option<String>,
     hash_matches_pin: bool,
+    conformance_ok: bool,
     has_assist: bool,
     has_eval: bool,
     retired: bool,
@@ -115,11 +116,10 @@ fn inspect(
             .as_ref()
             .zip(observed_hash.as_ref())
             .is_some_and(|(expected, observed)| expected == observed);
-    let local_trial_eligible = source == PackSource::Local
-        && hash_matches_pin
-        && loaded
-            .as_ref()
-            .is_some_and(|pack| commandagent::planner::pack::conform(pack).is_ok());
+    let conformance_ok = loaded
+        .as_ref()
+        .is_some_and(|pack| commandagent::planner::pack::conform(pack).is_ok());
+    let local_trial_eligible = source == PackSource::Local && hash_matches_pin && conformance_ok;
     let mut row = PackSummary {
         path: format!("{display_root}/{id}/{version}"),
         profile: loaded
@@ -136,6 +136,7 @@ fn inspect(
         expected_hash,
         observed_hash,
         hash_matches_pin,
+        conformance_ok,
         has_assist: directory
             .join(commandagent::planner::pack::ASSIST_FILE)
             .is_file(),
@@ -177,6 +178,9 @@ fn finalize_warning(pack: &mut PackSummary) {
         warnings.push("pack.sha256 がありません。".to_string());
     } else if pack.observed_hash.is_some() && !pack.hash_matches_pin {
         warnings.push("hash と pin が一致しません。".to_string());
+    }
+    if pack.observed_hash.is_some() && !pack.conformance_ok {
+        warnings.push("pack が現在の profile / intent 契約と非互換です。".to_string());
     }
     if pack.retired {
         warnings.push("この pack は廃止済みです。".to_string());

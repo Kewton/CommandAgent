@@ -18,7 +18,8 @@ concept.
 | read-only in-flight Trial | 実行状況 |
 | compact Trial session list | 実行履歴 |
 | terminal Trial evidence | 結果詳細 |
-| packs, contracts, and measurement suites | 拡張 |
+| four-layer extension boundary and catalogs | 拡張 |
+| contracts and measurement suites | 参照資料（拡張内） |
 | `workspace/management/runs` history | リポジトリ実行記録 |
 | reports and bands | 計測 |
 | `.commandagent/runs` session history | トライアル実行履歴 |
@@ -75,5 +76,8 @@ the target vocabulary for those migrations.
 | action | 受入シートの詳細を表示 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
 | action | トライアルで使う | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
+| heading | 4 レイヤーと依存関係 | `gui/app/assets/page.tsx` | [`gui-extensions.md#four-extension-layers`](gui-extensions.md#four-extension-layers) |
+| action | 安全な登録 Issue を作る | `gui/app/assets/page.tsx` | [`gui-extensions.md#layer-2-draft-profiles`](gui-extensions.md#layer-2-draft-profiles) |
+| heading | Contract / Suite は拡張種別ではありません | `gui/app/assets/page.tsx` | [`gui-extensions.md#contract-and-suite-references`](gui-extensions.md#contract-and-suite-references) |
 | action | パック作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
 | empty state | 確認済みのトライアルセッションはありません。 | `gui/components/trial-session-index.tsx` | [`gui-history.md#session-rows-and-refresh`](gui-history.md#session-rows-and-refresh) |

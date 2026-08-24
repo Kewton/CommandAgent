@@ -30,6 +30,8 @@ Moved to [GUI setup — Serve below a reverse-proxy path](gui-setup.md#serve-bel
 ## Extensions catalog
 
 Moved to [GUI extensions — Extensions catalog](gui-extensions.md#extensions-catalog).
+The four-layer boundary is defined at
+[GUI extensions — Four extension layers](gui-extensions.md#four-extension-layers).
 
 ### Extension supply API
 
