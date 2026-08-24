@@ -1375,6 +1375,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "failure_diagnostics?:",
         "next_action:",
         "phases:",
+        "task_progress:",
         "event_count:",
         "acceptance_sheet:",
         "section5:",
@@ -1383,7 +1384,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 17);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 18);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -1421,6 +1422,68 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         !smoke.contains("document.body.textContent?.includes(\"running\")"),
         "polling readiness must observe the localized visible status"
     );
+}
+
+#[test]
+fn trial_task_projection_is_typed_read_only_and_keeps_history_compact() {
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    let projection = std::fs::read_to_string("src/bin/gui_server/session_tasks.rs").unwrap();
+    for required in [
+        "task_progress: super::session_tasks::TaskProgress",
+        "session_tasks::project(&events, terminal_is_current)",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "Trial session response lost task projection wiring {required:?}"
+        );
+    }
+    for required in [
+        "plan_step_started",
+        "plan_step_completed",
+        "plan_step_failed",
+        "plan_step_schema_version",
+        "plan_execution_id",
+        "step_execution_id",
+        "short_circuited",
+        "status: if terminal { \"unsupported\" } else { \"pending\" }",
+        "return unsupported()",
+    ] {
+        assert!(
+            projection.contains(required),
+            "typed task projection lost {required:?}"
+        );
+    }
+    let production_projection = projection.split("#[cfg(test)]").next().unwrap();
+    for forbidden in ["ultra_phase_complete", "tui_command_stop", "run_stop"] {
+        assert!(
+            !production_projection.contains(forbidden),
+            "task results must not infer outcomes from {forbidden}"
+        );
+    }
+
+    let component = std::fs::read_to_string("gui/components/trial-task-progress.tsx").unwrap();
+    for required in [
+        "data-testid=\"current-task-progress\"",
+        "現在のフェーズ:",
+        "現在のタスク:",
+        "short-circuited（実行省略）",
+        "FAILED（失敗）",
+        "interrupted（中断）",
+        "aria-expanded={open}",
+        "useState(task.status === \"failed\")",
+        "data-testid=\"task-failure-reason\"",
+        "data-testid=\"task-evidence-link\"",
+        "typed event がなく、未実行か未記録かを推測しません",
+    ] {
+        assert!(component.contains(required), "task UI lost {required:?}");
+    }
+    let history = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    assert!(!history.contains("TrialTaskProgress"));
+    assert!(!history.contains("task_progress"));
+
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert!(styles.contains("content-visibility: auto"));
+    assert!(styles.contains("contain-intrinsic-size: auto 3.25rem"));
 }
 
 #[test]
@@ -1997,6 +2060,17 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "legacy_running_to_status",
         "legacy_terminal_to_detail",
         "mobile_fits",
+        "live_task_count",
+        "terminal_task_count",
+        "task_payloads_bounded",
+        "128 * 1024",
+        "execution_interval_count",
+        "duplicate_step_ids_kept_separate",
+        "failed_task_auto_expanded",
+        "keyboard_disclosure_expanded",
+        "heading_hierarchy_valid",
+        "task_detail_mobile_fits",
+        "legacy_task_unsupported",
         "resource_revalidation",
         "failure_retained_previous_data",
         "repository-only",
@@ -2167,6 +2241,7 @@ fn trial_ui_sources() -> String {
         "gui/components/trial-run.tsx",
         "gui/components/trial-session-paths.tsx",
         "gui/components/trial-terminal.tsx",
+        "gui/components/trial-task-progress.tsx",
         "gui/hooks/use-trial-compose.ts",
         "gui/hooks/use-trial-monitor.ts",
         "gui/hooks/use-trial-page-routing.ts",

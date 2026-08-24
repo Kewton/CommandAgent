@@ -216,6 +216,14 @@ The shell may display progress already emitted by the product. It may not
 reinterpret progress as completion, auto-select a repair, swap models, change
 packs, or answer a runner question on the user's behalf.
 
+For StepPlan task progress, the shell projects only schema-versioned
+`plan_step_started`, `plan_step_completed`, and `plan_step_failed` records.
+`plan_execution_id` defines an execution interval and `step_execution_id`
+defines one task attempt; neither Step ID nor event adjacency is a valid merge
+key. Completed, short-circuited, failed, and interrupted states come only from
+the matching typed terminal record. A terminal stream without a complete typed
+contract is `unsupported`, not an inferred set of successes.
+
 Why conversation need not be trusted: execution consumes the persisted typed
 confirmation, not the latest chat text. Existing runner events, evidence,
 budgets, and honest-failure terminals remain authoritative.
@@ -231,6 +239,8 @@ sheet, not a conversational summary in place of it. Navigation may highlight:
 - evidence paths/hashes and pack pins;
 - elapsed epochs and cost fields that were actually recorded;
 - discrepancies between the confirmed value tag and the executed identity.
+- every typed StepPlan task interval, including bounded failure and verification
+  evidence, while older sessions remain explicitly unsupported.
 
 The user may acknowledge/close or inspect an evidence item. A friendly one-line
 heading is allowed, but it cannot omit, rewrite, or upgrade the sheet.

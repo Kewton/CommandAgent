@@ -101,6 +101,13 @@ async function probeLifecycle(browser, origin, basePath) {
       },
     });
   });
+  const liveTaskPayloadBytes = Buffer.byteLength(JSON.stringify(runningSession(createdSessionId)));
+  const terminalTaskPayloadBytes = Buffer.byteLength(
+    JSON.stringify(terminalSession(createdSessionId)),
+  );
+  const taskPayloadsBounded =
+    liveTaskPayloadBytes < 128 * 1024 && terminalTaskPayloadBytes < 128 * 1024;
+  assert(taskPayloadsBounded, "100-task polling projection exceeded 128 KiB");
   let indexSessions = [];
   let indexCalls = 0;
   let runtimeCalls = 0;
@@ -213,6 +220,13 @@ async function probeLifecycle(browser, origin, basePath) {
         await json(route, 200, []);
         return;
       }
+      if (pathname.endsWith(`/api/sessions/${createdSessionId}/events`) && method === "GET") {
+        await json(route, 200, {
+          path: "events.jsonl",
+          content: '{"event":"plan_step_failed","step_execution_id":"terminal-step-3"}\n',
+        });
+        return;
+      }
       await json(route, 404, { error: `unexpected mocked API: ${method} ${pathname}` });
     });
 
@@ -287,6 +301,14 @@ async function probeLifecycle(browser, origin, basePath) {
     const launchWorkingDirectory = await page
       .locator("[data-testid='trial-working-directory-path']")
       .innerText();
+    const liveTaskProgress = page.locator("[data-testid='current-task-progress']");
+    await liveTaskProgress.waitFor();
+    const liveTaskText = await liveTaskProgress.innerText();
+    assertIncludes(liveTaskText, "現在のフェーズ: implementation", "current task phase");
+    assertIncludes(liveTaskText, "現在のタスク: task-100", "current task ID");
+    assertIncludes(liveTaskText, "タスク 100 / 100", "current task position");
+    const liveTaskCount = await page.locator("[data-testid='task-progress'] .task-list > li").count();
+    assert(liveTaskCount === 100, `live task projection rendered ${liveTaskCount} tasks`);
     const launchUrl = new URL(page.url());
     const launchNavigatedToStatus =
       launchUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
@@ -320,6 +342,70 @@ async function probeLifecycle(browser, origin, basePath) {
     const statusNavigatedToDetail =
       detailUrl.pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
       detailUrl.searchParams.get("session") === createdSessionId;
+
+    const terminalTaskProgress = page.locator("[data-testid='task-progress']");
+    await terminalTaskProgress.waitFor();
+    const terminalTaskCount = await terminalTaskProgress.locator(".task-list > li").count();
+    const executionIntervalCount = await terminalTaskProgress
+      .locator("[data-testid='task-execution']")
+      .count();
+    assert(terminalTaskCount === 101, `terminal task projection rendered ${terminalTaskCount}`);
+    assert(executionIntervalCount === 2, "initial and continuation task intervals were merged");
+    const terminalTaskText = await terminalTaskProgress.innerText();
+    for (const label of [
+      "completed（完了）",
+      "short-circuited（実行省略）",
+      "FAILED（失敗）",
+      "interrupted（中断）",
+    ]) {
+      assertIncludes(terminalTaskText, label, `terminal task label ${label}`);
+    }
+    const failedTask = terminalTaskProgress.locator("[data-testid='task-failed']").first();
+    const failedDetails = failedTask.locator("details");
+    const failedSummary = failedTask.locator("summary");
+    const failedTaskAutoExpanded =
+      (await failedDetails.getAttribute("open")) !== null &&
+      (await failedSummary.getAttribute("aria-expanded")) === "true";
+    assert(failedTaskAutoExpanded, "FAILED task was not expanded with aria-expanded=true");
+    assertIncludes(
+      await failedTask.locator("[data-testid='task-failure-reason']").innerText(),
+      "synthetic verification failed",
+      "FAILED task reason",
+    );
+    const completedSummary = terminalTaskProgress
+      .locator("[data-testid='task-completed'] summary")
+      .first();
+    await completedSummary.focus();
+    await completedSummary.press("Enter");
+    await page.waitForFunction(
+      (element) => element?.getAttribute("aria-expanded") === "true",
+      await completedSummary.elementHandle(),
+    );
+    const keyboardDisclosureExpanded =
+      (await completedSummary.getAttribute("aria-expanded")) === "true";
+    assert(keyboardDisclosureExpanded, "task disclosure was not keyboard operable");
+    const headingHierarchy = await terminalTaskProgress.evaluate((node) =>
+      Array.from(node.querySelectorAll("h3, h4")).map((heading) => heading.tagName.toLowerCase()),
+    );
+    const headingHierarchyValid =
+      headingHierarchy[0] === "h3" && headingHierarchy.slice(1).every((tag) => tag === "h4");
+    assert(headingHierarchyValid, `task heading hierarchy is invalid: ${headingHierarchy}`);
+    const duplicateStepIdsKeptSeparate =
+      (await terminalTaskProgress.locator("summary strong", { hasText: "same-step" }).count()) === 2;
+    assert(duplicateStepIdsKeptSeparate, "duplicate Step IDs were merged across execution intervals");
+    await failedTask.locator("[data-testid='task-evidence-link']").click();
+    const taskEvidenceViewer = page.locator("[data-testid='trial-file-viewer']");
+    await taskEvidenceViewer.waitFor();
+    await page.waitForFunction(() =>
+      document.querySelector("[data-testid='trial-file-viewer']")?.textContent?.includes(
+        "plan_step_failed",
+      ));
+    assertIncludes(await taskEvidenceViewer.innerText(), "plan_step_failed", "task evidence link");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const taskDetailMobileFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    await page.setViewportSize({ width: 1280, height: 1000 });
 
     const historyLink = page.locator("[data-testid='terminal-session-history-link']");
     const expectedHistoryHref = `${prefix}try/history/#trial-session-${createdSessionId}`;
@@ -523,6 +609,18 @@ async function probeLifecycle(browser, origin, basePath) {
       terminal_row_compact: terminalDiagnosticsCount === 0,
       launch_navigated_to_status: launchNavigatedToStatus,
       status_navigated_to_detail: statusNavigatedToDetail,
+      live_task_text: liveTaskText,
+      live_task_count: liveTaskCount,
+      terminal_task_count: terminalTaskCount,
+      live_task_payload_bytes: liveTaskPayloadBytes,
+      terminal_task_payload_bytes: terminalTaskPayloadBytes,
+      task_payloads_bounded: taskPayloadsBounded,
+      execution_interval_count: executionIntervalCount,
+      duplicate_step_ids_kept_separate: duplicateStepIdsKeptSeparate,
+      failed_task_auto_expanded: failedTaskAutoExpanded,
+      keyboard_disclosure_expanded: keyboardDisclosureExpanded,
+      heading_hierarchy_valid: headingHierarchyValid,
+      task_detail_mobile_fits: taskDetailMobileFits,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
       focus_revalidated: focusRevalidated,
@@ -566,6 +664,15 @@ async function probeLifecycle(browser, origin, basePath) {
         terminalDiagnosticsCount === 0 &&
         launchNavigatedToStatus &&
         statusNavigatedToDetail &&
+        liveTaskCount === 100 &&
+        terminalTaskCount === 101 &&
+        taskPayloadsBounded &&
+        executionIntervalCount === 2 &&
+        duplicateStepIdsKeptSeparate &&
+        failedTaskAutoExpanded &&
+        keyboardDisclosureExpanded &&
+        headingHierarchyValid &&
+        taskDetailMobileFits &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
@@ -612,7 +719,9 @@ async function probeRouteOwnership(browser, origin, basePath) {
         await json(
           route,
           200,
-          legacyTerminal ? terminalSession(existingSessionId) : runningSession(existingSessionId),
+          legacyTerminal
+            ? legacyTerminalSession(existingSessionId)
+            : runningSession(existingSessionId),
         );
         return;
       }
@@ -688,6 +797,11 @@ async function probeRouteOwnership(browser, origin, basePath) {
     legacyTerminalUrl.searchParams.set("session", existingSessionId);
     await page.goto(legacyTerminalUrl.href, { waitUntil: "networkidle" });
     await page.locator("[data-testid='terminal-gate']").waitFor();
+    const legacyTaskUnsupported =
+      (await page.locator("[data-testid='task-progress-unsupported']").count()) === 1 &&
+      (await page.locator("[data-testid='task-progress-unsupported']").innerText()).includes(
+        "不正確な成功件数は表示しません",
+      );
     const redirectedTerminalUrl = new URL(page.url());
     const legacyTerminalToDetail =
       redirectedTerminalUrl.pathname ===
@@ -700,6 +814,7 @@ async function probeRouteOwnership(browser, origin, basePath) {
       mobile_fits: mobileFits,
       legacy_running_to_status: legacyRunningToStatus,
       legacy_terminal_to_detail: legacyTerminalToDetail,
+      legacy_task_unsupported: legacyTaskUnsupported,
       reconnect_get_only: reconnectGetOnly,
       requests,
       ok:
@@ -707,6 +822,7 @@ async function probeRouteOwnership(browser, origin, basePath) {
         mobileFits &&
         legacyRunningToStatus &&
         legacyTerminalToDetail &&
+        legacyTaskUnsupported &&
         reconnectGetOnly,
     };
   } finally {
@@ -1061,6 +1177,7 @@ function runningSession(id) {
     assurance: null,
     acceptance_sheet: null,
     section5: null,
+    task_progress: runningTaskProgress(),
   };
 }
 
@@ -1074,7 +1191,8 @@ function terminalSession(id) {
     verdict: "pass",
     assurance: "full",
     phases: [],
-    event_count: 1,
+    task_progress: terminalTaskProgress(),
+    event_count: 205,
     acceptance_sheet: "# Synthetic acceptance\n\nPASS",
     section5: "PASS",
     events_path: `.commandagent/runs/${id}/events.jsonl`,
@@ -1094,6 +1212,110 @@ function sessionPaths(id, state = "available") {
       events: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/events.jsonl`,
       summary: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/summary.md`,
     },
+  };
+}
+
+function legacyTerminalSession(id) {
+  return {
+    ...terminalSession(id),
+    task_progress: { status: "unsupported", executions: [] },
+  };
+}
+
+function runningTaskProgress() {
+  return {
+    status: "supported",
+    executions: [{
+      execution_index: 1,
+      plan_execution_id: "live-plan-execution",
+      mode: "ultra-plan",
+      phase_id: "implementation",
+      total_steps: 100,
+      tasks: Array.from({ length: 100 }, (_, index) =>
+        taskStatus({
+          executionId: `live-step-${index + 1}`,
+          index: index + 1,
+          status: index === 99 ? "running" : "completed",
+          total: 100,
+        })),
+    }],
+  };
+}
+
+function terminalTaskProgress() {
+  const statuses = ["completed", "short_circuited", "failed", "interrupted"];
+  return {
+    status: "supported",
+    executions: [
+      {
+        execution_index: 1,
+        plan_execution_id: "initial-plan-execution",
+        mode: "ultra-plan",
+        phase_id: "implementation",
+        total_steps: 100,
+        tasks: Array.from({ length: 100 }, (_, index) =>
+          taskStatus({
+            executionId: `terminal-step-${index + 1}`,
+            id: index === 0 ? "same-step" : `task-${index + 1}`,
+            index: index + 1,
+            status: statuses[index] ?? "completed",
+            total: 100,
+          })),
+      },
+      {
+        execution_index: 2,
+        plan_execution_id: "continuation-plan-execution",
+        mode: "ultra-plan",
+        phase_id: "follow-up",
+        total_steps: 1,
+        tasks: [taskStatus({
+          executionId: "continuation-step-1",
+          id: "same-step",
+          index: 1,
+          status: "short_circuited",
+          total: 1,
+        })],
+      },
+    ],
+  };
+}
+
+function taskStatus({ executionId, id, index, status, total }) {
+  const failed = status === "failed";
+  const interrupted = status === "interrupted";
+  const running = status === "running";
+  const shortCircuited = status === "short_circuited";
+  return {
+    step_execution_id: executionId,
+    step_index: index,
+    total_steps: total,
+    step_id: id ?? `task-${index}`,
+    step_kind: index % 2 === 0 ? "verify" : "implement",
+    status,
+    outcome: running
+      ? null
+      : failed
+        ? "verification_failed"
+        : interrupted
+          ? "interrupted"
+          : shortCircuited
+            ? "short_circuited"
+            : "completed",
+    verification_status: running
+      ? null
+      : failed
+        ? "failed"
+        : interrupted
+          ? "not_run"
+          : "passed",
+    verification_failure_count: failed ? 1 : 0,
+    verification_failures: failed ? ["synthetic check failed"] : [],
+    verification_failures_truncated: false,
+    changed_path_count: failed ? 1 : 0,
+    changed_paths: failed ? ["src/synthetic.rs"] : [],
+    changed_paths_truncated: false,
+    repair_attempts: failed ? 2 : 0,
+    failure_summary: failed ? "synthetic verification failed" : interrupted ? "interrupted by user" : null,
   };
 }
 

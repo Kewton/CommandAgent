@@ -110,6 +110,14 @@ CLI may continue. The browser elapsed clock is an observation, and the
 measured mean shown beside it is a comparison, not an ETA. `Phase x / N` is
 shown only when file-backed phase evidence has a nonzero total.
 
+When the session contains the typed StepPlan lifecycle events introduced by
+#375, the status page also shows the current phase, current task ID, and
+`task / total` position. Tasks are grouped by `plan_execution_id`, so an
+initial run and a confirmed additional request remain separate even when they
+reuse the same Step ID. The task view derives outcomes only from matching
+`plan_step_started`, `plan_step_completed`, and `plan_step_failed` records; a
+later event or phase completion is never treated as proof that a task passed.
+
 The confirmed intent is shown with the other launch identity fields. It is not
 editable after Gate 1, and reconnect restores it from the persisted
 confirmation rather than re-running request inference.
@@ -151,6 +159,15 @@ identifier such as `static` is not substituted for the verdict. The result
 card repeats the run's confirmed goal, profile, model pins, and pack so the
 outcome remains bound to the execution it describes.
 
+The result detail lists every task represented by a typed lifecycle interval.
+`completed`, `short-circuited`, `FAILED`, and `interrupted` each have a symbol
+and visible text label. FAILED tasks open automatically and include the bounded
+failure summary, verification failures, changed paths, and an `events.jsonl`
+evidence action. If a Plan reports more tasks than have typed events, the page
+shows the unrecorded count without guessing whether those tasks ran. Sessions
+that ended before the #375 contract are marked `unsupported` and show no
+invented success count.
+
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
 exact-byte hashed, displayed, and separately confirmed, and cannot lower fixed
@@ -176,6 +193,11 @@ clock resumes from the server-owned session start and the measured mean is
 restored from the confirmed band, so neither value resets after reload.
 Reconnect cannot delegate another process. A workspace 409 response supplies
 the same status link.
+
+Task polling uses the same conditional session response and returns only the
+bounded typed projection, not raw events. Unchanged polls remain body-free
+304 responses. Task disclosures are keyboard-operable, synchronize
+`aria-expanded`, and keep state labels independent of color.
 
 Monitoring failures have explicit boundaries:
 

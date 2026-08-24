@@ -37,6 +37,8 @@ mod session_files;
 mod session_index;
 #[path = "gui_server/session_paths.rs"]
 mod session_paths;
+#[path = "gui_server/session_tasks.rs"]
+mod session_tasks;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]

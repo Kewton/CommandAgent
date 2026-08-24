@@ -20,6 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal result-detail pages with state-aware reconnect links.
 - Show and copy the delegated GUI Trial working directory on live and result
   pages, separately from run records, through a token-authenticated path API.
+- Show typed StepPlan task progress and terminal outcomes on GUI Trial status
+  and result-detail pages, including failed-task evidence and legacy-session
+  unsupported handling.
 
 ### Fixed
 
