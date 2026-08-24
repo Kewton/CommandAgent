@@ -185,100 +185,110 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
             </small>
           )}
         </label>
-        <label>
-          実行プロバイダー
-          <select
-            data-testid="trial-provider"
-            disabled={launchIdentityLocked || trialOptions === null}
-            value={spec.provider}
-            onChange={(event) => {
-              update("provider", event.target.value);
-              setProviderChanged(true);
-            }}
-          >
-            {trialOptions === null ? (
-              <option value={spec.provider}>プロバイダーを読み込み中…</option>
-            ) : (
-              trialOptions.providers.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))
-            )}
-          </select>
-        </label>
-        <label>
-          実行モデル
-          <input
-            aria-describedby={describedBy(
-              run.providerChanged ? "trial-provider-model-hint" : null,
-              executorModelUnknown ? "trial-executor-model-warning" : null,
-            )}
-            data-testid="trial-executor-model"
-            disabled={launchIdentityLocked}
-            list="trial-executor-provider-model-options"
-            placeholder="正確なモデル ID"
-            value={spec.model}
-            onChange={(event) => update("model", event.target.value)}
-          />
-          {run.providerChanged && selectedProvider !== undefined && (
-            <small
-              className="trial-model-warning"
-              data-testid="trial-provider-model-hint"
-              id="trial-provider-model-hint"
-              role="status"
-            >
-              プロバイダーを変更しても実行モデルは自動更新されません。{selectedProvider.model_hint}
-            </small>
-          )}
-          {executorModelUnknown && (
-            <small
-              className="trial-model-warning"
-              data-testid="trial-executor-model-warning"
-              id="trial-executor-model-warning"
-              role="status"
-            >
-              この実行モデルは取得済みの候補にありません。正確な ID か確認してください。
-            </small>
-          )}
-        </label>
-        <label>
-          計画プロバイダー
-          <select
-            data-testid="trial-planner-provider"
-            disabled={launchIdentityLocked || trialOptions === null}
-            value={spec.planner_provider}
-            onChange={(event) => update("planner_provider", event.target.value)}
-          >
-            {trialOptions === null ? (
-              <option value={spec.planner_provider}>プロバイダーを読み込み中…</option>
-            ) : (
-              trialOptions.providers.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))
-            )}
-          </select>
-        </label>
-        <label>
-          計画モデル
-          <input
-            aria-describedby={plannerModelUnknown ? "trial-planner-model-warning" : undefined}
-            data-testid="trial-planner-model"
-            disabled={launchIdentityLocked}
-            list="trial-planner-provider-model-options"
-            placeholder="正確なモデル ID"
-            value={spec.planner_model}
-            onChange={(event) => update("planner_model", event.target.value)}
-          />
-          {plannerModelUnknown && (
-            <small
-              className="trial-model-warning"
-              data-testid="trial-planner-model-warning"
-              id="trial-planner-model-warning"
-              role="status"
-            >
-              この計画モデルは取得済みの候補にありません。正確な ID か確認してください。
-            </small>
-          )}
-        </label>
+        <fieldset className="trial-role-fields" data-testid="trial-executor-role">
+          <legend>Executor / 実行</legend>
+          <div className="trial-role-controls">
+            <label>
+              実行プロバイダー
+              <select
+                data-testid="trial-provider"
+                disabled={launchIdentityLocked || trialOptions === null}
+                value={spec.provider}
+                onChange={(event) => {
+                  update("provider", event.target.value);
+                  setProviderChanged(true);
+                }}
+              >
+                {trialOptions === null ? (
+                  <option value={spec.provider}>プロバイダーを読み込み中…</option>
+                ) : (
+                  trialOptions.providers.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
+              </select>
+            </label>
+            <label>
+              実行モデル
+              <input
+                aria-describedby={describedBy(
+                  run.providerChanged ? "trial-provider-model-hint" : null,
+                  executorModelUnknown ? "trial-executor-model-warning" : null,
+                )}
+                data-testid="trial-executor-model"
+                disabled={launchIdentityLocked}
+                list="trial-executor-provider-model-options"
+                placeholder="正確なモデル ID"
+                value={spec.model}
+                onChange={(event) => update("model", event.target.value)}
+              />
+              {run.providerChanged && selectedProvider !== undefined && (
+                <small
+                  className="trial-model-warning"
+                  data-testid="trial-provider-model-hint"
+                  id="trial-provider-model-hint"
+                  role="status"
+                >
+                  プロバイダーを変更しても実行モデルは自動更新されません。{selectedProvider.model_hint}
+                </small>
+              )}
+              {executorModelUnknown && (
+                <small
+                  className="trial-model-warning"
+                  data-testid="trial-executor-model-warning"
+                  id="trial-executor-model-warning"
+                  role="status"
+                >
+                  この実行モデルは取得済みの候補にありません。正確な ID か確認してください。
+                </small>
+              )}
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="trial-role-fields" data-testid="trial-planner-role">
+          <legend>Planner / 計画</legend>
+          <div className="trial-role-controls">
+            <label>
+              計画プロバイダー
+              <select
+                data-testid="trial-planner-provider"
+                disabled={launchIdentityLocked || trialOptions === null}
+                value={spec.planner_provider}
+                onChange={(event) => update("planner_provider", event.target.value)}
+              >
+                {trialOptions === null ? (
+                  <option value={spec.planner_provider}>プロバイダーを読み込み中…</option>
+                ) : (
+                  trialOptions.providers.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
+              </select>
+            </label>
+            <label>
+              計画モデル
+              <input
+                aria-describedby={plannerModelUnknown ? "trial-planner-model-warning" : undefined}
+                data-testid="trial-planner-model"
+                disabled={launchIdentityLocked}
+                list="trial-planner-provider-model-options"
+                placeholder="正確なモデル ID"
+                value={spec.planner_model}
+                onChange={(event) => update("planner_model", event.target.value)}
+              />
+              {plannerModelUnknown && (
+                <small
+                  className="trial-model-warning"
+                  data-testid="trial-planner-model-warning"
+                  id="trial-planner-model-warning"
+                  role="status"
+                >
+                  この計画モデルは取得済みの候補にありません。正確な ID か確認してください。
+                </small>
+              )}
+            </label>
+          </div>
+        </fieldset>
         <label>
           Ollama thinking
           <select
