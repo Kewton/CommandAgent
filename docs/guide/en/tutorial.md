@@ -91,7 +91,7 @@ commandagent 0.1.0 build=15b7e362
 model=qwen3.6:27b-coding-nvfp4 (flag) provider=ollama (flag) planner=qwen3.6:27b-coding-nvfp4 (default) planner_provider=ollama (default)
 mode=Act cwd=/private/tmp/commandagent-demo/cli-workspace-2
 context_budget=65536 (default) timeout=600s (default:local_provider) profile=python-cli (flag) ...
-run_log=/private/tmp/commandagent-demo/cli-workspace-2/.anvil/runs/<run-id>/events.jsonl
+run_log=/private/tmp/commandagent-demo/cli-workspace-2/.commandagent/runs/<run-id>/events.jsonl
 start: plain-text request → review Gate 1 → /confirm <hash> | help: /help
 [act] provider:ollama model:qwen3.6:27b-coding-nvfp4 ctx:65536 tokens:n/a
 commandagent>
@@ -252,10 +252,13 @@ Both paths write to the workspace they ran in, never to the repository:
 
 | Path (under the workspace) | Content |
 | --- | --- |
-| `.anvil/runs/<run-id>/events.jsonl` | Every event of the run, one JSON object per line. The GUI's phase list and the REPL footer are projections of this file. |
-| `.anvil/runs/<run-id>/summary.md` | Status, verdict, assurance, `Stop reason`, `Next action`, and recovery commands. Read this first after a Gate 4. |
-| `.anvil/runs/<run-id>/<card-hash>.json` | The confirmed Gate 1 identity: request, profile, models, pack pin, and the required checks. |
-| `.anvil/plans/`, `.anvil/repairs/` | Recovery plans and repair prompts that `/resume` and the suggested commands use. |
+| `.commandagent/runs/<run-id>/events.jsonl` | Every event of the run, one JSON object per line. The GUI's phase list and the REPL footer are projections of this file. |
+| `.commandagent/runs/<run-id>/summary.md` | Status, verdict, assurance, `Stop reason`, `Next action`, and recovery commands. Read this first after a Gate 4. |
+| `.commandagent/runs/<run-id>/<card-hash>.json` | The confirmed Gate 1 identity: request, profile, models, pack pin, and the required checks. |
+| `.commandagent/plans/`, `.commandagent/repairs/` | Recovery plans and repair prompts that `/resume` and the suggested commands use. |
+
+New runs use `.commandagent/`. Existing `.anvil/runs/<run-id>/` records remain
+readable for compatibility and are not rewritten.
 
 `commandagent --summary-json` emits the same terminal facts for scripts; see
 [headless summaries](../../user/headless.md).
@@ -267,7 +270,7 @@ Both paths write to the workspace they ran in, never to the repository:
 | `Model ID does not exist` at startup | The ID is not in `ollama list` / the provider catalog. | Use the exact ID; see [troubleshooting](troubleshooting.md#model-id-does-not-exist). |
 | `D-3c Gate 1 confirmation is required before execution. Start with a plain-text request, review the Gate 1 card, then enter /confirm <hash>.` | You typed `/ultra-plan-run` or `/plan-run` instead of starting with a request. | Type the request as a plain sentence, review the card, then enter `/confirm <hash>`. |
 | Gate 4 with `Assurance: static` | The run stopped before its own verification could run. | Open `summary.md`, read `Stop reason`, then use the printed recovery command or a corrected request. |
-| GUI: `Recovery required` lease | A previous delegated run has no terminal event. | Follow the read-only [lease recovery](../../user/gui-trial.md#workspace-lease-inspection-and-recovery); do not delete `.anvil/`. |
+| GUI: `Recovery required` lease | A previous delegated run has no terminal event. | Follow the read-only [lease recovery](../../user/gui-trial.md#workspace-lease-inspection-and-recovery); do not delete `.commandagent/` or a legacy `.anvil/` record. |
 | GUI: `403 trial_origin_not_allowed` | You reached the server through a different origin than it allows. | Set `GUI_TRIAL_ALLOWED_ORIGINS` to the exact browser origin and restart. |
 
 ## Next steps

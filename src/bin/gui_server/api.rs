@@ -63,6 +63,12 @@ pub struct Document {
     content: String,
 }
 
+impl Document {
+    pub(super) fn redact_execution_root(&mut self, execution_root: &FilePath) {
+        self.content = super::public_projection::text(&self.content, execution_root);
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct BandMean {
     profile: &'static str,

@@ -1504,7 +1504,9 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
     let response = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(response.status, 409, "{}", response.body);
     assert_eq!(response.json()["code"], "trial_workspace_conflict");
-    assert!(response.body.contains("changed after startup"));
+    assert!(response.body.contains("changed or became unavailable"));
+    assert!(!response.body.contains(first.to_string_lossy().as_ref()));
+    assert!(!response.body.contains(second.to_string_lossy().as_ref()));
     server.stop();
 }
 
@@ -1935,8 +1937,15 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             ),
         ],
     );
+    let execution_root = workspace.canonicalize().unwrap();
+    let execution_root_text = execution_root.to_string_lossy();
     let idle = server.request_without_access("GET", "/api/runtime-status", None);
     assert_eq!(idle.status, 200, "{}", idle.body);
+    assert!(
+        !idle.body.contains(execution_root_text.as_ref()),
+        "{}",
+        idle.body
+    );
     let idle: serde_json::Value = serde_json::from_str(&idle.body).unwrap();
     assert_eq!(idle["trial_available"], true);
     assert_eq!(idle["trial_token_auth_enabled"], true);
@@ -1957,6 +1966,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
     assert_eq!(proposal.status, 200, "{}", proposal.body);
+    assert!(
+        !proposal.body.contains(execution_root_text.as_ref()),
+        "{}",
+        proposal.body
+    );
     let mut explicit_none = spec.clone();
     explicit_none["think"] = serde_json::Value::Null;
     let explicit_none_proposal =
@@ -2009,9 +2023,10 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
     assert_eq!(proposal_json["price"]["duration_n"], 3);
     assert_eq!(proposal_json["price"]["cost_n"], 0);
-    assert_eq!(
-        proposal_json["identity"]["workspace"],
-        workspace.canonicalize().unwrap().to_string_lossy().as_ref()
+    assert_eq!(proposal_json["identity"]["workspace"], "<execution-root>");
+    assert!(
+        card_markdown.contains("<execution-root>"),
+        "{card_markdown}"
     );
 
     let unauthorized = server.request_without_access("POST", "/api/session-proposals", Some(&spec));
@@ -2201,6 +2216,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
+    assert!(
+        !status.body.contains(execution_root_text.as_ref()),
+        "{}",
+        status.body
+    );
     assert_eq!(status.header("cache-control"), Some("private, no-cache"));
     let etag = status.header("etag").unwrap().to_string();
     assert!(etag.starts_with("W/\""), "{etag}");
@@ -2245,6 +2265,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(status_json["next_action"].is_null());
     assert_eq!(status_json["identity"]["request"], spec["goal"]);
     assert_eq!(status_json["identity"]["profile"], spec["profile"]);
+    assert_eq!(status_json["identity"]["workspace"], "<execution-root>");
     assert_eq!(
         status_json["identity"]["pins"],
         serde_json::json!({
@@ -2269,6 +2290,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let acceptance_sheet = status_json["acceptance_sheet"].as_str().unwrap();
     assert!(acceptance_sheet.contains("Pack: cli-assist@1.0.0"));
     assert!(acceptance_sheet.contains("Pack source: 承認済み"));
+    assert!(acceptance_sheet.contains("Workspace: <execution-root>"));
+    assert!(acceptance_sheet.contains("Event stream: <execution-root>/.commandagent/runs/"));
     let unchanged = server.request_if_none_match(&format!("/api/sessions/{id}"), &etag);
     assert_eq!(unchanged.status, 304, "{}", unchanged.body);
     assert!(unchanged.body.is_empty(), "304 response had a body");
@@ -2504,7 +2527,10 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
     std::fs::create_dir_all(run_root.join("evidence")).unwrap();
     std::fs::write(
         run_root.join("summary.md"),
-        "# Trial summary\nfailed honestly\n",
+        format!(
+            "# Trial summary\nfailed honestly in {}\n",
+            workspace.display()
+        ),
     )
     .unwrap();
     std::fs::write(
@@ -2542,7 +2568,15 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
         )
         .unwrap();
     }
-    writeln!(events, "{{\"event\":\"penultimate\"}}").unwrap();
+    writeln!(
+        events,
+        "{}",
+        serde_json::json!({
+            "event": "penultimate",
+            "workspace_root": workspace.to_string_lossy()
+        })
+    )
+    .unwrap();
     writeln!(events, "{{\"event\":\"terminal\"}}").unwrap();
     drop(events);
     assert!(std::fs::metadata(&events_path).unwrap().len() > 4 * 1024 * 1024);
@@ -2579,7 +2613,10 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
     assert_eq!(summary.status, 200, "{}", summary.body);
     let summary: serde_json::Value = serde_json::from_str(&summary.body).unwrap();
     assert_eq!(summary["path"], "summary.md");
-    assert_eq!(summary["content"], "# Trial summary\nfailed honestly\n");
+    assert_eq!(
+        summary["content"],
+        "# Trial summary\nfailed honestly in <execution-root>\n"
+    );
 
     let traversal = server.request(
         "GET",
@@ -2604,7 +2641,7 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
     assert_eq!(tail["path"], "events.jsonl");
     assert_eq!(
         tail["content"],
-        "{\"event\":\"penultimate\"}\n{\"event\":\"terminal\"}\n"
+        "{\"event\":\"penultimate\",\"workspace_root\":\"<execution-root>\"}\n{\"event\":\"terminal\"}\n"
     );
     let excessive_tail = server.request(
         "GET",

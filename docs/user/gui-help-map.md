@@ -17,7 +17,7 @@ concept.
 | packs, contracts, and measurement suites | 拡張 |
 | `workspace/management/runs` history | リポジトリ実行記録 |
 | reports and bands | 計測 |
-| `.anvil/runs` session history | トライアル実行履歴 |
+| `.commandagent/runs` session history | トライアル実行履歴 |
 | configured Trial workspace | 実行ルート |
 | pinned verification knowledge | パック |
 

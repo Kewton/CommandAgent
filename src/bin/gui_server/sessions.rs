@@ -86,22 +86,21 @@ pub async fn status(
     }
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
-    let terminal_index = latest_event_index(&events, "tui_command_stop");
     let continuation_index = latest_event_index(&events, "human_directive_continuation_started");
-    let terminal_is_current = match (terminal_index, continuation_index) {
-        (Some(terminal), Some(continuation)) => terminal > continuation,
-        (Some(_), None) => true,
-        _ => false,
-    };
-    let terminal = terminal_index.map(|index| &events[index]);
-    let run_stop = latest_event(&events, "run_stop");
-    let terminal_seen = terminal_is_current && (terminal.is_some() || run_stop.is_some());
-    let terminal_details = current_terminal_details(&events, continuation_index, terminal_seen);
-    let failure_diagnostics = if terminal_seen {
-        project_diagnostics(&events[continuation_index.map_or(0, |index| index + 1)..])
+    let current_event_start = continuation_index.map_or(0, |index| index + 1);
+    let current_events = &events[current_event_start..];
+    let terminal = latest_event(current_events, "tui_command_stop");
+    let run_stop = latest_event(current_events, "run_stop");
+    let terminal_is_current = terminal.is_some();
+    let terminal_seen = terminal_is_current;
+    let mut terminal_details = current_terminal_details(&events, continuation_index, terminal_seen);
+    redact_terminal_details(&mut terminal_details, &workspace);
+    let mut failure_diagnostics = if terminal_seen {
+        project_diagnostics(current_events)
     } else {
         FailureDiagnostics::default()
     };
+    failure_diagnostics.redact_execution_root(&workspace);
     let stop_reason = failure_diagnostics
         .stop_reason
         .as_ref()
@@ -112,15 +111,21 @@ pub async fn status(
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let generated = terminal
+    let mut generated = terminal
         .filter(|_| terminal_is_current)
         .map(|_| sheet::generate(confirmed.identity(), Some(&events_path), command_succeeded))
         .transpose()
         .map_err(internal)?;
+    if let Some(sheet) = &mut generated {
+        sheet.markdown = super::public_projection::text(&sheet.markdown, &workspace);
+        sheet.section5 = sheet
+            .section5
+            .take()
+            .map(|section| super::public_projection::text(section, &workspace));
+    }
     let verdict = terminal_is_current
-        .then(|| latest_event(&events, "ultra_final_acceptance"))
+        .then(|| project_verdict(current_events))
         .flatten()
-        .and_then(|event| string(event, "verdict"))
         .or_else(|| terminal.and_then(|event| string(event, "assurance_level")))
         .map(str::to_string);
     let assurance = terminal
@@ -164,7 +169,7 @@ pub async fn status(
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
-        identity: confirmed.identity().clone(),
+        identity: super::public_projection::identity(confirmed.identity()),
     };
     let mut response = Json(session).into_response();
     insert_status_headers(&mut response, &etag);
@@ -188,6 +193,34 @@ fn current_terminal_details(
     }
     let current_event_start = continuation_index.map_or(0, |index| index + 1);
     project_terminal_details(&events[current_event_start..])
+}
+
+fn redact_terminal_details(details: &mut TerminalDetails, execution_root: &FilePath) {
+    details.assurance_reason = details
+        .assurance_reason
+        .take()
+        .map(|value| super::public_projection::text(value, execution_root));
+    details.stop_reason = details
+        .stop_reason
+        .take()
+        .map(|value| super::public_projection::text(value, execution_root));
+    details.next_action = details
+        .next_action
+        .take()
+        .map(|value| super::public_projection::text(value, execution_root));
+}
+
+fn project_verdict(events: &[Value]) -> Option<&str> {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| non_neutral_string(event, "verdict"))
+        .or_else(|| {
+            events
+                .iter()
+                .rev()
+                .find_map(|event| non_neutral_string(event, "final_acceptance_status"))
+        })
 }
 
 fn project_terminal_details(events: &[Value]) -> TerminalDetails {
@@ -510,6 +543,15 @@ fn non_empty_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     string(value, key).filter(|value| !value.trim().is_empty())
 }
 
+fn non_neutral_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    non_empty_string(value, key).filter(|value| {
+        !matches!(
+            value.trim(),
+            "not_applicable" | "not_required" | "not_checked"
+        )
+    })
+}
+
 pub(super) fn require_session_id(id: &str) -> Result<(), SessionError> {
     let parsed = Uuid::parse_str(id).map_err(|_| not_found("invalid session id"))?;
     if parsed.to_string() != id {
@@ -598,7 +640,13 @@ pub(super) fn workspace_conflict(message: impl ToString) -> SessionError {
         .flatten()
         .filter(|id| Uuid::parse_str(id).is_ok_and(|parsed| parsed.to_string() == *id))
         .map(str::to_string);
-    let error = GuiError::new(StatusCode::CONFLICT, code, message);
+    let public_message = if code == "trial_workspace_conflict" {
+        "trial workspace changed or became unavailable; verify --execution-root and restart"
+            .to_string()
+    } else {
+        message
+    };
+    let error = GuiError::new(StatusCode::CONFLICT, code, public_message);
     match session_id {
         Some(session_id) => error.with_session_id(session_id),
         None => error,
@@ -907,5 +955,20 @@ mod tests {
             current_terminal_details(&events, Some(1), false),
             TerminalDetails::default()
         );
+    }
+
+    #[test]
+    fn verdict_projection_ignores_trailing_neutral_status_and_prior_round() {
+        let fixture = include_str!(
+            "../../../tests/corpus/apps/issue364-gui-terminal-outcomes/fixtures/events.jsonl"
+        );
+        let events = fixture
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(project_verdict(&events[..3]), Some("full"));
+        assert_eq!(project_verdict(&events[13..]), Some("full"));
+        assert_eq!(project_verdict(&events[12..13]), None);
     }
 }

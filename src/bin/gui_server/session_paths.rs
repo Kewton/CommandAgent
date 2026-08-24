@@ -180,7 +180,7 @@ fn require_canonical_real_directory(path: &Path) -> anyhow::Result<PathBuf> {
 
 pub(super) fn relative_path(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
-        .unwrap_or(path)
+        .unwrap_or_else(|_| Path::new("<outside-execution-root>"))
         .to_string_lossy()
         .replace('\\', "/")
 }

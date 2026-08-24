@@ -432,7 +432,7 @@ function liveSession(id) {
     event_count: 0,
     acceptance_sheet: null,
     section5: null,
-    events_path: `.anvil/runs/${id}/events.jsonl`,
+    events_path: `.commandagent/runs/${id}/events.jsonl`,
     identity: syntheticIdentity(),
   };
 }
@@ -440,7 +440,7 @@ function liveSession(id) {
 function syntheticIdentity() {
   return {
     request: "Exercise bounded monitor failures",
-    workspace: executionRoot,
+    workspace: "<execution-root>",
     profile: "python-cli",
     intent: "create",
     task_family: "cli",

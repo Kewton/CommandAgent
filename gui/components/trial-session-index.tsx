@@ -148,7 +148,7 @@ export function TrialSessionIndexPanel({
     >
       <header className="panel-heading">
         <div>
-          <span className="panel-index">実行ルート / .anvil/runs</span>
+          <span className="panel-index">実行ルート / .commandagent/runs</span>
           <h2>トライアル実行履歴</h2>
           <p className="source-note">設定された実行ルート内のトライアルセッションです。</p>
         </div>
