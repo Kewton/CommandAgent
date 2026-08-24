@@ -365,7 +365,8 @@ fn diagnose_source_state_binding(path: &str, source: &str) -> Option<StateBindin
             undeterminable_reason: Some(UndeterminableReason::ComplexExpression),
         });
     }
-    let referenced_identifiers = extract_referenced_identifiers(&expression);
+    let referenced_identifiers =
+        expand_derived_state_identifiers(source, &extract_referenced_identifiers(&expression));
     if referenced_identifiers.is_empty() {
         return Some(StateBindingDiagnosis::undeterminable(
             path,
@@ -1069,6 +1070,92 @@ fn extract_referenced_identifiers(expression: &str) -> Vec<String> {
     out.into_iter().collect()
 }
 
+fn expand_derived_state_identifiers(source: &str, identifiers: &[String]) -> Vec<String> {
+    let mut pending = identifiers
+        .iter()
+        .cloned()
+        .map(|identifier| (identifier, 0usize))
+        .collect::<Vec<_>>();
+    let mut expanded = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    while let Some((identifier, depth)) = pending.pop() {
+        if !visited.insert(identifier.clone()) {
+            continue;
+        }
+        if depth < 4
+            && matches!(
+                classify_identifier(source, &identifier),
+                IdentifierBinding::Plain(_)
+            )
+            && let Some(initializer) = plain_declaration_initializer(source, &identifier)
+        {
+            let dependencies = extract_referenced_identifiers(&initializer)
+                .into_iter()
+                .filter(|dependency| dependency != &identifier)
+                .collect::<Vec<_>>();
+            if !dependencies.is_empty() {
+                pending.extend(
+                    dependencies
+                        .into_iter()
+                        .map(|dependency| (dependency, depth + 1)),
+                );
+                continue;
+            }
+        }
+        expanded.insert(identifier);
+    }
+    expanded.into_iter().collect()
+}
+
+fn plain_declaration_initializer(source: &str, identifier: &str) -> Option<String> {
+    let pattern = format!(
+        r#"(?m)\b(?:const|let|var)\s+{}\s*="#,
+        regex::escape(identifier)
+    );
+    let matched = Regex::new(&pattern).ok()?.find(source)?;
+    let bytes = source.as_bytes();
+    let start = matched.end();
+    let mut paren_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut in_string: Option<u8> = None;
+    let mut escaped = false;
+    for index in start..bytes.len() {
+        let byte = bytes[index];
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        match byte {
+            b'\'' | b'"' | b'`' => in_string = Some(byte),
+            b'(' => paren_depth += 1,
+            b')' => paren_depth = paren_depth.saturating_sub(1),
+            b'{' => brace_depth += 1,
+            b'}' => brace_depth = brace_depth.saturating_sub(1),
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth = bracket_depth.saturating_sub(1),
+            b';' if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
+                return Some(source[start..index].trim().to_string());
+            }
+            b'\n' if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
+                let initializer = source[start..index].trim();
+                if !initializer.is_empty() {
+                    return Some(initializer.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    let initializer = source[start..].trim();
+    (!initializer.is_empty()).then(|| initializer.to_string())
+}
+
 fn complex_expression(expression: &str) -> bool {
     let lower = expression.to_ascii_lowercase();
     expression.contains("=>")
@@ -1314,6 +1401,33 @@ export default function Game() {
 }
 "#;
         let diagnosis = diagnose_source_state_binding("src/app/page.tsx", source).unwrap();
+        assert_eq!(
+            diagnosis.diagnosis,
+            StateBindingDiagnosisKind::StateReactiveOk
+        );
+    }
+
+    #[test]
+    fn derived_state_attribute_alias_resolves_to_reactive_snapshot() {
+        let source = r#"
+import { useEffect, useState } from "react";
+export default function Game() {
+  const [snapshot, setSnapshot] = useState({ player_x: 300, score: 0 });
+  useEffect(() => {
+    const timer = setInterval(() => setSnapshot((value) => ({ ...value, player_x: value.player_x - 6 })), 16);
+    return () => clearInterval(timer);
+  }, []);
+  const anvilState = JSON.stringify({
+    player_x: snapshot.player_x,
+    score: snapshot.score,
+  });
+  return <main data-anvil-state={anvilState} />;
+}
+"#;
+
+        let diagnosis = diagnose_source_state_binding("src/app/page.tsx", source).unwrap();
+
+        assert_eq!(diagnosis.referenced_identifiers, vec!["snapshot"]);
         assert_eq!(
             diagnosis.diagnosis,
             StateBindingDiagnosisKind::StateReactiveOk
