@@ -322,7 +322,7 @@ mod tests {
 
         let records = read_events(&path);
         assert_eq!(records.len(), 4);
-        for pair in records.chunks_exact(2) {
+        for pair in records.as_chunks::<2>().0 {
             assert_eq!(pair[0]["event"], "plan_step_started");
             assert_eq!(pair[1]["event"], "plan_step_completed");
             assert_eq!(pair[0]["schema_version"], "1");

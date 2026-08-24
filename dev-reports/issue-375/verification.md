@@ -2,6 +2,14 @@
 
 - Status: `passed`
 
+## CI toolchain fix
+
+GitHub core job `97545304633` and acceptance job `97545299627` reported Rust 1.98
+Clippy's `chunks_exact_to_as_chunks` diagnostic for the Issue #375 pairing test. The test now uses
+`as_chunks::<2>().0`, preserving the same two-event grouping without an allow attribute or contract
+change. Local verification used `rustc 1.94.0 (4a4ef493e 2026-03-02)`; the Rust 1.98 diagnostic is
+removed structurally because the flagged `chunks_exact(2)` call no longer exists.
+
 ## Checks
 
 - `cargo test plan_step_events --lib`: `passed`
