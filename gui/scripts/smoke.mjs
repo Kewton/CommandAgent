@@ -3769,7 +3769,7 @@ async function probeShellNavigation(browser, origin, basePath) {
   const prefix = displayBasePath(basePath);
   const routes = [
     { id: "dashboard", href: prefix, heading: "概要", label: "概要" },
-    { id: "try", href: `${prefix}try/`, heading: "トライアル", label: "トライアル" },
+    { id: "try", href: `${prefix}try/`, heading: "トライアル実行指示", label: "トライアル" },
     { id: "assets", href: `${prefix}assets/`, heading: "拡張", label: "拡張" },
     {
       id: "run",

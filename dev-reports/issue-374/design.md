@@ -67,3 +67,16 @@ arguments, event schemas, existing public projections, Trial token/origin
 validation, the read-only artifact guard, verification/acceptance semantics,
 or the live `.anvil/` namespace. It does not recreate, delete, archive, or
 otherwise mutate a missing session workspace.
+
+## Dependency CI-fix propagation
+
+The Issue #370 dependency head `9e8e178b` carries the Issue #369 deterministic
+GUI argument-race fix `f0fb9ccf`. Preserve its deliberate empty argument-file
+window and lease-idle completion boundary unchanged while retaining all Issue
+#374 workspace confinement and projection assertions.
+
+The dependency histories also expose one stale smoke expectation: Issue #370
+renamed the `/try/` page heading to `トライアル実行指示`, while the older
+Issue #369 overview shell-navigation probe still expects `トライアル`. Resolve
+only that test-contract mismatch to the verified Issue #370 heading. No
+production behavior, endpoint, authentication, or filesystem rule changes.
