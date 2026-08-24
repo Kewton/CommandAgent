@@ -44,3 +44,19 @@ role's provider selection.
 No request, response, event, Gate 1 identity, CLI argument, or `.anvil/`
 runtime schema changes are needed. The change is presentation and semantic
 grouping only.
+
+## CI follow-up: delegated argument synchronization
+
+The Linux GUI Dashboard exposed a deterministic race in the intent integration
+test: shell redirection creates `delegated-args.txt` before `printf` writes its
+contents, while the test treated file existence as proof that delegation had
+finished. The production delegate already waits for the child process and only
+then releases the Trial workspace lease.
+
+- Keep production provider/model and intent delegation unchanged.
+- Make the fixture expose an empty argument file briefly before writing, so the
+  former synchronization bug is covered deterministically.
+- Read delegated arguments only after `/api/trial-workspace` reports `idle`,
+  the public completion boundary backed by child-process exit.
+- Retain exact assertions for the intent flag and add the existing executor and
+  planner provider/model flag pairs to the same focused regression.
