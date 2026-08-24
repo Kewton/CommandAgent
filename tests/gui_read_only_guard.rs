@@ -298,27 +298,31 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
 
 #[test]
 fn trial_route_is_wiring_only_and_shared_helpers_have_single_owners() {
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
-    assert!(
-        page.lines().count() <= 20,
-        "Trial route entrypoint grew beyond wiring"
-    );
-    for required in ["<Shell", "<TrialRun />"] {
-        assert!(
-            page.contains(required),
-            "Trial route wiring is missing {required:?}"
-        );
-    }
-    for forbidden in ["useState", "useEffect", "fetch(", "data-testid"] {
-        assert!(
-            !page.contains(forbidden),
-            "Trial route entrypoint owns non-wiring behavior {forbidden:?}"
-        );
+    for (path, surface) in [
+        ("gui/app/try/page.tsx", "compose"),
+        ("gui/app/try/status/page.tsx", "status"),
+        ("gui/app/try/history/page.tsx", "history"),
+        ("gui/app/try/history/detail/page.tsx", "detail"),
+    ] {
+        let page = std::fs::read_to_string(path).unwrap();
+        assert!(page.lines().count() <= 25, "{path} grew beyond wiring");
+        for required in ["<Shell", "<TrialPageNavigation"] {
+            assert!(page.contains(required), "{path} is missing {required:?}");
+        }
+        let run = format!("<TrialRun surface=\"{surface}\" />");
+        assert!(page.contains(&run), "{path} is missing {run:?}");
+        for forbidden in ["useState", "useEffect", "fetch(", "data-testid"] {
+            assert!(
+                !page.contains(forbidden),
+                "{path} owns non-wiring behavior {forbidden:?}"
+            );
+        }
     }
 
     let component = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
-    assert!(component.contains("useTrialRun(terminalHeading)"));
+    assert!(component.contains("useTrialRun(terminalHeading, { loadComposeOptions:"));
     assert!(component.contains("data-testid=\"trial-active-stage\""));
+    assert!(component.contains("useTrialPageRouting(surface, stage, sessionId)"));
 
     let hook = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
     for required in ["export function useTrialRun", "useState", "useEffect"] {
@@ -1075,7 +1079,19 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
 
     let titles = [
         ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
-        ("gui/app/try/layout.tsx", "title: \"トライアル\""),
+        ("gui/app/try/layout.tsx", "title: \"トライアル実行指示\""),
+        (
+            "gui/app/try/status/layout.tsx",
+            "title: \"トライアル実行状況\"",
+        ),
+        (
+            "gui/app/try/history/layout.tsx",
+            "title: \"トライアル実行履歴\"",
+        ),
+        (
+            "gui/app/try/history/detail/layout.tsx",
+            "title: \"トライアル実行結果詳細\"",
+        ),
         ("gui/app/runs/layout.tsx", "title: \"リポジトリ実行記録\""),
         ("gui/app/assets/layout.tsx", "title: \"拡張\""),
         ("gui/app/measurements/layout.tsx", "title: \"計測\""),
@@ -1525,7 +1541,7 @@ fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
         "[\"実行\", \"Gate 2\"]",
         "[\"結果\", \"Gate 3 / 4\"]",
         "data-testid=\"trial-active-stage\"",
-        "data-stage={stage}",
+        "data-stage={displayedStage}",
         "stage === \"compose\"",
         "if (proposal === null || stage !== \"gate_1\") return null",
         "if (stage !== \"gate_2\" || created === null) return null",
@@ -1813,6 +1829,10 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         ".lease_snapshot()",
         "started_epoch_seconds",
         "gate: Option<&'static str>",
+        "profile: Option<String>",
+        "intent: Option<String>",
+        "record.identity().profile.clone()",
+        "record.identity().intent.clone()",
         "full_terminal_without_sheet",
         "let right_is_active = active_session == Some(right.id.as_str())",
         ".cmp(&left_is_active)",
@@ -1858,9 +1878,11 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "dateTimeLabel(session.modified_epoch_seconds, \"反映待ち\")",
         "trialGateLabel(session.gate)",
         "trialStatusLabel(session.status)",
-        "href={sessionLink(session.id)}",
-        "return `?session=${encodeURIComponent(id)}`",
-        "data-testid=\"session-reconnect-link\"",
+        "href={sessionLink(session)}",
+        "trialRoutePath(isTerminalSession(session) ? \"detail\" : \"status\", session.id)",
+        "data-testid=\"session-route-link\"",
+        "data-testid=\"session-profile\"",
+        "data-testid=\"session-intent\"",
         "data-testid=\"session-pack\"",
         "session.pack.id}@${session.pack.version}",
         "data-testid=\"trial-session-auth-required\"",
@@ -1870,10 +1892,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
         "previous === \"running\"",
         "runtimeLease === \"idle\" || runtimeLease === \"recovery_required\"",
-        "mergeObservedSession",
         "data-session-id={session.id}",
-        "aria-current={highlight === session.id ? \"true\" : undefined}",
-        "className={highlight === session.id ? \"highlight\" : undefined}",
+        "data-terminal={isTerminalSession(session)}",
     ] {
         assert!(
             panel.contains(required),
@@ -1888,19 +1908,22 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         !panel.contains("useRuntimeStatus("),
         "Trial session index must share the Shell runtime projection"
     );
+    assert!(
+        !panel.contains("<TrialFailureDiagnostics"),
+        "compact Trial history must not expand diagnostics inline"
+    );
     for required in [
         "<TrialSessionIndexPanel",
         "trialTokenAuthEnabled",
         "trialAccessReady",
         "data-testid=\"trial-token-auth-disabled\"",
-        "observedSession={observedSession}",
         "onLeaseChange={setWorkspaceLease}",
-        "revalidationKey={sessionIndexRevision}",
-        "setSessionIndexRevision((current) => current + 1)",
         "data-testid=\"terminal-session-history-link\"",
-        "highlight={highlightedSessionId}",
-        "onHighlightSession={setHighlightedSessionId}",
-        "onHighlightSession(session.id)",
+        "trialRoutePath(\"history\")",
+        "surface === \"compose\" && stage === \"compose\"",
+        "surface === \"status\" && <TrialGateTwo",
+        "surface === \"history\"",
+        "surface === \"detail\"",
         "launchBlockReason !== null",
         "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
     ] {
@@ -1946,8 +1969,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "buildBasePath: \"/\"",
         "buildBasePath: \"/proxy/commandagent/\"",
         "no_periodic_index_polling",
-        "optimistic launch row state",
-        "terminal transition refresh",
+        "running history row state",
+        "status_navigated_to_detail",
         "refresh failure removed the last successful row",
         "focus refresh",
         "visible-tab refresh",
@@ -1957,12 +1980,16 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "runtime_paused_while_hidden",
         "runtime_resumed_when_visible",
         "runtime_live_region",
-        "terminal_row_highlighted",
-        "terminal_row_aria_current",
-        "GATE 2（実行） / 開始中",
+        "terminal_row_targeted",
+        "terminal_row_compact",
+        "GATE 2（実行） / 実行中",
         "time_labels_use_shared_ja_jp_format",
         "runtime_badge_navigated",
         "runtime_badge_reconnected",
+        "route_ownership",
+        "legacy_running_to_status",
+        "legacy_terminal_to_detail",
+        "mobile_fits",
         "resource_revalidation",
         "failure_retained_previous_data",
         "repository-only",
@@ -1980,7 +2007,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     assert!(shell.contains("RuntimeStatusContext.Provider value={runtime}"));
     assert!(shell.contains("label: \"リポジトリ実行記録\""));
     assert!(shell.contains("data-testid=\"runtime-session-link\""));
-    assert!(shell.contains("routePath(\"try\", runtimeSession.id)"));
+    assert!(shell.contains("trialRoutePath(\"status\", runtimeSession.id)"));
     let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
@@ -2083,9 +2110,20 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     }
 
     let base_path = std::fs::read_to_string("gui/lib/base-path.ts").unwrap();
-    assert!(base_path.contains("`/try/?session=${encodeURIComponent(resourceId)}`"));
+    for route in [
+        "\"/try/\"",
+        "\"/try/status/\"",
+        "\"/try/history/\"",
+        "\"/try/history/detail/\"",
+    ] {
+        assert!(
+            base_path.contains(route),
+            "Trial route helper is missing {route}"
+        );
+    }
+    assert!(base_path.contains("?session=${encodeURIComponent(sessionId)}"));
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
-    assert!(styles.contains(".session-list li.highlight"));
+    assert!(styles.contains(".session-list li:target"));
     assert!(styles.contains("@keyframes session-row-highlight"));
 
     let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
@@ -2111,13 +2149,19 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
 fn trial_ui_sources() -> String {
     [
         "gui/app/try/page.tsx",
+        "gui/app/try/status/page.tsx",
+        "gui/app/try/history/page.tsx",
+        "gui/app/try/history/detail/page.tsx",
+        "gui/components/trial-access-panel.tsx",
         "gui/components/trial-compose.tsx",
         "gui/components/trial-gate-one.tsx",
         "gui/components/trial-gate-two.tsx",
+        "gui/components/trial-page-nav.tsx",
         "gui/components/trial-run.tsx",
         "gui/components/trial-terminal.tsx",
         "gui/hooks/use-trial-compose.ts",
         "gui/hooks/use-trial-monitor.ts",
+        "gui/hooks/use-trial-page-routing.ts",
         "gui/hooks/use-trial-run.ts",
         "gui/hooks/use-trial-terminal.ts",
         "gui/lib/trial-api.ts",

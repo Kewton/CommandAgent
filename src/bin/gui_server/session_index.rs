@@ -6,7 +6,9 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use commandagent::planner::pack::catalog::PackSource;
-use commandagent::tui::boundary_shell::confirmation::{PackSelection, load_latest_confirmation};
+use commandagent::tui::boundary_shell::confirmation::{
+    ConfirmationIdentity, PackSelection, load_latest_confirmation,
+};
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -32,6 +34,8 @@ struct SessionSummary {
     modified_epoch_seconds: u64,
     gate: Option<&'static str>,
     status: String,
+    profile: Option<String>,
+    intent: Option<String>,
     failure_diagnostics: FailureDiagnostics,
     pack: Option<SessionPack>,
 }
@@ -92,14 +96,23 @@ pub async fn list(
             let events_path = path.join("events.jsonl");
             let projection = session_projection(&events_path, &workspace).await;
             let started_epoch_seconds = started_epoch_seconds(&id, &path, &events_path).await;
+            let confirmed = load_latest_confirmation(&confirmation_root).ok().flatten();
             sessions.push(SessionSummary {
                 id,
                 started_epoch_seconds,
                 modified_epoch_seconds: modified_epoch_seconds(&path, &events_path).await,
                 gate: projection.gate,
                 status: projection.status,
+                profile: confirmed
+                    .as_ref()
+                    .map(|record| record.identity().profile.clone()),
+                intent: confirmed
+                    .as_ref()
+                    .map(|record| record.identity().intent.clone()),
                 failure_diagnostics: projection.failure_diagnostics,
-                pack: confirmed_pack(&confirmation_root),
+                pack: confirmed
+                    .as_ref()
+                    .and_then(|record| confirmed_pack(record.identity())),
             });
         }
     }
@@ -125,15 +138,14 @@ pub async fn list(
     Ok(Json(SessionIndex { sessions, lease }))
 }
 
-fn confirmed_pack(root: &Path) -> Option<SessionPack> {
-    let confirmed = load_latest_confirmation(root).ok().flatten()?;
+fn confirmed_pack(identity: &ConfirmationIdentity) -> Option<SessionPack> {
     let PackSelection::Pinned {
         id,
         version,
         hash,
         source,
         ..
-    } = &confirmed.identity().pack
+    } = &identity.pack
     else {
         return None;
     };

@@ -447,3 +447,21 @@ The six design questions are resolved as follows:
 6. The production estimate is fixed at **1,320–2,280 Rust lines**, with
    **5–10 calibration campaigns**. Tests and fixtures retain the separate
    **1,370–2,330 line** planning range.
+
+## 10. GUI Trial route projection
+
+The management GUI projects the same D-3c lifecycle through four fixed,
+static-export-compatible routes:
+
+- `try/` owns editable launch identity and exact Gate 1 confirmation.
+- `try/status/?session=<id>` owns read-only observation of a nonterminal run.
+- `try/history/` owns a compact session index without inline diagnosis.
+- `try/history/detail/?session=<id>` owns terminal verdict, diagnosis,
+  acceptance, events, and artifacts.
+
+This is an information-architecture boundary, not a lifecycle or authority
+change. Launch still requires the exact confirmation hash and active-lease
+admission. Status, history, and detail use GET-only projections. Existing
+verification, acceptance, honest-failure, event names, event schemas, and the
+legacy `.anvil/` read namespace remain unchanged. The runtime Trial token stays
+in base-path-scoped `sessionStorage`; only the session ID may appear in a URL.

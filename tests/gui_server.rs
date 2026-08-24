@@ -1914,6 +1914,8 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
             .unwrap_or_else(|| panic!("missing session {id}: {sessions:?}"));
         assert_eq!(summary["gate"], gate);
         assert_eq!(summary["status"], status);
+        assert!(summary["profile"].is_null());
+        assert!(summary["intent"].is_null());
         assert!(summary["started_epoch_seconds"].as_u64().unwrap() > 0);
         assert!(summary["modified_epoch_seconds"].as_u64().unwrap() > 0);
         if id == &ids[97] {
@@ -2161,6 +2163,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let sessions = index["sessions"].as_array().unwrap();
     assert_eq!(sessions.first().unwrap()["id"], id);
     assert_eq!(sessions.first().unwrap()["gate"], "gate_2");
+    assert_eq!(sessions.first().unwrap()["profile"], "python-cli");
+    assert_eq!(sessions.first().unwrap()["intent"], "create");
     assert_eq!(
         sessions.first().unwrap()["pack"],
         serde_json::json!({

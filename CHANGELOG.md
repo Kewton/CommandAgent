@@ -19,6 +19,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add documented `just` development tasks and a reproducible Dev Container.
 - Reorganize CLI, GUI, and extension documentation by reader, with stable GUI
   compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
+- Split the GUI Trial into fixed instruction, live status, compact history, and
+  terminal result-detail pages with state-aware reconnect links.
 
 ### Fixed
 

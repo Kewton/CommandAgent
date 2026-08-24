@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import type { TrialRunState } from "../hooks/use-trial-run";
+import { trialRoutePath } from "../lib/base-path";
 import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
@@ -9,12 +12,7 @@ import {
   TrialFailureDiagnostics,
 } from "./trial-failure-diagnostics";
 
-type TrialTerminalProps = {
-  onHighlightSession: (id: string) => void;
-  run: TrialRunState;
-};
-
-export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
+export function TrialTerminal({ run }: { run: TrialRunState }) {
   const {
     artifacts, busy, confirmDirective, created, directive, directiveText,
     evidenceDocument, evidenceError, evidenceLoading, evidenceOpen, persistDirective,
@@ -68,14 +66,13 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
                 />
               )}
             <TrialRunIdentity identity={session.identity} />
-            <a
+            <Link
               className="terminal-history-link"
               data-testid="terminal-session-history-link"
-              href={`#trial-session-${session.id}`}
-              onClick={() => onHighlightSession(session.id)}
+              href={`${trialRoutePath("history")}#trial-session-${session.id}`}
             >
               このセッションをトライアル実行履歴で確認
-            </a>
+            </Link>
             <details className="acceptance-sheet-details" data-testid="terminal-acceptance-details">
               <summary>受入シートの詳細を表示</summary>
               <pre>
