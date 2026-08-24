@@ -45,6 +45,7 @@ export type PackSummary = {
   expected_hash: string | null;
   observed_hash: string | null;
   hash_matches_pin: boolean;
+  conformance_ok: boolean;
   has_assist: boolean;
   has_eval: boolean;
   retired: boolean;
@@ -280,6 +281,7 @@ export type RuntimeStatus = {
   trial_token_auth_enabled: boolean;
   prerequisites: {
     execution_root: RuntimePrerequisite;
+    extension_root: RuntimePrerequisite;
     commandagent_binary: RuntimePrerequisite;
     trial_authentication: RuntimePrerequisite;
   };

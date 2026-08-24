@@ -1,0 +1,1117 @@
+{
+  "schema_version": "commandagent.gui-smoke/v2",
+  "generated_at": "2026-08-24T16:50:34.053Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "delegate": {
+    "mode": "read_only",
+    "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-372-gui-extensions-draft-profile-api/target/debug/commandagent",
+    "provider": "ollama",
+    "model": "qwen3:8b",
+    "fixture": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-372-gui-extensions-draft-profile-api/tests/corpus/apps/test0725_cli_elev_003/fixtures",
+    "scratch_runtime": "removed_after_success"
+  },
+  "help_map": {
+    "checks": [
+      {
+        "copy": "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+        "owner": "getting-started-gui.md#はじめに",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "初回案内 / はじめに",
+        "owner": "getting-started-gui.md#はじめに",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "サンプル目標をトライアルに入力",
+        "owner": "getting-started-gui.md#first-trial-walkthrough",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "トライアルがファイルを変更できる、専用の作業ディレクトリです。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。",
+        "owner": "gui-trial.md#pack-selection-and-frozen-identity",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Gate 1 は CLI 実行前の確認です",
+        "owner": "gui-trial.md#gate-1-confirm-before-execution",
+        "source": "gui/components/trial-compose.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "実行結果と次の一手を確認してください",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "独立した CLI 動作プローブは実行されていません。",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "受入シートの詳細を表示",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "固定済みパックが見つかりません。",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "4 レイヤーと依存関係",
+        "owner": "gui-extensions.md#four-extension-layers",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "安全な登録 Issue を作る",
+        "owner": "gui-extensions.md#layer-2-draft-profiles",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Contract / Suite は拡張種別ではありません",
+        "owner": "gui-extensions.md#contract-and-suite-references",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "トライアルで使う",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "パック作成ウィザードを開く",
+        "owner": "gui-extensions.md#pack-creation-wizard",
+        "source": "gui/components/pack-wizard.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "プロファイル登録ウィザード",
+        "owner": "gui-extensions.md#draft-profile-registration-wizard",
+        "source": "gui/components/profile-wizard.tsx",
+        "app_source_count": 2,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "確認済みのトライアルセッションはありません。",
+        "owner": "gui-history.md#session-rows-and-refresh",
+        "source": "gui/components/trial-session-index.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      }
+    ],
+    "path": "docs/user/gui-help-map.md",
+    "ok": true
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "dashboard": {
+        "assets_link": "/assets/",
+        "primary_navigation": [
+          "01\n概要",
+          "02\nトライアル",
+          "03\n拡張",
+          "04\nリポジトリ実行記録",
+          "05\n計測"
+        ],
+        "status": 200,
+        "heading": "概要",
+        "title": "概要 | CommandAgent",
+        "run_count": "8 件",
+        "expected_run_count": "8 件",
+        "run_total_count": "196 件",
+        "expected_run_total_count": "196 件",
+        "indexed_state_count": 100,
+        "unknown_state_count": 17,
+        "unknown_state_within_20_percent": true,
+        "status_badges": [
+          "失敗",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり"
+        ],
+        "status_badge_titles": [
+          "記録上の状態: 失敗",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり"
+        ],
+        "status_badges_are_plain_text": true,
+        "status_badges_are_japanese": true,
+        "status_badge_titles_are_japanese": true,
+        "runtime_live_region": {
+          "aria_atomic": "true",
+          "aria_live": "polite"
+        },
+        "getting_started": {
+          "mapped_help_copy_visible": true,
+          "prerequisite_statuses": [
+            "ready",
+            "ready",
+            "action_required"
+          ],
+          "sample_preset": {
+            "goal": "--pattern で行を絞り込む CLI コマンドを作ってください",
+            "profile": "python-cli",
+            "pack": "cli-assist@1.0.0",
+            "primer": "Gate 1 は CLI 実行前の確認です\n\n目標、正確なモデル ID、変更範囲、検証条件をカードで確認します。 サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。"
+          },
+          "sample_gate_one": {
+            "identity_is_create_filter": true,
+            "visible_text": "Gate 1 — 実行前の確認\n実行する内容\n依頼: --pattern で行を絞り込む CLI コマンドを作ってください\n作業内容: 新しい機能を作成 (create): Python CLI ツール (python-cli) / 絞り込み (filter)\nこの作業として判定した根拠: explicit.profile=python-cli; workspace.cli_main=cli/main.py; request.intent.create=create; request.profile.cli=python-cli; request.family=filter\n契約の参照先: docs/cli-profile-contract.md\n必須チェック\nC1 — 実行動作: 通常のコマンドは成功し、不正な入力はエラーになる\nC2 — ヘルプの正確さ: --help と実際に受け付けるオプション・引数が一致する\nC3 — 出力の正確さ: README の例や説明が実際のコマンド出力と一致する\nC4 — 再現性: 同じケースを再実行しても同じ結果になる\n類似実行の結果\n全必須チェックに合格した実行: 3件中0件 (0%)\n比較対象: formal Window B; uat-test0725-cli-elev-004 までの証跡\n類似実行の平均所要時間: 平均 10.2 分 (3件)\n証跡の参照先: workspace/management/runs/band_summary_cli.md\n合格の条件: 上記4項目がすべて合格し、README の出力説明も実際のコマンド出力と一致すること\nファイルへのアクセス\n変更可能な範囲: <execution-root>\nモデルとプリセット\n計画モデル: ollama / qwen3:8b\n実行モデル: ollama / qwen3:8b\nプリセット: profile 既定（選択したプロファイルの標準設定）\n追加の検証パック: cli-assist@1.0.0\n検証パックの完全一致 ID: sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd\n検証パックの供給元: 承認済み\n検証箇所: cli-validation\n検証パックの状態: バイト単位で一致\nほかに利用可能な検証パック: cli-assist@1.0.0 / sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd; cli-assist@1.1.0 / sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82\n確認\n確認 ID (内容が1つでも変わると ID も変わります): sha256:957bed5968bbe371435cb90758f6287208da925142e1aa6fbf03ffef7d797100\n\nこれは提案であり、実行結果ではありません。 実行前にこの ID と完全一致する内容を確認してください。"
+          },
+          "dismissal_persists_in_tab": true
+        },
+        "trial_compose_regression": {
+          "cloud_provider_skipped_discovery": true,
+          "discovered_candidates": {
+            "executor": [
+              "ollama-executor-model",
+              "ollama-second-model"
+            ],
+            "planner": [
+              "lm-studio-planner-model",
+              "lm-studio-second-model"
+            ]
+          },
+          "exact_candidates_clear_warnings": true,
+          "cloud_provider_allows_manual_entry": true,
+          "automatic_intent_compatible": true,
+          "compatible_intent_packs": true,
+          "confirmation_reset": true,
+          "explicit_intent_frozen": true,
+          "fix_catalog_link_visible": true,
+          "fix_pack": {
+            "selected_value": "synthetic-fix-only@1.0.0",
+            "profile": "nextjs",
+            "intent": "fix"
+          },
+          "intent_options": [
+            {
+              "label": "自動判定",
+              "value": ""
+            },
+            {
+              "label": "作成",
+              "value": "create"
+            },
+            {
+              "label": "修正",
+              "value": "fix"
+            },
+            {
+              "label": "調査",
+              "value": "investigate"
+            }
+          ],
+          "input_lists": {
+            "executor": "trial-executor-provider-model-options",
+            "planner": "trial-planner-provider-model-options"
+          },
+          "proposal_pack": null,
+          "proposal_provider": "openai",
+          "proposal_planner_provider": "lm-studio",
+          "proposal_think": null,
+          "proposal_status": 200,
+          "provider_requests": [
+            "ollama",
+            "ollama",
+            "lm-studio",
+            "lm-studio"
+          ],
+          "providers_separated": true,
+          "think_cleared_without_ollama": true,
+          "planner_candidates_stay_scoped": true,
+          "unknown_warnings": {
+            "executor": "この実行モデルは取得済みの候補にありません。正確な ID か確認してください。",
+            "planner": "この計画モデルは取得済みの候補にありません。正確な ID か確認してください。"
+          },
+          "ok": true
+        }
+      },
+      "shell_navigation": {
+        "routes": [
+          {
+            "route": "dashboard",
+            "active_text": "01\n概要",
+            "active_href": "/",
+            "expected_href": "/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true
+          },
+          {
+            "route": "try",
+            "active_text": "02\nトライアル",
+            "active_href": "/try/",
+            "expected_href": "/try/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/try/"
+          },
+          {
+            "route": "assets",
+            "active_text": "03\n拡張",
+            "active_href": "/assets/",
+            "expected_href": "/assets/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/assets/"
+          },
+          {
+            "route": "run",
+            "active_text": "04\nリポジトリ実行記録",
+            "active_href": "/runs/?id=",
+            "expected_href": "/runs/?id=",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/runs/?id="
+          },
+          {
+            "route": "measurements",
+            "active_text": "05\n計測",
+            "active_href": "/measurements/",
+            "expected_href": "/measurements/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/measurements/"
+          },
+          {
+            "route": "dashboard",
+            "active_text": "01\n概要",
+            "active_href": "/",
+            "expected_href": "/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/"
+          }
+        ],
+        "client_navigation_preserved_document": true,
+        "aria_current_page": true,
+        "links_match_base_path": true,
+        "ok": true
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "runtime-status",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "trial-options",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "run_ledger_accessibility": {
+        "tableRole": true,
+        "rowGroupCount": 2,
+        "rowCount": 9,
+        "ariaRequiredChildrenViolationCount": 0,
+        "linksKeepNativeSemantics": true
+      },
+      "axe_aria_required_children": {
+        "violationCount": 0,
+        "targets": []
+      },
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "拡張",
+          "headingMatches": true,
+          "title": "拡張 | CommandAgent",
+          "titleMatches": true
+        },
+        "extension_catalog": {
+          "row_count": 4,
+          "extension_root_status": "ready",
+          "layer_labels": [
+            "Layer 1",
+            "Layer 2",
+            "Layer 3",
+            "Layer 4"
+          ],
+          "layer_metadata_complete": true,
+          "profile_count": 1,
+          "profile_has_exact_hash": true,
+          "profile_issue_href": "https://github.com/Kewton/CommandAgent/issues/new?title=%5BExtension%20profile%5D%20Register%20static-site&body=Layer%202%20draft%20profile%20registration%20review%0A%0A-%20profile%3A%20static-site%0A-%20manifest%20exact%20hash%3A%20sha256%3A75310fd529a14044b2a211ca48c1018cb7bb44206e44a2149a4c3dec23285da3%0A-%20assurance%20ceiling%20before%20admission%3A%20static%0A%0ADo%20not%20attach%20secrets%20or%20private%20extension-root%20paths.%20Add%20reproducible%20tests%20and%20measured%20evidence%20in%20a%20repository%20PR.",
+          "profile_metadata": [
+            "layer",
+            "source",
+            "status",
+            "hash",
+            "assurance",
+            "登録／昇格"
+          ],
+          "profile_wizard_launcher_enabled": true,
+          "supplied_profile_path": "profiles/static-site/manifest.toml",
+          "supplied_profile_text": "manifest\ndraft\nStatic site\nsource\nlocal\npath\nprofiles/static-site/manifest.toml\nhash\nsha256:75310fd529a14044b2a211ca48c1018cb7bb44206e44a2149a4c3dec23285da3\navailability\nTrial 利用可\n\ndraft / 未承認 / 保証上限 static として利用可",
+          "references_are_not_extensions": true,
+          "selected_pack": "cli-assist@1.0.0",
+          "selector": "cli-assist@1.0.0",
+          "source_labels": [
+            "承認済み",
+            "承認済み",
+            "承認済み",
+            "リポジトリ（未承認）"
+          ],
+          "status": 200,
+          "ok": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "計測",
+          "headingMatches": true,
+          "title": "計測 | CommandAgent",
+          "titleMatches": true
+        },
+        "run_detail": {
+          "status": 200,
+          "heading": "リポジトリ実行記録",
+          "headingMatches": true,
+          "title": "リポジトリ実行記録 | CommandAgent",
+          "titleMatches": true
+        }
+      },
+      "issue_75": {
+        "pages": {
+          "measurements": {
+            "status": 200,
+            "heading": "計測",
+            "headingMatches": true,
+            "title": "計測 | CommandAgent",
+            "titleMatches": true
+          },
+          "run_detail": {
+            "status": 200,
+            "heading": "リポジトリ実行記録",
+            "headingMatches": true,
+            "title": "リポジトリ実行記録 | CommandAgent",
+            "titleMatches": true
+          }
+        },
+        "measurement_selection": {
+          "after_visibility": "uat-test0802-ingest-luna-001/uat-report.md",
+          "before_visibility": "uat-test0802-ingest-luna-001/uat-report.md",
+          "heading_order_valid": true,
+          "headings": [
+            {
+              "level": 1,
+              "text": "計測"
+            },
+            {
+              "level": 2,
+              "text": "到達度 × 構成時間"
+            },
+            {
+              "level": 2,
+              "text": "レポート一覧"
+            },
+            {
+              "level": 3,
+              "text": "uat-report.md"
+            }
+          ],
+          "selection_retained_after_visibility": true
+        },
+        "report_filter": {
+          "count_restored": true,
+          "empty_count": "0 / 256",
+          "filter_matches_path": true,
+          "filtered_count": "1 / 256",
+          "initial_count": 256,
+          "no_match_label_visible": true,
+          "selection_retained_after_filter": true
+        },
+        "run_selection": {
+          "count": "表示件数 100 / 総数 196",
+          "count_matches_index_total": true,
+          "direct_lookup": {
+            "available": true,
+            "id": "20260719-015733-orchestrate",
+            "mobile_id_fits": true,
+            "opened": true,
+            "selected_id_visible": true
+          },
+          "displayed_options": 100,
+          "expected_options": 100,
+          "filter_matches_id": true,
+          "no_records_label_absent": true,
+          "no_match_label_visible": true,
+          "options_include_dates_and_status": true,
+          "request_ownership": {
+            "current_run_won": true,
+            "empty_selection": {
+              "empty_selection_cleared": true,
+              "evidence_list_count": 0,
+              "viewer_count": 0
+            },
+            "pending_selection": {
+              "evidence_list_count": 0,
+              "loading_visible": true,
+              "viewer_count": 0
+            },
+            "ok": true
+          }
+        },
+        "source_link": {
+          "href": "/api/runs/uat004-gate09",
+          "opens_new_tab": true,
+          "present": true
+        },
+        "wrap_toggle": {
+          "classes_switch": true,
+          "initial_class": "document-content--wrapped",
+          "initial_pressed": "true",
+          "restored_class": "document-content--wrapped",
+          "restored_pressed": "true",
+          "toggled_class": "document-content--unwrapped",
+          "toggled_pressed": "false"
+        },
+        "mobile_map": {
+          "client_height": 207,
+          "client_width": 322,
+          "fits_single_viewport": true,
+          "fits_without_axis_scroll": true,
+          "has_horizontal_overflow": false,
+          "has_vertical_overflow": false,
+          "image_fits_frame": true,
+          "image_height": 207,
+          "image_width": 322,
+          "overflow_x": "hidden",
+          "overflow_y": "hidden",
+          "scroll_height": 207,
+          "scroll_width": 322,
+          "full_size_href": "/api/maps/score-time.svg",
+          "full_size_link_present": true,
+          "page_fits_viewport": true,
+          "viewport_width": 390
+        },
+        "ok": true
+      },
+      "mobile": {
+        "dashboard": {
+          "fits_viewport": true,
+          "getting_started_close": {
+            "fits_viewport": true,
+            "line_count": 1,
+            "single_line": true,
+            "text": "閉じる",
+            "white_space": "nowrap"
+          },
+          "heading": "概要",
+          "intro_one_line": true,
+          "status": 200
+        },
+        "extensions": {
+          "fits_viewport": true,
+          "heading": "拡張",
+          "layer_count": 4,
+          "profile_count": 1,
+          "status": 200
+        },
+        "trial": {
+          "fits_viewport": true,
+          "heading": "トライアル",
+          "intro_one_line": true,
+          "status": 200
+        },
+        "ok": true
+      },
+      "elapsed_seconds": 13.924,
+      "unexpected_console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "dashboard": {
+        "assets_link": "/proxy/commandagent/assets/",
+        "primary_navigation": [
+          "01\n概要",
+          "02\nトライアル",
+          "03\n拡張",
+          "04\nリポジトリ実行記録",
+          "05\n計測"
+        ],
+        "status": 200,
+        "heading": "概要",
+        "title": "概要 | CommandAgent",
+        "run_count": "8 件",
+        "expected_run_count": "8 件",
+        "run_total_count": "196 件",
+        "expected_run_total_count": "196 件",
+        "indexed_state_count": 100,
+        "unknown_state_count": 17,
+        "unknown_state_within_20_percent": true,
+        "status_badges": [
+          "失敗",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり",
+          "記録あり"
+        ],
+        "status_badge_titles": [
+          "記録上の状態: 失敗",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり",
+          "記録上の状態: 記録あり"
+        ],
+        "status_badges_are_plain_text": true,
+        "status_badges_are_japanese": true,
+        "status_badge_titles_are_japanese": true,
+        "runtime_live_region": {
+          "aria_atomic": "true",
+          "aria_live": "polite"
+        },
+        "getting_started": {
+          "mapped_help_copy_visible": true,
+          "prerequisite_statuses": [
+            "ready",
+            "ready",
+            "action_required"
+          ],
+          "sample_preset": {
+            "goal": "--pattern で行を絞り込む CLI コマンドを作ってください",
+            "profile": "python-cli",
+            "pack": "cli-assist@1.0.0",
+            "primer": "Gate 1 は CLI 実行前の確認です\n\n目標、正確なモデル ID、変更範囲、検証条件をカードで確認します。 サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。"
+          },
+          "sample_gate_one": {
+            "identity_is_create_filter": true,
+            "visible_text": "Gate 1 — 実行前の確認\n実行する内容\n依頼: --pattern で行を絞り込む CLI コマンドを作ってください\n作業内容: 新しい機能を作成 (create): Python CLI ツール (python-cli) / 絞り込み (filter)\nこの作業として判定した根拠: explicit.profile=python-cli; workspace.cli_main=cli/main.py; request.intent.create=create; request.profile.cli=python-cli; request.family=filter\n契約の参照先: docs/cli-profile-contract.md\n必須チェック\nC1 — 実行動作: 通常のコマンドは成功し、不正な入力はエラーになる\nC2 — ヘルプの正確さ: --help と実際に受け付けるオプション・引数が一致する\nC3 — 出力の正確さ: README の例や説明が実際のコマンド出力と一致する\nC4 — 再現性: 同じケースを再実行しても同じ結果になる\n類似実行の結果\n全必須チェックに合格した実行: 3件中0件 (0%)\n比較対象: formal Window B; uat-test0725-cli-elev-004 までの証跡\n類似実行の平均所要時間: 平均 10.2 分 (3件)\n証跡の参照先: workspace/management/runs/band_summary_cli.md\n合格の条件: 上記4項目がすべて合格し、README の出力説明も実際のコマンド出力と一致すること\nファイルへのアクセス\n変更可能な範囲: <execution-root>\nモデルとプリセット\n計画モデル: ollama / qwen3:8b\n実行モデル: ollama / qwen3:8b\nプリセット: profile 既定（選択したプロファイルの標準設定）\n追加の検証パック: cli-assist@1.0.0\n検証パックの完全一致 ID: sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd\n検証パックの供給元: 承認済み\n検証箇所: cli-validation\n検証パックの状態: バイト単位で一致\nほかに利用可能な検証パック: cli-assist@1.0.0 / sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd; cli-assist@1.1.0 / sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82\n確認\n確認 ID (内容が1つでも変わると ID も変わります): sha256:b47e11f0a98383875f022784be958f61c3534a0491aa86ba4c5d8986360c8e9a\n\nこれは提案であり、実行結果ではありません。 実行前にこの ID と完全一致する内容を確認してください。"
+          },
+          "dismissal_persists_in_tab": true
+        },
+        "trial_compose_regression": {
+          "cloud_provider_skipped_discovery": true,
+          "discovered_candidates": {
+            "executor": [
+              "ollama-executor-model",
+              "ollama-second-model"
+            ],
+            "planner": [
+              "lm-studio-planner-model",
+              "lm-studio-second-model"
+            ]
+          },
+          "exact_candidates_clear_warnings": true,
+          "cloud_provider_allows_manual_entry": true,
+          "automatic_intent_compatible": true,
+          "compatible_intent_packs": true,
+          "confirmation_reset": true,
+          "explicit_intent_frozen": true,
+          "fix_catalog_link_visible": true,
+          "fix_pack": {
+            "selected_value": "synthetic-fix-only@1.0.0",
+            "profile": "nextjs",
+            "intent": "fix"
+          },
+          "intent_options": [
+            {
+              "label": "自動判定",
+              "value": ""
+            },
+            {
+              "label": "作成",
+              "value": "create"
+            },
+            {
+              "label": "修正",
+              "value": "fix"
+            },
+            {
+              "label": "調査",
+              "value": "investigate"
+            }
+          ],
+          "input_lists": {
+            "executor": "trial-executor-provider-model-options",
+            "planner": "trial-planner-provider-model-options"
+          },
+          "proposal_pack": null,
+          "proposal_provider": "openai",
+          "proposal_planner_provider": "lm-studio",
+          "proposal_think": null,
+          "proposal_status": 200,
+          "provider_requests": [
+            "ollama",
+            "ollama",
+            "lm-studio",
+            "lm-studio"
+          ],
+          "providers_separated": true,
+          "think_cleared_without_ollama": true,
+          "planner_candidates_stay_scoped": true,
+          "unknown_warnings": {
+            "executor": "この実行モデルは取得済みの候補にありません。正確な ID か確認してください。",
+            "planner": "この計画モデルは取得済みの候補にありません。正確な ID か確認してください。"
+          },
+          "ok": true
+        }
+      },
+      "shell_navigation": {
+        "routes": [
+          {
+            "route": "dashboard",
+            "active_text": "01\n概要",
+            "active_href": "/proxy/commandagent/",
+            "expected_href": "/proxy/commandagent/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true
+          },
+          {
+            "route": "try",
+            "active_text": "02\nトライアル",
+            "active_href": "/proxy/commandagent/try/",
+            "expected_href": "/proxy/commandagent/try/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/proxy/commandagent/try/"
+          },
+          {
+            "route": "assets",
+            "active_text": "03\n拡張",
+            "active_href": "/proxy/commandagent/assets/",
+            "expected_href": "/proxy/commandagent/assets/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/proxy/commandagent/assets/"
+          },
+          {
+            "route": "run",
+            "active_text": "04\nリポジトリ実行記録",
+            "active_href": "/proxy/commandagent/runs/?id=",
+            "expected_href": "/proxy/commandagent/runs/?id=",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/proxy/commandagent/runs/?id="
+          },
+          {
+            "route": "measurements",
+            "active_text": "05\n計測",
+            "active_href": "/proxy/commandagent/measurements/",
+            "expected_href": "/proxy/commandagent/measurements/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/proxy/commandagent/measurements/"
+          },
+          {
+            "route": "dashboard",
+            "active_text": "01\n概要",
+            "active_href": "/proxy/commandagent/",
+            "expected_href": "/proxy/commandagent/",
+            "aria_current_page": true,
+            "href_matches_base_path": true,
+            "document_marker_preserved": true,
+            "rendered_href_before_navigation": "/proxy/commandagent/"
+          }
+        ],
+        "client_navigation_preserved_document": true,
+        "aria_current_page": true,
+        "links_match_base_path": true,
+        "ok": true
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "runtime-status",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "trial-options",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/proxy/commandagent/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "run_ledger_accessibility": {
+        "tableRole": true,
+        "rowGroupCount": 2,
+        "rowCount": 9,
+        "ariaRequiredChildrenViolationCount": 0,
+        "linksKeepNativeSemantics": true
+      },
+      "axe_aria_required_children": {
+        "violationCount": 0,
+        "targets": []
+      },
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "拡張",
+          "headingMatches": true,
+          "title": "拡張 | CommandAgent",
+          "titleMatches": true
+        },
+        "extension_catalog": {
+          "row_count": 4,
+          "extension_root_status": "ready",
+          "layer_labels": [
+            "Layer 1",
+            "Layer 2",
+            "Layer 3",
+            "Layer 4"
+          ],
+          "layer_metadata_complete": true,
+          "profile_count": 1,
+          "profile_has_exact_hash": true,
+          "profile_issue_href": "https://github.com/Kewton/CommandAgent/issues/new?title=%5BExtension%20profile%5D%20Register%20static-site&body=Layer%202%20draft%20profile%20registration%20review%0A%0A-%20profile%3A%20static-site%0A-%20manifest%20exact%20hash%3A%20sha256%3A75310fd529a14044b2a211ca48c1018cb7bb44206e44a2149a4c3dec23285da3%0A-%20assurance%20ceiling%20before%20admission%3A%20static%0A%0ADo%20not%20attach%20secrets%20or%20private%20extension-root%20paths.%20Add%20reproducible%20tests%20and%20measured%20evidence%20in%20a%20repository%20PR.",
+          "profile_metadata": [
+            "layer",
+            "source",
+            "status",
+            "hash",
+            "assurance",
+            "登録／昇格"
+          ],
+          "profile_wizard_launcher_enabled": true,
+          "supplied_profile_path": "profiles/static-site/manifest.toml",
+          "supplied_profile_text": "manifest\ndraft\nStatic site\nsource\nlocal\npath\nprofiles/static-site/manifest.toml\nhash\nsha256:75310fd529a14044b2a211ca48c1018cb7bb44206e44a2149a4c3dec23285da3\navailability\nTrial 利用可\n\ndraft / 未承認 / 保証上限 static として利用可",
+          "references_are_not_extensions": true,
+          "selected_pack": "cli-assist@1.0.0",
+          "selector": "cli-assist@1.0.0",
+          "source_labels": [
+            "承認済み",
+            "承認済み",
+            "承認済み",
+            "リポジトリ（未承認）"
+          ],
+          "status": 200,
+          "ok": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "計測",
+          "headingMatches": true,
+          "title": "計測 | CommandAgent",
+          "titleMatches": true
+        },
+        "run_detail": {
+          "status": 200,
+          "heading": "リポジトリ実行記録",
+          "headingMatches": true,
+          "title": "リポジトリ実行記録 | CommandAgent",
+          "titleMatches": true
+        }
+      },
+      "issue_75": {
+        "pages": {
+          "measurements": {
+            "status": 200,
+            "heading": "計測",
+            "headingMatches": true,
+            "title": "計測 | CommandAgent",
+            "titleMatches": true
+          },
+          "run_detail": {
+            "status": 200,
+            "heading": "リポジトリ実行記録",
+            "headingMatches": true,
+            "title": "リポジトリ実行記録 | CommandAgent",
+            "titleMatches": true
+          }
+        },
+        "measurement_selection": {
+          "after_visibility": "uat-test0802-ingest-luna-001/uat-report.md",
+          "before_visibility": "uat-test0802-ingest-luna-001/uat-report.md",
+          "heading_order_valid": true,
+          "headings": [
+            {
+              "level": 1,
+              "text": "計測"
+            },
+            {
+              "level": 2,
+              "text": "到達度 × 構成時間"
+            },
+            {
+              "level": 2,
+              "text": "レポート一覧"
+            },
+            {
+              "level": 3,
+              "text": "uat-report.md"
+            }
+          ],
+          "selection_retained_after_visibility": true
+        },
+        "report_filter": {
+          "count_restored": true,
+          "empty_count": "0 / 256",
+          "filter_matches_path": true,
+          "filtered_count": "1 / 256",
+          "initial_count": 256,
+          "no_match_label_visible": true,
+          "selection_retained_after_filter": true
+        },
+        "run_selection": {
+          "count": "表示件数 100 / 総数 196",
+          "count_matches_index_total": true,
+          "direct_lookup": {
+            "available": true,
+            "id": "20260719-015733-orchestrate",
+            "mobile_id_fits": true,
+            "opened": true,
+            "selected_id_visible": true
+          },
+          "displayed_options": 100,
+          "expected_options": 100,
+          "filter_matches_id": true,
+          "no_records_label_absent": true,
+          "no_match_label_visible": true,
+          "options_include_dates_and_status": true,
+          "request_ownership": {
+            "current_run_won": true,
+            "empty_selection": {
+              "empty_selection_cleared": true,
+              "evidence_list_count": 0,
+              "viewer_count": 0
+            },
+            "pending_selection": {
+              "evidence_list_count": 0,
+              "loading_visible": true,
+              "viewer_count": 0
+            },
+            "ok": true
+          }
+        },
+        "source_link": {
+          "href": "/proxy/commandagent/api/runs/uat004-gate09",
+          "opens_new_tab": true,
+          "present": true
+        },
+        "wrap_toggle": {
+          "classes_switch": true,
+          "initial_class": "document-content--wrapped",
+          "initial_pressed": "true",
+          "restored_class": "document-content--wrapped",
+          "restored_pressed": "true",
+          "toggled_class": "document-content--unwrapped",
+          "toggled_pressed": "false"
+        },
+        "mobile_map": {
+          "client_height": 207,
+          "client_width": 322,
+          "fits_single_viewport": true,
+          "fits_without_axis_scroll": true,
+          "has_horizontal_overflow": false,
+          "has_vertical_overflow": false,
+          "image_fits_frame": true,
+          "image_height": 207,
+          "image_width": 322,
+          "overflow_x": "hidden",
+          "overflow_y": "hidden",
+          "scroll_height": 207,
+          "scroll_width": 322,
+          "full_size_href": "/proxy/commandagent/api/maps/score-time.svg",
+          "full_size_link_present": true,
+          "page_fits_viewport": true,
+          "viewport_width": 390
+        },
+        "ok": true
+      },
+      "mobile": {
+        "dashboard": {
+          "fits_viewport": true,
+          "getting_started_close": {
+            "fits_viewport": true,
+            "line_count": 1,
+            "single_line": true,
+            "text": "閉じる",
+            "white_space": "nowrap"
+          },
+          "heading": "概要",
+          "intro_one_line": true,
+          "status": 200
+        },
+        "extensions": {
+          "fits_viewport": true,
+          "heading": "拡張",
+          "layer_count": 4,
+          "profile_count": 1,
+          "status": 200
+        },
+        "trial": {
+          "fits_viewport": true,
+          "heading": "トライアル",
+          "intro_one_line": true,
+          "status": 200
+        },
+        "ok": true
+      },
+      "elapsed_seconds": 13.683,
+      "unexpected_console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

@@ -249,6 +249,13 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
         "extension_invalid_request",
         "extension_conflict",
         "extension_verification_failed",
+        "profile_auth_failed",
+        "profile_origin_not_allowed",
+        "profile_body_too_large",
+        "profile_validation_failed",
+        "profile_confirmation_stale",
+        "profile_conflict",
+        "profile_io_failed",
         "resource_too_large",
         "上流プロキシまたはアクセス認証",
         "isTrialTokenRejected",
@@ -1109,6 +1116,7 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     for required in [
         "state.trial_workspace.runtime_status(authentication_enabled)",
         "execution_root: execution_root(&state)",
+        "extension_root: extension_root(&state)",
         "commandagent_binary: commandagent_binary(&state.commandagent_bin)",
         "trial_authentication:",
         "status: \"unconfigured\"",
@@ -1129,6 +1137,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "PackSource::Local",
         "PackSource::Admitted",
         "hash と pin が一致しません。",
+        "pack が現在の profile / intent 契約と非互換です。",
         "ローカル優先: 同名のリポジトリ pack より拡張ルートを優先",
         "trial_eligible",
     ] {
@@ -1189,6 +1198,59 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
             "extension smoke is missing {required:?}"
         );
     }
+}
+
+#[test]
+fn extension_catalog_defines_layers_and_keeps_admission_controls_out_of_the_gui() {
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    for required in [
+        "4 レイヤーと依存関係",
+        "Layer 1",
+        "Layer 2",
+        "Layer 3",
+        "Layer 4",
+        "能力語彙",
+        "下書きプロファイル",
+        "パック供給",
+        "Admission",
+        "GUI 変更不可",
+        "data-testid=\"extension-root-status\"",
+        "runtime?.data?.prerequisites.extension_root",
+        "data-testid=\"extension-profile-row\"",
+        "profile.manifest_hash",
+        "profile.assurance_ceiling",
+        "profile_not_admitted",
+        "data-testid=\"profile-registration-issue-link\"",
+        "github.com/Kewton/CommandAgent/issues/new",
+        "Contract / Suite は拡張種別ではありません",
+        "<PackWizard onCatalogChange={packs.refresh} />",
+        "<ProfileWizard enabled={extensionRootStatus === \"ready\"} />",
+        "packUnavailableReason(pack)",
+        "[\"layer\", \"Layer 3 / pack supply\"]",
+        "[\"source\", pack.source_label]",
+        "[\"status\", packStatusLabel(pack)]",
+        "[\"hash\", pack.observed_hash ?? \"算出不可\"]",
+        "[\"assurance\", packAssuranceLabel(pack)]",
+        "[\"登録／昇格\", packRegistrationLabel(pack)]",
+    ] {
+        assert!(
+            page.contains(required),
+            "extension layer page is missing {required:?}"
+        );
+    }
+
+    for forbidden in ["admitExtension", "promoteExtension", "addCapability"] {
+        assert!(
+            !page.contains(forbidden),
+            "extension page exposes forbidden self-promotion control {forbidden:?}"
+        );
+    }
+
+    let trial = std::fs::read_to_string("src/bin/gui_server/gate_one.rs").unwrap();
+    let delegate = std::fs::read_to_string("src/bin/gui_server/delegate.rs").unwrap();
+    assert!(trial.contains("pack_catalog::select_with_locator"));
+    assert!(trial.contains("render_gate_one_for_gui(&identity, &locator)"));
+    assert!(delegate.contains("--pack-hash"));
 }
 
 #[test]
@@ -1305,6 +1367,78 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
         assert!(
             smoke.contains(required),
             "wizard smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
+fn extension_profile_wizard_requires_root_preview_hash_and_restart_boundary() {
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    assert!(page.contains("<ProfileWizard enabled={extensionRootStatus === \"ready\"} />"));
+
+    let wizard = std::fs::read_to_string("gui/components/profile-wizard.tsx").unwrap();
+    for required in [
+        "disabled={!enabled}",
+        "compact manifest v2",
+        "additive overlay v1",
+        "previewExtensionProfile",
+        "registerExtensionProfile",
+        "expected_hash: preview.hash",
+        "profile id",
+        "normalized path",
+        "exact hash",
+        "draft / 未承認",
+        "上限 {preview.assurance_ceiling}",
+        "data-testid=\"profile-wizard-confirm\"",
+        "data-restart-required={registration.restart_required}",
+        "保存成功と runtime 反映は別です。",
+        "restart_required:",
+        "data-testid=\"profile-supply-row\"",
+        "runtime 未反映",
+    ] {
+        assert!(
+            wizard.contains(required),
+            "profile wizard is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "admitted = true",
+        "promote",
+        "method: \"PUT\"",
+        "method: \"DELETE\"",
+    ] {
+        assert!(
+            !wizard.contains(forbidden),
+            "profile wizard exposes forbidden capability {forbidden:?}"
+        );
+    }
+
+    let api = std::fs::read_to_string("gui/lib/extension-api.ts").unwrap();
+    for required in [
+        "extensions/profiles",
+        "extensions/profiles/preview",
+        "extensions/profiles/register",
+        "trialAuthorizationHeaders(token, true)",
+        "restart_required: boolean",
+    ] {
+        assert!(
+            api.contains(required),
+            "profile API is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeProfileWizard",
+        "profile-wizard-preview",
+        "profile-wizard-register",
+        "profile-registration-result",
+        "unavailable_before_restart",
+        "同一内容",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "profile wizard smoke is missing {required:?}"
         );
     }
 }
@@ -1660,6 +1794,23 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         4,
         "every extension POST handler must require Trial access and Origin"
     );
+
+    let profiles = std::fs::read_to_string("src/bin/gui_server/profile_extensions.rs").unwrap();
+    assert_eq!(
+        profiles
+            .matches("require_access(&state, &headers, false)")
+            .count(),
+        1,
+        "profile catalog must require extension access"
+    );
+    assert_eq!(
+        profiles
+            .matches("require_access(&state, &headers, true)")
+            .count(),
+        2,
+        "profile preview and register must require Origin"
+    );
+    assert!(profiles.contains(".trial_access\n        .authorize(headers, require_origin)"));
 }
 
 #[test]
@@ -1671,6 +1822,9 @@ fn extension_supply_routes_are_post_only_for_mutation_and_delegate_writes_to_sup
         "\"/api/extensions/packs/{id}/{version}/verify\"",
         "\"/api/extensions/packs/{id}/{version}/pin\"",
         "\"/api/extensions/packs/{id}/{version}/retire\"",
+        "\"/api/extensions/profiles\"",
+        "\"/api/extensions/profiles/preview\"",
+        "\"/api/extensions/profiles/register\"",
     ] {
         assert!(entry.contains(route), "missing extension route {route}");
     }
@@ -1700,6 +1854,26 @@ fn extension_supply_routes_are_post_only_for_mutation_and_delegate_writes_to_sup
         assert!(
             extensions.contains(required),
             "extension handler bypasses required supply behavior {required:?}"
+        );
+    }
+
+    let profiles = std::fs::read_to_string("src/bin/gui_server/profile_extensions.rs").unwrap();
+    for required in [
+        "ProfileSupplyRoot::open(root)",
+        "root.preview(",
+        "root.register(",
+        "tokio::task::spawn_blocking",
+        "MAX_PROFILE_BODY_BYTES",
+        "profile_auth_failed",
+        "profile_origin_not_allowed",
+        "profile_body_too_large",
+        "profile_validation_failed",
+        "profile_conflict",
+        "profile_io_failed",
+    ] {
+        assert!(
+            profiles.contains(required),
+            "profile handler bypasses required supply behavior {required:?}"
         );
     }
 }

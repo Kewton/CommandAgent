@@ -1,0 +1,433 @@
+{
+  "schema_version": "commandagent.gui-smoke/v2",
+  "generated_at": "2026-08-24T16:54:44.869Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "delegate": {
+    "mode": "pack_wizard",
+    "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-372-gui-extensions-draft-profile-api/target/debug/commandagent",
+    "provider": "ollama",
+    "model": "qwen3:8b",
+    "fixture": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-372-gui-extensions-draft-profile-api/tests/corpus/apps/test0725_cli_elev_003/fixtures",
+    "scratch_runtime": "removed_after_success"
+  },
+  "help_map": {
+    "checks": [
+      {
+        "copy": "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+        "owner": "getting-started-gui.md#はじめに",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "初回案内 / はじめに",
+        "owner": "getting-started-gui.md#はじめに",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "サンプル目標をトライアルに入力",
+        "owner": "getting-started-gui.md#first-trial-walkthrough",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "CLI を動かす前に、目標・変更範囲・検証条件を確認する段階です。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "トライアルがファイルを変更できる、専用の作業ディレクトリです。",
+        "owner": "getting-started-gui.md#terms-shown-in-the-app",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "目標に追加する検証知識。選択した版とハッシュが確認内容に固定されます。",
+        "owner": "gui-trial.md#pack-selection-and-frozen-identity",
+        "source": "gui/components/getting-started.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Gate 1 は CLI 実行前の確認です",
+        "owner": "gui-trial.md#gate-1-confirm-before-execution",
+        "source": "gui/components/trial-compose.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "実行結果と次の一手を確認してください",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "独立した CLI 動作プローブは実行されていません。",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "受入シートの詳細を表示",
+        "owner": "gui-trial.md#gate-34-read-the-result",
+        "source": "gui/components/trial-terminal.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "固定済みパックが見つかりません。",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "4 レイヤーと依存関係",
+        "owner": "gui-extensions.md#four-extension-layers",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "安全な登録 Issue を作る",
+        "owner": "gui-extensions.md#layer-2-draft-profiles",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "Contract / Suite は拡張種別ではありません",
+        "owner": "gui-extensions.md#contract-and-suite-references",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "トライアルで使う",
+        "owner": "gui-extensions.md#extensions-catalog",
+        "source": "gui/app/assets/page.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "パック作成ウィザードを開く",
+        "owner": "gui-extensions.md#pack-creation-wizard",
+        "source": "gui/components/pack-wizard.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "プロファイル登録ウィザード",
+        "owner": "gui-extensions.md#draft-profile-registration-wizard",
+        "source": "gui/components/profile-wizard.tsx",
+        "app_source_count": 2,
+        "map_count": 1,
+        "owner_present": true
+      },
+      {
+        "copy": "確認済みのトライアルセッションはありません。",
+        "owner": "gui-history.md#session-rows-and-refresh",
+        "source": "gui/components/trial-session-index.tsx",
+        "app_source_count": 1,
+        "map_count": 1,
+        "owner_present": true
+      }
+    ],
+    "path": "docs/user/gui-help-map.md",
+    "ok": true
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "pack_wizard": {
+        "active_after_failure": "pack-wizard-assist",
+        "assets_accessibility": {
+          "axe": [
+            {
+              "tab": "references",
+              "violation_count": 0,
+              "violations": []
+            },
+            {
+              "tab": "references",
+              "violation_count": 0,
+              "violations": []
+            },
+            {
+              "tab": "packs",
+              "violation_count": 0,
+              "violations": []
+            }
+          ],
+          "disclosure": {
+            "collapsed": "false",
+            "controls": "document-content-contracts-0",
+            "expanded": "true",
+            "glyph_hidden": true,
+            "target_exists": true
+          },
+          "keyboard": {
+            "packs_selected": "packs",
+            "end_selected": "references",
+            "home_selected": "profiles",
+            "left_wrapped": "packs",
+            "right_wrapped": "references"
+          },
+          "presence": [
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "✓ eval.yaml: あり"
+          ],
+          "tab_semantics": [
+            {
+              "controls": "asset-panel-profiles",
+              "selected": "true",
+              "tabIndex": "0"
+            },
+            {
+              "controls": "asset-panel-packs",
+              "selected": "false",
+              "tabIndex": "-1"
+            },
+            {
+              "controls": "asset-panel-references",
+              "selected": "false",
+              "tabIndex": "-1"
+            }
+          ],
+          "ok": true
+        },
+        "auth_off": {
+          "disabled_note": "トライアルのトークン認証はサーバー設定で無効です。",
+          "stored_token": null,
+          "token_input_count": 0,
+          "warning_alerts": 0,
+          "warning_notes": 1,
+          "warning_status": "1 件のパック警告があります。",
+          "ok": true
+        },
+        "catalog_refreshed_after_pin": true,
+        "displayed_bytes_reconciled": true,
+        "failure_focus_target": "pack-wizard-assist",
+        "failure_text": "1 件の項目を修正してください\nassist.yaml\nassist.yaml is invalid: unknown field `unexpected`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary` at line 20 column 1\n該当項目へ移動",
+        "pinned_bytes_match_display": true,
+        "pinned_editor_disabled": true,
+        "pinned_next_draft_editable": true,
+        "pinned_next_members_copied": true,
+        "pinned_next_version": "1.0.1",
+        "pinned_next_version_staged": true,
+        "profile_wizard": {
+          "confirmation_text": "2. exact identity を確認\nprofile id\nneutral-profile\nnormalized path\nprofiles/neutral-profile/manifest.toml\nexact hash\nsha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e\nstatus\ndraft / 未承認\nassurance\n上限 static\nbase\nなし / standalone\nこの profile id、normalized path、exact hash、draft/static 上限を確認しました。\natomic に保存",
+          "exact_hash": "sha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e",
+          "idempotent_text": "同一内容を確認しました\n\n保存成功と runtime 反映は別です。GUI サーバーを同じ --extension-root で再起動し、Layer 2 と Trial 候補の exact hash を確認してください。\n\nrestart_required: true",
+          "launcher_enabled": true,
+          "restart_required": "true",
+          "result_text": "保存しました\n\n保存成功と runtime 反映は別です。GUI サーバーを同じ --extension-root で再起動し、Layer 2 と Trial 候補の exact hash を確認してください。\n\nrestart_required: true",
+          "row_text": "manifest\ndraft\nneutral-profile\nsource\nlocal\npath\nprofiles/neutral-profile/manifest.toml\nhash\nsha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e\navailability\nruntime 未反映\n\nrestart_required: GUI サーバー再起動後に Trial 候補へ反映",
+          "unavailable_before_restart": true,
+          "ok": true
+        },
+        "retired_editor_disabled": true,
+        "retired_has_no_trial_link": true,
+        "retired_next_draft_editable": true,
+        "retired_next_members_copied": true,
+        "retired_next_version": "1.0.2",
+        "selected_pack": "nextjs-acme@1.0.0",
+        "selector": "nextjs-acme@1.0.0",
+        "trial_profiles": [
+          "nextjs",
+          "community-mini-app",
+          "python-cli",
+          "data",
+          "ingest",
+          "generic",
+          "static-site"
+        ],
+        "wizard_profiles": [
+          "nextjs",
+          "community-mini-app",
+          "python-cli",
+          "data",
+          "ingest",
+          "generic",
+          "static-site"
+        ],
+        "wizard_profiles_match_trial": true,
+        "reverified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "verified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "ok": true
+      },
+      "expected_verification_failure_console_errors": [
+        "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "pack_wizard": {
+        "active_after_failure": "pack-wizard-assist",
+        "assets_accessibility": {
+          "axe": [
+            {
+              "tab": "references",
+              "violation_count": 0,
+              "violations": []
+            },
+            {
+              "tab": "references",
+              "violation_count": 0,
+              "violations": []
+            },
+            {
+              "tab": "packs",
+              "violation_count": 0,
+              "violations": []
+            }
+          ],
+          "disclosure": {
+            "collapsed": "false",
+            "controls": "document-content-contracts-0",
+            "expanded": "true",
+            "glyph_hidden": true,
+            "target_exists": true
+          },
+          "keyboard": {
+            "packs_selected": "packs",
+            "end_selected": "references",
+            "home_selected": "profiles",
+            "left_wrapped": "packs",
+            "right_wrapped": "references"
+          },
+          "presence": [
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "− eval.yaml: なし",
+            "✓ assist.yaml: あり",
+            "✓ eval.yaml: あり"
+          ],
+          "tab_semantics": [
+            {
+              "controls": "asset-panel-profiles",
+              "selected": "true",
+              "tabIndex": "0"
+            },
+            {
+              "controls": "asset-panel-packs",
+              "selected": "false",
+              "tabIndex": "-1"
+            },
+            {
+              "controls": "asset-panel-references",
+              "selected": "false",
+              "tabIndex": "-1"
+            }
+          ],
+          "ok": true
+        },
+        "auth_off": {
+          "disabled_note": "トライアルのトークン認証はサーバー設定で無効です。",
+          "stored_token": null,
+          "token_input_count": 0,
+          "warning_alerts": 0,
+          "warning_notes": 1,
+          "warning_status": "1 件のパック警告があります。",
+          "ok": true
+        },
+        "catalog_refreshed_after_pin": true,
+        "displayed_bytes_reconciled": true,
+        "failure_focus_target": "pack-wizard-assist",
+        "failure_text": "1 件の項目を修正してください\nassist.yaml\nassist.yaml is invalid: unknown field `unexpected`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary` at line 20 column 1\n該当項目へ移動",
+        "pinned_bytes_match_display": true,
+        "pinned_editor_disabled": true,
+        "pinned_next_draft_editable": true,
+        "pinned_next_members_copied": true,
+        "pinned_next_version": "1.0.1",
+        "pinned_next_version_staged": true,
+        "profile_wizard": {
+          "confirmation_text": "2. exact identity を確認\nprofile id\nneutral-profile\nnormalized path\nprofiles/neutral-profile/manifest.toml\nexact hash\nsha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e\nstatus\ndraft / 未承認\nassurance\n上限 static\nbase\nなし / standalone\nこの profile id、normalized path、exact hash、draft/static 上限を確認しました。\natomic に保存",
+          "exact_hash": "sha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e",
+          "idempotent_text": "同一内容を確認しました\n\n保存成功と runtime 反映は別です。GUI サーバーを同じ --extension-root で再起動し、Layer 2 と Trial 候補の exact hash を確認してください。\n\nrestart_required: true",
+          "launcher_enabled": true,
+          "restart_required": "true",
+          "result_text": "保存しました\n\n保存成功と runtime 反映は別です。GUI サーバーを同じ --extension-root で再起動し、Layer 2 と Trial 候補の exact hash を確認してください。\n\nrestart_required: true",
+          "row_text": "manifest\ndraft\nneutral-profile\nsource\nlocal\npath\nprofiles/neutral-profile/manifest.toml\nhash\nsha256:1e250d626e807ea808083a7c45981afd1c3effcc3ea0fb50b696b10a6b03934e\navailability\nruntime 未反映\n\nrestart_required: GUI サーバー再起動後に Trial 候補へ反映",
+          "unavailable_before_restart": true,
+          "ok": true
+        },
+        "retired_editor_disabled": true,
+        "retired_has_no_trial_link": true,
+        "retired_next_draft_editable": true,
+        "retired_next_members_copied": true,
+        "retired_next_version": "1.0.2",
+        "selected_pack": "nextjs-acme@1.0.0",
+        "selector": "nextjs-acme@1.0.0",
+        "trial_profiles": [
+          "nextjs",
+          "community-mini-app",
+          "python-cli",
+          "data",
+          "ingest",
+          "generic",
+          "static-site"
+        ],
+        "wizard_profiles": [
+          "nextjs",
+          "community-mini-app",
+          "python-cli",
+          "data",
+          "ingest",
+          "generic",
+          "static-site"
+        ],
+        "wizard_profiles_match_trial": true,
+        "reverified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "verified_hash": "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0",
+        "ok": true
+      },
+      "expected_verification_failure_console_errors": [
+        "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}
