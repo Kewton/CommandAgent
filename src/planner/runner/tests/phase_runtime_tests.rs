@@ -1166,10 +1166,14 @@ fn plan_run_nextjs_game_setup_only_fails_inferred_obligation() {
 }
 
 #[test]
-fn plan_run_nextjs_game_scaffold_only_fails_inferred_capabilities() {
+fn isolated_plan_run_reaches_contract_verification_instead_of_rejecting_its_path() {
     let dir = tempfile::tempdir().unwrap();
-    let events = dir.path().join("events.jsonl");
-    let mut cfg = config(dir.path().to_path_buf());
+    let workspace = dir.path().join("sessions/session");
+    let run = dir.path().join(".commandagent/runs/session");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&run).unwrap();
+    let events = run.join("events.jsonl");
+    let mut cfg = config(workspace.clone());
     cfg.profile = "nextjs".to_string();
     cfg.eval_events_path = Some(events.clone());
     let plan = StepPlan {
@@ -1216,6 +1220,14 @@ fn plan_run_nextjs_game_scaffold_only_fails_inferred_capabilities() {
     assert!(event_text.contains("\"completion_contract_verification_enabled\":true"));
     assert!(event_text.contains("\"external_contract_checked\":true"));
     assert!(event_text.contains("\"completion_contract_generated\":true"));
+    assert!(event_text.contains(
+        "\"completion_contract_path\":\".commandagent/completion-contract-plan-run.json\""
+    ));
+    assert!(
+        workspace
+            .join(".commandagent/completion-contract-plan-run.json")
+            .is_file()
+    );
     assert!(event_text.contains("\"step_prompt_contract\""));
     assert!(event_text.contains("\"has_required_final_evidence\":true"));
     assert!(event_text.contains("\"visible_interactive_surface_evidence\""));

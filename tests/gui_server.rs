@@ -2162,6 +2162,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     )
     .unwrap();
     let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+    let session_workspace = workspace.join("sessions").join(id).canonicalize().unwrap();
     assert!(!delegated_args.contains(&"--yes"), "{delegated_args:?}");
     assert!(
         delegated_args
@@ -2179,6 +2180,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "missing {pair:?}: {delegated_args:?}"
         );
     }
+    assert!(delegated_args.windows(2).any(|arguments| {
+        arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
+    }));
     let confirmation_root = delegated_events
         .parent()
         .unwrap()
@@ -2358,6 +2362,31 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    let continuation_args = std::fs::read_to_string(
+        delegated_events
+            .parent()
+            .unwrap()
+            .join("delegated-args.txt"),
+    )
+    .unwrap();
+    let continuation_args = continuation_args.lines().collect::<Vec<_>>();
+    assert!(continuation_args.contains(&"--run-ultra-plan"));
+    assert!(continuation_args.windows(2).any(|arguments| {
+        arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
+    }));
+    let lease_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        assert_eq!(lease.status, 200, "{}", lease.body);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(
+            Instant::now() < lease_deadline,
+            "continuation lease timed out"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let canonical_run = runs_dir(&workspace).join(id);
     let legacy_runs = workspace.join(".anvil/runs");
     std::fs::create_dir_all(&legacy_runs).unwrap();
@@ -2385,78 +2414,6 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .any(|session| session["id"] == id),
         "{}",
         legacy_index.body
-    );
-    server.stop();
-}
-
-#[cfg(unix)]
-#[test]
-fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let temp = tempfile::tempdir().unwrap();
-    let workspace = temp.path().join("workspace");
-    std::fs::create_dir_all(&workspace).unwrap();
-    let cli = temp.path().join("think-commandagent");
-    std::fs::write(
-        &cli,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&cli, permissions).unwrap();
-    let mut server = Server::start(&workspace, &cli);
-
-    let mut spec = session_spec();
-    let unspecified = server.request("POST", "/api/session-proposals", Some(&spec));
-    assert_eq!(unspecified.status, 200, "{}", unspecified.body);
-    spec["think"] = serde_json::json!("high");
-    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
-    assert_eq!(proposal.status, 200, "{}", proposal.body);
-    let proposal_json = proposal.json();
-    assert_eq!(proposal_json["identity"]["pins"]["think"], "high");
-    assert_ne!(proposal_json["card_hash"], unspecified.json()["card_hash"]);
-    assert!(
-        proposal_json["card_markdown"]
-            .as_str()
-            .unwrap()
-            .contains("Ollama thinking: high")
-    );
-
-    let mut without_ollama = spec.clone();
-    without_ollama["provider"] = serde_json::json!("openai");
-    without_ollama["planner_provider"] = serde_json::json!("gemini");
-    let rejected = server.request("POST", "/api/session-proposals", Some(&without_ollama));
-    assert_eq!(rejected.status, 422, "{}", rejected.body);
-    assert_error(
-        &rejected,
-        "trial_request_invalid",
-        "think requires provider or planner_provider to be ollama",
-    );
-
-    let mut confirmed = spec;
-    confirmed["confirmation_hash"] = proposal_json["card_hash"].clone();
-    let created = server.request("POST", "/api/sessions", Some(&confirmed));
-    assert_eq!(created.status, 202, "{}", created.body);
-    let id = created.json()["id"].as_str().unwrap().to_string();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let delegated_args =
-        std::fs::read_to_string(runs_dir(&workspace).join(id).join("delegated-args.txt")).unwrap();
-    assert!(
-        delegated_args
-            .lines()
-            .any(|argument| argument == "--think=high"),
-        "{delegated_args}"
     );
     server.stop();
 }

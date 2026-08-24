@@ -18,8 +18,8 @@ rewrite historical management evidence.
 The central run record and the mutable CLI workspace are intentionally
 separate. Session `<session-id>` keeps confirmations, `events.jsonl`,
 `summary.md`, and directive state in
-`<execution-root>/.commandagent/runs/<session-id>/`, while generated code and
-workspace-owned plans/evidence/repairs live in
+`<execution-root>/.commandagent/runs/<session-id>/`, while generated code,
+plans, evidence, repairs, and completion contracts live in
 `<execution-root>/sessions/<session-id>/`. A later Gate 1 does not inventory
 earlier session workspaces, and a continuation returns to the same session
 workspace rather than the execution-root top level.
