@@ -1,0 +1,51 @@
+case_id = "issue375-plan-step-events"
+source = "Issue #375 additive StepPlan lifecycle event contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["plan_step_started", "plan_step_completed", "plan_step_failed"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"plan_step_started\"",
+  "\"event\":\"plan_step_completed\"",
+  "\"event\":\"plan_step_failed\"",
+  "\"terminal_status\":\"completed\"",
+  "\"outcome\":\"short_circuited\"",
+  "\"outcome\":\"verification_failed\"",
+  "\"outcome\":\"bounded_repair_failed\"",
+  "\"outcome\":\"interrupted\"",
+  "\"completion_count_delta\":1",
+  "\"changed_paths_truncated\":false",
+  "\"verification_status\":\"failed\""
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"step_execution_id\":\"step-normal\"",
+  "\"terminal_status\":\"completed\"",
+  "\"step_execution_id\":\"step-short-circuit\"",
+  "\"terminal_status\":\"skipped\"",
+  "\"step_execution_id\":\"step-verification-failed\"",
+  "\"outcome\":\"verification_failed\"",
+  "\"step_execution_id\":\"step-repair-failed\"",
+  "\"outcome\":\"bounded_repair_failed\"",
+  "\"step_execution_id\":\"step-interrupted\"",
+  "\"terminal_status\":\"interrupted\""
+]
