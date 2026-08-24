@@ -90,7 +90,7 @@ pub async fn list(
                 continue;
             }
             let events_path = path.join("events.jsonl");
-            let projection = session_projection(&events_path).await;
+            let projection = session_projection(&events_path, &workspace).await;
             let started_epoch_seconds = started_epoch_seconds(&id, &path, &events_path).await;
             sessions.push(SessionSummary {
                 id,
@@ -191,7 +191,7 @@ async fn metadata_modified(path: &Path) -> u64 {
         .unwrap_or_default()
 }
 
-async fn session_projection(events_path: &Path) -> SessionProjection {
+async fn session_projection(events_path: &Path, execution_root: &Path) -> SessionProjection {
     let metadata = match tokio::fs::symlink_metadata(events_path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -211,7 +211,6 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
     };
     let mut saw_event = false;
     let mut terminal = None;
-    let mut run_stop_status = None;
     let mut continuation_index = None;
     let mut events = Vec::new();
     for (index, line) in text
@@ -232,7 +231,6 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
                     full_terminal_without_sheet(&event, status.as_deref()),
                 ));
             }
-            Some("run_stop") => run_stop_status = recorded_status(&event),
             Some("human_directive_continuation_started") => continuation_index = Some(index),
             _ => {}
         }
@@ -256,16 +254,23 @@ async fn session_projection(events_path: &Path) -> SessionProjection {
         };
     }
     let full = terminal.as_ref().is_some_and(|(_, _, full)| *full);
+    let current_event_start = continuation_index.map_or(0, |index| index + 1);
+    let current_events = &events[current_event_start..];
+    let run_stop_status = current_events
+        .iter()
+        .rev()
+        .find(|event| event.get("event").and_then(Value::as_str) == Some("run_stop"))
+        .and_then(recorded_status);
     let status = terminal
         .and_then(|(_, status, _)| status)
         .or(run_stop_status)
         .unwrap_or_else(|| "running".to_string());
+    let mut failure_diagnostics = project_diagnostics(current_events);
+    failure_diagnostics.redact_execution_root(execution_root);
     SessionProjection {
         gate: Some(if full { "gate_3" } else { "gate_4" }),
         status,
-        failure_diagnostics: project_diagnostics(
-            &events[continuation_index.map_or(0, |index| index + 1)..],
-        ),
+        failure_diagnostics,
     }
 }
 

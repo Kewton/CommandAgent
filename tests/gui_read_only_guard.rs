@@ -1913,7 +1913,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         );
     }
     assert!(dashboard.contains("参照元: workspace/management/runs"));
-    assert!(panel.contains("実行ルート / .anvil/runs"));
+    assert!(panel.contains("実行ルート / .commandagent/runs"));
 }
 
 #[test]

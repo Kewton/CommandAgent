@@ -59,13 +59,13 @@ fn execution_root(state: &AppState) -> Prerequisite {
         };
     }
     match state.trial_workspace.require_current() {
-        Ok(path) => Prerequisite {
+        Ok(_) => Prerequisite {
             status: "ready",
-            detail: path.display().to_string(),
+            detail: "設定済みの execution root を利用できます。".to_string(),
         },
-        Err(detail) => Prerequisite {
+        Err(_) => Prerequisite {
             status: "action_required",
-            detail,
+            detail: "execution root を確認し、GUI を起動し直してください。".to_string(),
         },
     }
 }

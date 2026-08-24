@@ -71,14 +71,16 @@ pub async fn artifacts(
     headers: HeaderMap,
     Query(query): Query<ArtifactQuery>,
 ) -> Result<Response, SessionFileError> {
-    let run_root = session_run_root(&state, &id, &headers).await?;
+    let session = session_run_root(&state, &id, &headers).await?;
+    let run_root = session.run_root;
     if let Some(path) = query.path {
         let path = checked_existing_path_without_symlinks(&run_root, FilePath::new(&path))
             .await
             .map_err(IntoResponse::into_response)?;
-        let value = document(&run_root, &path)
+        let mut value = document(&run_root, &path)
             .await
             .map_err(IntoResponse::into_response)?;
+        value.redact_execution_root(&session.execution_root);
         return Ok(Json(value).into_response());
     }
 
@@ -99,7 +101,8 @@ pub async fn events(
     headers: HeaderMap,
     Query(query): Query<EventsQuery>,
 ) -> Result<Response, SessionFileError> {
-    let run_root = session_run_root(&state, &id, &headers).await?;
+    let session = session_run_root(&state, &id, &headers).await?;
+    let run_root = session.run_root;
     if !(1..=MAX_EVENT_TAIL_LINES).contains(&query.tail) {
         return Err(json_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -119,6 +122,7 @@ pub async fn events(
             )
         })?
         .map_err(IntoResponse::into_response)?;
+    let content = super::public_projection::text(content, &session.execution_root);
     Ok(Json(EventDocument {
         id: "events.jsonl",
         path: "events.jsonl",
@@ -127,11 +131,16 @@ pub async fn events(
     .into_response())
 }
 
+struct SessionRunRoot {
+    execution_root: PathBuf,
+    run_root: PathBuf,
+}
+
 async fn session_run_root(
     state: &AppState,
     id: &str,
     headers: &HeaderMap,
-) -> Result<PathBuf, SessionFileError> {
+) -> Result<SessionRunRoot, SessionFileError> {
     let workspace = require_trial(state, headers, false).map_err(IntoResponse::into_response)?;
     require_session_id(id).map_err(IntoResponse::into_response)?;
     let canonical_root = commandagent::runtime_paths::workspace_dir(&workspace);
@@ -182,7 +191,10 @@ async fn session_run_root(
             "session run symlinks are not readable",
         ));
     }
-    Ok(run_root)
+    Ok(SessionRunRoot {
+        execution_root: workspace,
+        run_root,
+    })
 }
 
 fn read_event_tail(path: &FilePath, line_limit: usize) -> Result<String, TailError> {

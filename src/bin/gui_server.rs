@@ -25,6 +25,8 @@ mod gui_contract;
 mod pack_catalog;
 #[path = "gui_server/preflight.rs"]
 mod preflight;
+#[path = "gui_server/public_projection.rs"]
+mod public_projection;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
 #[path = "gui_server/session_diagnostics.rs"]

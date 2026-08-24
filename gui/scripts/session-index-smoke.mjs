@@ -178,7 +178,7 @@ async function probeLifecycle(browser, origin, basePath) {
           started_epoch_seconds: 1_723_769_600,
           gate: "gate_2",
           status: "starting",
-          events_path: `.anvil/runs/${createdSessionId}/events.jsonl`,
+          events_path: `.commandagent/runs/${createdSessionId}/events.jsonl`,
         });
         return;
       }
@@ -581,7 +581,7 @@ async function probeSourceMatrix(browser, origin, basePath) {
       const trialSource = await page.locator("[data-testid='trial-session-index'] header").innerText();
       assertIncludes(
         trialSource.toLowerCase(),
-        "実行ルート / .anvil/runs",
+        "実行ルート / .commandagent/runs",
         `${scenario.id} Trial source`,
       );
       if (scenario.authenticated) {
@@ -709,7 +709,7 @@ function syntheticProposal() {
     card_markdown: "# Synthetic live Trial history contract",
     identity: {
       request: "Synthetic live Trial history probe",
-      workspace: "/synthetic/session-index",
+      workspace: "<execution-root>",
       profile: "python-cli",
       intent: "create",
       task_family: "cli",
@@ -772,7 +772,7 @@ function terminalSession(id) {
     event_count: 1,
     acceptance_sheet: "# Synthetic acceptance\n\nPASS",
     section5: "PASS",
-    events_path: `.anvil/runs/${id}/events.jsonl`,
+    events_path: `.commandagent/runs/${id}/events.jsonl`,
     identity: syntheticProposal().identity,
   };
 }

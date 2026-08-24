@@ -73,11 +73,12 @@ pub async fn proposal(
         proposal_confirmation_root(&workspace),
     )?;
     let price = band_price(&state.repository_root, &identity).await?;
+    let card_hash = identity.card_hash().map_err(internal)?;
     Ok(Json(SessionProposal {
         confirmation_required: true,
-        card_hash: identity.card_hash().map_err(internal)?,
-        card_markdown,
-        identity,
+        card_hash,
+        card_markdown: super::public_projection::text(card_markdown, &workspace),
+        identity: super::public_projection::identity(&identity),
         price,
     }))
 }

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -507,6 +507,7 @@ async function runCase(smokeCase) {
   const startedAt = Date.now();
   const executionRoot = join(scratchRoot, smokeCase.id);
   await cp(fixtureRoot, executionRoot, { recursive: true });
+  const canonicalExecutionRoot = await realpath(executionRoot);
   await runChecked("npm", ["run", "build"], guiRoot, {
     ...process.env,
     GUI_BASE_PATH: smokeCase.buildBasePath,
@@ -1108,6 +1109,16 @@ async function runCase(smokeCase) {
       path: viewer.querySelector("header code")?.textContent ?? "",
       content: viewer.querySelector("pre")?.textContent ?? "",
     }));
+    const publicProjectionText = [
+      gateOneText,
+      JSON.stringify(finalApi.body),
+      terminalText,
+      eventsViewer.content,
+      summaryViewer.content,
+    ].join("\n");
+    const executionRootHidden = [executionRoot, canonicalExecutionRoot]
+      .every((root) => !publicProjectionText.includes(root));
+    const executionRootPlaceholderVisible = gateOneText.includes("<execution-root>");
     await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
     const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const sessionIndexCallStart = apiCalls.length;
@@ -1366,6 +1377,8 @@ async function runCase(smokeCase) {
       summaryViewer.heading === "summary.md" &&
       summaryViewer.path === "summary.md" &&
       summaryViewer.content.trim() !== "" &&
+      executionRootHidden &&
+      executionRootPlaceholderVisible &&
       injectedFailureCount === 1 &&
       degradedMonitorText.includes(
         injectedFailureMode === "access" ? "上流アクセス" : "プロキシまたはネットワーク",
@@ -1482,6 +1495,8 @@ async function runCase(smokeCase) {
           path: summaryViewer.path,
           content_bytes: Buffer.byteLength(summaryViewer.content),
         },
+        execution_root_hidden: executionRootHidden,
+        execution_root_placeholder_visible: executionRootPlaceholderVisible,
         terminal_visible_text: terminalText,
       },
       monitoring: {
@@ -2216,7 +2231,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
   const userGoal = "Synthetic Gate 2 feedback probe";
   const sessionRequests = [];
   let phaseTotal = 0;
-  let terminal = false;
+  let terminalOutcome = "running";
   let legacyResponse = false;
   let contractMismatch = false;
   const pageErrors = [];
@@ -2277,7 +2292,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
             started_epoch_seconds: startedEpochSeconds,
             gate: "gate_2",
             status: "starting",
-            events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+            events_path: `.commandagent/runs/${sessionId}/events.jsonl`,
           }),
         });
         return;
@@ -2286,7 +2301,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
         const session = syntheticFeedbackSession(
           sessionId,
           phaseTotal,
-          terminal,
+          terminalOutcome,
           startedEpochSeconds,
         );
         if (legacyResponse) delete session.identity;
@@ -2364,7 +2379,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
       sessionQueryBeforeReload === sessionId && elapsedAfterReconnect >= elapsedAfter;
     const meanPreservedAfterReconnect = meanAfterReconnect === meanText;
 
-    terminal = true;
+    terminalOutcome = "gate4";
     await page.clock.runFor(1_100);
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const terminalIdentity = await readTrialRunIdentity(page);
@@ -2401,6 +2416,38 @@ async function probeTrialFeedback(browser, origin, basePath) {
       terminalTitle !== runningTitle &&
       terminalTitle === expectedTerminalTitle &&
       !terminalTitle.includes("✔");
+    terminalOutcome = "gate3";
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const gateThreeHeading = await page
+      .locator("[data-testid='terminal-result-heading']")
+      .innerText();
+    const gateThreeVerification = await page
+      .locator("[data-testid='terminal-verification-results']")
+      .innerText();
+    const gateThreeFailureCount = await page
+      .locator("[data-testid='terminal-failure-diagnostics']")
+      .count();
+    const gateThreeBody = await page.locator("body").innerText();
+    const gateThreeProjectionOk =
+      gateThreeHeading.includes("すべての必須チェックに合格") &&
+      gateThreeVerification.includes("検証結果") &&
+      gateThreeVerification.includes("browser_readiness") &&
+      gateThreeVerification.includes("interaction_evidence") &&
+      gateThreeVerification.includes("passed") &&
+      gateThreeFailureCount === 0 &&
+      !gateThreeBody.includes("FAILED の原因");
+    terminalOutcome = "gate4-ready";
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const gateFourReadyFailureCount = await page
+      .locator("[data-testid='terminal-failure-diagnostics']")
+      .count();
+    const gateFourReadyBody = await page.locator("body").innerText();
+    const gateFourReadyProjectionOk =
+      gateFourReadyFailureCount === 0 &&
+      !gateFourReadyBody.includes("FAILED の原因");
+    terminalOutcome = "gate4";
     legacyResponse = true;
     await page.reload({ waitUntil: "networkidle" });
     try {
@@ -2452,6 +2499,12 @@ async function probeTrialFeedback(browser, origin, basePath) {
       running_title: runningTitle,
       terminal_title: terminalTitle,
       title_changed: titleChanged,
+      gate_3_heading: gateThreeHeading,
+      gate_3_verification: gateThreeVerification,
+      gate_3_failure_count: gateThreeFailureCount,
+      gate_3_projection_ok: gateThreeProjectionOk,
+      gate_4_ready_failure_count: gateFourReadyFailureCount,
+      gate_4_ready_projection_ok: gateFourReadyProjectionOk,
       terminal_result: terminalResult,
       terminal_reason: terminalReason,
       terminal_next_action: terminalNextAction,
@@ -2492,6 +2545,8 @@ async function probeTrialFeedback(browser, origin, basePath) {
         legacyDiagnostics.includes("browser_route_unavailable") &&
         legacyDiagnostics.includes("browser_readiness") &&
         contractWarning.includes("GUI と gui_server の版が一致していません") &&
+        gateThreeProjectionOk &&
+        gateFourReadyProjectionOk &&
         titleChanged,
     };
   } finally {
@@ -2663,7 +2718,7 @@ async function probeTenMinutePolling(browser, origin, basePath) {
             started_epoch_seconds: Date.parse("2026-08-16T00:00:00Z") / 1_000,
             gate: "gate_2",
             status: "starting",
-            events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+            events_path: `.commandagent/runs/${sessionId}/events.jsonl`,
           }),
         });
         return;
@@ -2690,7 +2745,7 @@ async function probeTenMinutePolling(browser, origin, basePath) {
               event_count: 0,
               acceptance_sheet: null,
               section5: null,
-              events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+              events_path: `.commandagent/runs/${sessionId}/events.jsonl`,
               identity: syntheticProposal().identity,
             }),
           });
@@ -2749,7 +2804,7 @@ function syntheticFeedbackProposal() {
     identity: {
       ...proposal.identity,
       request: "Synthetic Gate 2 feedback probe",
-      workspace: "/synthetic/feedback-probe",
+      workspace: "<execution-root>",
       contract_ref: "synthetic/feedback",
       contract_checks: ["elapsed and phase feedback"],
       band_measurement: "mocked PolledSession",
@@ -2771,32 +2826,73 @@ function syntheticFeedbackProposal() {
   };
 }
 
-function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochSeconds) {
+function syntheticFeedbackSession(sessionId, phaseTotal, outcome, startedEpochSeconds) {
+  const terminal = outcome !== "running";
+  const gateThree = outcome === "gate3";
+  const gateFourReady = outcome === "gate4-ready";
   return {
     id: sessionId,
     started_epoch_seconds: startedEpochSeconds,
     average_duration_seconds: 612,
-    gate: terminal ? "gate_4" : "gate_2",
+    gate: gateThree ? "gate_3" : terminal ? "gate_4" : "gate_2",
     status: terminal ? "completed" : "running",
-    verdict: terminal ? "full_success" : null,
-    assurance: terminal ? "static" : null,
-    assurance_reason: terminal ? "cli_probe_not_run" : null,
+    verdict: gateThree
+      ? "full_success"
+      : gateFourReady ? "partial" : terminal ? "full_success" : null,
+    assurance: gateThree ? "full" : terminal ? "static" : null,
+    assurance_reason: gateThree ? null : terminal ? "cli_probe_not_run" : null,
     stop_reason: terminal ? "completed" : null,
     failure_diagnostics: terminal
-      ? {
-          stop_reason: "release_gate_failed",
-          release_gate_reasons: ["browser_route_unavailable"],
-          probe_findings: [
-            {
-              name: "browser_readiness",
-              status: "failed",
-              reasons: ["route returned 500"],
-              evidence_path: ".commandagent/evidence/browser-readiness.json",
-            },
-          ],
-        }
+      ? gateThree
+        ? {
+            stop_reason: null,
+            release_gate_reasons: [],
+            probe_findings: [
+              {
+                name: "browser_readiness",
+                status: "passed",
+                reasons: [],
+                evidence_path: ".commandagent/evidence/browser-readiness.json",
+              },
+              {
+                name: "interaction_evidence",
+                status: "passed",
+                reasons: [],
+                evidence_path: ".commandagent/evidence/interaction.json",
+              },
+            ],
+          }
+        : gateFourReady
+          ? {
+              stop_reason: null,
+              release_gate_reasons: [],
+              probe_findings: [
+                {
+                  name: "browser_probe",
+                  status: "ready",
+                  reasons: [],
+                  evidence_path: ".commandagent/evidence/browser-probe-ready.json",
+                },
+              ],
+            }
+          : {
+              stop_reason: "release_gate_failed",
+              release_gate_reasons: ["browser_route_unavailable"],
+              probe_findings: [
+                {
+                  name: "browser_readiness",
+                  status: "failed",
+                  reasons: ["route returned 500"],
+                  evidence_path: ".commandagent/evidence/browser-readiness.json",
+                },
+              ],
+            }
       : { stop_reason: null, release_gate_reasons: [], probe_findings: [] },
-    next_action: terminal ? "repair_release_gate_failure" : null,
+    next_action: gateThree || gateFourReady
+      ? "none"
+      : terminal
+        ? "repair_release_gate_failure"
+        : null,
     phases: [
       { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
       {
@@ -2808,9 +2904,11 @@ function syntheticFeedbackSession(sessionId, phaseTotal, terminal, startedEpochS
       },
     ],
     event_count: terminal ? 8 : 3,
-    acceptance_sheet: terminal ? "# Synthetic acceptance\\n\\nFAIL" : null,
-    section5: terminal ? "FAIL" : null,
-    events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+    acceptance_sheet: terminal
+      ? `# Synthetic acceptance\\n\\n${gateThree ? "PASS" : "FAIL"}`
+      : null,
+    section5: gateThree ? null : terminal ? "FAIL" : null,
+    events_path: `.commandagent/runs/${sessionId}/events.jsonl`,
     identity: syntheticFeedbackProposal().identity,
   };
 }
@@ -3208,7 +3306,7 @@ function syntheticProposal() {
     card_markdown: "# Synthetic Gate 1 polling probe",
     identity: {
       request: "Synthetic ten-minute polling probe",
-      workspace: "/synthetic/polling-probe",
+      workspace: "<execution-root>",
       profile: "python-cli",
       intent: "create",
       task_family: "cli",

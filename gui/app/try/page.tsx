@@ -6,7 +6,7 @@ export default function TrialRunPage() {
     <Shell
       active="try"
       title="トライアル"
-      description="設定された execution root で GUI Trial を開始・監視し、.anvil/runs の履歴を確認します。"
+      description="設定された execution root で GUI Trial を開始・監視し、.commandagent/runs の履歴を確認します。"
     >
       <TrialRun />
     </Shell>

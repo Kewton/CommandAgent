@@ -5,6 +5,7 @@ import { DocumentViewer } from "./document-viewer";
 import { TrialRunIdentity } from "./trial-run-identity";
 import {
   hasFailureDiagnostics,
+  hasVerificationResults,
   TrialFailureDiagnostics,
 } from "./trial-failure-diagnostics";
 
@@ -50,14 +51,22 @@ export function TrialTerminal({ onHighlightSession, run }: TrialTerminalProps) {
                 <dd data-testid="terminal-status-summary">{nextActionSummary(session)}</dd>
               </div>
             </dl>
-            {(session.status === "failed" ||
-              hasFailureDiagnostics(session.failure_diagnostics, session.stop_reason)) && (
+            {(session.gate === "gate_4" && (session.status === "failed" ||
+              hasFailureDiagnostics(session.failure_diagnostics, session.stop_reason))) && (
               <TrialFailureDiagnostics
                 diagnostics={session.failure_diagnostics}
                 fallbackStopReason={session.stop_reason}
                 testId="terminal-failure-diagnostics"
               />
             )}
+            {session.gate === "gate_3" &&
+              hasVerificationResults(session.failure_diagnostics) && (
+                <TrialFailureDiagnostics
+                  diagnostics={session.failure_diagnostics}
+                  mode="verification"
+                  testId="terminal-verification-results"
+                />
+              )}
             <TrialRunIdentity identity={session.identity} />
             <a
               className="terminal-history-link"

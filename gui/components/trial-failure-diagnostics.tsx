@@ -3,12 +3,14 @@ import type { FailureDiagnostics } from "../lib/types";
 type TrialFailureDiagnosticsProps = {
   diagnostics: FailureDiagnostics | null | undefined;
   fallbackStopReason?: string | null;
+  mode?: "failure" | "verification";
   testId: string;
 };
 
 export function TrialFailureDiagnostics({
   diagnostics,
   fallbackStopReason = null,
+  mode = "failure",
   testId,
 }: TrialFailureDiagnosticsProps) {
   const stopReason = diagnostics?.stop_reason ?? fallbackStopReason;
@@ -18,8 +20,8 @@ export function TrialFailureDiagnostics({
 
   return (
     <section className="trial-failure-diagnostics" data-testid={testId}>
-      <h3>FAILED の原因</h3>
-      {!hasDetails && (
+      <h3>{mode === "failure" ? "FAILED の原因" : "検証結果"}</h3>
+      {mode === "failure" && !hasDetails && (
         <p>
           構造化された原因はこの応答にありません。下の events.jsonl、summary.md、受入シートを確認してください。
         </p>
@@ -38,7 +40,7 @@ export function TrialFailureDiagnostics({
       )}
       {probeFindings.length > 0 && (
         <div>
-          <strong>プローブ所見</strong>
+          <strong>{mode === "failure" ? "プローブ所見" : "プローブ結果"}</strong>
           <ul>
             {probeFindings.map((finding) => (
               <li key={finding.name}>
@@ -61,7 +63,15 @@ export function hasFailureDiagnostics(
 ): boolean {
   return nonEmpty(diagnostics?.stop_reason ?? fallbackStopReason) ||
     (diagnostics?.release_gate_reasons.length ?? 0) > 0 ||
-    (diagnostics?.probe_findings.length ?? 0) > 0;
+    (diagnostics?.probe_findings.some(isBlockingFinding) ?? false);
+}
+
+export function hasVerificationResults(
+  diagnostics: FailureDiagnostics | null | undefined,
+): boolean {
+  return diagnostics?.probe_findings.some((finding) =>
+    nonEmpty(finding.status) && isSuccessfulStatus(finding.status)
+  ) ?? false;
 }
 
 function nonEmpty(value: string | null | undefined): value is string {
@@ -70,4 +80,22 @@ function nonEmpty(value: string | null | undefined): value is string {
 
 function firstLine(value: string): string {
   return value.split("\n", 1)[0];
+}
+
+function isBlockingFinding(
+  finding: FailureDiagnostics["probe_findings"][number],
+): boolean {
+  if (finding.status === null || finding.status.trim() === "") {
+    return finding.reasons.length > 0 || nonEmpty(finding.evidence_path);
+  }
+  return !isSuccessfulStatus(finding.status) && !isNotApplicableStatus(finding.status);
+}
+
+function isSuccessfulStatus(status: string): boolean {
+  return ["ok", "pass", "passed", "ready", "completed", "full", "full_success"]
+    .includes(status.trim().toLowerCase());
+}
+
+function isNotApplicableStatus(status: string): boolean {
+  return ["not_applicable", "not_required"].includes(status.trim().toLowerCase());
 }

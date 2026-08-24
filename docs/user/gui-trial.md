@@ -146,7 +146,7 @@ terminal event was observed. Treat it as a possible live process:
    `commandagent` remains for the execution root and the session state path. If
    one runs, do not clear or archive the lease; use existing CLI/runtime
    procedures and inspect events again.
-3. When no child remains, preserve the complete `.anvil/runs/<session-id>`
+3. When no child remains, preserve the complete `.commandagent/runs/<session-id>`
    directory in an operator-chosen archive outside the execution root. Move it
    as one unit; do not delete confirmation files and do not append a synthetic terminal event.
 4. Restart with the same execution root, re-enter the token, and inspect the
@@ -154,4 +154,6 @@ terminal event was observed. Treat it as a possible live process:
    any other exact unfinished session instead of bypassing the lease.
 
 The archive remains evidence for the incomplete run. Restoring it under
-`.anvil/runs` intentionally makes startup require recovery again.
+`.commandagent/runs` intentionally makes startup require recovery again. A
+legacy session restored under `.anvil/runs` remains readable and has the same
+recovery behavior.
