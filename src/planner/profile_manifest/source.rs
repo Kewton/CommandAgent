@@ -22,7 +22,7 @@ pub const EXTENSION_MANIFEST_FILE: &str = "manifest.toml";
 pub const EXTENSION_OVERLAY_FILE: &str = "overlay.toml";
 
 const HASH_DOMAIN: &[u8] = b"commandagent-profile-manifest-v1\0";
-const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
+pub const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 
 /// Bounded because every admitted extension profile is registered for the
 /// lifetime of the process.

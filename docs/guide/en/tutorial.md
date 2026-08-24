@@ -196,11 +196,19 @@ Add `--check` to the same command to run the preflight without binding a
 port; it prints `ok`/`ng` per item, including whether the three roots are
 disjoint and whether the extension root is private (`0700`).
 
-### The first-run card
+### Overview and first use
 
-Open `http://127.0.0.1:4173/`. The **はじめに** card at the top of the overview
-repeats the doctor's three GUI-relevant checks — the execution root, the CLI
-binary, and Trial access — and offers a sample goal:
+Open `http://127.0.0.1:4173/`. **概要** first explains the product as **Goal ->
+pre-execution confirmation -> plan/implement -> verify/repair -> verified
+result or honest failure**. It defines Gate, profile, pack, and assurance,
+summarizes the four extension layers, and links detailed maps/bands and
+repository runs to their owning pages instead of duplicating those dashboards.
+
+The persistent **FIRST USE / はじめに** section repeats four GUI-relevant
+runtime checks — execution root, extension root, CLI binary, and Trial access —
+and offers a sample goal. The later **現在の状態** section shows the real Trial
+readiness, active session, and redacted extension-root state. Loading or failed
+status reads never appear as green success:
 
 ![Overview with the first-run card](../../assets/tutorial/gui-01-overview.png)
 
@@ -222,27 +230,31 @@ run button stays disabled until you tick the confirmation checkbox:
 
 ### Gate 2: watch the delegated run
 
-After **確認して CLI を実行** the page switches to the Gate 2 view. Two things
-are shown separately on purpose: the **execution state** (`running`, the
+After **確認して CLI を実行** the browser moves to
+`/try/status/?session=<id>`. Two things are shown separately on purpose: the
+**execution state** (`running`, the
 phase list rebuilt from `events.jsonl`) and the **monitoring health**
 (`接続中` / `不安定` / `切断`). If your browser loses the server, the CLI keeps
-running; reload the page and use **監視を再接続** with the session ID from the
-URL. After reconnect, elapsed time continues from the session start and the
+running; directly reload the status route or use **監視を再接続** with the
+session ID from the URL. After reconnect, elapsed time continues from the session start and the
 measured mean matches the value shown before launch.
 
 ![Gate 2 view with phase progress](../../assets/tutorial/gui-05-gate2-start.png)
 
 ### Result and history
 
-At the end the page shows the verdict, the assurance level, and the process
-status as three separate facts, lets you open `summary.md`, the event tail,
-and the confirmation record, and offers an optional follow-up request that
-goes through its own confirmation:
+At terminal state the browser moves to
+`/try/history/detail/?session=<id>`. **結果詳細** shows the verdict, assurance,
+and process status as three separate facts, lets you open `summary.md`, the
+event tail, and the confirmation record, and offers an optional follow-up
+request that goes through its own confirmation:
 
 ![Gate 3/4 result](../../assets/tutorial/gui-07-result.png)
 
-Every GUI-launched session is listed under **GUI Trial 実行履歴** on the same
-page, with its pack pin and a reconnect link:
+Every GUI-launched session is listed separately under
+`/try/history/` (**実行履歴**). Compact rows show summary identity and link an
+active session to status or a terminal session to result detail; diagnosis and
+artifacts remain owned by **結果詳細**:
 
 ![Trial history](../../assets/tutorial/gui-09-history.png)
 

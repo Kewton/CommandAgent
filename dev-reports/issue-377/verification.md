@@ -21,6 +21,70 @@
 - `cargo test`: `passed`
 - `git diff --check`: `passed`
 
+## Final PR merge recovery from `origin/develop`
+
+### Base and ancestry
+
+- Required and fetched base: `b113ec977dafeaa6b8203e423a98265375bef47c`
+- Pre-merge Issue #377 head: `31c8e73740b9c89b4926318875a53195846b0327`
+- `git fetch origin develop`: `passed`
+- `git rev-parse origin/develop FETCH_HEAD`: `passed` (both values were exactly `b113ec977dafeaa6b8203e423a98265375bef47c`)
+- `git merge --no-commit --no-ff b113ec977dafeaa6b8203e423a98265375bef47c`: `conflicts-resolved` (the expected pending normal merge retained both parents for verification before commit)
+- `git rev-parse HEAD MERGE_HEAD`: `passed` (`31c8e73740b9c89b4926318875a53195846b0327`, then `b113ec977dafeaa6b8203e423a98265375bef47c`)
+- `git merge-base --is-ancestor b113ec977dafeaa6b8203e423a98265375bef47c HEAD`: `passed` after the merge commit
+- `git merge-base --is-ancestor 31c8e73740b9c89b4926318875a53195846b0327 HEAD`: `passed` after the merge commit
+
+### Deliberate conflict resolutions
+
+The normal merge reported three textual conflicts. No file selected one side
+wholesale:
+
+- `CHANGELOG.md` keeps develop's Issue #376 typed-task entry and Issue #374
+  authenticated workspace entry once each, followed by Issue #377's bounded
+  final-failure and manual-recovery entry.
+- `docs/dev/mechanism-ledger.md` keeps the merged Issue #376 contract and the
+  complete Issue #377 final-interval, stable-category, evidence, workspace,
+  recovery, confirmation, event-schema, and `.anvil/` invariants.
+- `gui/scripts/session-index-smoke.mjs` keeps develop's placement of the
+  100-task payload bound and post-task workspace wait, while retaining Issue
+  #377's failure-state projection, failed-task evidence navigation,
+  authenticated recovery-document actions, accessible/mobile assertions, and
+  one shared workspace/path fixture. Duplicate declarations from the two
+  equivalent dependency histories were removed.
+
+Automatically merged Issue #373 Overview, Issue #374 workspace paths, Issue
+#376 task projection, and Issue #377 failure explanation sources were retained
+and validated together. Historical evidence was not edited: the existing
+Issue #377 run directory matches the first parent, while develop's two incoming
+run directories match the exact base.
+
+- `git diff --cached --exit-code HEAD -- workspace/management/runs/20260824-190555-orchestrate docs/migration .anvil`: `passed`
+- `git diff --cached --exit-code b113ec977dafeaa6b8203e423a98265375bef47c -- workspace/management/runs/20260824-192757-orchestrate workspace/management/runs/20260824-192759-orchestrate docs/migration .anvil`: `passed`
+- `node --check gui/scripts/session-index-smoke.mjs`: `passed`
+- conflict-marker scan of all three resolved files: `passed`
+
+### Focused and browser checks
+
+- `cargo test failure_explanation`: `passed` (seven projection/category/final-interval tests and the matching read-only guard passed)
+- `cargo test session_tasks --features gui --bin gui_server`: `passed` (`6 passed`, including 100-task bounds and duplicate-step execution intervals)
+- `cargo test --features gui --test gui_server failed_session_projects_exact_interval_and_reads_only_current_recovery_documents -- --exact --test-threads=1`: `passed` (`1 passed`, `43 filtered out`)
+- `cargo test --features gui --test gui_server trial_session_paths_are_token_only_confined_and_report_missing_workspaces -- --exact --test-threads=1`: `passed` (`1 passed`, `43 filtered out`)
+- `cargo test --features gui --test gui_server trial_session_files_are_authenticated_confined_and_bounded -- --exact --test-threads=1`: `passed` (`1 passed`, `43 filtered out`)
+- `cd gui && npm run lint && npm run typecheck && npm run build`: `passed`
+- `cd gui && npm run smoke:session-index -- --output /tmp/commandagent-issue-377-merge-recovery-session-index-smoke`: `passed`
+- `/tmp/commandagent-issue-377-merge-recovery-session-index-smoke/session-index-smoke.json`: `ok: true` for `/` and `/proxy/commandagent/`; failure category/summary, failed-task expansion and evidence navigation, exact execution intervals, authenticated GET-only recovery, workspace/path copy, 100-task bounds, keyboard/accessibility, and mobile-fit checks all passed
+- `cd gui && npm run smoke -- --overview-only --output /tmp/commandagent-issue-377-merge-recovery-overview-smoke --commandagent-bin ../target/debug/commandagent`: `passed`
+- `/tmp/commandagent-issue-377-merge-recovery-overview-smoke/gui-smoke.json`: `ok: true` for `/` and `/proxy/commandagent/`; Issue #373 Overview, honest runtime states, responsive layout, shell navigation, and zero Axe landing violations passed
+- `cargo test --features gui --test gui_server -- --test-threads=1`: `passed` (`44 passed`)
+
+### Full gates
+
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed` (library: `2151 passed`, `16 ignored`; all integration and doc tests passed)
+- `git diff --check`: `passed`
+
 ## Finalized dependency CI-fix propagation
 
 The finalized dependency heads were incorporated with ordinary merge commits

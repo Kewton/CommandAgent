@@ -93,6 +93,13 @@ if (!report.ok) process.exitCode = 1;
 
 async function probeLifecycle(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const liveTaskPayloadBytes = Buffer.byteLength(JSON.stringify(runningSession(createdSessionId)));
+  const terminalTaskPayloadBytes = Buffer.byteLength(
+    JSON.stringify(terminalSession(createdSessionId)),
+  );
+  const taskPayloadsBounded =
+    liveTaskPayloadBytes < 128 * 1024 && terminalTaskPayloadBytes < 128 * 1024;
+  assert(taskPayloadsBounded, "100-task polling projection exceeded 128 KiB");
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -101,13 +108,6 @@ async function probeLifecycle(browser, origin, basePath) {
       },
     });
   });
-  const liveTaskPayloadBytes = Buffer.byteLength(JSON.stringify(runningSession(createdSessionId)));
-  const terminalTaskPayloadBytes = Buffer.byteLength(
-    JSON.stringify(terminalSession(createdSessionId)),
-  );
-  const taskPayloadsBounded =
-    liveTaskPayloadBytes < 128 * 1024 && terminalTaskPayloadBytes < 128 * 1024;
-  assert(taskPayloadsBounded, "100-task polling projection exceeded 128 KiB");
   let indexSessions = [];
   let indexCalls = 0;
   let runtimeCalls = 0;
@@ -314,10 +314,6 @@ async function probeLifecycle(browser, origin, basePath) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
-    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
-    const launchWorkingDirectory = await page
-      .locator("[data-testid='trial-working-directory-path']")
-      .innerText();
     const liveTaskProgress = page.locator("[data-testid='current-task-progress']");
     await liveTaskProgress.waitFor();
     const liveTaskText = await liveTaskProgress.innerText();
@@ -326,6 +322,10 @@ async function probeLifecycle(browser, origin, basePath) {
     assertIncludes(liveTaskText, "タスク 100 / 100", "current task position");
     const liveTaskCount = await page.locator("[data-testid='task-progress'] .task-list > li").count();
     assert(liveTaskCount === 100, `live task projection rendered ${liveTaskCount} tasks`);
+    await page.locator("[data-testid='trial-session-paths'][data-state='available']").waitFor();
+    const launchWorkingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
     const launchUrl = new URL(page.url());
     const launchNavigatedToStatus =
       launchUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
@@ -665,7 +665,7 @@ async function probeLifecycle(browser, origin, basePath) {
     const copyButtonKeyboardFocused = await copyButton.evaluate(
       (button) => document.activeElement === button,
     );
-    await page.keyboard.press("Enter");
+    await copyButton.press("Enter");
     await page.waitForFunction(
       (expected) => window.__commandagentCopiedPath === expected,
       launchWorkingDirectory,
@@ -1199,26 +1199,28 @@ async function probeResourceRevalidation(browser, origin, basePath) {
     });
 
     const prefix = displayBasePath(basePath);
-    await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
-    const retainedRow = page.locator(`.runs-panel .run-row[data-run-id='${retainedRun.id}']`);
-    await retainedRow.waitFor();
+    await page.goto(new URL(`${prefix}runs/`, origin).href, { waitUntil: "networkidle" });
+    const retainedOption = page.locator(`#run-select option[value='${retainedRun.id}']`);
+    await retainedOption.waitFor({ state: "attached" });
     const initialCalls = runsCalls;
 
     failNextRuns = true;
     await setDocumentVisibility(page, "hidden");
     await setDocumentVisibility(page, "visible");
     await waitFor(() => runsCalls > initialCalls, "visible resource revalidation");
-    await page.locator(".runs-panel [role='alert']").waitFor();
-    const failureRetainedPreviousData = (await retainedRow.count()) === 1;
+    await page.locator(".run-picker [role='alert']").waitFor();
+    const failureRetainedPreviousData = (await retainedOption.count()) === 1;
 
     runs = [refreshedRun, retainedRun];
     const beforeFocus = runsCalls;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => runsCalls > beforeFocus, "focused resource revalidation");
-    await page.locator(`.runs-panel .run-row[data-run-id='${refreshedRun.id}']`).waitFor();
+    await page
+      .locator(`#run-select option[value='${refreshedRun.id}']`)
+      .waitFor({ state: "attached" });
     const focusLoadedFreshData =
-      (await page.locator(".runs-panel .run-row").count()) === 2 &&
-      (await page.locator(".runs-panel [role='alert']").count()) === 0;
+      (await page.locator("#run-select option:not([value=''])").count()) === 2 &&
+      (await page.locator(".run-picker [role='alert']").count()) === 0;
 
     return {
       initial_calls: initialCalls,
@@ -1377,21 +1379,6 @@ function terminalSession(id) {
     section5: "PASS",
     events_path: `.commandagent/runs/${id}/events.jsonl`,
     identity: syntheticProposal().identity,
-  };
-}
-
-function sessionPaths(id, state = "available") {
-  return {
-    id,
-    working_directory: {
-      path: `/private/tmp/commandagent-gui-trial/sessions/${id}`,
-      state,
-    },
-    run_records: {
-      directory: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}`,
-      events: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/events.jsonl`,
-      summary: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/summary.md`,
-    },
   };
 }
 
@@ -1603,6 +1590,21 @@ function taskStatus({ executionId, id, index, status, total }) {
     changed_paths_truncated: false,
     repair_attempts: failed ? 2 : 0,
     failure_summary: failed ? "synthetic verification failed" : interrupted ? "interrupted by user" : null,
+  };
+}
+
+function sessionPaths(id, state = "available") {
+  return {
+    id,
+    working_directory: {
+      path: `/private/tmp/commandagent-gui-trial/sessions/${id}`,
+      state,
+    },
+    run_records: {
+      directory: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}`,
+      events: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/events.jsonl`,
+      summary: `/private/tmp/commandagent-gui-trial/.anvil/runs/${id}/summary.md`,
+    },
   };
 }
 

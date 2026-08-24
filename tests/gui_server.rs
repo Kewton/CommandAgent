@@ -469,6 +469,10 @@ fn gui_server_disables_trial_without_an_execution_root() {
         "unconfigured"
     );
     assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
+    assert_eq!(
         runtime["prerequisites"]["trial_authentication"]["status"],
         "ready"
     );
@@ -1003,6 +1007,21 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     )
     .unwrap();
 
+    let incompatible = extension.path().join("packs/incompatible-pack/1.0.0");
+    std::fs::create_dir_all(&incompatible).unwrap();
+    let incompatible_assist = std::fs::read_to_string("packs/nextjs-acme/1.0.0/assist.yaml")
+        .unwrap()
+        .replace("id: nextjs-acme", "id: incompatible-pack");
+    std::fs::write(incompatible.join("assist.yaml"), incompatible_assist).unwrap();
+    let incompatible_hash = commandagent::planner::pack::load_directory(&incompatible)
+        .unwrap()
+        .hash;
+    std::fs::write(
+        incompatible.join("pack.sha256"),
+        format!("{incompatible_hash}\n"),
+    )
+    .unwrap();
+
     let mut local_server = Server::start_dashboard_only_with_extension(extension.path());
     let response = local_server.request_without_access("GET", "/api/packs", None);
     assert_eq!(response.status, 200, "{}", response.body);
@@ -1029,6 +1048,34 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     assert_eq!(shadow["source"], "local");
     assert_eq!(shadow["shadowing_repository"], true);
     assert!(shadow["warning"].as_str().unwrap().contains("ローカル優先"));
+
+    let incompatible = packs
+        .iter()
+        .find(|pack| pack["id"] == "incompatible-pack")
+        .expect("missing incompatible local pack");
+    assert_eq!(incompatible["hash_matches_pin"], true);
+    assert_eq!(incompatible["conformance_ok"], false);
+    assert_eq!(incompatible["trial_eligible"], false);
+    assert!(
+        incompatible["warning"]
+            .as_str()
+            .unwrap()
+            .contains("profile / intent 契約と非互換")
+    );
+
+    let runtime = local_server.request_without_access("GET", "/api/runtime-status", None);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "ready"
+    );
+    assert!(
+        !runtime["prerequisites"]["extension_root"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains(extension.path().to_string_lossy().as_ref()),
+        "runtime response exposed the private extension-root path"
+    );
     local_server.stop();
 }
 
@@ -1296,6 +1343,274 @@ fn extension_supply_api_rejects_disabled_invalid_and_oversize_requests() {
 
 #[cfg(unix)]
 #[test]
+fn profile_supply_api_enforces_root_auth_origin_body_and_validation_boundaries() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let mut disabled = Server::start(
+        workspace.path(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = disabled.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 503, "{}", response.body);
+    assert_eq!(response.json()["code"], "extensions_disabled");
+    disabled.stop();
+
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut server = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/neutral-profile/manifest.toml"
+    );
+    let preview = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": content,
+    });
+    let origin = format!("http://127.0.0.1:{}", server.port);
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&preview),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(response.status, 401, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_auth_failed");
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&preview),
+        Some(TEST_TRIAL_TOKEN),
+        None,
+    );
+    assert_eq!(response.status, 403, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_origin_not_allowed");
+
+    for path in [
+        "/profiles/neutral-profile/manifest.toml",
+        "profiles/../neutral-profile/manifest.toml",
+    ] {
+        let request = serde_json::json!({"path": path, "content": preview["content"]});
+        let response = server.request("POST", "/api/extensions/profiles/preview", Some(&request));
+        assert_eq!(response.status, 422, "{}", response.body);
+        assert_eq!(response.json()["code"], "profile_validation_failed");
+    }
+
+    let built_in = serde_json::json!({
+        "path": "profiles/nextjs/manifest.toml",
+        "content": commandagent::planner::profile_manifest::commands::template("nextjs"),
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&built_in));
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let unknown_capability = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": content.replace("scaffold_files_present", "unknown_capability"),
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&unknown_capability),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let overlay_content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/nextjs/overlay.toml"
+    );
+    let overlay = serde_json::json!({
+        "path": "profiles/nextjs/overlay.toml",
+        "content": overlay_content,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&overlay));
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()["kind"], "overlay");
+    assert_eq!(response.json()["base_profile"], "nextjs");
+    let invalid_overlay = serde_json::json!({
+        "path": "profiles/nextjs/overlay.toml",
+        "content": overlay_content.replace("mode = \"additive\"", "mode = \"replace\""),
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&invalid_overlay),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let unknown = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": preview["content"],
+        "unknown": true,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&unknown));
+    assert_eq!(response.status, 400, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_invalid_request");
+
+    let oversize = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": "x".repeat(256 * 1024 + 1),
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&oversize));
+    assert_eq!(response.status, 413, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_body_too_large");
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn profile_supply_api_previews_registers_idempotently_and_requires_restart() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/neutral-profile/manifest.toml"
+    );
+    let path = "profiles/neutral-profile/manifest.toml";
+    let request = serde_json::json!({"path": path, "content": content});
+
+    let mut server = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&request));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let preview = response.json();
+    let hash = preview["hash"].as_str().unwrap().to_string();
+    assert_eq!(preview["id"], "neutral-profile");
+    assert_eq!(preview["path"], path);
+    assert_eq!(preview["source"], "local");
+    assert_eq!(preview["status"], "draft");
+    assert_eq!(preview["assurance_ceiling"], "static");
+
+    let stale = serde_json::json!({
+        "path": path,
+        "content": request["content"],
+        "expected_hash": "sha256:stale",
+    });
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&stale));
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_confirmation_stale");
+
+    let register = serde_json::json!({
+        "path": path,
+        "content": request["content"],
+        "expected_hash": hash,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&register));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let saved = response.json();
+    assert_eq!(saved["saved"], true);
+    assert_eq!(saved["idempotent"], false);
+    assert_eq!(saved["restart_required"], true);
+    assert!(
+        saved["restart_instruction"]
+            .as_str()
+            .unwrap()
+            .contains("再起動")
+    );
+    assert_eq!(
+        std::fs::read_to_string(extension.path().join(path)).unwrap(),
+        request["content"].as_str().unwrap()
+    );
+
+    let response = server.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let catalog = response.json();
+    assert_eq!(catalog[0]["hash"], register["expected_hash"]);
+    assert_eq!(catalog[0]["path"], path);
+    assert!(
+        !catalog[0]["path"]
+            .as_str()
+            .unwrap()
+            .contains(extension.path().to_string_lossy().as_ref())
+    );
+    assert_eq!(catalog[0]["available"], false);
+    assert_eq!(catalog[0]["restart_required"], true);
+
+    let response = server.request_without_access("GET", "/api/trial-options", None);
+    assert!(
+        response.json()["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|profile| profile["id"] != "neutral-profile")
+    );
+
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&register));
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()["idempotent"], true);
+
+    let changed_content = request["content"].as_str().unwrap().replace(
+        "display_name = \"Neutral profile\"",
+        "display_name = \"Changed\"",
+    );
+    let changed = serde_json::json!({"path": path, "content": changed_content});
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&changed));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let changed_hash = response.json()["hash"].as_str().unwrap().to_string();
+    let changed_register = serde_json::json!({
+        "path": path,
+        "content": changed["content"],
+        "expected_hash": changed_hash,
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/register",
+        Some(&changed_register),
+    );
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_conflict");
+    assert_eq!(
+        std::fs::read_to_string(extension.path().join(path)).unwrap(),
+        request["content"].as_str().unwrap()
+    );
+
+    let journal = std::fs::read_to_string(extension.path().join("journal.jsonl")).unwrap();
+    assert!(journal.contains("\"action\":\"profile_register\""));
+    assert!(journal.contains("\"result\":\"ok\""));
+    assert!(journal.contains("\"result\":\"error\""));
+    assert!(!journal.contains("display_name"), "{journal}");
+    server.stop();
+
+    let mut restarted = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let response = restarted.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let catalog = response.json();
+    assert_eq!(catalog[0]["available"], true);
+    assert_eq!(catalog[0]["restart_required"], false);
+    assert_eq!(catalog[0]["hash"], register["expected_hash"]);
+
+    let options = restarted.request_without_access("GET", "/api/trial-options", None);
+    let draft = options.json()["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|profile| profile["id"] == "neutral-profile")
+        .cloned()
+        .expect("saved profile must become a Trial candidate after restart");
+    assert_eq!(draft["status"], "draft");
+    assert_eq!(draft["manifest_hash"], register["expected_hash"]);
+    assert_eq!(draft["assurance_ceiling"], "static");
+
+    let mut proposal = session_spec();
+    proposal["profile"] = serde_json::json!("neutral-profile");
+    proposal["pack"] = serde_json::Value::Null;
+    let response = restarted.request("POST", "/api/session-proposals", Some(&proposal));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let identity = &response.json()["identity"];
+    assert_eq!(
+        identity["draft_manifest"]["hash"],
+        register["expected_hash"]
+    );
+    assert_eq!(identity["draft_manifest"]["assurance_ceiling"], "static");
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn run_index_reports_total_before_limit_and_normalized_status_state() {
     let repository = tempfile::tempdir().unwrap();
     let runs_root = repository.path().join("workspace/management/runs");
@@ -1416,6 +1731,10 @@ fn gui_server_defaults_trial_token_auth_to_off() {
     ] {
         assert_eq!(runtime["prerequisites"][prerequisite]["status"], "ready");
     }
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
 
     let index = server.request_without_access("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);

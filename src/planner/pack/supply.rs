@@ -809,6 +809,8 @@ pub mod journal {
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;
 
+    use serde::Serialize;
+
     use super::{JournalEntry, SupplyError};
 
     pub const JOURNAL_FILE: &str = "journal.jsonl";
@@ -819,6 +821,15 @@ pub mod journal {
     /// Append one journal line. Existing lines are never read, rewritten, or
     /// reordered; the file is opened for append only.
     pub fn append(root: &Path, entry: &JournalEntry) -> Result<(), SupplyError> {
+        append_serializable(root, entry)
+    }
+
+    /// Append another extension-supply record without widening the GUI's
+    /// filesystem authority. The caller owns the record's closed schema.
+    pub(crate) fn append_serializable<T: Serialize>(
+        root: &Path,
+        entry: &T,
+    ) -> Result<(), SupplyError> {
         if !super::validate_optional_private_directory(root)? {
             return Err(SupplyError::Invalid(format!(
                 "extension journal root `{}` does not exist",
@@ -1243,7 +1254,7 @@ fn file_name(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     crate::fetch_probe::time::rfc3339_utc(crate::fetch_probe::time::unix_epoch_ms())
 }
 

@@ -25,6 +25,8 @@ mod gui_contract;
 mod pack_catalog;
 #[path = "gui_server/preflight.rs"]
 mod preflight;
+#[path = "gui_server/profile_extensions.rs"]
+mod profile_extensions;
 #[path = "gui_server/public_projection.rs"]
 mod public_projection;
 #[path = "gui_server/runtime_status.rs"]
@@ -383,6 +385,17 @@ fn dashboard_router() -> Router<AppState> {
         .route(
             "/api/extensions/packs/{id}/{version}/retire",
             post(extensions::retire),
+        )
+        .route("/api/extensions/profiles", get(profile_extensions::list))
+        .route(
+            "/api/extensions/profiles/preview",
+            post(profile_extensions::preview)
+                .layer(DefaultBodyLimit::max(profile_extensions::MAX_BODY_BYTES)),
+        )
+        .route(
+            "/api/extensions/profiles/register",
+            post(profile_extensions::register)
+                .layer(DefaultBodyLimit::max(profile_extensions::MAX_BODY_BYTES)),
         )
         .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(gate_one::proposal))
