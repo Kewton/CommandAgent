@@ -2155,6 +2155,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         document.querySelector("[data-testid='trial-intent']")?.value === "fix",
       fixSelector,
     );
+    const roleLayouts = await probeTrialRoleLayouts(page);
     const intentOptions = await page.locator("[data-testid='trial-intent'] option").evaluateAll(
       (options) => options.map((option) => ({ label: option.textContent, value: option.value })),
     );
@@ -2183,8 +2184,13 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
 
     const executorDatalist = page.locator("#trial-executor-provider-model-options option");
     const plannerDatalist = page.locator("#trial-planner-provider-model-options option");
+    const executor = page.locator("[data-testid='trial-executor-model']");
+    const planner = page.locator("[data-testid='trial-planner-model']");
     await executorDatalist.first().waitFor({ state: "attached" });
+    await planner.fill("planner-model-preserved");
     await page.locator("[data-testid='trial-planner-provider']").selectOption("lm-studio");
+    const plannerProviderChangePreservedModel =
+      await planner.inputValue() === "planner-model-preserved";
     await page.waitForFunction(
       (expected) =>
         JSON.stringify(
@@ -2201,8 +2207,6 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         options.map((option) => option.value),
       ),
     };
-    const executor = page.locator("[data-testid='trial-executor-model']");
-    const planner = page.locator("[data-testid='trial-planner-model']");
     const inputLists = {
       executor: await executor.getAttribute("list"),
       planner: await planner.getAttribute("list"),
@@ -2224,6 +2228,10 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.waitForFunction(
       () => document.querySelectorAll("#trial-executor-provider-model-options option").length === 0,
     );
+    const providerChangesPreserveModels =
+      plannerProviderChangePreservedModel &&
+      await executor.inputValue() === discoveredModels.ollama[0] &&
+      await planner.inputValue() === discoveredModels["lm-studio"][0];
     await executor.fill("manual-fallback-model");
     const cloudProviderAllowsManualEntry =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
@@ -2327,7 +2335,9 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       proposal_think: proposalBody.think,
       proposal_status: automaticResponse.status(),
       provider_requests: providerRequests,
+      provider_changes_preserve_models: providerChangesPreserveModels,
       providers_separated: providersSeparated,
+      role_layouts: roleLayouts,
       think_cleared_without_ollama: thinkClearedWithoutOllama,
       planner_candidates_stay_scoped: plannerCandidatesStayScoped,
       unknown_warnings: unknownWarnings,
@@ -2346,7 +2356,9 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         exactCandidatesClearWarnings &&
         cloudProviderAllowsManualEntry &&
         plannerCandidatesStayScoped &&
+        providerChangesPreserveModels &&
         providersSeparated &&
+        roleLayouts.ok &&
         thinkClearedWithoutOllama &&
         omittedThinkPreserved &&
         cloudProviderSkippedDiscovery,
@@ -3071,6 +3083,135 @@ function syntheticFeedbackIdentityMatches(identity) {
     identity.executor_model === "ollama / synthetic-model" &&
     identity.planner_model === "ollama / synthetic-model"
   );
+}
+
+async function probeTrialRoleLayouts(page) {
+  const previousViewport = page.viewportSize();
+  try {
+    const desktop = await probeTrialRoleLayout(page, { width: 1200, height: 900 }, false);
+    const mobile = await probeTrialRoleLayout(page, { width: 390, height: 844 }, true);
+    return {
+      desktop_1200: desktop,
+      mobile_390: mobile,
+      ok: desktop.ok && mobile.ok,
+    };
+  } finally {
+    if (previousViewport !== null) await page.setViewportSize(previousViewport);
+  }
+}
+
+async function probeTrialRoleLayout(page, viewport, compact) {
+  const controlIds = [
+    "trial-provider",
+    "trial-executor-model",
+    "trial-planner-provider",
+    "trial-planner-model",
+  ];
+  await page.setViewportSize(viewport);
+  await page.locator("[data-testid='trial-planner-role']").waitFor();
+
+  const groupNames = ["Executor / 実行", "Planner / 計画"];
+  const labelNames = ["実行プロバイダー", "実行モデル", "計画プロバイダー", "計画モデル"];
+  const groupCounts = await Promise.all(
+    groupNames.map((name) => page.getByRole("group", { exact: true, name }).count()),
+  );
+
+  await page.locator("[data-testid='trial-provider']").focus();
+  const tabOrder = [];
+  for (const [index] of controlIds.entries()) {
+    tabOrder.push(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")));
+    if (index < controlIds.length - 1) await page.keyboard.press("Tab");
+  }
+
+  const layout = await page.locator(".trial-fields").evaluate((root, expectedControlIds) => {
+    const bounds = (element) => {
+      const rectangle = element.getBoundingClientRect();
+      return {
+        bottom: rectangle.bottom,
+        left: rectangle.left,
+        right: rectangle.right,
+        top: rectangle.top,
+      };
+    };
+    const controls = Object.fromEntries(expectedControlIds.map((id) => {
+      const control = root.querySelector(`[data-testid='${id}']`);
+      const label = control?.closest("label");
+      if (control === null || label === null) throw new Error(`Missing Trial role control ${id}`);
+      return [id, {
+        fieldset: control.closest("fieldset")?.getAttribute("data-testid") ?? null,
+        label_count: control.labels?.length ?? 0,
+        label_text: control.labels?.[0]?.textContent?.trim() ?? "",
+        label_bounds: bounds(label),
+      }];
+    }));
+    const fieldsets = [...root.querySelectorAll(".trial-role-fields")].map((fieldset) => ({
+      bounds: bounds(fieldset),
+      columns: getComputedStyle(fieldset.querySelector(".trial-role-controls")).gridTemplateColumns,
+      legend: fieldset.querySelector(":scope > legend")?.textContent?.trim() ?? "",
+      tag_name: fieldset.tagName,
+      test_id: fieldset.getAttribute("data-testid"),
+    }));
+    return {
+      controls,
+      dom_order: [...root.querySelectorAll(".trial-role-controls input, .trial-role-controls select")]
+        .map((control) => control.getAttribute("data-testid")),
+      fieldsets,
+    };
+  }, controlIds);
+
+  const executorProvider = layout.controls["trial-provider"].label_bounds;
+  const executorModel = layout.controls["trial-executor-model"].label_bounds;
+  const plannerProvider = layout.controls["trial-planner-provider"].label_bounds;
+  const plannerModel = layout.controls["trial-planner-model"].label_bounds;
+  const executorGroup = layout.fieldsets.find((group) => group.test_id === "trial-executor-role");
+  const plannerGroup = layout.fieldsets.find((group) => group.test_id === "trial-planner-role");
+  const labelAssociations = controlIds.map((id, index) => ({
+    associated: layout.controls[id].label_count === 1 &&
+      layout.controls[id].label_text.includes(labelNames[index]),
+    control: id,
+    expected_label: labelNames[index],
+  }));
+  const semanticsOk = groupCounts.every((count) => count === 1) &&
+    labelAssociations.every((label) => label.associated);
+  const groupsOk =
+    layout.fieldsets.length === 2 &&
+    executorGroup?.tag_name === "FIELDSET" &&
+    executorGroup.legend === groupNames[0] &&
+    plannerGroup?.tag_name === "FIELDSET" &&
+    plannerGroup.legend === groupNames[1] &&
+    layout.controls["trial-provider"].fieldset === "trial-executor-role" &&
+    layout.controls["trial-executor-model"].fieldset === "trial-executor-role" &&
+    layout.controls["trial-planner-provider"].fieldset === "trial-planner-role" &&
+    layout.controls["trial-planner-model"].fieldset === "trial-planner-role" &&
+    executorGroup.bounds.bottom <= plannerGroup.bounds.top;
+  const visualOrderOk = compact
+    ? executorProvider.bottom <= executorModel.top && plannerProvider.bottom <= plannerModel.top
+    : Math.abs(executorProvider.top - executorModel.top) <= 1 &&
+      executorProvider.right <= executorModel.left &&
+      Math.abs(plannerProvider.top - plannerModel.top) <= 1 &&
+      plannerProvider.right <= plannerModel.left;
+  const columnCountOk = layout.fieldsets.every((group) =>
+    group.columns.trim().split(/\s+/).length === (compact ? 1 : 2)
+  );
+
+  return {
+    ...layout,
+    accessible_group_counts: groupCounts,
+    accessible_label_associations: labelAssociations,
+    compact,
+    groups_ok: groupsOk,
+    semantics_ok: semanticsOk,
+    tab_order: tabOrder,
+    viewport,
+    visual_order_ok: visualOrderOk,
+    ok:
+      semanticsOk &&
+      groupsOk &&
+      visualOrderOk &&
+      columnCountOk &&
+      JSON.stringify(layout.dom_order) === JSON.stringify(controlIds) &&
+      JSON.stringify(tabOrder) === JSON.stringify(controlIds),
+  };
 }
 
 async function trialControlAlignment(page) {
