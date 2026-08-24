@@ -1667,3 +1667,20 @@ cardinality、guidance、profile-bound check、evidence targetの追加専用範
 環境失敗は
 [`20260820-bp1-one-cell/report.md`](../../workspace/management/runs/20260820-bp1-one-cell/report.md)
 を正本とする。
+
+## GUI-370 — Trial の4ページ分離（Issue #370、2026-08-25）
+
+単一のTrial画面を、`try/`の実行指示・Gate 1、
+`try/status/?session=<id>`のread-only実行状況、`try/history/`の要約履歴、
+`try/history/detail/?session=<id>`のterminal結果詳細へ分離した。固定routeはrootと
+proxy base pathのstatic export／direct reloadで同じ意味を持ち、起動、active履歴、
+terminal履歴、runtime badge、旧`try/?session=<id>` deep linkをsession状態に応じた
+routeへ接続する。
+
+履歴行は日時、ID、gate/status、profile、intent、packの不変確認identityに限定し、
+失敗診断・acceptance・events・成果物は結果詳細へ集約した。historyのfocus／visibility／
+runtime遷移再検証、鮮度表示、認証待ち、最後に成功した一覧の保持は維持する。
+session index APIへの`profile`／`intent`はoptionalな加法投影であり、event schema、
+confirmation hash、active lease、honest-failure、verification／acceptance、`.anvil/`
+namespaceは変更しない。Trial tokenはbase pathごとの`sessionStorage`だけに保持し、URL、
+log、`localStorage`へ出さない。

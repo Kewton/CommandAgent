@@ -1,14 +1,16 @@
 import { Shell } from "../../components/shell";
+import { TrialPageNavigation } from "../../components/trial-page-nav";
 import { TrialRun } from "../../components/trial-run";
 
 export default function TrialRunPage() {
   return (
     <Shell
       active="try"
-      title="トライアル"
-      description="設定された execution root で GUI Trial を開始・監視し、.commandagent/runs の履歴を確認します。"
+      title="トライアル実行指示"
+      description="新しい実行内容を入力し、Gate 1 の固定内容を確認してから CLI を起動します。"
     >
-      <TrialRun />
+      <TrialPageNavigation active="compose" />
+      <TrialRun surface="compose" />
     </Shell>
   );
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
 
 import guiContract from "../public/commandagent-gui-contract.json";
-import { routePath, type GuiRoute } from "../lib/base-path";
+import { routePath, trialRoutePath, type GuiRoute } from "../lib/base-path";
 import { useRuntimeStatus, type RuntimeState } from "../lib/use-runtime-status";
 
 const RuntimeStatusContext = createContext<RuntimeState | null>(null);
@@ -80,7 +80,7 @@ export function Shell({ active, title, description, children }: ShellProps) {
             <Link
               className={`runtime-badge session-${sessionState}`}
               data-testid="runtime-session-link"
-              href={routePath("try", runtimeSession.id)}
+              href={trialRoutePath("status", runtimeSession.id)}
             >
               <i />
               {sessionLabel}

@@ -52,12 +52,17 @@ server setting and grants no authority.
    **Gate 1 は CLI 実行前の確認です**.
 7. Select the confirmation checkbox only when the card is correct, then choose
    **確認して CLI を実行**. The server independently requires the exact card
-   hash and enforces the single-workspace lease.
-8. During **実行**, read execution state separately from monitoring health.
-   A lost browser connection does not imply that the CLI stopped.
-9. Under **結果**, inspect verdict, assurance, status, recent events, and
-   artifacts as separate facts. Gate 4 means preserve the evidence and choose
-   a recovery action; it does not authorize weaker verification.
+   hash and enforces the single-workspace lease. The browser then moves from
+   **実行指示** to the session's read-only **実行状況** page.
+8. During **実行状況**, read execution state separately from monitoring health.
+   A lost browser connection does not imply that the CLI stopped. Reloading the
+   route reconnects; another tab can reconnect after entering its own token.
+9. Terminal state moves to **結果詳細**. Inspect verdict, assurance, status,
+   failure diagnosis, acceptance, recent events, and artifacts as separate
+   facts. Gate 4 means preserve the evidence and choose a recovery action; it
+   does not authorize weaker verification.
+10. Use **実行履歴** for the compact session list. It shows summary identity and
+    state only; open a row for live status or terminal detail.
 
 The complete behavior, reconnect boundary, and Gate 4 controls are in the
 [Trial guide](gui-trial.md). Existing sessions and pack pins are explained in

@@ -1,40 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { describeError } from "../lib/errors";
 import { dateTimeLabel, trialGateLabel, trialStatusLabel } from "../lib/format";
 import { fetchSessionIndex } from "../lib/trial-api";
+import { trialRoutePath } from "../lib/base-path";
 import type {
   TrialSessionIndex,
   TrialSessionSummary,
   TrialWorkspaceLease,
 } from "../lib/types";
 import { useShellRuntimeStatus } from "./shell";
-import { TrialFailureDiagnostics } from "./trial-failure-diagnostics";
 
 const COMPLETE_TOKEN_LENGTH = 32;
 
-type ObservedSession = Pick<TrialSessionSummary, "gate" | "id" | "status">;
-
 type TrialSessionIndexProps = {
   accessToken: string;
-  deferAutomaticRevalidation: boolean;
-  highlight: string | null;
-  observedSession: ObservedSession | null;
   onAccessTokenRejected: (reason: unknown, rejectedValue: string) => void;
   onLeaseChange: (lease: TrialWorkspaceLease | null) => void;
-  revalidationKey: number;
 };
 
 export function TrialSessionIndexPanel({
   accessToken,
-  deferAutomaticRevalidation,
-  highlight,
-  observedSession,
   onAccessTokenRejected,
   onLeaseChange,
-  revalidationKey,
 }: TrialSessionIndexProps) {
   const [sessionIndex, setSessionIndex] = useState<TrialSessionIndex | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +33,6 @@ export function TrialSessionIndexPanel({
   const [error, setError] = useState<string | null>(null);
   const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
   const requestSequence = useRef(0);
-  const previousRevalidationKey = useRef(revalidationKey);
   const runtime = useShellRuntimeStatus();
   const previousRuntimeLease = useRef<string | null>(null);
   const trimmedToken = accessToken.trim();
@@ -90,12 +80,6 @@ export function TrialSessionIndexPanel({
     setSessionIndex(null);
     setLastSuccessAt(null);
     setError(null);
-    if (deferAutomaticRevalidation) {
-      setRefreshing(false);
-      setBusy(false);
-      onLeaseChange(null);
-      return;
-    }
     void revalidate(trimmedToken);
 
     const refresh = () => void revalidate(trimmedToken);
@@ -109,13 +93,7 @@ export function TrialSessionIndexPanel({
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [authenticated, deferAutomaticRevalidation, onLeaseChange, revalidate, trimmedToken]);
-
-  useEffect(() => {
-    if (previousRevalidationKey.current === revalidationKey) return;
-    previousRevalidationKey.current = revalidationKey;
-    if (authenticated && !deferAutomaticRevalidation) void revalidate(trimmedToken);
-  }, [authenticated, deferAutomaticRevalidation, revalidate, revalidationKey, trimmedToken]);
+  }, [authenticated, onLeaseChange, revalidate, trimmedToken]);
 
   const runtimeLease = runtime?.data === null
     ? null
@@ -125,18 +103,14 @@ export function TrialSessionIndexPanel({
     previousRuntimeLease.current = runtimeLease;
     if (
       authenticated &&
-      !deferAutomaticRevalidation &&
       previous === "running" &&
       (runtimeLease === "idle" || runtimeLease === "recovery_required")
     ) {
       void revalidate(trimmedToken);
     }
-  }, [authenticated, deferAutomaticRevalidation, revalidate, runtimeLease, trimmedToken]);
+  }, [authenticated, revalidate, runtimeLease, trimmedToken]);
 
-  const sessions = useMemo(
-    () => mergeObservedSession(sessionIndex?.sessions ?? [], observedSession),
-    [observedSession, sessionIndex],
-  );
+  const sessions = sessionIndex?.sessions ?? [];
 
   return (
     <section
@@ -188,8 +162,7 @@ export function TrialSessionIndexPanel({
         <ol className="session-list">
           {sessions.map((session) => (
             <li
-              aria-current={highlight === session.id ? "true" : undefined}
-              className={highlight === session.id ? "highlight" : undefined}
+              data-terminal={isTerminalSession(session)}
               data-session-id={session.id}
               id={sessionAnchor(session.id)}
               key={session.id}
@@ -202,20 +175,20 @@ export function TrialSessionIndexPanel({
               <span className={`session-status ${session.status}`}>
                 {trialGateLabel(session.gate)} / {trialStatusLabel(session.status)}
               </span>
+              <span className="session-profile" data-testid="session-profile">
+                プロファイル: {session.profile ?? "記録なし"}
+              </span>
+              <span className="session-intent" data-testid="session-intent">
+                目的: {intentLabel(session.intent)}
+              </span>
               <span className="session-pack" data-testid="session-pack">
                 {session.pack === null
                   ? "パック: 選択なし"
                   : `パック: ${session.pack.id}@${session.pack.version} · ${session.pack.source_label}`}
               </span>
-              <a data-testid="session-reconnect-link" href={sessionLink(session.id)}>
-                再接続
-              </a>
-              {session.status === "failed" && (
-                <TrialFailureDiagnostics
-                  diagnostics={session.failure_diagnostics}
-                  testId="session-failure-diagnostics"
-                />
-              )}
+              <Link data-testid="session-route-link" href={sessionLink(session)}>
+                {isTerminalSession(session) ? "結果詳細" : "進行状況"}
+              </Link>
             </li>
           ))}
         </ol>
@@ -224,37 +197,23 @@ export function TrialSessionIndexPanel({
   );
 }
 
-function mergeObservedSession(
-  sessions: TrialSessionSummary[],
-  observed: ObservedSession | null,
-): TrialSessionSummary[] {
-  if (observed === null) return sessions;
-  const projected = sessions.find((session) => session.id === observed.id);
-  if (projected !== undefined) {
-    const projectedIsTerminal = projected.gate === "gate_3" || projected.gate === "gate_4";
-    const observedIsTerminal = observed.gate === "gate_3" || observed.gate === "gate_4";
-    const current = observedIsTerminal
-      ? { ...projected, gate: observed.gate, status: observed.status }
-      : projectedIsTerminal || observed.status === "starting"
-        ? projected
-        : { ...projected, gate: observed.gate, status: observed.status };
-    return [current, ...sessions.filter((session) => session.id !== observed.id)];
-  }
-  return [
-    {
-      ...observed,
-      modified_epoch_seconds: 0,
-      pack: null,
-      started_epoch_seconds: 0,
-    },
-    ...sessions,
-  ];
-}
-
 function sessionAnchor(id: string): string {
   return `trial-session-${id}`;
 }
 
-function sessionLink(id: string): string {
-  return `?session=${encodeURIComponent(id)}`;
+function sessionLink(session: TrialSessionSummary): string {
+  return trialRoutePath(isTerminalSession(session) ? "detail" : "status", session.id);
+}
+
+function isTerminalSession(session: TrialSessionSummary): boolean {
+  return session.gate === "gate_3" || session.gate === "gate_4" ||
+    ["completed", "failed", "interrupted", "aborted", "incomplete", "unreadable"]
+      .includes(session.status);
+}
+
+function intentLabel(intent: TrialSessionSummary["intent"]): string {
+  if (intent === "create") return "作成";
+  if (intent === "fix") return "修正";
+  if (intent === "investigate") return "調査";
+  return intent ?? "記録なし";
 }

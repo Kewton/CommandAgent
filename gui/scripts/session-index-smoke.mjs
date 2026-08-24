@@ -101,10 +101,6 @@ async function probeLifecycle(browser, origin, basePath) {
   let runtimeSession = null;
   let failNextIndex = false;
   let terminalReleased = false;
-  let releaseTerminal;
-  const terminalReady = new Promise((resolveTerminal) => {
-    releaseTerminal = resolveTerminal;
-  });
   const sessionRequests = [];
 
   page.on("request", (request) => {
@@ -173,6 +169,7 @@ async function probeLifecycle(browser, origin, basePath) {
       }
       if (pathname.endsWith("/api/sessions") && method === "POST") {
         sessionRequests.push({ method, pathname });
+        indexSessions = [runningSummary(createdSessionId)];
         await json(route, 202, {
           id: createdSessionId,
           started_epoch_seconds: 1_723_769_600,
@@ -184,9 +181,12 @@ async function probeLifecycle(browser, origin, basePath) {
       }
       if (pathname.endsWith(`/api/sessions/${createdSessionId}`)) {
         sessionRequests.push({ method, pathname });
-        if (!terminalReleased) await terminalReady;
-        indexSessions = [terminalSummary(createdSessionId)];
-        await json(route, 200, terminalSession(createdSessionId));
+        if (terminalReleased) {
+          indexSessions = [terminalSummary(createdSessionId)];
+          await json(route, 200, terminalSession(createdSessionId));
+        } else {
+          await json(route, 200, runningSession(createdSessionId));
+        }
         return;
       }
       if (pathname.endsWith(`/api/sessions/${createdSessionId}/artifacts`)) {
@@ -197,7 +197,7 @@ async function probeLifecycle(browser, origin, basePath) {
     });
 
     const prefix = displayBasePath(basePath);
-    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
     const runtimeLiveRegion = await page.locator("[data-testid='runtime-status']").evaluate(
       (node) => ({
         aria_atomic: node.getAttribute("aria-atomic"),
@@ -248,27 +248,59 @@ async function probeLifecycle(browser, origin, basePath) {
     const terminalRuntimeRefreshedWithinOneSecond = terminalRefreshElapsedMs <= 1_000;
     await waitFor(() => indexCalls > initialIndexCalls, "runtime running-to-idle refresh");
     const runtimeLeaseRefreshCalls = indexCalls;
+    const runtimeMaxConcurrentRequests = maxConcurrentRuntimeCalls;
 
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    assert(
+      (await page.locator("[data-testid='trial-session-index']").count()) === 0,
+      "compose route retained the Trial history list",
+    );
     await page.locator("[data-testid='trial-goal']").fill("Synthetic live Trial history probe");
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
     await page.locator("[data-testid='gate-one-confirm']").check();
-    const beforeLaunch = indexCalls;
     await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const launchUrl = new URL(page.url());
+    const launchNavigatedToStatus =
+      launchUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
+      launchUrl.searchParams.get("session") === createdSessionId;
+
+    await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
     const launchedRow = page.locator(`#trial-session-${createdSessionId}`);
     await launchedRow.waitFor();
     const startingText = await launchedRow.innerText();
     assertIncludes(startingText, createdSessionId, "optimistic launch row ID");
-    assertIncludes(startingText, "GATE 2（実行） / 開始中", "optimistic launch row state");
-    await waitFor(() => indexCalls > beforeLaunch, "launch acceptance refresh");
-
+    assertIncludes(startingText, "GATE 2（実行） / 実行中", "running history row state");
     const beforeTerminal = indexCalls;
+    const activeRouteLink = launchedRow.locator("[data-testid='session-route-link']");
+    const expectedStatusHref = `${prefix}try/status/?session=${createdSessionId}`;
+    assert(
+      (await activeRouteLink.getAttribute("href")) === expectedStatusHref,
+      "running history row did not target status",
+    );
     terminalReleased = true;
-    releaseTerminal();
+    await activeRouteLink.click();
     await page.locator("[data-testid='terminal-gate']").waitFor();
-    await waitFor(() => indexCalls > beforeTerminal, "terminal transition refresh");
+    await page.waitForFunction(
+      (pathname) => window.location.pathname === pathname,
+      new URL(`${prefix}try/history/detail/`, origin).pathname,
+    );
+    const detailUrl = new URL(page.url());
+    const statusNavigatedToDetail =
+      detailUrl.pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
+      detailUrl.searchParams.get("session") === createdSessionId;
+
+    const historyLink = page.locator("[data-testid='terminal-session-history-link']");
+    const expectedHistoryHref = `${prefix}try/history/#trial-session-${createdSessionId}`;
+    assert(
+      (await historyLink.getAttribute("href")) === expectedHistoryHref,
+      "terminal history link did not target the compact history row",
+    );
+    await historyLink.click();
+    await waitFor(() => indexCalls > beforeTerminal, "terminal history refresh");
     await page.waitForFunction(
       (id) => document.querySelector(`#trial-session-${id}`)?.innerText.includes("GATE 3（完了） / 完了"),
       createdSessionId,
@@ -276,28 +308,28 @@ async function probeLifecycle(browser, origin, basePath) {
     const terminalText = await launchedRow.innerText();
     assertIncludes(terminalText, "GATE 3（完了） / 完了", "terminal history state");
 
-    const historyLink = page.locator("[data-testid='terminal-session-history-link']");
-    assert(
-      (await historyLink.getAttribute("href")) === `#trial-session-${createdSessionId}`,
-      "terminal history link did not target the active Trial row",
-    );
-    await historyLink.click();
     assert(
       new URL(page.url()).hash === `#trial-session-${createdSessionId}`,
       "terminal history link did not navigate to its row",
     );
     const terminalRowSelection = await launchedRow.evaluate(
       (row, id) => ({
-        aria_current: row.getAttribute("aria-current"),
-        highlighted:
-          row.getAttribute("data-session-id") === id && row.classList.contains("highlight"),
+        targeted: row.getAttribute("data-session-id") === id && `#${row.id}` === location.hash,
+        terminal: row.getAttribute("data-terminal"),
       }),
       createdSessionId,
     );
     assert(
-      terminalRowSelection.highlighted && terminalRowSelection.aria_current === "true",
-      "terminal history link did not expose the selected active row",
+      terminalRowSelection.targeted && terminalRowSelection.terminal === "true",
+      "terminal history link did not expose the selected terminal row",
     );
+    const terminalDiagnosticsCount = await launchedRow
+      .locator("[data-testid='session-failure-diagnostics']")
+      .count();
+    const compactSummaryText = await launchedRow.innerText();
+    assertIncludes(compactSummaryText, "プロファイル: python-cli", "history profile summary");
+    assertIncludes(compactSummaryText, "目的: 作成", "history intent summary");
+    assert(terminalDiagnosticsCount === 0, "history row expanded failure diagnostics");
     const sessionTimes = await launchedRow.locator("time").allInnerTexts();
     const expectedSessionTimes = await page.evaluate((summary) => {
       const formatter = new Intl.DateTimeFormat("ja-JP", {
@@ -340,21 +372,20 @@ async function probeLifecycle(browser, origin, basePath) {
     const focusRevalidated = indexCalls > beforeFocus;
     const visibilityRevalidated = indexCalls > beforeVisibility;
 
-    const reconnectLink = launchedRow.locator("[data-testid='session-reconnect-link']");
+    const reconnectLink = launchedRow.locator("[data-testid='session-route-link']");
     assert(
-      (await reconnectLink.getAttribute("href")) === `?session=${createdSessionId}`,
-      "session deep link changed",
+      (await reconnectLink.getAttribute("href")) ===
+        `${prefix}try/history/detail/?session=${createdSessionId}`,
+      "terminal session row did not target detail",
     );
-    const runtimeMaxConcurrentRequests = maxConcurrentRuntimeCalls;
     const requestOffset = sessionRequests.length;
-    const beforeReconnect = indexCalls;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
       reconnectLink.click(),
     ]);
     await page.locator("[data-testid='terminal-gate']").waitFor();
-    await waitFor(() => indexCalls > beforeReconnect, "automatic reconnect success refresh");
     const automaticReconnectRestoredResult =
+      new URL(page.url()).pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
       new URL(page.url()).searchParams.get("session") === createdSessionId;
     const storageKey = await page.evaluate(
       (token) => Object.entries(sessionStorage).find(([, value]) => value === token)?.[0] ?? null,
@@ -383,6 +414,7 @@ async function probeLifecycle(browser, origin, basePath) {
       origin,
       basePath,
     );
+    const routeOwnership = await probeRouteOwnership(browser, origin, basePath);
 
     return {
       initial_index_calls: initialIndexCalls,
@@ -398,8 +430,10 @@ async function probeLifecycle(browser, origin, basePath) {
       optimistic_starting_text: startingText,
       terminal_text: terminalText,
       runtime_live_region: runtimeLiveRegion,
-      terminal_row_highlighted: terminalRowSelection.highlighted,
-      terminal_row_aria_current: terminalRowSelection.aria_current,
+      terminal_row_targeted: terminalRowSelection.targeted,
+      terminal_row_compact: terminalDiagnosticsCount === 0,
+      launch_navigated_to_status: launchNavigatedToStatus,
+      status_navigated_to_detail: statusNavigatedToDetail,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
       focus_revalidated: focusRevalidated,
@@ -411,6 +445,7 @@ async function probeLifecycle(browser, origin, basePath) {
       runtime_badge_navigated: runtimeBadgeReconnect.navigated,
       runtime_badge_reconnected: runtimeBadgeReconnect.reconnected,
       runtime_reconnect_requests: runtimeBadgeReconnect.requests,
+      route_ownership: routeOwnership,
       ok:
         noPeriodicIndexPolling &&
         reconnectGetOnly &&
@@ -421,13 +456,144 @@ async function probeLifecycle(browser, origin, basePath) {
         runtimeResumedWhenVisible &&
         terminalRuntimeRefreshedWithinOneSecond &&
         runtimeLiveRegionIsPoliteAtomic &&
-        terminalRowSelection.highlighted &&
-        terminalRowSelection.aria_current === "true" &&
+        terminalRowSelection.targeted &&
+        terminalDiagnosticsCount === 0 &&
+        launchNavigatedToStatus &&
+        statusNavigatedToDetail &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
         visibilityRevalidated &&
-        runtimeBadgeReconnect.ok,
+        runtimeBadgeReconnect.ok &&
+        routeOwnership.ok,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function probeRouteOwnership(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const requests = [];
+  let legacyTerminal = false;
+  try {
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      const method = request.method();
+      if (pathname.endsWith("/api/runtime-status") && method === "GET") {
+        await json(route, 200, {
+          trial_available: true,
+          trial_token_auth_enabled: true,
+          session: null,
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/trial-options") && method === "GET") {
+        await json(route, 200, syntheticOptions());
+        return;
+      }
+      if (pathname.endsWith("/api/pack-options") && method === "GET") {
+        await json(route, 200, { packs: [] });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && method === "GET") {
+        await json(route, 200, { sessions: [], lease: { status: "idle" } });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${existingSessionId}`) && method === "GET") {
+        requests.push({ method, pathname });
+        await json(
+          route,
+          200,
+          legacyTerminal ? terminalSession(existingSessionId) : runningSession(existingSessionId),
+        );
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/artifacts`) &&
+        method === "GET"
+      ) {
+        requests.push({ method, pathname });
+        await json(route, 200, []);
+        return;
+      }
+      await json(route, 404, { error: `unexpected route ownership API: ${method} ${pathname}` });
+    });
+
+    const prefix = displayBasePath(basePath);
+    const routes = [
+      { path: "try/", title: "トライアル実行指示 | CommandAgent", heading: "トライアル実行指示", active: "compose" },
+      { path: "try/status/", title: "トライアル実行状況", heading: "トライアル実行状況", active: "status" },
+      { path: "try/history/", title: "トライアル実行履歴", heading: "トライアル実行履歴", active: "history" },
+      { path: "try/history/detail/", title: "トライアル実行結果詳細", heading: "トライアル実行結果詳細", active: "detail" },
+    ];
+    const states = [];
+    for (const expected of routes) {
+      const response = await page.goto(new URL(`${prefix}${expected.path}`, origin).href, {
+        waitUntil: "networkidle",
+      });
+      const title = await page.title();
+      const heading = await page.locator(".page-intro h1").innerText();
+      const active = await page
+        .locator("[data-testid='trial-page-nav'] [aria-current='page']")
+        .getAttribute("data-testid");
+      states.push({
+        ...expected,
+        http_status: response?.status() ?? null,
+        observed_title: title,
+        observed_heading: heading,
+        observed_active: active,
+        ok:
+          response?.status() === 200 &&
+          title === expected.title &&
+          heading === expected.heading &&
+          active === `trial-page-nav-${expected.active}`,
+      });
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
+    const mobileFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-token']").fill(trialToken);
+    const legacyRunning = new URL(`${prefix}try/`, origin);
+    legacyRunning.searchParams.set("session", existingSessionId);
+    await page.goto(legacyRunning.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const legacyRunningUrl = new URL(page.url());
+    const legacyRunningToStatus =
+      legacyRunningUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
+      legacyRunningUrl.searchParams.get("session") === existingSessionId;
+
+    legacyTerminal = true;
+    const legacyTerminalUrl = new URL(`${prefix}try/`, origin);
+    legacyTerminalUrl.searchParams.set("session", existingSessionId);
+    await page.goto(legacyTerminalUrl.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const redirectedTerminalUrl = new URL(page.url());
+    const legacyTerminalToDetail =
+      redirectedTerminalUrl.pathname ===
+        new URL(`${prefix}try/history/detail/`, origin).pathname &&
+      redirectedTerminalUrl.searchParams.get("session") === existingSessionId;
+    const reconnectGetOnly = requests.length > 0 && requests.every(({ method }) => method === "GET");
+
+    return {
+      states,
+      mobile_fits: mobileFits,
+      legacy_running_to_status: legacyRunningToStatus,
+      legacy_terminal_to_detail: legacyTerminalToDetail,
+      reconnect_get_only: reconnectGetOnly,
+      requests,
+      ok:
+        states.every((state) => state.ok) &&
+        mobileFits &&
+        legacyRunningToStatus &&
+        legacyTerminalToDetail &&
+        reconnectGetOnly,
     };
   } finally {
     await page.close();
@@ -437,7 +603,6 @@ async function probeLifecycle(browser, origin, basePath) {
 async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const requests = [];
-  let indexCalls = 0;
   try {
     await page.route("**/api/**", async (route) => {
       const request = route.request();
@@ -459,17 +624,9 @@ async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
         await json(route, 200, { status: "idle" });
         return;
       }
-      if (pathname.endsWith("/api/sessions") && method === "GET") {
-        indexCalls += 1;
-        await json(route, 200, {
-          sessions: [terminalSummary(existingSessionId)],
-          lease: { status: "idle" },
-        });
-        return;
-      }
       if (pathname.endsWith(`/api/sessions/${existingSessionId}`) && method === "GET") {
         requests.push({ method, pathname });
-        await json(route, 200, terminalSession(existingSessionId));
+        await json(route, 200, runningSession(existingSessionId));
         return;
       }
       if (
@@ -485,7 +642,6 @@ async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
     await page.locator("[data-testid='trial-token']").fill(trialToken);
-    await waitFor(() => indexCalls > 0, "runtime badge authentication");
     await page.goto(new URL(`${prefix}runs/`, origin).href, { waitUntil: "networkidle" });
     const runtimeStatus = page.locator("[data-testid='runtime-status']");
     await runtimeStatus.waitFor();
@@ -494,14 +650,14 @@ async function probeRuntimeBadgeReconnect(browser, origin, basePath) {
       (await runtimeLink.count()) === 1,
       `running runtime badge was not linked: ${await runtimeStatus.innerText()}`,
     );
-    const expectedHref = `${prefix}try/?session=${existingSessionId}`;
+    const expectedHref = `${prefix}try/status/?session=${existingSessionId}`;
     const hrefMatches = (await runtimeLink.getAttribute("href")) === expectedHref;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       runtimeLink.click(),
     ]);
     await waitFor(() => requests.length > 0, "runtime badge reconnect GET");
-    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.locator("[data-testid='session-progress']").waitFor();
     const navigated =
       new URL(page.url()).pathname === new URL(expectedHref, origin).pathname &&
       new URL(page.url()).searchParams.get("session") === existingSessionId;
@@ -577,7 +733,7 @@ async function probeSourceMatrix(browser, origin, basePath) {
         `${scenario.id} repository source`,
       );
 
-      await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+      await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
       const trialSource = await page.locator("[data-testid='trial-session-index'] header").innerText();
       assertIncludes(
         trialSource.toLowerCase(),
@@ -749,6 +905,8 @@ function terminalSummary(id) {
     modified_epoch_seconds: 1_723_769_660,
     gate: "gate_3",
     status: "completed",
+    profile: "python-cli",
+    intent: "create",
     pack: {
       id: "cli-assist",
       version: "1.0.0",
@@ -756,6 +914,31 @@ function terminalSummary(id) {
       source: "admitted",
       source_label: "承認済み",
     },
+  };
+}
+
+function runningSummary(id) {
+  return {
+    id,
+    started_epoch_seconds: 1_723_769_600,
+    modified_epoch_seconds: 1_723_769_620,
+    gate: "gate_2",
+    status: "running",
+    profile: "python-cli",
+    intent: "create",
+    pack: null,
+  };
+}
+
+function runningSession(id) {
+  return {
+    ...terminalSession(id),
+    gate: "gate_2",
+    status: "running",
+    verdict: null,
+    assurance: null,
+    acceptance_sheet: null,
+    section5: null,
   };
 }
 

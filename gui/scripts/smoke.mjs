@@ -987,7 +987,7 @@ async function runCase(smokeCase) {
         unexpected_console_errors: unexpectedConsoleErrors,
         ok:
           trialResponse?.status() === 200 &&
-          trialTitle === "トライアル | CommandAgent" &&
+          trialTitle === "トライアル実行指示 | CommandAgent" &&
           launchDisabledBeforeConfirmation &&
           gateOneCopyIsPlain &&
           gateOneHashLayoutDesktop.ok &&
@@ -1121,6 +1121,15 @@ async function runCase(smokeCase) {
     const executionRootPlaceholderVisible = gateOneText.includes("<execution-root>");
     await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
     const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
+    });
+    await page.goto(new URL(`${prefix}try/history/`, server.origin).href, {
+      waitUntil: "networkidle",
+    });
+    await page.locator("[data-testid='trial-session-index']").waitFor();
     const sessionIndexCallStart = apiCalls.length;
     const sessionIndexResponse = page.waitForResponse((candidate) => {
       const url = new URL(candidate.url());
@@ -1146,23 +1155,17 @@ async function runCase(smokeCase) {
     );
     const sessionIndexText = await indexedSession.innerText();
     const sessionIndexHref = await indexedSession
-      .locator("[data-testid='session-reconnect-link']")
+      .locator("[data-testid='session-route-link']")
       .getAttribute("href");
     const sessionIndexCalls = apiCalls.slice(sessionIndexCallStart);
     const sessionIndexOnlyGets =
       sessionIndexCalls.length >= 1 &&
       sessionIndexCalls.every((call) => call.method === "GET");
-    await page.setViewportSize({ width: 1440, height: 1050 });
-    await page.screenshot({
-      fullPage: true,
-      path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
-    });
-
     const expectedStorageKey = trialTokenStorageKey(smokeCase.serverBasePath);
     const reconnectCallStart = apiCalls.length;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
-      indexedSession.locator("[data-testid='session-reconnect-link']").click(),
+      indexedSession.locator("[data-testid='session-route-link']").click(),
     ]);
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const sessionLinkCalls = apiCalls.slice(reconnectCallStart);
@@ -1332,7 +1335,7 @@ async function runCase(smokeCase) {
       readOnlyUi.ok &&
       runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
-      trialTitle === "トライアル | CommandAgent" &&
+      trialTitle === "トライアル実行指示 | CommandAgent" &&
       initialTrialFieldsEmpty &&
       emptyGoalGuidance.includes("目標を入力してください") &&
       providerModelGuidance.includes("実行モデルは自動更新されません") &&
@@ -2383,11 +2386,22 @@ async function probeTrialFeedback(browser, origin, basePath) {
     page.on("pageerror", (error) => pageErrors.push(message(error)));
     await page.addInitScript(() => {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-      window.__commandagentCompletionNotifications = [];
+      const storageKey = "commandagent-smoke-completion-notifications";
+      try {
+        window.__commandagentCompletionNotifications = JSON.parse(
+          sessionStorage.getItem(storageKey) ?? "[]",
+        );
+      } catch {
+        window.__commandagentCompletionNotifications = [];
+      }
       class CompletionNotification {
         static permission = "granted";
         constructor(title, options = {}) {
           window.__commandagentCompletionNotifications.push({ body: options.body ?? "", title });
+          sessionStorage.setItem(
+            storageKey,
+            JSON.stringify(window.__commandagentCompletionNotifications),
+          );
         }
       }
       Object.defineProperty(window, "Notification", {
@@ -2720,6 +2734,8 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                 modified_epoch_seconds: 1_723_769_660,
                 gate: "gate_2",
                 status: "running",
+                profile: "python-cli",
+                intent: "create",
                 pack: {
                   id: "cli-assist",
                   version: "1.0.0",
@@ -2734,6 +2750,8 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                 modified_epoch_seconds: 1_723_769_550,
                 gate: "gate_4",
                 status: "failed",
+                profile: "python-cli",
+                intent: "fix",
                 pack: null,
                 failure_diagnostics: {
                   stop_reason: "release_gate_failed",
@@ -2787,15 +2805,21 @@ async function probeSessionIndexLease(browser, origin, basePath) {
       .fill("synthetic-session-index-lease-token-000000000071");
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
-    await page.locator("[data-testid='session-reconnect-link']").first().waitFor();
+    await page.locator("[data-testid='inspect-workspace-lease']").click();
+    await page.locator("[data-testid='lease-inline-notice']").waitFor();
     const leaseText = await page.locator("[data-testid='workspace-lease-status']").innerText();
-    const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
     const checkContractDisabled = await page
       .locator("[data-testid='check-contract']")
       .isDisabled();
     const leaseInlineNotice = await page
       .locator("[data-testid='lease-inline-notice']")
       .innerText();
+    await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='session-route-link']").first().waitFor();
+    const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
+    const inlineDiagnostics = await page
+      .locator("[data-testid='session-failure-diagnostics']")
+      .count();
     return {
       proposal_count: proposalCount,
       dispatch_count: dispatchCount,
@@ -2803,16 +2827,20 @@ async function probeSessionIndexLease(browser, origin, basePath) {
       lease_inline_notice: leaseInlineNotice,
       lease_text: leaseText,
       session_text: sessionText,
+      inline_diagnostics: inlineDiagnostics,
       ok:
         leaseText.includes("実行中") &&
         leaseText.includes(sessionId) &&
         sessionText.includes(sessionId) &&
         sessionText.includes(failedSessionId) &&
         sessionText.includes("GATE 2（実行） / 実行中") &&
+        sessionText.includes("プロファイル: python-cli") &&
+        sessionText.includes("目的: 作成") &&
         sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
-        sessionText.includes("release_gate_failed") &&
-        sessionText.includes("browser_route_unavailable") &&
-        sessionText.includes("browser_readiness") &&
+        !sessionText.includes("release_gate_failed") &&
+        !sessionText.includes("browser_route_unavailable") &&
+        !sessionText.includes("browser_readiness") &&
+        inlineDiagnostics === 0 &&
         checkContractDisabled &&
         leaseInlineNotice.includes(sessionId) &&
         leaseInlineNotice.includes("新しい起動はできません") &&

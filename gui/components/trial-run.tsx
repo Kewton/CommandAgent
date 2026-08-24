@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-
 import { useTrialRun, type ScreenStage } from "../hooks/use-trial-run";
+import { useTrialPageRouting } from "../hooks/use-trial-page-routing";
+import type { TrialRoute } from "../lib/base-path";
+import { TrialAccessPanel } from "./trial-access-panel";
 import { TrialCompose } from "./trial-compose";
 import { TrialGateOne } from "./trial-gate-one";
 import { TrialGateTwo } from "./trial-gate-two";
@@ -16,14 +17,32 @@ const trialStages = [
   ["結果", "Gate 3 / 4"],
 ] as const;
 
-export function TrialRun() {
-  const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
-  const run = useTrialRun(terminalHeading);
+export function TrialRun({ surface }: { surface: TrialRoute }) {
+  const run = useTrialRun(terminalHeading, { loadComposeOptions: surface === "compose" });
   const {
-    error, errorReconnectSessionId, observedSession, reconnectExisting,
-    reconnectSessionId, rejectTrialToken, session, sessionIndexRevision, setWorkspaceLease,
-    stage, trialToken,
+    created, error, errorReconnectSessionId, reconnectExisting, rejectTrialToken,
+    session, setWorkspaceLease, stage, trialToken,
   } = run;
+  const sessionId = session?.id ?? created?.id ?? null;
+  useTrialPageRouting(surface, stage, sessionId);
+  const displayedStage = surface === "status" && stage === "compose"
+    ? "gate_2"
+    : surface === "detail" && stage === "compose"
+      ? "terminal"
+      : stage;
+
+  if (surface === "history") {
+    return (
+      <div className="trial-history-surface" data-testid="trial-history-surface">
+        <TrialAccessPanel purpose="history" run={run} />
+        <TrialSessionIndexPanel
+          accessToken={trialToken}
+          onAccessTokenRejected={rejectTrialToken}
+          onLeaseChange={setWorkspaceLease}
+        />
+      </div>
+    );
+  }
 
   return (
     <section className="trial-layout">
@@ -33,11 +52,11 @@ export function TrialRun() {
         data-testid="trial-stage-nav"
       >
         <p aria-atomic="true" aria-live="polite" className="trial-stage-announcement">
-          現在の段階: {trialStages[stagePosition(stage)][0]}
+          現在の段階: {trialStages[stagePosition(displayedStage)][0]}
         </p>
         <ol className="trial-stage-list">
           {trialStages.map(([label, detail], index) => {
-            const position = stagePosition(stage);
+            const position = stagePosition(displayedStage);
             return (
               <li
                 aria-current={index === position ? "step" : undefined}
@@ -53,11 +72,12 @@ export function TrialRun() {
       </aside>
 
       <div
-        className={`trial-stage trial-stage-${stage}`}
-        data-stage={stage}
+        className={`trial-stage trial-stage-${displayedStage}`}
+        data-stage={displayedStage}
         data-testid="trial-active-stage"
       >
-        {stage !== "compose" && error !== null && (
+        {surface !== "compose" && <TrialAccessPanel purpose={surface} run={run} />}
+        {surface === "compose" && stage !== "compose" && error !== null && (
           <div className="trial-error trial-stage-error" role="alert">
             <p>{error}</p>
             {errorReconnectSessionId !== null && (
@@ -73,19 +93,10 @@ export function TrialRun() {
           </div>
         )}
 
-        {stage === "compose" && <TrialCompose run={run} />}
-        <TrialGateOne run={run} />
-        <TrialGateTwo run={run} />
-        <TrialTerminal onHighlightSession={setHighlightedSessionId} run={run} />
-        <TrialSessionIndexPanel
-          accessToken={trialToken}
-          deferAutomaticRevalidation={stage === "compose" && reconnectSessionId.trim() !== ""}
-          highlight={highlightedSessionId}
-          observedSession={observedSession}
-          onAccessTokenRejected={rejectTrialToken}
-          onLeaseChange={setWorkspaceLease}
-          revalidationKey={sessionIndexRevision}
-        />
+        {surface === "compose" && stage === "compose" && <TrialCompose run={run} />}
+        {surface === "compose" && <TrialGateOne run={run} />}
+        {surface === "status" && <TrialGateTwo run={run} />}
+        {(surface === "status" || surface === "detail") && <TrialTerminal run={run} />}
       </div>
     </section>
   );
