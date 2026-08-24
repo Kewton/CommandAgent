@@ -188,7 +188,7 @@ fn is_probe_prefix(prefix: &str) -> bool {
 fn is_success(status: &str) -> bool {
     matches!(
         status.trim().to_ascii_lowercase().as_str(),
-        "ok" | "pass" | "passed" | "completed" | "full" | "full_success"
+        "ok" | "pass" | "passed" | "ready" | "completed" | "full" | "full_success"
     )
 }
 
@@ -296,6 +296,14 @@ mod tests {
                 release_reasons: &[],
                 probe_statuses: &[("profile_behavior_probe", "passed", 0)],
             },
+            Case {
+                name: "ready browser probe is neutral",
+                start: 16,
+                end: 17,
+                stop_reason: None,
+                release_reasons: &[],
+                probe_statuses: &[("browser_probe", "ready", 0)],
+            },
         ];
 
         for case in cases {
@@ -324,6 +332,7 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(actual, case.probe_statuses, "{}", case.name);
         }
+        assert!(is_success("ready"));
     }
 
     #[test]

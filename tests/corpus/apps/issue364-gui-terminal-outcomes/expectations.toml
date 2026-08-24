@@ -30,5 +30,7 @@ fixtures/events.jsonl = [
   "\"release_gate_reasons\":[\"browser_route_unavailable\"]",
   "\"event\":\"final_acceptance_repair_start\"",
   "\"event\":\"human_directive_continuation_started\"",
-  "\"profile_behavior_probe_status\":\"passed\""
+  "\"profile_behavior_probe_status\":\"passed\"",
+  "\"event\":\"browser_probe\",\"status\":\"ready\"",
+  "\"event\":\"verify_repair_progress\",\"verdict\":\"unchanged\""
 ]

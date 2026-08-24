@@ -2259,7 +2259,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         proposal_json["price"]["average_duration_seconds"]
     );
     assert_eq!(status_json["gate"], "gate_3");
-    assert_eq!(status_json["verdict"], "full");
+    assert_eq!(status_json["verdict"], "full_success");
     assert!(status_json["assurance_reason"].is_null());
     assert_eq!(status_json["stop_reason"], "completed");
     assert!(status_json["next_action"].is_null());

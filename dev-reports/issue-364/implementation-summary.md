@@ -41,3 +41,14 @@ details, and evidence paths.
 - No event name or wire schema was changed. Historical evidence and the live
   `.anvil/` runtime namespace were not rewritten; only the existing legacy
   read path remains in use for compatibility.
+
+## Independent-review follow-up
+
+- Unified `ready` as a successful/neutral probe status in the backend and GUI,
+  and added corpus, backend, and two-base-path smoke coverage for a Gate 4
+  browser probe that must not render blocking diagnostics.
+- Restricted session verdict projection to acceptance outcome events. Current
+  `final_acceptance_status` now wins over legacy `verdict`, while earlier or
+  later `verify_repair_progress` verdicts are ignored.
+- Updated the GUI-server integration contract to expect the canonical
+  `full_success` final-acceptance value instead of the legacy `full` verdict.

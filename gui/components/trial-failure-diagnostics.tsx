@@ -92,7 +92,7 @@ function isBlockingFinding(
 }
 
 function isSuccessfulStatus(status: string): boolean {
-  return ["ok", "pass", "passed", "completed", "full", "full_success"]
+  return ["ok", "pass", "passed", "ready", "completed", "full", "full_success"]
     .includes(status.trim().toLowerCase());
 }
 

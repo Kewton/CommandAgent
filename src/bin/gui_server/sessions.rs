@@ -214,13 +214,22 @@ fn project_verdict(events: &[Value]) -> Option<&str> {
     events
         .iter()
         .rev()
-        .find_map(|event| non_neutral_string(event, "verdict"))
+        .filter(|event| is_acceptance_outcome_event(event))
+        .find_map(|event| non_neutral_string(event, "final_acceptance_status"))
         .or_else(|| {
             events
                 .iter()
                 .rev()
-                .find_map(|event| non_neutral_string(event, "final_acceptance_status"))
+                .filter(|event| is_acceptance_outcome_event(event))
+                .find_map(|event| non_neutral_string(event, "verdict"))
         })
+}
+
+fn is_acceptance_outcome_event(event: &Value) -> bool {
+    matches!(
+        string(event, "event"),
+        Some("ultra_final_acceptance" | "tui_command_stop" | "run_stop")
+    )
 }
 
 fn project_terminal_details(events: &[Value]) -> TerminalDetails {
@@ -958,7 +967,7 @@ mod tests {
     }
 
     #[test]
-    fn verdict_projection_ignores_trailing_neutral_status_and_prior_round() {
+    fn verdict_projection_prefers_current_acceptance_and_ignores_unrelated_verdicts() {
         let fixture = include_str!(
             "../../../tests/corpus/apps/issue364-gui-terminal-outcomes/fixtures/events.jsonl"
         );
@@ -967,8 +976,34 @@ mod tests {
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .collect::<Vec<_>>();
 
-        assert_eq!(project_verdict(&events[..3]), Some("full"));
-        assert_eq!(project_verdict(&events[13..]), Some("full"));
+        assert_eq!(project_verdict(&events[..3]), Some("full_success"));
+        assert_eq!(project_verdict(&events[13..]), Some("full_success"));
         assert_eq!(project_verdict(&events[12..13]), None);
+
+        let unrelated_before_and_after = [
+            serde_json::json!({"event": "verify_repair_progress", "verdict": "degraded"}),
+            serde_json::json!({
+                "event": "ultra_final_acceptance",
+                "verdict": "full",
+                "final_acceptance_status": "full_success"
+            }),
+            serde_json::json!({"event": "verify_repair_progress", "verdict": "unchanged"}),
+            serde_json::json!({
+                "event": "run_stop",
+                "verdict": "legacy_terminal_verdict",
+                "final_acceptance_status": "not_applicable"
+            }),
+        ];
+        assert_eq!(
+            project_verdict(&unrelated_before_and_after),
+            Some("full_success")
+        );
+
+        let legacy_only = [
+            serde_json::json!({"event": "verify_repair_progress", "verdict": "unchanged"}),
+            serde_json::json!({"event": "ultra_final_acceptance", "verdict": "full"}),
+            serde_json::json!({"event": "verify_repair_progress", "verdict": "degraded"}),
+        ];
+        assert_eq!(project_verdict(&legacy_only), Some("full"));
     }
 }

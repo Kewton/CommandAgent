@@ -2437,6 +2437,16 @@ async function probeTrialFeedback(browser, origin, basePath) {
       gateThreeVerification.includes("passed") &&
       gateThreeFailureCount === 0 &&
       !gateThreeBody.includes("FAILED の原因");
+    terminalOutcome = "gate4-ready";
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const gateFourReadyFailureCount = await page
+      .locator("[data-testid='terminal-failure-diagnostics']")
+      .count();
+    const gateFourReadyBody = await page.locator("body").innerText();
+    const gateFourReadyProjectionOk =
+      gateFourReadyFailureCount === 0 &&
+      !gateFourReadyBody.includes("FAILED の原因");
     terminalOutcome = "gate4";
     legacyResponse = true;
     await page.reload({ waitUntil: "networkidle" });
@@ -2493,6 +2503,8 @@ async function probeTrialFeedback(browser, origin, basePath) {
       gate_3_verification: gateThreeVerification,
       gate_3_failure_count: gateThreeFailureCount,
       gate_3_projection_ok: gateThreeProjectionOk,
+      gate_4_ready_failure_count: gateFourReadyFailureCount,
+      gate_4_ready_projection_ok: gateFourReadyProjectionOk,
       terminal_result: terminalResult,
       terminal_reason: terminalReason,
       terminal_next_action: terminalNextAction,
@@ -2534,6 +2546,7 @@ async function probeTrialFeedback(browser, origin, basePath) {
         legacyDiagnostics.includes("browser_readiness") &&
         contractWarning.includes("GUI と gui_server の版が一致していません") &&
         gateThreeProjectionOk &&
+        gateFourReadyProjectionOk &&
         titleChanged,
     };
   } finally {
@@ -2816,13 +2829,16 @@ function syntheticFeedbackProposal() {
 function syntheticFeedbackSession(sessionId, phaseTotal, outcome, startedEpochSeconds) {
   const terminal = outcome !== "running";
   const gateThree = outcome === "gate3";
+  const gateFourReady = outcome === "gate4-ready";
   return {
     id: sessionId,
     started_epoch_seconds: startedEpochSeconds,
     average_duration_seconds: 612,
     gate: gateThree ? "gate_3" : terminal ? "gate_4" : "gate_2",
     status: terminal ? "completed" : "running",
-    verdict: terminal ? "full_success" : null,
+    verdict: gateThree
+      ? "full_success"
+      : gateFourReady ? "partial" : terminal ? "full_success" : null,
     assurance: gateThree ? "full" : terminal ? "static" : null,
     assurance_reason: gateThree ? null : terminal ? "cli_probe_not_run" : null,
     stop_reason: terminal ? "completed" : null,
@@ -2846,20 +2862,37 @@ function syntheticFeedbackSession(sessionId, phaseTotal, outcome, startedEpochSe
               },
             ],
           }
-        : {
-            stop_reason: "release_gate_failed",
-            release_gate_reasons: ["browser_route_unavailable"],
-            probe_findings: [
-              {
-                name: "browser_readiness",
-                status: "failed",
-                reasons: ["route returned 500"],
-                evidence_path: ".commandagent/evidence/browser-readiness.json",
-              },
-            ],
-          }
+        : gateFourReady
+          ? {
+              stop_reason: null,
+              release_gate_reasons: [],
+              probe_findings: [
+                {
+                  name: "browser_probe",
+                  status: "ready",
+                  reasons: [],
+                  evidence_path: ".commandagent/evidence/browser-probe-ready.json",
+                },
+              ],
+            }
+          : {
+              stop_reason: "release_gate_failed",
+              release_gate_reasons: ["browser_route_unavailable"],
+              probe_findings: [
+                {
+                  name: "browser_readiness",
+                  status: "failed",
+                  reasons: ["route returned 500"],
+                  evidence_path: ".commandagent/evidence/browser-readiness.json",
+                },
+              ],
+            }
       : { stop_reason: null, release_gate_reasons: [], probe_findings: [] },
-    next_action: gateThree ? "none" : terminal ? "repair_release_gate_failure" : null,
+    next_action: gateThree || gateFourReady
+      ? "none"
+      : terminal
+        ? "repair_release_gate_failure"
+        : null,
     phases: [
       { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
       {

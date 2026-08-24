@@ -14,3 +14,5 @@
 {"event":"profile_behavior_probe","status":"passed","evidence_path":".commandagent/evidence/directive-profile-behavior.json"}
 {"event":"ultra_final_acceptance","verdict":"full","assurance_level":"full","final_acceptance_status":"full_success","release_gate_status":"passed","release_gate_reasons":[],"profile_behavior_probe_status":"passed","profile_behavior_probe_evidence_path":".commandagent/evidence/directive-profile-behavior.json"}
 {"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"full","final_acceptance_status":"full_success","release_gate_status":"passed","stop_reason":"completed","next_action":"none"}
+{"event":"browser_probe","status":"ready","evidence_path":".commandagent/evidence/browser-probe-ready.json"}
+{"event":"verify_repair_progress","verdict":"unchanged","had_edit":false}

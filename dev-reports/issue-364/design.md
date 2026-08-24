@@ -54,3 +54,14 @@ the legacy path as canonical.
   diagnostics.
 - Run focused Rust and GUI checks first, then every Issue-required Rust, lint,
   typecheck, build, and focused/full two-base-path browser smoke command.
+
+## Independent-review follow-up
+
+- Classify probe status `ready` with the existing successful/neutral statuses in
+  both the Rust projection and GUI rendering. A ready Gate 4 browser probe may
+  remain visible as verification evidence, but cannot create a blocking finding.
+- Derive the session verdict only from acceptance outcome events
+  (`ultra_final_acceptance`, `tui_command_stop`, and `run_stop`). Within the
+  current directive round, prefer any meaningful `final_acceptance_status`
+  before falling back to a legacy `verdict`; unrelated repair-progress verdicts
+  must not participate regardless of event order.
