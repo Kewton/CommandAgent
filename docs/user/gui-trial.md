@@ -29,9 +29,12 @@ hash and `保証上限 static`, and fix the pack selector to **選択なし**. A
 additive overlay also names its admitted base. **実行プロバイダー** maps to
 CLI `--provider`, while **計画プロバイダー** independently maps to
 `--planner-provider`; the adjacent model fields map to `--model` and
-`--planner-model`, respectively. Changing either provider never rewrites its
-model ID. For Ollama and LM Studio, each model input obtains candidates using
-its own selected provider, while exact IDs can still be entered manually.
+`--planner-model`, respectively. The **Executor / 実行** and **Planner / 計画**
+groups each keep Provider and Model on one desktop row. On mobile, each Model
+follows its Provider before the next role begins. Changing either provider
+never rewrites its model ID. For Ollama and LM Studio, each model input obtains
+candidates using its own selected provider, while exact IDs can still be
+entered manually.
 
 **Ollama thinking** is optional and maps to one exact CLI argument:
 `--think=<value>`. Accepted values are `true`, `false`, `low`, `medium`, and
