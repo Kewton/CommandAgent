@@ -1525,6 +1525,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "assurance_reason:",
         "stop_reason:",
         "failure_diagnostics?:",
+        "failure_explanation?:",
         "next_action:",
         "phases:",
         "task_progress:",
@@ -1536,7 +1537,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 18);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 19);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -1636,6 +1637,127 @@ fn trial_task_projection_is_typed_read_only_and_keeps_history_compact() {
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert!(styles.contains("content-visibility: auto"));
     assert!(styles.contains("contain-intrinsic-size: auto 3.25rem"));
+}
+
+#[test]
+fn trial_failure_explanation_is_bounded_typed_and_never_auto_runs_recovery() {
+    let model = std::fs::read_to_string("src/eval_events/failure_explanation.rs").unwrap();
+    for required in [
+        "pub enum FailureCategory",
+        "Planning,",
+        "Execution,",
+        "Verification,",
+        "ReleaseGate,",
+        "Infrastructure,",
+        "Interrupted,",
+        "Unknown,",
+        "const MAX_TEXT_CHARS: usize = 512",
+        "const MAX_COMMAND_CHARS: usize = 2_048",
+        "const MAX_OUTPUT_CHARS: usize = 1_024",
+        "const MAX_LIST_ITEMS: usize = 16",
+        "plan_step_schema_version",
+        "plan_execution_id",
+        "step_execution_id",
+        "changed_paths_truncated",
+        "verification_failures_truncated",
+    ] {
+        assert!(
+            model.contains(required),
+            "failure projection lost {required:?}"
+        );
+    }
+
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    for required in [
+        "failure_explanation: Option<FailureExplanation>",
+        "current_event_interval(&events)",
+        "project_failure(",
+        "WorkspaceState::Available",
+        "explanation.transform_text",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "session projection lost {required:?}"
+        );
+    }
+
+    let router = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(router.contains(
+        "\"/api/sessions/{id}/recovery-document\",\n            get(session_recovery::get),"
+    ));
+    let recovery = std::fs::read_to_string("src/bin/gui_server/session_recovery.rs").unwrap();
+    for required in [
+        "authentication_enabled()",
+        "current_event_interval(&events)",
+        "path is not a current projected recovery document",
+        "checked_existing_path_without_symlinks",
+        "private, no-store",
+    ] {
+        assert!(
+            recovery.contains(required),
+            "recovery reader lost {required:?}"
+        );
+    }
+    for forbidden in ["Command::new", "tokio::process", "std::fs::write", "post("] {
+        assert!(
+            !recovery.contains(forbidden),
+            "read-only recovery reader contains mutation primitive {forbidden:?}"
+        );
+    }
+
+    let component =
+        std::fs::read_to_string("gui/components/trial-failure-explanation.tsx").unwrap();
+    let ordered_sections = [
+        "1. 失敗した場所",
+        "2. 原因",
+        "3. 根拠",
+        "4. 完了範囲と部分成果物",
+        "5. 推奨アクション",
+    ];
+    let mut offset = 0;
+    for section in ordered_sections {
+        let index = component[offset..]
+            .find(section)
+            .unwrap_or_else(|| panic!("failure result lost section {section:?}"));
+        offset += index + section.len();
+    }
+    for required in [
+        "data-testid=\"terminal-failure-explanation\"",
+        "testId=\"copy-recovery-command\"",
+        "testId=\"copy-recovery-yaml-command\"",
+        "testId=\"open-repair-prompt\"",
+        "testId=\"open-recovery-plan\"",
+        "data-testid=\"apply-recovery-to-continuation\"",
+        "aria-live=\"polite\"",
+        "window.requestAnimationFrame",
+        "この画面はリカバリーを自動実行しません",
+        "まだ保存、確認、実行はしていません",
+    ] {
+        assert!(
+            component.contains(required),
+            "failure result lost {required:?}"
+        );
+    }
+    for forbidden in ["persistDirective(", "confirmDirective(", "fetch(", "eval("] {
+        assert!(
+            !component.contains(forbidden),
+            "failure action can bypass confirmation via {forbidden:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
+    for required in [
+        "failure_sections_ordered",
+        "recovery_documents_authenticated_get_only",
+        "recovery_command_copied_by_keyboard",
+        "apply_prepared_continuation_only",
+        "failure_heading_hierarchy_valid",
+        "failure_actions_have_accessible_names",
+        "failure_detail_mobile_fits",
+        "legacy_failure_fallback",
+    ] {
+        assert!(smoke.contains(required), "failure smoke lost {required:?}");
+    }
 }
 
 #[test]
@@ -2436,6 +2558,7 @@ fn trial_ui_sources() -> String {
         "gui/components/trial-compose.tsx",
         "gui/components/trial-gate-one.tsx",
         "gui/components/trial-gate-two.tsx",
+        "gui/components/trial-failure-explanation.tsx",
         "gui/components/trial-page-nav.tsx",
         "gui/components/trial-run.tsx",
         "gui/components/trial-session-paths.tsx",

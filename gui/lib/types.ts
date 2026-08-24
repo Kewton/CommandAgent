@@ -259,6 +259,89 @@ export type FailureDiagnostics = {
   }>;
 };
 
+export type BoundedText = {
+  value: string;
+  truncated: boolean;
+};
+
+export type BoundedTextList = {
+  items: BoundedText[];
+  total_count: number;
+  truncated: boolean;
+};
+
+export type FailureExplanation = {
+  projection_status: "supported" | "fallback";
+  category:
+    | "planning"
+    | "execution"
+    | "verification"
+    | "release_gate"
+    | "infrastructure"
+    | "interrupted"
+    | "unknown";
+  location: {
+    interval_index: number;
+    plan_execution_id: BoundedText | null;
+    phase: { id: BoundedText; index: number | null; total: number | null } | null;
+    step: {
+      execution_id: BoundedText;
+      id: BoundedText;
+      kind: BoundedText;
+      index: number;
+      total: number;
+    } | null;
+  };
+  primary: {
+    summary: BoundedText;
+    failure_kind: BoundedText | null;
+    reason_code: BoundedText | null;
+  };
+  evidence: {
+    command: BoundedText | null;
+    exit_code: number | null;
+    stdout: BoundedText | null;
+    stderr: BoundedText | null;
+    verification_status: BoundedText | null;
+    acceptance_status: BoundedText | null;
+    release_gate_status: BoundedText | null;
+    observations: Array<{
+      kind: BoundedText;
+      status: BoundedText | null;
+      detail: BoundedText | null;
+      path: BoundedText | null;
+    }>;
+    observation_count: number;
+    observations_truncated: boolean;
+    missing_paths: BoundedTextList;
+    changed_paths: BoundedTextList;
+    evidence_paths: BoundedTextList;
+  };
+  progress: {
+    completed_phases: number;
+    total_phases: number;
+    completed_tasks: number;
+    total_tasks: number;
+    repair_attempts: number;
+    workspace_state: "available" | "missing" | "unknown";
+    partial_artifact_state: "observed" | "workspace_available" | "workspace_missing" | "unknown";
+  };
+  recovery: {
+    next_action_code: BoundedText | null;
+    explanation: BoundedText;
+    viable_actions: BoundedTextList;
+    repair_prompt_path: BoundedText | null;
+    recovery_plan_path: BoundedText | null;
+    suggested_command: BoundedText | null;
+    suggested_yaml_command: BoundedText | null;
+    continuation_eligible: boolean;
+    continuation_reason: BoundedText;
+  };
+  technical: {
+    machine_codes: BoundedTextList;
+  };
+};
+
 export type PolledSession = {
   id: string;
   started_epoch_seconds: number;
@@ -270,6 +353,7 @@ export type PolledSession = {
   assurance_reason: string | null;
   stop_reason: string | null;
   failure_diagnostics?: FailureDiagnostics;
+  failure_explanation?: FailureExplanation | null;
   next_action: string | null;
   phases: PhaseStatus[];
   task_progress: TaskProgress;

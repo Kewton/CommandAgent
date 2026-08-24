@@ -10,6 +10,7 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+pub mod failure_explanation;
 mod human_summary;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;

@@ -39,6 +39,8 @@ mod session_files;
 mod session_index;
 #[path = "gui_server/session_paths.rs"]
 mod session_paths;
+#[path = "gui_server/session_recovery.rs"]
+mod session_recovery;
 #[path = "gui_server/session_tasks.rs"]
 mod session_tasks;
 #[path = "gui_server/sessions.rs"]
@@ -409,6 +411,10 @@ fn dashboard_router() -> Router<AppState> {
             get(session_files::artifacts),
         )
         .route("/api/sessions/{id}/events", get(session_files::events))
+        .route(
+            "/api/sessions/{id}/recovery-document",
+            get(session_recovery::get),
+        )
         .route("/api/sessions/{id}/directives", post(directives::propose))
         .route(
             "/api/sessions/{id}/directives/{hash}",

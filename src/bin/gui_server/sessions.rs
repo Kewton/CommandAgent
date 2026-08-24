@@ -6,6 +6,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use commandagent::eval_events::failure_explanation::{
+    FailureExplanation, ProjectionContext, WorkspaceState, project as project_failure,
+};
 use commandagent::tui::boundary_shell::confirmation::{
     ConfirmationIdentity, load_latest_confirmation,
 };
@@ -17,7 +20,7 @@ use uuid::Uuid;
 use super::AppState;
 use super::error_response::GuiError;
 use super::session_diagnostics::{FailureDiagnostics, project as project_diagnostics};
-use super::session_paths::{SessionPaths, relative_path};
+use super::session_paths::{SessionPaths, WorkingDirectoryState, relative_path};
 use super::trial_access::AccessError;
 
 const MAX_EVENTS_BYTES: u64 = 4 * 1024 * 1024;
@@ -43,6 +46,7 @@ pub struct PolledSession {
     assurance_reason: Option<String>,
     stop_reason: Option<String>,
     failure_diagnostics: FailureDiagnostics,
+    failure_explanation: Option<FailureExplanation>,
     next_action: Option<String>,
     phases: Vec<PhaseStatus>,
     task_progress: super::session_tasks::TaskProgress,
@@ -87,8 +91,8 @@ pub async fn status(
     }
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
-    let continuation_index = latest_event_index(&events, "human_directive_continuation_started");
-    let current_event_start = continuation_index.map_or(0, |index| index + 1);
+    let (current_event_start, interval_index) = current_event_interval(&events);
+    let continuation_index = current_event_start.checked_sub(1);
     let current_events = &events[current_event_start..];
     let terminal = latest_event(current_events, "tui_command_stop");
     let run_stop = latest_event(current_events, "run_stop");
@@ -102,6 +106,22 @@ pub async fn status(
         FailureDiagnostics::default()
     };
     failure_diagnostics.redact_execution_root(&workspace);
+    let workspace_state = match paths.execution_workspace_state() {
+        Ok(WorkingDirectoryState::Available) => WorkspaceState::Available,
+        Ok(WorkingDirectoryState::Missing) => WorkspaceState::Missing,
+        Err(_) => WorkspaceState::Unknown,
+    };
+    let mut failure_explanation = terminal_seen
+        .then(|| {
+            project_failure(
+                current_events,
+                ProjectionContext::new(interval_index, workspace_state),
+            )
+        })
+        .flatten();
+    if let Some(explanation) = &mut failure_explanation {
+        explanation.transform_text(|value| super::public_projection::text(value, &workspace));
+    }
     let stop_reason = failure_diagnostics
         .stop_reason
         .as_ref()
@@ -164,6 +184,7 @@ pub async fn status(
         assurance_reason: terminal_details.assurance_reason,
         stop_reason,
         failure_diagnostics,
+        failure_explanation,
         next_action: terminal_details.next_action,
         phases: phase_statuses(&events),
         task_progress: super::session_tasks::project(&events, terminal_is_current),
@@ -176,6 +197,18 @@ pub async fn status(
     let mut response = Json(session).into_response();
     insert_status_headers(&mut response, &etag);
     Ok(response)
+}
+
+pub(super) fn current_event_interval(events: &[Value]) -> (usize, usize) {
+    let mut interval_index = 1usize;
+    let mut start = 0usize;
+    for (index, event) in events.iter().enumerate() {
+        if string(event, "event") == Some("human_directive_continuation_started") {
+            interval_index += 1;
+            start = index + 1;
+        }
+    }
+    (start, interval_index)
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -400,7 +433,7 @@ fn phase_event_effect(event_name: &str) -> Option<PhaseEventEffect> {
     }
 }
 
-async fn read_events(path: &FilePath) -> Result<String, SessionError> {
+pub(super) async fn read_events(path: &FilePath) -> Result<String, SessionError> {
     let metadata = match tokio::fs::metadata(path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
@@ -526,7 +559,7 @@ pub(super) async fn require_no_pending_directive(path: &FilePath) -> Result<(), 
     Ok(())
 }
 
-fn parse_events(text: &str) -> Result<Vec<Value>, SessionError> {
+pub(super) fn parse_events(text: &str) -> Result<Vec<Value>, SessionError> {
     text.lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| serde_json::from_str(line).map_err(invalid_events))

@@ -5,6 +5,7 @@ import { trialRoutePath } from "../lib/base-path";
 import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
+import { TrialFailureExplanation } from "./trial-failure-explanation";
 import { TrialRunIdentity } from "./trial-run-identity";
 import { TrialTaskProgress } from "./trial-task-progress";
 import {
@@ -17,7 +18,7 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
   const {
     artifacts, busy, confirmDirective, created, directive, directiveText,
     evidenceDocument, evidenceError, evidenceLoading, evidenceOpen, persistDirective,
-    readArtifact, readEvents, session, setDirective, setDirectiveText, setStage,
+    readArtifact, readEvents, readRecoveryDocument, session, setDirective, setDirectiveText, setStage,
     stage, startNewRun, terminalRef,
   } = run;
 
@@ -50,7 +51,21 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
                 <dd data-testid="terminal-status-summary">{nextActionSummary(session)}</dd>
               </div>
             </dl>
-            {(session.gate === "gate_4" && (session.status === "failed" ||
+            {session.gate === "gate_4" && session.failure_explanation != null && (
+              <TrialFailureExplanation
+                evidenceLoading={evidenceLoading}
+                explanation={session.failure_explanation}
+                onApplyToContinuation={(value) => {
+                  setDirectiveText(value);
+                  setDirective(null);
+                }}
+                onOpenArtifact={readArtifact}
+                onOpenEvents={readEvents}
+                onOpenRecoveryDocument={readRecoveryDocument}
+              />
+            )}
+            {(session.gate === "gate_4" && session.failure_explanation == null &&
+              (session.status === "failed" ||
               hasFailureDiagnostics(session.failure_diagnostics, session.stop_reason))) && (
               <TrialFailureDiagnostics
                 diagnostics={session.failure_diagnostics}

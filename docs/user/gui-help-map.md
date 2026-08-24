@@ -81,6 +81,10 @@ the target vocabulary for those migrations.
 | result guidance | 実行結果と次の一手を確認してください | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | result guidance | 独立した CLI 動作プローブは実行されていません。 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | 受入シートの詳細を表示 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| result guidance | 失敗した場所、原因、次の操作 | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| action | repair prompt を開く / Recovery Plan を開く | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| action | 推奨コマンドをコピー / 推奨 YAML コマンドをコピー | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| action | 推奨内容を追加の依頼欄へ反映 | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | パスをコピー | `gui/components/trial-session-paths.tsx` | [`gui-trial.md#working-directory-and-run-records`](gui-trial.md#working-directory-and-run-records) |
 | state | この作業ディレクトリは削除済みです。 | `gui/components/trial-session-paths.tsx` | [`gui-trial.md#working-directory-and-run-records`](gui-trial.md#working-directory-and-run-records) |
 | empty state | 固定済みパックが見つかりません。 | `gui/app/assets/page.tsx` | [`gui-extensions.md#extensions-catalog`](gui-extensions.md#extensions-catalog) |
