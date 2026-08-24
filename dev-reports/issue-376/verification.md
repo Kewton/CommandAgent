@@ -33,6 +33,41 @@
 - `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
 - `cargo test`: `passed`
 
+## Second ordered dependency CI-fix propagation
+
+- Dependency head: `9e8e178b97b49c78411ad9d2ba1783168227cdd9`.
+- Dependency history: merged with a second parent so the ordered Issue #370
+  chain `31410760` -> `f0fb9ccf` -> `9e8e178b` remains explicit. The prior
+  Issue #375 merge commit `70afa5b8` remains the first-parent baseline.
+- Merge scope: the incoming Issue #369/#370 reports and the deterministic
+  `typed_trial_intents_are_validated_frozen_and_delegated` test merged without
+  conflicts. Issue #376's later GUI-server assertions and Plan task projection
+  remained present.
+- CI-race boundary: the fixture deliberately creates an empty argument file,
+  then assertions wait for the GUI server's `idle` state before reading it.
+  Exact intent and executor/planner provider-model argument pairs still pass.
+- The plan UI smoke ended with `ok: true` for both `/` and
+  `/proxy/commandagent/`; all 100-task, execution-interval, failed-expansion,
+  accessibility, reconnection, legacy, and bounded-payload checks remained
+  green.
+
+### Second dependency propagation checks
+
+- `RUSTFLAGS='-D warnings' CARGO_INCREMENTAL=0 cargo test --features gui --test gui_server typed_trial_intents_are_validated_frozen_and_delegated -- --exact`: `passed`
+- `cargo test plan_step_events --lib`: `passed`
+- `cargo test session_tasks --features gui --bin gui_server`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo test --test gui_read_only_guard`: `passed`
+- `cd gui && node --check scripts/session-index-smoke.mjs`: `passed`
+- `cd gui && npm run lint`: `passed`
+- `cd gui && npm run typecheck`: `passed`
+- `cd gui && npm run build`: `passed`
+- `cd gui && npm run smoke:session-index -- --output /tmp/commandagent-issue-376-issue-370-ci-fix-session-index-smoke`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`
+
 ## Checks
 
 - `cargo test session_tasks --features gui --bin gui_server`: `passed`

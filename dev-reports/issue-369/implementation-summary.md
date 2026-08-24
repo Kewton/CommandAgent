@@ -40,3 +40,19 @@ Tab order match that visual order.
 No Rust production code, API/event schema, recovery contract, corpus fixture,
 historical evidence, or `.anvil/` runtime state changed. A corpus update was not
 needed because this is a semantic/responsive presentation change only.
+
+## CI follow-up
+
+GitHub GUI Dashboard job `97545206706` failed at the delegated intent assertion
+with an empty argument list. The delegate was already correct: it passes intent,
+executor provider/model, and planner provider/model to the CLI, waits for child
+exit, and releases the Trial workspace lease afterward. The failure came from
+the test observing `delegated-args.txt` as soon as shell redirection created it,
+before `printf` had written any bytes.
+
+The focused integration fixture now creates the file, leaves it empty for 100
+ms, and then writes the delegated arguments. The test waits for the existing
+`/api/trial-workspace` idle completion boundary before reading the file and
+asserts the exact intent, executor provider/model, and planner provider/model
+flag pairs. This turns the formerly timing-dependent race into deterministic
+regression coverage without changing production behavior or weakening a gate.
