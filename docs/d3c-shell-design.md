@@ -254,6 +254,22 @@ the verdict.
 For non-full or failed terminals, the shell presents the full sheet plus §5
 plain-language stop reason and only these typed next-action proposals:
 
+The GUI result-detail implementation first projects one bounded
+`FailureExplanation` from the final continuation interval. Its public leaf
+model keeps the exact schema-v1 Plan/Step identity, failure location/category,
+command and verification evidence, completed progress, workspace/artifact
+state, and `recovery_prompt_saved` handoff fields separate. An earlier failed
+interval is never combined with a successful continuation, and legacy or
+incomplete identity pairs degrade to `unknown`. Planning, execution,
+verification, release-gate, infrastructure, interrupted, and unknown are
+display classifications only; they do not change the terminal verdict or gate.
+
+Recovery-document opens are authenticated GETs confined to the current
+per-session workspace and to the exact projected repair-prompt or Recovery Plan
+path. Copy actions never execute a command. Applying a recommendation only
+prefills the existing additional-request draft, after which credential
+scrubbing, exact-byte review, and the separate confirmation remain mandatory.
+
 | Action | Required basis | Effect |
 |---|---|---|
 | retry | retry remains contractually allowed and the cause is not a deterministic repeat | Creates a new run proposal; never consumes a retry automatically |

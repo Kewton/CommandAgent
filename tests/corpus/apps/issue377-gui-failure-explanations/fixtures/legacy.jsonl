@@ -1,0 +1,2 @@
+{"event":"legacy_command_failure","message":"the old command failed without typed details","schema_version":"1"}
+{"event":"tui_command_stop","effective_profile":"python-cli","status":"failed","ok":false,"failure_kind":"tui_command_failed","stop_reason":"legacy failure details unavailable","next_action":"fix_command_failure","schema_version":"1"}

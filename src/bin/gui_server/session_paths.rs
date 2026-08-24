@@ -28,7 +28,7 @@ pub(super) struct WorkingDirectoryProjection {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum WorkingDirectoryState {
+pub(super) enum WorkingDirectoryState {
     Available,
     Missing,
 }
@@ -160,7 +160,7 @@ impl SessionPaths {
         require_canonical_real_directory(&self.execution_workspace)
     }
 
-    fn execution_workspace_state(&self) -> anyhow::Result<WorkingDirectoryState> {
+    pub(super) fn execution_workspace_state(&self) -> anyhow::Result<WorkingDirectoryState> {
         let sessions_root = self
             .execution_workspace
             .parent()

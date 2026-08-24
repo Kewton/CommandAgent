@@ -1714,3 +1714,26 @@ statusは現在phase／task／位置と100 task級の折り畳み一覧、結果
 GUI-370のcompact要約を維持する。pollingはraw eventsではなくbounded fieldだけを返し、既存
 ETag／304を維持する。root／proxyのbrowser smokeでdirect reload、再接続、100 task、2実行区間、
 keyboard、heading、`aria-expanded`、非色依存label、mobile幅を確認する。
+
+## GUI-377 — Trial terminal失敗説明・手動リカバリー導線（Issue #377、2026-08-25）
+
+GUI-370の結果詳細へ、共有leaf `eval_events::failure_explanation`から得るtypedかつboundedな
+失敗説明を追加した。最新`human_directive_continuation_started`より後だけを1実行区間として
+投影し、最終区間が成功なら以前の失敗を混ぜない。Issue #375 schema v1の
+`plan_step_started`／terminal pairは`plan_execution_id`と`step_execution_id`を完全一致させ、
+task内の`step_verify_failure`・失敗command、phase failure、release/probe/acceptance、
+`recovery_prompt_saved`を対応付ける。不完全・旧eventは推測せず`unknown` fallbackにする。
+
+表示分類はplanning／execution／verification／release gate／infrastructure／interrupted／
+unknown。場所、主因、独立上限付きevidence、完了phase/task、repair回数、GUI-374 workspace
+stateとpartial artifact state、viable action、repair prompt、Recovery Plan、推奨command 2種、
+継続可否を別fieldで返す。commandがtruncatedならcopy不可であり、全文字列は既存execution
+root redactionを通す。event名/schema、acceptance/verification/release判定、Gate 1 hash、
+`.anvil/` namespaceは変更しない。
+
+recovery artifactはTrial token必須のGET-only
+`api/sessions/{id}/recovery-document`で、現在区間に投影されたexact path 2種だけを
+non-symlink canonical workspace境界内から読む。copy/openは実行せず、「追加の依頼へ反映」は
+textareaをprefillするだけで、保存・credential scrub・exact-byte表示・別確認を迂回しない。
+root／proxyのbrowser smokeはdesktop/mobile、heading、accessible name、polite live region、
+keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。

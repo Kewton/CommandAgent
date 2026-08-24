@@ -1899,6 +1899,145 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
 
 #[cfg(unix)]
 #[test]
+fn failed_session_projects_exact_interval_and_reads_only_current_recovery_documents() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("failure-projection-commandagent");
+    write_failure_projection_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
+    let failure_fixture =
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&events_path).unwrap(),
+        failure_fixture
+    );
+
+    let failed = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(failed.status, 200, "{}", failed.body);
+    let failed = failed.json();
+    let explanation = &failed["failure_explanation"];
+    assert_eq!(explanation["projection_status"], "supported");
+    assert_eq!(explanation["category"], "verification");
+    assert_eq!(explanation["location"]["interval_index"], 1);
+    assert_eq!(
+        explanation["location"]["plan_execution_id"]["value"],
+        "final-plan-execution"
+    );
+    assert_eq!(
+        explanation["location"]["step"]["execution_id"]["value"],
+        "build-step-execution"
+    );
+    assert_eq!(
+        explanation["location"]["step"]["id"]["value"],
+        "verify-build"
+    );
+    assert_eq!(explanation["evidence"]["command"]["value"], "npm run build");
+    assert_eq!(explanation["evidence"]["exit_code"], 1);
+    assert_eq!(explanation["progress"]["completed_phases"], 1);
+    assert_eq!(explanation["progress"]["completed_tasks"], 1);
+    assert_eq!(explanation["progress"]["workspace_state"], "available");
+    assert_eq!(
+        explanation["recovery"]["repair_prompt_path"]["value"],
+        ".anvil/repairs/repair-build.md"
+    );
+    assert_eq!(
+        explanation["recovery"]["recovery_plan_path"]["value"],
+        ".anvil/plans/recovery-build.yaml"
+    );
+    assert_eq!(explanation["recovery"]["continuation_eligible"], true);
+
+    let unauthorized = server.request_without_access(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let repair = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(repair.status, 200, "{}", repair.body);
+    assert_eq!(repair.header("cache-control"), Some("private, no-store"));
+    assert_eq!(
+        repair.json()["content"],
+        "Repair the typed build failure.\n"
+    );
+    let plan = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Fplans%2Frecovery-build.yaml"),
+        None,
+    );
+    assert_eq!(plan.status, 200, "{}", plan.body);
+    assert!(
+        plan.json()["content"]
+            .as_str()
+            .unwrap()
+            .contains("Recovery Plan")
+    );
+    let unrelated = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=unrelated.md"),
+        None,
+    );
+    assert_eq!(unrelated.status, 404, "{}", unrelated.body);
+    let mutation = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(mutation.status, 405, "{}", mutation.body);
+
+    std::fs::write(
+        &events_path,
+        include_str!(
+            "corpus/apps/issue377-gui-failure-explanations/fixtures/continuation-success.jsonl"
+        ),
+    )
+    .unwrap();
+    let continued = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(continued.status, 200, "{}", continued.body);
+    assert!(continued.json()["failure_explanation"].is_null());
+
+    std::fs::write(
+        &events_path,
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/legacy.jsonl"),
+    )
+    .unwrap();
+    let legacy = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(legacy.status, 200, "{}", legacy.body);
+    let legacy = legacy.json();
+    assert_eq!(
+        legacy["failure_explanation"]["projection_status"],
+        "fallback"
+    );
+    assert_eq!(legacy["failure_explanation"]["category"], "unknown");
+    assert_eq!(
+        legacy["failure_explanation"]["location"]["interval_index"],
+        1
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -2285,6 +2424,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "event_count",
             "events_path",
             "failure_diagnostics",
+            "failure_explanation",
             "gate",
             "id",
             "identity",
@@ -3450,6 +3590,25 @@ fn write_terminal_cli(path: &std::path::Path) {
     std::fs::write(
         path,
         "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_failure_projection_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    std::fs::write(
+        path,
+        format!(
+            "#!/bin/sh\nmkdir -p .anvil/repairs .anvil/plans\nprintf '%s\\n' 'Repair the typed build failure.' > .anvil/repairs/repair-build.md\nprintf '%s\\n' 'name: Recovery Plan' > .anvil/plans/recovery-build.yaml\ncp '{}' \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+            fixture.display()
+        ),
     )
     .unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

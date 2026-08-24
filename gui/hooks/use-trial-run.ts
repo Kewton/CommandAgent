@@ -138,6 +138,7 @@ export function useTrialRun(
     providerChanged: compose.providerChanged,
     readArtifact: terminal.readArtifact,
     readEvents: terminal.readEvents,
+    readRecoveryDocument: terminal.readRecoveryDocument,
     reconnectExisting: monitor.reconnectExisting,
     reconnectSessionId: compose.reconnectSessionId,
     rejectTrialToken: compose.rejectTrialToken,

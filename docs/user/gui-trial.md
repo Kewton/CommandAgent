@@ -168,6 +168,45 @@ shows the unrecorded count without guessing whether those tasks ran. Sessions
 that ended before the #375 contract are marked `unsupported` and show no
 invented success count.
 
+For a failed Gate 4 terminal, **失敗した場所、原因、次の操作** is a typed,
+bounded explanation of the final execution interval. The five sections are:
+
+1. the one-based execution interval, exact typed Plan/Step execution IDs,
+   phase, and task;
+2. the primary cause, classified as planning, execution, verification,
+   release gate, infrastructure, interrupted, or unknown;
+3. bounded command/exit/output, verification, acceptance, probe, missing-path,
+   changed-path, and evidence-path observations;
+4. completed phase/task progress, repair attempts, and the Issue #374 working
+   directory/partial-artifact state; and
+5. only the recovery actions recorded by `recovery_prompt_saved`, including
+   viable actions, repair prompt, Recovery Plan, suggested command, suggested
+   YAML command, and continuation eligibility.
+
+The projection starts after the latest confirmed additional-request boundary.
+It therefore never carries a failed initial interval into a successful
+continuation. Exact Issue #375 step fields are accepted only as a matching
+schema-v1 started/terminal pair; incomplete or older records display an
+`unknown` fallback instead of guessed task details. Each free-form string and
+list has an independent cap and truncation marker. A truncated command remains
+visible as evidence but cannot be copied as a complete recommendation.
+An explicitly failed recovery prompt/YAML parse, missing recovery artifact, or
+invalid command target makes continuation ineligible rather than optimistic.
+
+**repair prompt を開く** and **Recovery Plan を開く** use the authenticated,
+GET-only `api/sessions/{id}/recovery-document` endpoint. It reads only the
+exact non-truncated path projected from the current terminal interval, below
+the available per-session working directory; traversal, symlinks, unrelated
+paths, and a missing workspace are refused. The reader does not create,
+rewrite, or execute a recovery artifact.
+
+The command copy buttons are keyboard-operable and announce that no execution
+occurred. **推奨内容を追加の依頼欄へ反映** only prefills and focuses the
+existing additional-request textarea. It does not save, confirm, dispatch, or
+run recovery. Credential scrubbing, exact-byte directive display, explicit
+confirmation, fixed checks, and the existing Gate 1/continuation boundary
+still apply.
+
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
 exact-byte hashed, displayed, and separately confirmed, and cannot lower fixed

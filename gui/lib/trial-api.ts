@@ -160,6 +160,20 @@ export async function fetchSessionArtifact(
   );
 }
 
+export async function fetchSessionRecoveryDocument(
+  token: string,
+  sessionId: string,
+  path: string,
+): Promise<DocumentRecord> {
+  return fetchTrialDocument(
+    token,
+    apiPath(
+      `sessions/${encodeURIComponent(sessionId)}/recovery-document`,
+      new URLSearchParams({ path }),
+    ),
+  );
+}
+
 export async function fetchSessionIndex(token: string): Promise<TrialSessionIndex> {
   return fetchJson<TrialSessionIndex>(apiPath("sessions"), {
     cache: "no-store",

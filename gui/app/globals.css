@@ -2471,6 +2471,238 @@ a.runtime-badge:focus-visible {
   color: var(--muted);
 }
 
+.trial-failure-explanation {
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger-soft) 54%, var(--surface));
+}
+
+.trial-failure-explanation > header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.trial-failure-explanation > header span {
+  color: var(--danger);
+  font: 700 0.58rem/1.4 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.trial-failure-explanation h3,
+.trial-failure-explanation h4,
+.trial-failure-explanation p,
+.trial-failure-explanation ul,
+.trial-failure-explanation dl {
+  margin: 0;
+}
+
+.trial-failure-explanation h3 {
+  margin-top: 0.25rem;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.trial-failure-explanation > header p {
+  margin-top: 0.45rem;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.failure-explanation-sections {
+  padding: 0;
+  list-style: none;
+}
+
+.failure-explanation-sections > li {
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.failure-explanation-sections h4 {
+  margin-bottom: 0.7rem;
+  color: var(--danger);
+  font-size: 0.72rem;
+}
+
+.failure-location-grid,
+.failure-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.failure-location-grid > div,
+.failure-progress-grid > div {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--surface);
+}
+
+.failure-location-grid dt,
+.failure-progress-grid dt {
+  color: var(--muted);
+  font: 0.58rem/1.4 var(--mono);
+}
+
+.failure-location-grid dd,
+.failure-progress-grid dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.failure-primary-summary,
+.failure-artifact-state,
+.recovery-no-autorun {
+  padding: 0.7rem 0.8rem;
+  border-left: 3px solid var(--danger);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.failure-evidence-grid {
+  display: grid;
+  gap: 0.75rem;
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.failure-evidence-grid > div,
+.recovery-command,
+.recovery-document-action {
+  min-width: 0;
+}
+
+.failure-evidence-grid strong,
+.recovery-command strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--muted);
+}
+
+.failure-evidence-grid ul {
+  padding-left: 1.1rem;
+}
+
+.failure-evidence-grid li small,
+.failure-evidence-grid > div > small {
+  display: block;
+  color: var(--muted);
+}
+
+.failure-command-evidence code,
+.recovery-command code,
+.recovery-document-action code {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.failure-output-evidence pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.65rem;
+  border-radius: 0.4rem;
+  background: #0f172a;
+  color: #dbeafe;
+  font: 0.62rem/1.55 var(--mono);
+  white-space: pre-wrap;
+}
+
+.failure-evidence-actions,
+.recovery-document-action,
+.recovery-command {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.recovery-document-action,
+.recovery-command {
+  margin-top: 0.7rem;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--surface);
+}
+
+.recovery-document-action code,
+.recovery-command code,
+.recovery-command strong {
+  flex: 1 1 15rem;
+}
+
+.failure-explanation-sections .secondary-action {
+  margin-top: 0.8rem;
+}
+
+.failure-explanation-sections .source-note,
+.recovery-no-autorun {
+  margin-top: 0.65rem;
+}
+
+.bounded-truncation {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--warning);
+  font: 0.56rem/1.4 var(--mono);
+}
+
+.failure-technical-details {
+  border-bottom: 1px solid var(--line);
+}
+
+.failure-technical-details summary {
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.failure-technical-details dl {
+  padding: 0 1rem 0.9rem;
+}
+
+.failure-technical-details dl > div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+  font-size: 0.62rem;
+}
+
+.failure-technical-details dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.failure-technical-details code {
+  overflow-wrap: anywhere;
+}
+
+.trial-failure-explanation > .trial-copy-announcement {
+  min-height: 2rem;
+  margin: 0;
+  padding: 0.55rem 1rem;
+}
+
 .terminal-history-link {
   display: inline-block;
   margin: 0.8rem 0;
@@ -3887,6 +4119,32 @@ a.runtime-badge:focus-visible {
     grid-template-areas:
       "action"
       "verdict";
+  }
+
+  .failure-location-grid,
+  .failure-progress-grid,
+  .failure-technical-details dl > div {
+    grid-template-columns: 1fr;
+  }
+
+  .failure-evidence-actions,
+  .recovery-document-action,
+  .recovery-command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recovery-document-action code,
+  .recovery-command code,
+  .recovery-command strong {
+    flex-basis: auto;
+  }
+
+  .failure-evidence-actions button,
+  .recovery-document-action button,
+  .recovery-command button,
+  .failure-explanation-sections .secondary-action {
+    width: 100%;
   }
 
   .metric-strip > div {

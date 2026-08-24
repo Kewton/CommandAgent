@@ -10,6 +10,7 @@ import {
   fetchSessionArtifact,
   fetchSessionArtifacts,
   fetchSessionEvents,
+  fetchSessionRecoveryDocument,
 } from "../lib/trial-api";
 import type {
   CreatedSession,
@@ -136,6 +137,11 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     await readEvidence(() => fetchSessionArtifact(trialToken, created.id, path));
   }
 
+  async function readRecoveryDocument(path: string) {
+    if (created === null) return;
+    await readEvidence(() => fetchSessionRecoveryDocument(trialToken, created.id, path));
+  }
+
   async function readEvidence(load: () => Promise<DocumentRecord>) {
     setEvidenceOpen(true);
     setEvidenceLoading(true);
@@ -166,7 +172,7 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   return {
     artifacts, confirmDirective, directive, directiveText, evidenceDocument,
     evidenceError, evidenceLoading, evidenceOpen, loadArtifacts, persistDirective,
-    readArtifact, readEvents, resetForLaunch, resetForNewRun, setDirective,
+    readArtifact, readEvents, readRecoveryDocument, resetForLaunch, resetForNewRun, setDirective,
     setDirectiveText, setStage, terminalRef,
   };
 }

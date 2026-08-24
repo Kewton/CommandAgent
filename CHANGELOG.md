@@ -23,6 +23,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Show typed StepPlan task progress and terminal outcomes on GUI Trial status
   and result-detail pages, including failed-task evidence and legacy-session
   unsupported handling.
+- Explain the final failed GUI Trial interval with a shared bounded typed
+  projection, exact StepPlan evidence and workspace state, plus authenticated
+  read-only recovery-document, keyboard copy, and confirmation-preserving
+  continuation-prefill actions.
 
 ### Fixed
 

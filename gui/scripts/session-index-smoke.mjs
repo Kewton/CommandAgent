@@ -119,6 +119,7 @@ async function probeLifecycle(browser, origin, basePath) {
   let workspaceState = "available";
   const sessionRequests = [];
   const sessionPathRequests = [];
+  const recoveryDocumentRequests = [];
 
   page.on("request", (request) => {
     if (!isRuntimeStatusRequest(request)) return;
@@ -135,7 +136,8 @@ async function probeLifecycle(browser, origin, basePath) {
   try {
     await page.route("**/api/**", async (route) => {
       const request = route.request();
-      const pathname = new URL(request.url()).pathname;
+      const requestUrl = new URL(request.url());
+      const pathname = requestUrl.pathname;
       const method = request.method();
       const authorization = request.headers()["x-commandagent-trial-authorization"];
       if (pathname.endsWith("/api/runtime-status") && method === "GET") {
@@ -224,6 +226,21 @@ async function probeLifecycle(browser, origin, basePath) {
         await json(route, 200, {
           path: "events.jsonl",
           content: '{"event":"plan_step_failed","step_execution_id":"terminal-step-3"}\n',
+        });
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${createdSessionId}/recovery-document`) &&
+        method === "GET"
+      ) {
+        const path = requestUrl.searchParams.get("path");
+        recoveryDocumentRequests.push({ authorization, method, path, pathname });
+        await json(route, 200, {
+          id: path?.split("/").at(-1) ?? "recovery",
+          path,
+          content: path?.endsWith(".yaml")
+            ? "name: Recovery Plan\nsteps:\n  - rerun verification\n"
+            : "Repair the exact final verification failure.\n",
         });
         return;
       }
@@ -342,6 +359,123 @@ async function probeLifecycle(browser, origin, basePath) {
     const statusNavigatedToDetail =
       detailUrl.pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
       detailUrl.searchParams.get("session") === createdSessionId;
+    assertIncludes(
+      await page
+        .locator("[data-testid='task-failed'] [data-testid='task-failure-reason']")
+        .first()
+        .textContent(),
+      "synthetic verification failed",
+      "FAILED task reason before recovery actions",
+    );
+
+    const failureCard = page.locator("[data-testid='terminal-failure-explanation']");
+    await failureCard.waitFor();
+    const failureCategoryVisible =
+      (await failureCard.getAttribute("data-category")) === "verification" &&
+      (await failureCard.getAttribute("data-projection-status")) === "supported";
+    const failureSectionOrder = await failureCard.locator("ol > li > h4").allInnerTexts();
+    const failureSectionsOrdered = JSON.stringify(failureSectionOrder) === JSON.stringify([
+      "1. 失敗した場所",
+      "2. 原因",
+      "3. 根拠",
+      "4. 完了範囲と部分成果物",
+      "5. 推奨アクション",
+    ]);
+    assert(failureSectionsOrdered, `failure sections are out of order: ${failureSectionOrder}`);
+    const failureLocationText = await failureCard
+      .locator("[data-testid='failure-location']")
+      .innerText();
+    assertIncludes(failureLocationText, "final-plan-execution", "failure Plan execution");
+    assertIncludes(failureLocationText, "verify-build", "failure step");
+    const failureEvidenceText = await failureCard
+      .locator("[data-testid='failure-evidence']")
+      .innerText();
+    assertIncludes(failureEvidenceText, "npm run build", "failed command evidence");
+    assertIncludes(failureEvidenceText, "exit code: 1", "failed command exit code");
+    const failureProgressText = await failureCard
+      .locator("[data-testid='failure-progress']")
+      .innerText();
+    assertIncludes(failureProgressText, "1 / 2", "completed phase progress");
+    assertIncludes(failureProgressText, "利用可能", "workspace state");
+
+    const openRepairPrompt = failureCard.locator("[data-testid='open-repair-prompt']");
+    await openRepairPrompt.focus();
+    await page.keyboard.press("Enter");
+    const recoveryViewer = page.locator("[data-testid='trial-file-viewer']");
+    await recoveryViewer.waitFor();
+    await page.waitForFunction(() =>
+      document.querySelector("[data-testid='trial-file-viewer']")?.textContent?.includes(
+        "Repair the exact final verification failure",
+      ));
+    const repairPromptOpened = (await recoveryViewer.innerText()).includes(
+      "Repair the exact final verification failure",
+    );
+    await failureCard.locator("[data-testid='open-recovery-plan']").click();
+    await page.waitForFunction(() =>
+      document.querySelector("[data-testid='trial-file-viewer']")?.textContent?.includes(
+        "Recovery Plan",
+      ));
+    const recoveryPlanOpened = (await recoveryViewer.innerText()).includes("Recovery Plan");
+
+    const recoveryCommand = "/ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-build.md)\"";
+    const copyRecoveryCommand = failureCard.locator("[data-testid='copy-recovery-command']");
+    await copyRecoveryCommand.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (expected) => window.__commandagentCopiedPath === expected,
+      recoveryCommand,
+    );
+    const commandCopiedByKeyboard = await copyRecoveryCommand.evaluate(
+      (button) => document.activeElement === button,
+    );
+    const yamlCommand = "/run-ultra-plan .anvil/plans/recovery-build.yaml";
+    const copyYamlCommand = failureCard.locator("[data-testid='copy-recovery-yaml-command']");
+    await copyYamlCommand.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (expected) => window.__commandagentCopiedPath === expected,
+      yamlCommand,
+    );
+    const failureAnnouncement = await failureCard
+      .locator("[data-testid='failure-action-announcement']")
+      .evaluate((node) => ({
+        aria_atomic: node.getAttribute("aria-atomic"),
+        aria_live: node.getAttribute("aria-live"),
+        text: node.textContent?.trim(),
+      }));
+    const failureActionLiveRegion =
+      failureAnnouncement.aria_atomic === "true" &&
+      failureAnnouncement.aria_live === "polite" &&
+      failureAnnouncement.text?.includes("自動実行はしていません");
+
+    const mutatingRequestsBeforeApply = sessionRequests.filter(
+      (request) => request.method !== "GET",
+    ).length;
+    const applyRecovery = failureCard.locator("[data-testid='apply-recovery-to-continuation']");
+    await applyRecovery.focus();
+    await page.keyboard.press("Enter");
+    const directiveInput = page.locator("[data-testid='directive-input']");
+    await page.waitForFunction(() => document.activeElement?.id === "directive-input");
+    const continuationDraft = await directiveInput.inputValue();
+    const applyPreparedContinuationOnly =
+      continuationDraft.includes("失敗カテゴリ: verification") &&
+      continuationDraft.includes("Recovery Plan") &&
+      sessionRequests.filter((request) => request.method !== "GET").length ===
+        mutatingRequestsBeforeApply;
+    assert(applyPreparedContinuationOnly, "recovery apply mutated or omitted the continuation draft");
+
+    const failureHeadingHierarchy = await failureCard.evaluate((node) =>
+      Array.from(node.querySelectorAll("h3, h4")).map((heading) => heading.tagName.toLowerCase()),
+    );
+    const failureHeadingHierarchyValid =
+      failureHeadingHierarchy[0] === "h3" &&
+      failureHeadingHierarchy.slice(1).every((tag) => tag === "h4");
+    const failureActionsHaveAccessibleNames = await failureCard.locator("button").evaluateAll(
+      (buttons) => buttons.every((button) =>
+        (button.getAttribute("aria-label") ?? button.textContent ?? "").trim().length > 0),
+    );
+    assert(failureHeadingHierarchyValid, "failure card heading hierarchy is invalid");
+    assert(failureActionsHaveAccessibleNames, "failure action has no accessible name");
 
     const terminalTaskProgress = page.locator("[data-testid='task-progress']");
     await terminalTaskProgress.waitFor();
@@ -351,7 +485,7 @@ async function probeLifecycle(browser, origin, basePath) {
       .count();
     assert(terminalTaskCount === 101, `terminal task projection rendered ${terminalTaskCount}`);
     assert(executionIntervalCount === 2, "initial and continuation task intervals were merged");
-    const terminalTaskText = await terminalTaskProgress.innerText();
+    const terminalTaskText = await terminalTaskProgress.textContent();
     for (const label of [
       "completed（完了）",
       "short-circuited（実行省略）",
@@ -367,11 +501,6 @@ async function probeLifecycle(browser, origin, basePath) {
       (await failedDetails.getAttribute("open")) !== null &&
       (await failedSummary.getAttribute("aria-expanded")) === "true";
     assert(failedTaskAutoExpanded, "FAILED task was not expanded with aria-expanded=true");
-    assertIncludes(
-      await failedTask.locator("[data-testid='task-failure-reason']").innerText(),
-      "synthetic verification failed",
-      "FAILED task reason",
-    );
     const completedSummary = terminalTaskProgress
       .locator("[data-testid='task-completed'] summary")
       .first();
@@ -405,6 +534,9 @@ async function probeLifecycle(browser, origin, basePath) {
     const taskDetailMobileFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
+    const failureDetailMobileFits = await failureCard.evaluate(
+      (node) => node.scrollWidth <= node.clientWidth && document.documentElement.scrollWidth <= innerWidth,
+    );
     await page.setViewportSize({ width: 1280, height: 1000 });
 
     const historyLink = page.locator("[data-testid='terminal-session-history-link']");
@@ -416,11 +548,11 @@ async function probeLifecycle(browser, origin, basePath) {
     await historyLink.click();
     await waitFor(() => indexCalls > beforeTerminal, "terminal history refresh");
     await page.waitForFunction(
-      (id) => document.querySelector(`#trial-session-${id}`)?.innerText.includes("GATE 3（完了） / 完了"),
+      (id) => document.querySelector(`#trial-session-${id}`)?.innerText.includes("GATE 4（要対応） / 失敗"),
       createdSessionId,
     );
     const terminalText = await launchedRow.innerText();
-    assertIncludes(terminalText, "GATE 3（完了） / 完了", "terminal history state");
+    assertIncludes(terminalText, "GATE 4（要対応） / 失敗", "terminal history state");
 
     assert(
       new URL(page.url()).hash === `#trial-session-${createdSessionId}`,
@@ -621,6 +753,23 @@ async function probeLifecycle(browser, origin, basePath) {
       keyboard_disclosure_expanded: keyboardDisclosureExpanded,
       heading_hierarchy_valid: headingHierarchyValid,
       task_detail_mobile_fits: taskDetailMobileFits,
+      failure_category_visible: failureCategoryVisible,
+      failure_sections_ordered: failureSectionsOrdered,
+      repair_prompt_opened: repairPromptOpened,
+      recovery_plan_opened: recoveryPlanOpened,
+      recovery_document_requests: recoveryDocumentRequests,
+      recovery_documents_authenticated_get_only:
+        recoveryDocumentRequests.length === 2 &&
+        recoveryDocumentRequests.every(
+          (request) =>
+            request.method === "GET" && request.authorization === `Bearer ${trialToken}`,
+        ),
+      recovery_command_copied_by_keyboard: commandCopiedByKeyboard,
+      failure_action_live_region: failureActionLiveRegion,
+      apply_prepared_continuation_only: applyPreparedContinuationOnly,
+      failure_heading_hierarchy_valid: failureHeadingHierarchyValid,
+      failure_actions_have_accessible_names: failureActionsHaveAccessibleNames,
+      failure_detail_mobile_fits: failureDetailMobileFits,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
       focus_revalidated: focusRevalidated,
@@ -673,6 +822,21 @@ async function probeLifecycle(browser, origin, basePath) {
         keyboardDisclosureExpanded &&
         headingHierarchyValid &&
         taskDetailMobileFits &&
+        failureCategoryVisible &&
+        failureSectionsOrdered &&
+        repairPromptOpened &&
+        recoveryPlanOpened &&
+        recoveryDocumentRequests.length === 2 &&
+        recoveryDocumentRequests.every(
+          (request) =>
+            request.method === "GET" && request.authorization === `Bearer ${trialToken}`,
+        ) &&
+        commandCopiedByKeyboard &&
+        failureActionLiveRegion &&
+        applyPreparedContinuationOnly &&
+        failureHeadingHierarchyValid &&
+        failureActionsHaveAccessibleNames &&
+        failureDetailMobileFits &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
@@ -802,6 +966,10 @@ async function probeRouteOwnership(browser, origin, basePath) {
       (await page.locator("[data-testid='task-progress-unsupported']").innerText()).includes(
         "不正確な成功件数は表示しません",
       );
+    const legacyFailureFallback =
+      (await page.locator(
+        "[data-testid='terminal-failure-explanation'][data-projection-status='fallback'][data-category='unknown']",
+      ).count()) === 1;
     const redirectedTerminalUrl = new URL(page.url());
     const legacyTerminalToDetail =
       redirectedTerminalUrl.pathname ===
@@ -815,6 +983,7 @@ async function probeRouteOwnership(browser, origin, basePath) {
       legacy_running_to_status: legacyRunningToStatus,
       legacy_terminal_to_detail: legacyTerminalToDetail,
       legacy_task_unsupported: legacyTaskUnsupported,
+      legacy_failure_fallback: legacyFailureFallback,
       reconnect_get_only: reconnectGetOnly,
       requests,
       ok:
@@ -823,6 +992,7 @@ async function probeRouteOwnership(browser, origin, basePath) {
         legacyRunningToStatus &&
         legacyTerminalToDetail &&
         legacyTaskUnsupported &&
+        legacyFailureFallback &&
         reconnectGetOnly,
     };
   } finally {
@@ -1141,8 +1311,8 @@ function terminalSummary(id) {
     id,
     started_epoch_seconds: 1_723_769_600,
     modified_epoch_seconds: 1_723_769_660,
-    gate: "gate_3",
-    status: "completed",
+    gate: "gate_4",
+    status: "failed",
     profile: "python-cli",
     intent: "create",
     pack: {
@@ -1177,6 +1347,7 @@ function runningSession(id) {
     assurance: null,
     acceptance_sheet: null,
     section5: null,
+    failure_explanation: null,
     task_progress: runningTaskProgress(),
   };
 }
@@ -1186,10 +1357,19 @@ function terminalSession(id) {
     id,
     started_epoch_seconds: 1_723_769_600,
     average_duration_seconds: null,
-    gate: "gate_3",
-    status: "completed",
-    verdict: "pass",
-    assurance: "full",
+    gate: "gate_4",
+    status: "failed",
+    verdict: "incomplete",
+    assurance: "partial",
+    assurance_reason: "verification_failed",
+    stop_reason: "build verification still fails after bounded repair",
+    next_action: "fix_command_failure",
+    failure_diagnostics: {
+      stop_reason: "build verification still fails after bounded repair",
+      release_gate_reasons: [],
+      probe_findings: [],
+    },
+    failure_explanation: supportedFailureExplanation(),
     phases: [],
     task_progress: terminalTaskProgress(),
     event_count: 205,
@@ -1218,7 +1398,114 @@ function sessionPaths(id, state = "available") {
 function legacyTerminalSession(id) {
   return {
     ...terminalSession(id),
+    failure_explanation: fallbackFailureExplanation(),
     task_progress: { status: "unsupported", executions: [] },
+  };
+}
+
+function supportedFailureExplanation() {
+  return {
+    projection_status: "supported",
+    category: "verification",
+    location: {
+      interval_index: 2,
+      plan_execution_id: bounded("final-plan-execution"),
+      phase: { id: bounded("build"), index: 2, total: 2 },
+      step: {
+        execution_id: bounded("build-step-execution"),
+        id: bounded("verify-build"),
+        kind: bounded("verify"),
+        index: 2,
+        total: 2,
+      },
+    },
+    primary: {
+      summary: bounded("build verification still fails after bounded repair"),
+      failure_kind: bounded("bounded_repair_failed"),
+      reason_code: bounded("bounded_repair_failed"),
+    },
+    evidence: {
+      command: bounded("npm run build"),
+      exit_code: 1,
+      stdout: bounded("next build\nchecking types"),
+      stderr: bounded("Type error: Property 'score' does not exist"),
+      verification_status: bounded("failed"),
+      acceptance_status: bounded("not_checked"),
+      release_gate_status: bounded("not_applicable"),
+      observations: [{
+        kind: bounded("step_verify_failure"),
+        status: bounded("failed"),
+        detail: bounded("synthetic verification failed"),
+        path: null,
+      }],
+      observation_count: 1,
+      observations_truncated: false,
+      missing_paths: boundedList(["src/app/game.ts"]),
+      changed_paths: boundedList(["src/app/page.tsx"]),
+      evidence_paths: boundedList([]),
+    },
+    progress: {
+      completed_phases: 1,
+      total_phases: 2,
+      completed_tasks: 1,
+      total_tasks: 2,
+      repair_attempts: 2,
+      workspace_state: "available",
+      partial_artifact_state: "observed",
+    },
+    recovery: {
+      next_action_code: bounded("fix_command_failure"),
+      explanation: bounded("Use the saved bounded recovery handoff after review."),
+      viable_actions: boundedList(["edit_source_artifact", "rerun_verification"]),
+      repair_prompt_path: bounded(".anvil/repairs/repair-build.md"),
+      recovery_plan_path: bounded(".anvil/plans/recovery-build.yaml"),
+      suggested_command: bounded(
+        "/ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-build.md)\"",
+      ),
+      suggested_yaml_command: bounded(
+        "/run-ultra-plan .anvil/plans/recovery-build.yaml",
+      ),
+      continuation_eligible: true,
+      continuation_reason: bounded("structured_recovery_available"),
+    },
+    technical: { machine_codes: boundedList(["bounded_repair_failed"]) },
+  };
+}
+
+function fallbackFailureExplanation() {
+  const explanation = supportedFailureExplanation();
+  return {
+    ...explanation,
+    projection_status: "fallback",
+    category: "unknown",
+    location: {
+      interval_index: 1,
+      plan_execution_id: null,
+      phase: null,
+      step: null,
+    },
+    recovery: {
+      ...explanation.recovery,
+      viable_actions: boundedList([]),
+      repair_prompt_path: null,
+      recovery_plan_path: null,
+      suggested_command: null,
+      suggested_yaml_command: null,
+      continuation_eligible: false,
+      continuation_reason: bounded("no_structured_recovery"),
+    },
+  };
+}
+
+function bounded(value) {
+  return { value, truncated: false };
+}
+
+function boundedList(values) {
+  return {
+    items: values.map(bounded),
+    total_count: values.length,
+    truncated: false,
   };
 }
 
