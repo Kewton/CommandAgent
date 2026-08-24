@@ -24,7 +24,7 @@ Recommended route / 推奨順路:
 - [GUI getting started](../user/getting-started-gui.md) — readiness, sample
   Trial, Gate 1, and separate status, history, and result pages
 - [Extensions](en/extensions.md) — four layers, boundaries, registration, and
-  the [supply lifecycle](../user/gui-extensions.md)
+  the supply lifecycle
 - [CLI reference](en/cli-reference.md) — all 65 public flags, defaults, and
   conflicts
 - [Plan YAML editing](en/plan-yaml.md) — commented templates, offline
@@ -51,8 +51,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   最初の 1 周、exact pack A/B
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、
   分離された実行状況・履歴・結果ページ
-- [拡張](ja/extensions.md) — 4 レイヤー、境界、登録導線、
-  [供給ライフサイクル](../user/gui-extensions.md)
+- [拡張](ja/extensions.md) — 4 レイヤー、境界、登録導線、供給ライフサイクル
 - [CLI リファレンス](ja/cli-reference.md) — 公開されている全 65 フラグ、既定値、排他関係
 - [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、
   recovery 差分

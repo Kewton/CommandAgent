@@ -85,4 +85,5 @@ the target vocabulary for those migrations.
 | action | 安全な登録 Issue を作る | `gui/app/assets/page.tsx` | [`gui-extensions.md#layer-2-draft-profiles`](gui-extensions.md#layer-2-draft-profiles) |
 | heading | Contract / Suite は拡張種別ではありません | `gui/app/assets/page.tsx` | [`gui-extensions.md#contract-and-suite-references`](gui-extensions.md#contract-and-suite-references) |
 | action | パック作成ウィザードを開く | `gui/components/pack-wizard.tsx` | [`gui-extensions.md#pack-creation-wizard`](gui-extensions.md#pack-creation-wizard) |
+| heading | プロファイル登録ウィザード | `gui/components/profile-wizard.tsx` | [`gui-extensions.md#draft-profile-registration-wizard`](gui-extensions.md#draft-profile-registration-wizard) |
 | empty state | 確認済みのトライアルセッションはありません。 | `gui/components/trial-session-index.tsx` | [`gui-history.md#session-rows-and-refresh`](gui-history.md#session-rows-and-refresh) |
