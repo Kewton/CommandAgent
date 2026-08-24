@@ -320,6 +320,7 @@ pub fn arbitrate_final_acceptance(
         required_evidence,
         required_obligations,
     );
+    prioritize_input_behavior_failure(report, &observation);
     EvidenceArbitrationReport {
         summary: if observation.ok {
             "behavioral (probe ok)".to_string()
@@ -329,6 +330,24 @@ pub fn arbitrate_final_acceptance(
             format!("behavioral (app failure: {})", observation.failure_kind)
         },
         records,
+    }
+}
+
+fn prioritize_input_behavior_failure(
+    report: &mut RuntimeAcceptanceReport,
+    observation: &BehaviorObservation,
+) {
+    if observation
+        .failure_kind
+        .contains("input_state_change_missing_after_start")
+        || observation
+            .failure_kind
+            .contains("input_state_change_not_evaluated_after_start")
+        || observation
+            .failure_kind
+            .contains("text_input_state_change_missing")
+    {
+        report.primary_reason = format!("browser_interaction_failed:{}", observation.failure_kind);
     }
 }
 
@@ -1149,6 +1168,61 @@ export default function Page() {
                 .get("restart_or_recoverable_state_evidence")
                 .map(String::as_str),
             Some("absent")
+        );
+    }
+
+    #[test]
+    fn input_behavior_failure_is_primary_over_consequential_restart_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        write_page(dir.path(), strong_interactive_page());
+        write_interaction(
+            dir.path(),
+            json!({
+                "ok": false,
+                "status": "failed",
+                "interaction_success": false,
+                "input_event_observed": true,
+                "input_state_change": false,
+                "input_contract_state_change": true,
+                "state_changed": false,
+                "start_transition": true,
+                "input_state_evaluated_after_start": true,
+                "recovery_transition": true,
+                "state_dimensions_changed": ["player_x"],
+                "informational_failure_kinds": ["canvas_not_redrawn_after_start"],
+                "steps": [
+                    "surface_visible",
+                    "start_transition",
+                    "control_input_dispatched",
+                    "input_key_hold",
+                    "input_state_evaluated_after_start",
+                    "input_contract_state_change",
+                    "canvas_not_redrawn_after_start",
+                    "recovery_transition"
+                ],
+                "stage": "observing",
+                "failure_kind": "input_state_change_missing_after_start"
+            }),
+        );
+        let required = [
+            "restart_or_recoverable_state_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+        ];
+        let mut report = report_for(dir.path(), &required);
+
+        arbitrate(dir.path(), &mut report, &required);
+
+        assert_eq!(
+            report.primary_reason,
+            "browser_interaction_failed:input_state_change_missing_after_start"
+        );
+        assert_eq!(
+            report
+                .evidence_tiers
+                .get("restart_or_recoverable_state_evidence")
+                .map(String::as_str),
+            Some("strong")
         );
     }
 

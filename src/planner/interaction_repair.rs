@@ -23,9 +23,19 @@ pub(crate) fn guidance(
     evidence: Option<&Value>,
 ) -> Vec<String> {
     let mut lines = if render_loop_failure(failure_kind) {
-        evidence
-            .map(unattached_ref_guidance_lines)
-            .unwrap_or_default()
+        let mut findings = Vec::new();
+        if evidence.is_some_and(canvas_not_redrawn_after_start) {
+            findings.push(
+                crate::planner::profiles::nextjs::knowledge::get()
+                    .repair_guidance
+                    .canvas_not_redrawn_after_start
+                    .clone(),
+            );
+        }
+        if let Some(value) = evidence {
+            merge_unique(&mut findings, &unattached_ref_guidance_lines(value));
+        }
+        findings
     } else {
         Vec::new()
     };
@@ -34,6 +44,21 @@ pub(crate) fn guidance(
         &profile_interaction_repair_guidance(profile, failure_kind, contract),
     );
     lines
+}
+
+fn canvas_not_redrawn_after_start(value: &Value) -> bool {
+    value_scopes(value).into_iter().any(|scope| {
+        scope
+            .get("canvas_not_redrawn_after_start")
+            .and_then(Value::as_bool)
+            == Some(true)
+            || ["steps", "informational_failure_kinds"]
+                .into_iter()
+                .filter_map(|key| scope.get(key).and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_str)
+                .any(|item| item == "canvas_not_redrawn_after_start")
+    })
 }
 
 fn render_loop_failure(failure_kind: &str) -> bool {
@@ -131,5 +156,34 @@ mod tests {
         );
         assert!(guidance.iter().all(|line| !line.contains("projectiles")));
         assert!(guidance.iter().all(|line| !line.contains("rAF loop")));
+    }
+
+    #[test]
+    fn canvas_non_redraw_finding_leads_game_repair_guidance() {
+        let contract = InteractionRepairContract {
+            required_capabilities: vec!["adversary_or_challenge".to_string()],
+            required_evidence: vec!["failure_or_collision_evidence".to_string()],
+        };
+        let evidence = serde_json::json!({
+            "informational_failure_kinds": ["canvas_not_redrawn_after_start"]
+        });
+
+        let guidance = guidance(
+            "nextjs",
+            "browser_interaction_failed:input_state_change_missing_after_start",
+            &contract,
+            Some(&evidence),
+        );
+
+        assert!(guidance[0].starts_with("canvas_not_redrawn_after_start:"));
+        let render_loop = guidance
+            .iter()
+            .position(|line| line.starts_with("render-loop checklist:"))
+            .unwrap();
+        let generic = guidance
+            .iter()
+            .position(|line| line.starts_with("input operations must visibly change"))
+            .unwrap();
+        assert!(render_loop < generic, "{guidance:?}");
     }
 }

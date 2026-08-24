@@ -1,0 +1,3 @@
+canvas_not_redrawn_after_start: the canvas pixel hashes stayed unchanged after start and input; restart the requestAnimationFrame render loop after reset/start and keep drawing current game state.
+render-loop checklist: ref attached -> effect runs -> rAF loop starts -> draw calls
+input-wiring checklist: keyboard or pointer input must visibly change game state (player position, projectiles, score/health, or state transitions); wire input handlers into the render/update loop.

@@ -2104,22 +2104,22 @@ mod tests {
     }
 
     #[test]
-    fn space_contract_keeps_canvas_game_guidance() {
-        let contract = interaction_repair_contract(
-            "nextjs",
-            "Create a playable Space Invaders game with enemies, collision, and lives",
-        );
-
-        let guidance = profile_interaction_repair_guidance("nextjs", FAILURE, &contract);
-
+    fn space_and_breakout_contracts_keep_canvas_game_guidance() {
         let knowledge = &crate::planner::profiles::nextjs::knowledge::get().repair_guidance;
-        for expected in [
-            &knowledge.generic_interaction,
-            &knowledge.canvas_game_interaction,
-            &knowledge.canvas_render_loop_checklist,
-            &knowledge.canvas_input_wiring_checklist,
+        for goal in [
+            "Create a playable Space Invaders game with enemies, collision, and lives",
+            "Create a playable Breakout game with bricks, a paddle, collision, and lives",
         ] {
-            assert!(guidance.contains(expected), "{guidance:?}");
+            let contract = interaction_repair_contract("nextjs", goal);
+            let guidance = profile_interaction_repair_guidance("nextjs", FAILURE, &contract);
+            for expected in [
+                &knowledge.generic_interaction,
+                &knowledge.canvas_game_interaction,
+                &knowledge.canvas_render_loop_checklist,
+                &knowledge.canvas_input_wiring_checklist,
+            ] {
+                assert!(guidance.contains(expected), "{goal}: {guidance:?}");
+            }
         }
     }
 

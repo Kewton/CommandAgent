@@ -135,6 +135,7 @@ pub struct BrowserInteractionObservation {
     pub recovery_before_marker: String,
     pub recovery_after_marker: String,
     pub input_state_changed: bool,
+    pub input_contract_state_changed: bool,
     pub input_state_evaluated_after_start: bool,
     pub probe_mode: String,
     pub contract_hook_status: String,
@@ -144,6 +145,7 @@ pub struct BrowserInteractionObservation {
     pub canvas_blank_before_start: Option<bool>,
     pub canvas_blank_after_start: Option<bool>,
     pub canvas_blank_after_inputs: Option<bool>,
+    pub canvas_not_redrawn_after_start: bool,
     pub state_dimensions_changed: Vec<String>,
     pub surface_fit: Option<SurfaceFitEvidence>,
     pub restart_hook_reachable_after_start: bool,
@@ -1230,6 +1232,7 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
             "start_control_found",
             "primary_start_transition",
             "primary_start_transition_missing",
+            "input_contract_state_change",
             "input_state_evaluated_after_start",
             "probe_mode",
             "contract_hook_status",
@@ -1240,6 +1243,7 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
             "canvas_blank_before_start",
             "canvas_blank_after_start",
             "canvas_blank_after_inputs",
+            "canvas_not_redrawn_after_start",
             "state_dimensions_changed",
             "surface_fit",
             "restart_hook_reachable_after_start",
@@ -1464,6 +1468,10 @@ fn observation_from_value(
     let input_state_changed = steps.iter().any(|step| step == "input_state_change")
         || explicit_state_changed == Some(true)
         || text_input_state_change;
+    let input_contract_state_changed = value
+        .get("input_contract_state_change")
+        .and_then(Value::as_bool)
+        .unwrap_or(input_state_changed);
     let recovery_transition_not_observed = steps
         .iter()
         .any(|step| step == "recovery_transition:not_observed")
@@ -1526,6 +1534,14 @@ fn observation_from_value(
         canvas_blank_snapshot_value(&value, &canvas_snapshots, "after_start");
     let canvas_blank_after_inputs =
         canvas_blank_snapshot_value(&value, &canvas_snapshots, "after_inputs");
+    let canvas_not_redrawn_after_start = value
+        .get("canvas_not_redrawn_after_start")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            steps
+                .iter()
+                .any(|step| step == "canvas_not_redrawn_after_start")
+        });
     let state_dimensions_changed = string_array_field(&value, "state_dimensions_changed");
     let surface_fit = surface_fit_from_value(&value);
     let restart_hook_reachable_after_start = value
@@ -1621,6 +1637,7 @@ fn observation_from_value(
             .unwrap_or("")
             .to_string(),
         input_state_changed,
+        input_contract_state_changed,
         input_state_evaluated_after_start,
         probe_mode,
         contract_hook_status,
@@ -1630,6 +1647,7 @@ fn observation_from_value(
         canvas_blank_before_start,
         canvas_blank_after_start,
         canvas_blank_after_inputs,
+        canvas_not_redrawn_after_start,
         state_dimensions_changed,
         surface_fit,
         restart_hook_reachable_after_start,
@@ -2038,6 +2056,7 @@ fn failure_observation(
         recovery_before_marker: String::new(),
         recovery_after_marker: String::new(),
         input_state_changed: false,
+        input_contract_state_changed: false,
         input_state_evaluated_after_start: false,
         probe_mode: "heuristic".to_string(),
         contract_hook_status: "unknown".to_string(),
@@ -2047,6 +2066,7 @@ fn failure_observation(
         canvas_blank_before_start: None,
         canvas_blank_after_start: None,
         canvas_blank_after_inputs: None,
+        canvas_not_redrawn_after_start: false,
         state_dimensions_changed: Vec::new(),
         surface_fit: None,
         restart_hook_reachable_after_start: false,
@@ -2253,6 +2273,7 @@ fn interaction_observation_json(observation: &BrowserInteractionObservation) -> 
         "input_event_observed": observation.steps.iter().any(|step| step == "control_input_dispatched")
             || observation.text_entry == "entered",
         "input_state_change": observation.input_state_changed,
+        "input_contract_state_change": observation.input_contract_state_changed,
         "state_changed": observation.input_state_changed,
         "visible_state_changed": observation.input_state_changed,
         "start_transition": observation.steps.iter().any(|step| step == "start_transition")
@@ -2266,6 +2287,7 @@ fn interaction_observation_json(observation: &BrowserInteractionObservation) -> 
         "canvas_blank_before_start": observation.canvas_blank_before_start,
         "canvas_blank_after_start": observation.canvas_blank_after_start,
         "canvas_blank_after_inputs": observation.canvas_blank_after_inputs,
+        "canvas_not_redrawn_after_start": observation.canvas_not_redrawn_after_start,
         "state_dimensions_changed": &observation.state_dimensions_changed,
         "surface_fit": &observation.surface_fit,
         "restart_hook_reachable_after_start": observation.restart_hook_reachable_after_start,
@@ -2609,8 +2631,12 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "250191aa2cb4dd1be1f0092d16a7101e8575a44b1b65458f4fdec0b23a184c7c"
+            "9bbd17b96b6d0ed06c227b949e3b22498a1944c919ee2ad05516a6a4212fd266"
         );
+        let script = interaction_probe_script();
+        assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
+        assert!(script.contains("input_key_hold"));
+        assert!(script.contains("canvas_not_redrawn_after_start"));
     }
 
     #[test]
@@ -3026,7 +3052,10 @@ class FakeElement {
 
   getAttribute(name) {
     if (this.kind === "state" && name === "data-anvil-state") {
-      return JSON.stringify({ status: this.page.statusText });
+      return JSON.stringify({ status: this.page.statusText, player_x: this.page.playerX });
+    }
+    if (this.kind === "button" && name === "data-anvil-action" && scenario === "held_input") {
+      return this.page.statusText === "ready" ? "primary" : "restart";
     }
     return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
   }
@@ -3040,9 +3069,9 @@ class FakeElement {
   }
 
   getBoundingClientRect() {
-    if (this.kind === "button") return { left: 500, top: 300, width: 120, height: 40 };
-    if (this.kind === "textarea") return { left: 400, top: 380, width: 320, height: 80 };
-    return { left: 0, top: 0, width: 20, height: 20 };
+    if (this.kind === "button") return { left: 500, top: 300, right: 620, bottom: 340, width: 120, height: 40 };
+    if (this.kind === "textarea") return { left: 400, top: 380, right: 720, bottom: 460, width: 320, height: 80 };
+    return { left: 0, top: 0, right: 20, bottom: 20, width: 20, height: 20 };
   }
 }
 
@@ -3144,6 +3173,8 @@ class FakePage {
     this.statusText = "ready";
     this.previewText = "";
     this.persistedToken = "";
+    this.playerX = 300;
+    this.pressedKey = "";
     this.reloaded = false;
     this.gotoCalls = 0;
     this.reloadCalls = 0;
@@ -3168,8 +3199,20 @@ class FakePage {
           }, 500);
         }
       },
-      down: async () => {},
-      up: async () => {}
+      down: async (key) => {
+        this.pressedKey = key;
+        if (scenario === "held_input") {
+          setTimeout(() => {
+            if (this.pressedKey === key) {
+              this.playerX -= 6;
+              this.statusText = "moved";
+            }
+          }, 40);
+        }
+      },
+      up: async (key) => {
+        if (this.pressedKey === key) this.pressedKey = "";
+      }
     };
     this.mouse = {
       click: async () => {}
@@ -3203,6 +3246,18 @@ class FakePage {
         if (this.textarea.getAttribute("data-anvil-probe-text-target") === "1") add(this.textarea);
         continue;
       }
+      if (part === '[data-anvil-action="primary"]') {
+        if (scenario === "held_input" && this.button.getAttribute("data-anvil-action") === "primary") add(this.button);
+        continue;
+      }
+      if (part === '[data-anvil-action="restart"]') {
+        if (scenario === "held_input" && this.button.getAttribute("data-anvil-action") === "restart") add(this.button);
+        continue;
+      }
+      if (part === "[data-anvil-action]") {
+        if (scenario === "held_input") add(this.button);
+        continue;
+      }
       if (part.startsWith("[data-anvil-action")) continue;
       if (part.includes("[data-anvil-state]")) add(this.state);
       if (part.includes("button") || part.includes("[role=button]") || part.includes("input[type=button]") || part.includes("input[type=submit]")) {
@@ -3213,7 +3268,7 @@ class FakePage {
         (part.startsWith("input") && !part.startsWith("input[type=button]") && !part.startsWith("input[type=submit]")) ||
         part.includes("select")
       ) {
-        add(this.textarea);
+        if (scenario !== "held_input") add(this.textarea);
       }
     }
     return out;
@@ -3232,7 +3287,12 @@ class FakePage {
 
   clickElement(el) {
     if (el === this.button) {
-      this.statusText = this.statusText === "started" ? "restarted" : "started";
+      if (scenario === "held_input" && this.statusText !== "ready") {
+        this.playerX = 300;
+        this.statusText = "restarted";
+      } else {
+        this.statusText = this.statusText === "started" ? "restarted" : "started";
+      }
     }
   }
 
@@ -3262,7 +3322,8 @@ class FakePage {
       throw new Error("page.reload: Timeout 12000ms exceeded");
     }
     this.reloaded = true;
-    this.statusText = "reloaded";
+    this.statusText = scenario === "held_input" ? "ready" : "reloaded";
+    if (scenario === "held_input") this.playerX = 300;
     this.textarea.value = this.persistedToken;
     if (["immediate", "delayed", "reload_only"].includes(scenario)) {
       this.previewText = this.persistedToken;
@@ -3360,6 +3421,40 @@ module.exports = {
         assert_eq!(observation.echo_latency_ms, None);
         assert!(observation.token_echoed_after_reload);
         assert_eq!(observation.token_echo_after_reload_latency_ms, Some(41));
+    }
+
+    #[test]
+    fn held_key_input_observes_player_x_and_makes_restart_judgeable() {
+        let Some(observation) =
+            run_fake_probe_scenario("held_input", BrowserInteractionProbeOptions::default())
+        else {
+            return;
+        };
+
+        assert!(observation.ok, "{observation:?}");
+        assert!(observation.input_state_changed, "{observation:?}");
+        assert!(
+            observation
+                .state_dimensions_changed
+                .iter()
+                .any(|dimension| dimension == "player_x"),
+            "{observation:?}"
+        );
+        assert!(
+            observation
+                .steps
+                .iter()
+                .any(|step| step == "input_key_hold")
+        );
+        assert!(observation.recovery_transition_observed, "{observation:?}");
+        assert!(
+            observation.restart_hook_reachable_after_start,
+            "{observation:?}"
+        );
+        assert_eq!(
+            observation.input_dispatches,
+            ["canvas/center click", "ArrowLeft keydown"]
+        );
     }
 
     #[test]
@@ -3660,6 +3755,54 @@ module.exports = {
         assert_eq!(
             value
                 .get("canvas_blank_after_start")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn canvas_non_redraw_preserves_contract_change_and_visible_failure() {
+        let observation = observe_probe_value(json!({
+            "ok": false,
+            "status": "failed",
+            "start_transition": true,
+            "input_state_evaluated_after_start": true,
+            "input_state_change": false,
+            "input_contract_state_change": true,
+            "state_changed": false,
+            "canvas_not_redrawn_after_start": true,
+            "state_dimensions_changed": ["player_x"],
+            "informational_failure_kinds": ["canvas_not_redrawn_after_start"],
+            "steps": [
+                "surface_visible",
+                "start_transition",
+                "control_input_dispatched",
+                "input_key_hold",
+                "input_state_evaluated_after_start",
+                "input_contract_state_change",
+                "canvas_not_redrawn_after_start",
+                "recovery_transition"
+            ],
+            "recovery_transition": true,
+            "failure_kind": "input_state_change_missing_after_start"
+        }));
+
+        assert!(!observation.ok);
+        assert!(!observation.input_state_changed);
+        assert!(observation.input_contract_state_changed);
+        assert!(observation.canvas_not_redrawn_after_start);
+        assert_eq!(observation.state_dimensions_changed, ["player_x"]);
+        assert!(observation.recovery_transition_observed);
+        let projected = interaction_observation_json(&observation);
+        assert_eq!(
+            projected
+                .get("canvas_not_redrawn_after_start")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            projected
+                .get("input_contract_state_change")
                 .and_then(Value::as_bool),
             Some(true)
         );

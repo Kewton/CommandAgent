@@ -68,6 +68,7 @@ pub(crate) struct RepairGuidanceKnowledge {
     pub(crate) generic_interaction: String,
     pub(crate) start_interaction: String,
     pub(crate) canvas_game_interaction: String,
+    pub(crate) canvas_not_redrawn_after_start: String,
     pub(crate) canvas_render_loop_checklist: String,
     pub(crate) canvas_input_wiring_checklist: String,
     pub(crate) persistence: String,
@@ -336,6 +337,11 @@ mod tests {
         assert_eq!(
             guidance.canvas_game_interaction,
             "keyboard or pointer input must visibly change game state (player position, projectiles, score/health, or state transitions); wire input handlers into the render/update loop."
+        );
+        assert!(
+            guidance
+                .canvas_not_redrawn_after_start
+                .starts_with("canvas_not_redrawn_after_start:")
         );
         assert_eq!(
             guidance.canvas_render_loop_checklist,

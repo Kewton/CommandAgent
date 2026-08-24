@@ -97,6 +97,25 @@ and the evidence path. Missing detail is unavailable/inconclusive; an
 explicit missing surface, input event, transition, or state change is a
 failure.
 
+Keyboard-driven games may consume held-key state from an update loop rather
+than mutate state directly in the `keydown` handler. The probe therefore holds
+one movement/fire key while polling the contract state and stops after the
+first observed dimension change; it does not send opposite directions after a
+successful movement and erase the observation. A changed contract dimension
+such as `player_x` is retained when the probe subsequently exercises restart,
+so reset behavior can be compared with the post-input state.
+
+For canvas apps, non-blank output is not sufficient evidence that rendering
+continues. The probe compares readable pixel hashes before start, after start,
+and after input. If all remain identical across that started interaction
+window despite a logical contract state change, evidence records
+`canvas_not_redrawn_after_start`. A logical contract state change without a
+canvas redraw remains a visible-interaction failure;
+repair guidance leads with restoring the `requestAnimationFrame` render loop
+and its input-to-render wiring. Application input failures take primary-reason
+priority over restart evidence that failed only as a consequence of the same
+missing visible state transition.
+
 ## 4. Existing assurance and honest failure
 
 The runtime begins from the admitted Next.js profile's `full` base, but does

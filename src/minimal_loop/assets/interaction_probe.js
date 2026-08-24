@@ -22,6 +22,7 @@ const SERVER_CHECK_TIMEOUT_MS = 5000;
 const RENDER_POLL_INTERVAL_MS = 250;
 const MARKER_POLL_INTERVAL_MS = 80;
 const RENDER_SETTLE_MS = 120;
+const HELD_INPUT_OBSERVE_MS = 320;
 const TOKEN_ECHO_SETTLE_MS = 3000;
 const PERSISTENCE_SURFACE_SETTLE_MS = 3000;
 const RELOAD_RENDER_SETTLE_MS = 3000;
@@ -321,6 +322,24 @@ async function recordCanvasSnapshot(page, name) {
 function canvasBlankForSnapshot(name) {
   const snapshot = canvas_snapshots.find((item) => item.name === name);
   return snapshot ? snapshot.canvas_blank : null;
+}
+
+function canvasPixelHashesForSnapshot(name) {
+  const snapshot = canvas_snapshots.find((item) => item.name === name);
+  return snapshot && snapshot.readable_canvas_count > 0
+    ? snapshot.pixel_hashes
+    : [];
+}
+
+function canvasNotRedrawnAfterStart() {
+  const beforeStart = canvasPixelHashesForSnapshot("before_start");
+  const afterStart = canvasPixelHashesForSnapshot("after_start");
+  const afterInputs = canvasPixelHashesForSnapshot("after_inputs");
+  if (beforeStart.length === 0 || afterStart.length === 0 || afterInputs.length === 0) {
+    return false;
+  }
+  const before = JSON.stringify(beforeStart);
+  return before === JSON.stringify(afterStart) && before === JSON.stringify(afterInputs);
 }
 
 function navigationFailureDetail(err) {
@@ -1151,14 +1170,33 @@ async function dispatchPostTransitionInputs(page, mode) {
   }
   input_dispatches.push("canvas/center click");
   for (const key of ["ArrowLeft", "ArrowRight", "Space"]) {
-    await page.keyboard.down(key);
-    await page.keyboard.up(key);
     input_dispatches.push(`${key} keydown`);
+    const keyBefore = await activeMarker(page, mode);
+    let keyAfter = keyBefore;
+    try {
+      await page.keyboard.down(key);
+      steps.push(`${key}_keydown_hold`);
+      keyAfter = await markerAfterActiveChange(
+        page,
+        mode,
+        keyBefore,
+        HELD_INPUT_OBSERVE_MS
+      );
+    } finally {
+      await page.keyboard.up(key);
+    }
+    if (keyBefore !== keyAfter) {
+      input_after_marker = keyAfter;
+      break;
+    }
   }
   steps.push("control_input_dispatched");
+  steps.push("input_key_hold");
   steps.push("input_state_evaluated_after_start");
   input_state_evaluated_after_start = true;
-  input_after_marker = await markerAfterActiveChange(page, mode, input_before_marker, 800);
+  if (!input_after_marker || input_after_marker === input_before_marker) {
+    input_after_marker = await markerAfterActiveChange(page, mode, input_before_marker, 800);
+  }
   if (mode === "contract") {
     mergeStateDimensionsChanged(changedTopLevelStateKeys(input_before_marker, input_after_marker));
   }
@@ -1370,6 +1408,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
         await dispatchStartlessTextInput(page, probe_mode);
       }
     }
+    await page.waitForTimeout(RENDER_SETTLE_MS);
     await recordCanvasSnapshot(page, "after_inputs");
 
     if (transitionObserved && probe_mode === "contract") {
@@ -1385,7 +1424,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
         await dispatchPostTransitionInputs(page, probe_mode);
       }
     }
-    await recordCanvasSnapshot(page, "after_inputs");
+    await recordCanvasSnapshot(page, "after_recovery");
 
     await evaluatePersistenceReload(page, probe_mode);
 
@@ -1393,9 +1432,24 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       informational_failure_kinds.push("primary_start_transition_missing");
     }
 
-    const inputStateChanged = textEntryRequired
+    const contractInputStateChanged = textEntryRequired
       ? text_input_state_change
       : steps.includes("input_state_change") || text_input_state_change;
+    const canvasNotRedrawn = !!(post_js_surface && post_js_surface.has_canvas)
+      && transitionObserved
+      && contractInputStateChanged
+      && canvasNotRedrawnAfterStart();
+    if (canvasNotRedrawn && !informational_failure_kinds.includes("canvas_not_redrawn_after_start")) {
+      informational_failure_kinds.push("canvas_not_redrawn_after_start");
+    }
+    const inputStateChanged = contractInputStateChanged && !canvasNotRedrawn;
+    if (canvasNotRedrawn) {
+      for (let index = steps.length - 1; index >= 0; index -= 1) {
+        if (steps[index] === "input_state_change") steps.splice(index, 1);
+      }
+      steps.push("input_contract_state_change");
+      steps.push("canvas_not_redrawn_after_start");
+    }
     const textInputObserved = text_entry === "entered" && text_input_state_change;
     const inputEvaluated = input_state_evaluated_after_start || textInputObserved;
     const startlessInputObserved = (!start_control_found && inputStateChanged) || textInputObserved;
@@ -1435,6 +1489,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       interaction_performed: ok,
       input_event_observed: steps.includes("control_input_dispatched") || text_entry === "entered",
       input_state_change: inputStateChanged,
+      input_contract_state_change: contractInputStateChanged,
       state_changed: inputStateChanged,
       visible_state_changed: inputStateChanged,
       recovery_transition: recoveryObserved,
@@ -1453,6 +1508,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       canvas_blank_before_start: canvasBlankBeforeStart,
       canvas_blank_after_start: canvasBlankAfterStart,
       canvas_blank_after_inputs: canvasBlankAfterInputs,
+      canvas_not_redrawn_after_start: canvasNotRedrawn,
       state_dimensions_changed,
       surface_fit,
       restart_hook_reachable_after_start,
@@ -1531,6 +1587,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       canvas_blank_before_start: canvasBlankForSnapshot("before_start"),
       canvas_blank_after_start: canvasBlankForSnapshot("after_start"),
       canvas_blank_after_inputs: canvasBlankForSnapshot("after_inputs"),
+      canvas_not_redrawn_after_start: canvasNotRedrawnAfterStart(),
       state_dimensions_changed,
       surface_fit,
       restart_hook_reachable_after_start,
