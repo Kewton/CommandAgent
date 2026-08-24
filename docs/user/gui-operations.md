@@ -159,10 +159,13 @@ npm run smoke -- \
   --commandagent-bin ../target/release/commandagent
 ```
 
-Use `--overview-only` for the provider-free first-run/help check and
-`--read-only` for all read-only projections. The smoke verifies base-safe
-links, runtime visibility/concurrency, list revalidation, help copy, empty-state
-wording, extension labels/handoff, dashboard/API/SVG, Trial workflow,
-reconnect, and mobile layout. It records
+Use `--overview-only` for the provider-free landing/first-use check and
+`--read-only` for all read-only projections. The Overview smoke verifies
+base-safe Trial/status/history/detail CTAs, direct reload, absence of duplicated
+map/band/run dashboards and their API fetches, real and unavailable runtime
+states, heading structure, focus visibility, WCAG axe rules, reduced motion,
+help copy, and desktop/mobile layout on both base paths. The broader smoke also
+verifies runtime concurrency, list revalidation, extension labels/handoff,
+Trial workflow, and reconnect. It records
 screenshots and `browser-smoke.json`; it never makes a successful result by
 weakening Gate 1 or terminal acceptance.
