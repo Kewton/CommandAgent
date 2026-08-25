@@ -62,3 +62,14 @@ success, exact retry caps, typed non-recoverable/invalid stops, normalized
 cycles, all direct/REPL/resume routes, GUI proposal/delegation/hash behavior,
 and the later-manual-recovery projection boundary. Keep the corpus and both
 browser base-path checks, then run repository-wide Rust and GUI verification.
+
+## Post-merge CI synchronization follow-up
+
+The GUI delegation fixture writes `delegated-args.txt` with shell redirection.
+File creation and truncation happen before `printf` has necessarily made the
+complete argument list observable, so waiting only for a successful read can
+race with the writer. Keep this correction test-only: boundedly poll until the
+file is readable and contains the adjacent confirmed flag/value pair
+`--recovery-plan-auto-runs`, `1`, then retain the existing exact position and
+value assertions. The deadline remains the existing five-second bound; no
+production behavior or contract changes are required.
