@@ -1,0 +1,12 @@
+{
+  "schema_version": "commandagent.goal_verify.corpus.v0",
+  "authority": {
+    "production_behavior_changed": false,
+    "event_authority_changed": false,
+    "assurance_verdict_changed": false
+  },
+  "baseline": {
+    "false_full_count": 0,
+    "seed": 39320260825
+  }
+}

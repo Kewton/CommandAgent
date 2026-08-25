@@ -1,0 +1,7 @@
+{
+  "config": "eval/goal_verify/v0/baseline-config.json",
+  "corpus": "eval/goal_verify/v0/corpus.json",
+  "corpus_sha256": "e80bb54f4ed1faa3b16370d947c4b6f03fa391dcfbe15ca8f99a04a50d34181b",
+  "report": "baseline.json",
+  "seed": 39320260825
+}

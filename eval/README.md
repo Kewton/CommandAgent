@@ -1,5 +1,15 @@
 # commandagent eval
 
+The frozen goal-to-verify Phase 0 fixture replay lives in
+`goal_verify/v0/`. Run it with:
+
+```bash
+python3 scripts/eval-goal-verify-baseline.py --run-dir <new-run-directory>
+```
+
+The runner refuses to overwrite a non-empty run directory. See
+`docs/dev/goal-to-verify-v0.md` for its authority and go/no-go contract.
+
 This directory contains the MVP eval harness for:
 
 - minimal-loop
