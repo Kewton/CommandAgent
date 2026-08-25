@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.verification_spec.create_shadow_coverage.v0",
+  "authority": {
+    "shadow_only": true,
+    "existing_profile_verifier_changed": false,
+    "browser_release_gate_changed": false,
+    "admission_cap_changed": false
+  },
+  "goldens": {
+    "nextjs": "ui_copy_style_interaction_port_path",
+    "python_cli": "aggregation_multiple_inputs"
+  },
+  "negative": {
+    "build_only": "unverified",
+    "unsupported_no_network": "unverified",
+    "provider_failure": "unverified"
+  }
+}

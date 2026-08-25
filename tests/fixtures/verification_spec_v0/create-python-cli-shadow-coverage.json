@@ -1,0 +1,10 @@
+{
+  "schema_version": "commandagent.verification_spec.create_shadow_coverage.v0",
+  "shadow_only": true,
+  "authoritative_verdict_changed": false,
+  "generation_status": "generated",
+  "all_required_passed": true,
+  "claims": [
+    {"claim_id":"cli-known-values","required":true,"strategy":["stdout","stdout"],"strength":"runtime","executed":true,"outcome":"pass","evidence_path":["evidence/sum-positive.json","evidence/sum-zero.json"],"oracle_ids":["sum-positive","sum-zero"],"unverified_reason":null}
+  ]
+}

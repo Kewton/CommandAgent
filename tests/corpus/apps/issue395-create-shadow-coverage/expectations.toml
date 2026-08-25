@@ -1,0 +1,13 @@
+case_id = "issue395-create-shadow-coverage"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.verification_spec.create_shadow_coverage.v0"
+fixtures/contract.json:authority.shadow_only = "true"
+fixtures/contract.json:authority.existing_profile_verifier_changed = "false"
+fixtures/contract.json:authority.browser_release_gate_changed = "false"
+fixtures/contract.json:authority.admission_cap_changed = "false"
+fixtures/contract.json:goldens.nextjs = "ui_copy_style_interaction_port_path"
+fixtures/contract.json:goldens.python_cli = "aggregation_multiple_inputs"
+fixtures/contract.json:negative.build_only = "unverified"
+fixtures/contract.json:negative.unsupported_no_network = "unverified"
+fixtures/contract.json:negative.provider_failure = "unverified"

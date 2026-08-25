@@ -433,6 +433,10 @@ fn validate_argv(argv: &[String]) -> Result<(), String> {
         .map_err(|error| format!("command is outside verify policy: {error}"))
 }
 
+pub(crate) fn validate_shadow_argv(argv: &[String]) -> Result<(), String> {
+    validate_argv(argv)
+}
+
 fn validate_argument_path(value: &str) -> Result<(), String> {
     let candidate = value.split_once('=').map_or(value, |(_, value)| value);
     let path = Path::new(candidate);

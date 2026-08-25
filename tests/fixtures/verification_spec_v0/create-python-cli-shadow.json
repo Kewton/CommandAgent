@@ -1,0 +1,15 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Create sum-cli; inputs 2 3 print 5, and -1 1 print 0.",
+  "intent": "create",
+  "profile": "python-cli",
+  "generation": {"provider":"fixture","model":"gold","request_id":"python-cli-shadow","raw_response_sha256":""},
+  "claims": [
+    {"id":"cli-known-values","origin":{"source_kind":"goal","start_byte":0,"end_byte":53},"normalized_requirement":"Known values are correct for both input rows","required":true,"kind":"behavior","oracle_ids":["sum-positive","sum-zero"]}
+  ],
+  "oracles": [
+    {"id":"sum-positive","claim_id":"cli-known-values","strategy":"stdout","expected_polarity":"success","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":["python3","-m","sum_cli","2","3"],"cwd":".","fixture_paths":[]},"input":{"kind":"text","value":"2 3"},"observation":{"kind":"stdout","expected":"5"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","concretized_binding_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","semantic_equivalence":true,"repair_kind":null}},
+    {"id":"sum-zero","claim_id":"cli-known-values","strategy":"stdout","expected_polarity":"success","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":["python3","-m","sum_cli","-1","1"],"cwd":".","fixture_paths":[]},"input":{"kind":"text","value":"-1 1"},"observation":{"kind":"stdout","expected":"0"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","concretized_binding_sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","semantic_equivalence":true,"repair_kind":null}}
+  ]
+}

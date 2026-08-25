@@ -1,0 +1,19 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Create /play on port 4173 with a Start heading, blue background, and a button that increments the counter twice.",
+  "intent": "create",
+  "profile": "nextjs",
+  "generation": {"provider":"fixture","model":"gold","request_id":"nextjs-shadow","raw_response_sha256":""},
+  "claims": [
+    {"id":"counter-two-clicks","origin":{"source_kind":"goal","start_byte":0,"end_byte":112},"normalized_requirement":"Two clicks change the counter from 0 to 2","required":true,"kind":"behavior","oracle_ids":["click-twice"]},
+    {"id":"ui-copy-style","origin":{"source_kind":"goal","start_byte":0,"end_byte":112},"normalized_requirement":"The /play heading is Start and its background is blue","required":true,"kind":"state","oracle_ids":["heading-copy","computed-background"]},
+    {"id":"port-path","origin":{"source_kind":"goal","start_byte":0,"end_byte":112},"normalized_requirement":"GET 127.0.0.1:4173/play returns 200","required":true,"kind":"state","oracle_ids":["play-http"]}
+  ],
+  "oracles": [
+    {"id":"click-twice","claim_id":"counter-two-clicks","strategy":"interaction","expected_polarity":"success","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":[],"cwd":".","fixture_paths":[]},"input":{"kind":"dom","route":"/play","selector":"button"},"observation":{"kind":"interaction","expected":"two clicks change 0 to 2"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","concretized_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","semantic_equivalence":true,"repair_kind":null}},
+    {"id":"heading-copy","claim_id":"ui-copy-style","strategy":"dom","expected_polarity":"success","minimum_strength":"deterministic","observed_strength":null,"setup":{"argv":[],"cwd":".","fixture_paths":[]},"input":{"kind":"dom","route":"/play","selector":"h1"},"observation":{"kind":"dom","expected":"Start"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","concretized_binding_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","semantic_equivalence":true,"repair_kind":null}},
+    {"id":"computed-background","claim_id":"ui-copy-style","strategy":"dom","expected_polarity":"success","minimum_strength":"deterministic","observed_strength":null,"setup":{"argv":[],"cwd":".","fixture_paths":[]},"input":{"kind":"dom","route":"/play","selector":"main"},"observation":{"kind":"dom","expected":"rgb(0, 0, 255)"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","concretized_binding_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","semantic_equivalence":true,"repair_kind":null}},
+    {"id":"play-http","claim_id":"port-path","strategy":"http","expected_polarity":"success","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":[],"cwd":".","fixture_paths":[]},"input":{"kind":"http","method":"GET","port":4173,"path":"/play"},"observation":{"kind":"http_status","expected":200},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","concretized_binding_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","semantic_equivalence":true,"repair_kind":null}}
+  ]
+}
