@@ -128,7 +128,8 @@ Other entry points:
 
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
   sample Trial, Gate 1, separate status/history/result pages, and the copyable
-  per-session working directory
+  working directory (isolated per session by default, or an existing relative
+  directory selected below `--execution-root`)
 - [Extensions](docs/guide/en/extensions.md) — four layers, pack/profile supply,
   bounded draft-profile registration, assurance boundaries, and the path from
   a private extension to review;

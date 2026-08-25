@@ -99,6 +99,21 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
         rows={5}
         value={spec.goal}
       />
+      <label htmlFor="trial-working-directory">作業ディレクトリ</label>
+      <input
+        autoCapitalize="none"
+        autoComplete="off"
+        data-testid="trial-working-directory"
+        disabled={launchIdentityLocked}
+        id="trial-working-directory"
+        onChange={(event) => update("working_directory", event.target.value)}
+        placeholder="未指定: sessions/&lt;session-id&gt;"
+        spellCheck={false}
+        value={spec.working_directory}
+      />
+      <small className="trial-field-hint" data-testid="trial-working-directory-hint">
+        --execution-root 配下の既存ディレクトリを相対パスで指定します。未指定ならセッション専用ディレクトリを作成します。
+      </small>
       <div className="trial-fields">
         <label>
           Recovery Plan 自動実行回数

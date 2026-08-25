@@ -22,7 +22,9 @@ use commandagent::tui::boundary_shell::route::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::session_paths::{SESSION_WORKSPACES_DIRECTORY, proposal_confirmation_root};
+use super::session_paths::{
+    SESSION_WORKSPACES_DIRECTORY, proposal_confirmation_root, selected_gate_workspace,
+};
 use super::sessions::{SessionError, internal, require_trial, unprocessable};
 use super::{AppState, trial_options};
 
@@ -33,6 +35,8 @@ const MAX_FIELD_BYTES: usize = 256;
 #[serde(deny_unknown_fields)]
 pub struct SessionSpec {
     goal: String,
+    #[serde(default)]
+    pub(super) working_directory: Option<String>,
     profile: String,
     #[serde(default)]
     intent: Option<IntentId>,
@@ -71,10 +75,12 @@ pub async fn proposal(
     Json(spec): Json<SessionSpec>,
 ) -> Result<Json<SessionProposal>, SessionError> {
     let workspace = require_trial(&state, &headers, true)?;
+    let gate_workspace = selected_gate_workspace(&workspace, spec.working_directory.as_deref())
+        .map_err(|_| invalid_working_directory())?;
     let (_, identity, card_markdown) = gate_one(
         &state,
         &spec,
-        &workspace,
+        &gate_workspace,
         proposal_confirmation_root(&workspace),
     )?;
     let price = band_price(&state.repository_root, &identity).await?;
@@ -83,9 +89,15 @@ pub async fn proposal(
         confirmation_required: true,
         card_hash,
         card_markdown: super::public_projection::text(card_markdown, &workspace),
-        identity: super::public_projection::identity(&identity),
+        identity: super::public_projection::identity(&identity, &workspace),
         price,
     }))
+}
+
+pub(super) fn invalid_working_directory() -> SessionError {
+    unprocessable(
+        "working_directory must identify an unchanged real directory below --execution-root",
+    )
 }
 
 pub(super) fn gate_one(
@@ -194,6 +206,15 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
         return Err(unprocessable(format!(
             "goal must contain 1..={MAX_GOAL_BYTES} UTF-8 bytes"
         )));
+    }
+    if spec
+        .working_directory
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty() || path.len() > 4096)
+    {
+        return Err(unprocessable(
+            "working_directory must contain 1..=4096 UTF-8 bytes when selected",
+        ));
     }
     for (name, value) in [
         ("profile", &spec.profile),

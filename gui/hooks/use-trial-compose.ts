@@ -40,6 +40,7 @@ type UseTrialComposeProps = {
 
 const initialSpec: SessionSpec = {
   goal: "",
+  working_directory: "",
   profile: "python-cli",
   intent: null,
   provider: "ollama",

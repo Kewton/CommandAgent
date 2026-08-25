@@ -4,9 +4,12 @@ use commandagent::tui::boundary_shell::confirmation::ConfirmationIdentity;
 
 pub(super) const EXECUTION_ROOT_LABEL: &str = "<execution-root>";
 
-pub(super) fn identity(identity: &ConfirmationIdentity) -> ConfirmationIdentity {
+pub(super) fn identity(
+    identity: &ConfirmationIdentity,
+    execution_root: &Path,
+) -> ConfirmationIdentity {
     let mut projected = identity.clone();
-    projected.workspace = EXECUTION_ROOT_LABEL.to_string();
+    projected.workspace = text(&identity.workspace, execution_root);
     projected
 }
 

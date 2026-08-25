@@ -71,11 +71,16 @@ export async function createSession(
   });
 }
 
-function sessionRequestSpec(spec: SessionSpec): Omit<SessionSpec, "intent"> & {
+function sessionRequestSpec(spec: SessionSpec): Omit<SessionSpec, "intent" | "working_directory"> & {
   intent?: TrialIntent;
+  working_directory?: string;
 } {
-  const { intent, ...request } = spec;
-  return intent === null ? request : { ...request, intent };
+  const { intent, working_directory, ...request } = spec;
+  return {
+    ...request,
+    ...(intent === null ? {} : { intent }),
+    ...(working_directory.trim() === "" ? {} : { working_directory }),
+  };
 }
 
 export async function createDirective(

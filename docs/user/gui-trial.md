@@ -136,12 +136,17 @@ normal keyboard activation and announces success or failure to assistive
 technology.
 
 Do not confuse this directory with the adjacent **実行記録の保存先**.
-Generated code and execution targets belong below
-`<execution-root>/sessions/<session-id>/`. CLI-owned records such as
+By default, generated code and execution targets belong below
+`<execution-root>/sessions/<session-id>/`. Before Gate 1, **作業ディレクトリ**
+can instead name an existing relative directory below `--execution-root`.
+The selected canonical path is shown in Gate 1, changes the confirmation hash,
+and remains fixed for confirmed additional requests and history reconnects,
+including after a server restart. CLI-owned records such as
 `events.jsonl` and `summary.md` belong below the separately displayed run
-record directory. If the working directory was removed after the run, the
-panel keeps the historical path visible but marks it **削除済み** and states
-that generated code or execution targets are no longer present.
+record directory. If a confirmed directory is removed, replaced, or becomes a
+symlink, later execution is rejected. The panel keeps a removed historical
+path visible but marks it **削除済み** and states that generated code or
+execution targets are no longer present.
 
 Absolute paths are intentionally absent from create/status/index, public
 artifact/event, runtime-status, and static projections. Only the GET-only

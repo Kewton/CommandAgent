@@ -893,13 +893,15 @@ async function runCase(smokeCase) {
         ok: readOnlyOk && mobile.ok,
       };
     }
-    const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
-    const trialFeedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
-    const sessionIndexLease = await probeSessionIndexLease(
-      browser,
-      server.origin,
-      smokeCase.serverBasePath,
-    );
+    const pollingBudget = gateOneOnly
+      ? null
+      : await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
+    const trialFeedback = gateOneOnly
+      ? null
+      : await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    const sessionIndexLease = gateOneOnly
+      ? null
+      : await probeSessionIndexLease(browser, server.origin, smokeCase.serverBasePath);
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -1007,6 +1009,7 @@ async function runCase(smokeCase) {
         profile: "python-cli",
         provider: "ollama",
         token: trialCredential,
+        workingDirectory: "",
       });
       const expectedNegativeConsoleErrors = consoleErrors.filter(
         (entry) =>
@@ -2300,6 +2303,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
     await page.locator("[data-testid='trial-intent']").selectOption("fix");
     await page.locator("[data-testid='trial-goal']").fill("Create a fix for the Next.js compile error");
+    const workingDirectory = page.locator("[data-testid='trial-working-directory']");
+    await workingDirectory.fill("projects/alpha");
     const recoveryControl = page.locator("[data-testid='trial-recovery-plan-auto-runs']");
     await recoveryControl.fill("3");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
@@ -2320,6 +2325,11 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const explicitGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='gate-one-edit']").click();
+    const workingDirectoryEditPreservedAndDiscardedConfirmation =
+      await workingDirectory.inputValue() === "projects/alpha" &&
+      (await page.locator("[data-testid='gate-one-card-markdown']").count()) === 0;
+    await workingDirectory.fill("projects/beta");
+    await workingDirectory.fill("");
     await recoveryControl.fill("4");
     await page.locator("[data-testid='trial-profile']").selectOption("python-cli");
     await page.locator("[data-testid='trial-intent']").selectOption("");
@@ -2359,6 +2369,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       profileChangeClearedPack;
     const explicitIntentFrozen =
       explicitBody.intent === "fix" &&
+      explicitBody.working_directory === "projects/alpha" &&
       explicitBody.pack === null &&
       explicitBody.recovery_plan_auto_runs === 3 &&
       explicitResponse.status() === 200 &&
@@ -2367,6 +2378,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       explicitGateOne.includes("単一 Plan 実行の最大 4 倍");
     const automaticIntentCompatible =
       !("intent" in proposalBody) &&
+      !("working_directory" in proposalBody) &&
       proposalBody.pack === null &&
       proposalBody.recovery_plan_auto_runs === 4 &&
       automaticResponse.status() === 200 &&
@@ -2404,6 +2416,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       role_layouts: roleLayouts,
       think_cleared_without_ollama: thinkClearedWithoutOllama,
       planner_candidates_stay_scoped: plannerCandidatesStayScoped,
+      working_directory_edit_preserved_and_discarded_confirmation:
+        workingDirectoryEditPreservedAndDiscardedConfirmation,
       unknown_warnings: unknownWarnings,
       ok:
         fixCatalogLinkVisible &&
@@ -2424,6 +2438,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         providersSeparated &&
         roleLayouts.ok &&
         thinkClearedWithoutOllama &&
+        workingDirectoryEditPreservedAndDiscardedConfirmation &&
         omittedThinkPreserved &&
         cloudProviderSkippedDiscovery,
     };
@@ -3479,6 +3494,7 @@ async function readTrialComposeValues(page) {
     profile: await page.locator("[data-testid='trial-profile']").inputValue(),
     provider: await page.locator("[data-testid='trial-provider']").inputValue(),
     token: await page.locator("[data-testid='trial-token']").inputValue(),
+    workingDirectory: await page.locator("[data-testid='trial-working-directory']").inputValue(),
   };
 }
 
@@ -3491,7 +3507,8 @@ function trialComposeValuesMatch(actual, expected, requireToken) {
     actual.plannerProvider === expected.plannerProvider &&
     actual.profile === expected.profile &&
     actual.provider === expected.provider &&
-    (!requireToken || actual.token === expected.token)
+    (!requireToken || actual.token === expected.token) &&
+    actual.workingDirectory === expected.workingDirectory
   );
 }
 

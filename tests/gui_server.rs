@@ -3028,6 +3028,222 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
 #[cfg(unix)]
 #[test]
+fn selected_working_directory_is_hash_bound_persisted_and_reused_after_restart() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let selected = workspace.join("projects/alpha");
+    let alternate = workspace.join("projects/beta");
+    std::fs::create_dir_all(&selected).unwrap();
+    std::fs::create_dir_all(&alternate).unwrap();
+    std::fs::write(selected.join("existing.txt"), "preserve me\n").unwrap();
+    let cli = temp.path().join("selected-workspace-commandagent");
+    let fixture = include_str!("fixtures/gui_cli_events.jsonl");
+    std::fs::write(
+        &cli,
+        format!(
+            r#"#!/bin/sh
+pwd -P > "${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-cwd.txt"
+printf '%s\n' "$@" > "${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt"
+case " $* " in
+  *" --run-ultra-plan "*) printf '%s' '{}' >> "$COMMANDAGENT_EVAL_EVENTS" ;;
+  *) printf '%s' '{}' > "$COMMANDAGENT_EVAL_EVENTS" ;;
+esac
+"#,
+            fixture.replace('\'', "'\\''"),
+            fixture.replace('\'', "'\\''"),
+        ),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let mut selected_spec = session_spec();
+    selected_spec["working_directory"] = serde_json::json!("projects/alpha");
+    let proposal = server.request("POST", "/api/session-proposals", Some(&selected_spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(
+        proposal["identity"]["workspace"],
+        "<execution-root>/projects/alpha"
+    );
+    assert!(
+        proposal["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("<execution-root>/projects/alpha")
+    );
+
+    let mut alternate_spec = selected_spec.clone();
+    alternate_spec["working_directory"] = serde_json::json!("projects/beta");
+    let alternate_proposal =
+        server.request("POST", "/api/session-proposals", Some(&alternate_spec));
+    assert_eq!(
+        alternate_proposal.status, 200,
+        "{}",
+        alternate_proposal.body
+    );
+    assert_ne!(
+        alternate_proposal.json()["card_hash"],
+        proposal["card_hash"]
+    );
+    alternate_spec["confirmation_hash"] = proposal["card_hash"].clone();
+    let stale = server.request("POST", "/api/sessions", Some(&alternate_spec));
+    assert_eq!(stale.status, 412, "{}", stale.body);
+
+    for invalid in [
+        serde_json::json!(selected.to_string_lossy()),
+        serde_json::json!("../outside"),
+        serde_json::json!("projects/../alpha"),
+        serde_json::json!("sessions/legacy"),
+        serde_json::json!(".commandagent/runs"),
+        serde_json::json!("projects/missing"),
+    ] {
+        let mut invalid_spec = session_spec();
+        invalid_spec["working_directory"] = invalid;
+        let rejected = server.request("POST", "/api/session-proposals", Some(&invalid_spec));
+        assert_eq!(rejected.status, 422, "{}", rejected.body);
+        assert!(
+            !rejected.body.contains(workspace.to_string_lossy().as_ref()),
+            "{}",
+            rejected.body
+        );
+    }
+    let symlink_target = workspace.join("projects/symlink-target");
+    std::fs::create_dir(&symlink_target).unwrap();
+    symlink(&symlink_target, workspace.join("projects/symlink-alias")).unwrap();
+    let mut symlink_spec = session_spec();
+    symlink_spec["working_directory"] = serde_json::json!("projects/symlink-alias");
+    let rejected = server.request("POST", "/api/session-proposals", Some(&symlink_spec));
+    assert_eq!(rejected.status, 422, "{}", rejected.body);
+
+    let mut confirmed = selected_spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let run_root = runs_dir(&workspace).join(&id);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "selected run timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let canonical_selected = selected.canonicalize().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        canonical_selected.to_string_lossy()
+    );
+    let args = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
+    let args = args.lines().collect::<Vec<_>>();
+    assert!(
+        args.windows(2)
+            .any(|pair| { pair[0] == "--cwd" && pair[1] == canonical_selected.to_string_lossy() })
+    );
+    assert_eq!(
+        std::fs::read_to_string(selected.join("existing.txt")).unwrap(),
+        "preserve me\n"
+    );
+    assert!(!workspace.join("sessions").join(&id).exists());
+    assert!(run_root.join("state/gui-working-directory.json").is_file());
+
+    server.stop();
+    let mut restarted = Server::start(&workspace, &cli);
+    let status = restarted.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(
+        status.json()["identity"]["workspace"],
+        "<execution-root>/projects/alpha"
+    );
+    let paths = restarted.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(paths.status, 200, "{}", paths.body);
+    assert_eq!(
+        paths.json()["working_directory"]["path"],
+        canonical_selected.to_string_lossy().as_ref()
+    );
+
+    let directive = serde_json::json!({"directive": "Keep using the selected directory"});
+    let proposed = restarted.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&directive),
+    );
+    assert_eq!(proposed.status, 200, "{}", proposed.body);
+    let hash = proposed.json()["directive_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let continued = restarted.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives/{hash}"),
+        None,
+    );
+    assert_eq!(continued.status, 202, "{}", continued.body);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = restarted.request("GET", "/api/trial-workspace", None);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "selected continuation timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        canonical_selected.to_string_lossy()
+    );
+
+    std::fs::remove_dir_all(&selected).unwrap();
+    std::fs::create_dir_all(&selected).unwrap();
+    let replaced = restarted.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(replaced.status, 404, "{}", replaced.body);
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_working_directory_survives_spawn_rollback() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let selected = workspace.join("existing-project");
+    std::fs::create_dir_all(&selected).unwrap();
+    std::fs::write(selected.join("keep.txt"), "keep\n").unwrap();
+    let cli = temp.path().join("removed-before-spawn-commandagent");
+    std::fs::write(&cli, "#!/bin/sh\nprintf 'commandagent test\\n'\n").unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let mut spec = session_spec();
+    spec["working_directory"] = serde_json::json!("existing-project");
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    spec["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    std::fs::remove_file(&cli).unwrap();
+    let failed = server.request("POST", "/api/sessions", Some(&spec));
+    assert_eq!(failed.status, 500, "{}", failed.body);
+    assert_eq!(
+        std::fs::read_to_string(selected.join("keep.txt")).unwrap(),
+        "keep\n"
+    );
+    assert!(selected.is_dir());
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn typed_trial_intents_are_validated_frozen_and_delegated() {
     use std::os::unix::fs::PermissionsExt;
 
