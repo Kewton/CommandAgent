@@ -1,0 +1,10 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Do something ambiguous.",
+  "intent": "unknown",
+  "profile": "generic",
+  "generation": {"provider":"fixture","model":"deterministic","request_id":"unknown-1","raw_response_sha256":""},
+  "claims": [],
+  "oracles": []
+}

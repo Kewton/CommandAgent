@@ -1,0 +1,10 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Provider rewrote the goal.",
+  "intent": "create",
+  "profile": "cli",
+  "generation": {"provider":"fixture","model":"deterministic","request_id":"create-1","raw_response_sha256":""},
+  "claims": [{"id":"hello-output","origin":{"source_kind":"goal","start_byte":0,"end_byte":31},"normalized_requirement":"CLI prints hello","required":true,"kind":"behavior","oracle_ids":["run-cli"]}],
+  "oracles": [{"id":"run-cli","claim_id":"hello-output","strategy":"command","expected_polarity":"success","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":["cargo","run","--quiet"],"cwd":".","fixture_paths":[]},"input":{"kind":"none"},"observation":{"kind":"stdout","expected":"hello"},"timeout_ms":30000,"lifecycle":"proposed","result":"unverified","lineage":{"proposed_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","concretized_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","semantic_equivalence":true,"repair_kind":null}}]
+}
