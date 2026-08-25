@@ -1,0 +1,5 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "authority": {"shadow_only": true, "existing_verdict_changed": false},
+  "goldens": {"create": "valid", "fix": "valid", "investigate": "valid", "unknown": "rejected"}
+}

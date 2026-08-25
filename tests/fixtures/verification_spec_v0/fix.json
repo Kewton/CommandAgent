@@ -1,0 +1,10 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Fix parser crash for fixtures/a.json.",
+  "intent": "fix",
+  "profile": "generic",
+  "generation": {"provider":"fixture","model":"deterministic","request_id":"fix-1","raw_response_sha256":""},
+  "claims": [{"id":"same-reproducer","origin":{"source_kind":"fix_requirement","artifact_path":"evidence/fix-run-before.json","requirement_id":"before_fails","stage":"before","expected_polarity":"failure","lineage":"reproducer:fixture","epoch":1},"normalized_requirement":"The same fixture fails before and passes after","required":true,"kind":"regression","oracle_ids":["parser-regression"]}],
+  "oracles": [{"id":"parser-regression","claim_id":"same-reproducer","strategy":"existing_fix_evidence","expected_polarity":"failure","minimum_strength":"runtime","observed_strength":null,"setup":{"argv":[],"cwd":".","fixture_paths":["fixtures/a.json"]},"input":{"kind":"fixture","path":"fixtures/a.json","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"observation":{"kind":"existing_binding","artifact_path":"evidence/fix-run-before.json"},"timeout_ms":30000,"lifecycle":"bound","result":"unverified","lineage":{"proposed_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","concretized_binding_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","semantic_equivalence":true,"repair_kind":null}}]
+}

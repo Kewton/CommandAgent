@@ -45,6 +45,7 @@ pub mod time_profile;
 pub mod tools;
 pub mod tui;
 pub mod util;
+pub mod verification_spec;
 pub mod workflow;
 mod workspace_lock;
 

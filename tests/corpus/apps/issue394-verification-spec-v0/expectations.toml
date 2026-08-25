@@ -1,0 +1,10 @@
+case_id = "issue394-verification-spec-v0"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.verification_spec.v0"
+fixtures/contract.json:authority.shadow_only = "true"
+fixtures/contract.json:authority.existing_verdict_changed = "false"
+fixtures/contract.json:goldens.create = "valid"
+fixtures/contract.json:goldens.fix = "valid"
+fixtures/contract.json:goldens.investigate = "valid"
+fixtures/contract.json:goldens.unknown = "rejected"
