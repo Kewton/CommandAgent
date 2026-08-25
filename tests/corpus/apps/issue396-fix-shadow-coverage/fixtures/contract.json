@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.verification_spec.fix_shadow_coverage.v0",
+  "authority": {
+    "shadow_only": true,
+    "candidate_execution_authorized": false,
+    "fix_evaluator_changed": false,
+    "fix_runtime_changed": false
+  },
+  "coverage": {
+    "f1_f2_f3_post_hoc": true
+  },
+  "negative": {
+    "after_only": "failed",
+    "stale_epoch": "unverified",
+    "regression_set_changed": "failed",
+    "model_execution_claim": "non_authoritative"
+  }
+}
