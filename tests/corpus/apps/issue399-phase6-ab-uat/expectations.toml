@@ -1,0 +1,10 @@
+case_id = "issue399-phase6-ab-uat"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.goal_verify.phase6_report.v0"
+fixtures/contract.json:evidence_lanes.separated = "true"
+fixtures/contract.json:metrics.complete_shape = "true"
+fixtures/contract.json:raw_evidence.referenced = "true"
+fixtures/contract.json:rollback.rehearsed = "true"
+fixtures/contract.json:flag_off.compatible = "true"
+fixtures/contract.json:final_decision = "INSUFFICIENT-EVIDENCE"

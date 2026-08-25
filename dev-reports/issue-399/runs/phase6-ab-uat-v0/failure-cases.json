@@ -1,0 +1,134 @@
+[
+  {
+    "reason": "missing",
+    "scope": "evidence_lane:ci"
+  },
+  {
+    "reason": "partial",
+    "scope": "evidence_lane:offline_local"
+  },
+  {
+    "reason": "not_authorized",
+    "scope": "evidence_lane:approved_live"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:create|cli|en|small"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:create|generic|ja|small"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:create|nextjs|en|medium"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:create|nextjs|ja|medium"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:fix|cli|ja|medium"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:fix|data|en|small"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:fix|generic|en|medium"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:fix|nextjs|ja|large"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:investigate|data|en|large"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:investigate|generic|en|medium"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:investigate|generic|ja|small"
+  },
+  {
+    "reason": "baseline_samples=1, candidate_samples=0 below 30",
+    "scope": "matrix_cell:investigate|nextjs|ja-en|large"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:required_claim_recall"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:required_claim_precision"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:strong_binding_coverage"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:task_success_rate"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:final_acceptance_rate"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:false_full_count"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:false_fail_rate"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:false_partial_rate"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:flake_rate"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:schema_compliance_yield"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:required_claim_recall_gain"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:strong_binding_coverage_gain"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:unverified_rate_reduction"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:false_full_target"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:wall_time_p50"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:wall_time_p95"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:total_tokens_p50"
+  },
+  {
+    "reason": "insufficient_evidence",
+    "scope": "indicator:total_tokens_p95"
+  }
+]
