@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::AppState;
-use super::gate_one::{SessionSpec, gate_one};
+use super::gate_one::{SessionSpec, gate_one, invalid_working_directory};
 use super::session_paths::{SessionPaths, relative_path};
 use super::sessions::{SessionError, bad_request, internal, require_trial, workspace_conflict};
 use super::workspace_policy::TrialWorkspace;
@@ -90,9 +90,15 @@ pub async fn create(
         ));
     };
     let id = Uuid::now_v7().to_string();
-    let paths = SessionPaths::new(&workspace, &id);
-    let (mut shell, identity, _) =
-        gate_one(&state, &request.spec, &workspace, paths.confirmation_root())?;
+    let paths = SessionPaths::new(&workspace, &id, request.spec.working_directory.as_deref())
+        .map_err(|_| invalid_working_directory())?;
+    let gate_workspace = paths.gate_workspace(&workspace).to_path_buf();
+    let (mut shell, identity, _) = gate_one(
+        &state,
+        &request.spec,
+        &gate_workspace,
+        paths.confirmation_root(),
+    )?;
     let expected_hash = identity.card_hash().map_err(internal)?;
     if confirmation_hash != expected_hash {
         return Err(super::error_response::GuiError::new(
@@ -108,6 +114,11 @@ pub async fn create(
     if let Err(error) = shell.confirm(confirmation_hash) {
         state.trial_workspace.cancel_start(&id);
         return Err(bad_request(error));
+    }
+    if let Err(error) = paths.persist_working_directory() {
+        state.trial_workspace.cancel_start(&id);
+        let _ = paths.rollback_unstarted();
+        return Err(internal(error));
     }
     let events_path = paths.events_path();
     let dispatch = shell.dispatch(|confirmed| {
@@ -223,10 +234,10 @@ fn delegated_cli_command(
         .trial_workspace
         .require_current()
         .map_err(anyhow::Error::msg)?;
-    if identity.workspace != workspace.to_string_lossy() {
+    let execution_workspace = paths.require_execution_workspace()?;
+    if identity.workspace != paths.gate_workspace(&workspace).to_string_lossy() {
         anyhow::bail!(workspace_changed_message);
     }
-    let execution_workspace = paths.require_execution_workspace()?;
     let mut command = Command::new(&state.commandagent_bin);
     command.env_clear();
     restore_allowed_environment(&mut command);

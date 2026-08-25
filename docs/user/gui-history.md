@@ -22,9 +22,12 @@ separate. Session `<session-id>` keeps confirmations, `events.jsonl`,
 `summary.md`, and directive state in
 `<execution-root>/.commandagent/runs/<session-id>/`, while generated code,
 plans, evidence, repairs, and completion contracts live in
-`<execution-root>/sessions/<session-id>/`. A later Gate 1 does not inventory
-earlier session workspaces, and a continuation returns to the same session
-workspace rather than the execution-root top level.
+`<execution-root>/sessions/<session-id>/` by default. A session that selected
+an existing relative directory records that binding in its central state. A
+later Gate 1 does not inventory earlier session workspaces, and a continuation
+returns to the same recorded canonical directory rather than the execution-root
+top level. Sessions without the newer binding record retain the isolated
+`sessions/<session-id>` fallback.
 
 Opening a terminal row's **結果詳細** shows these locations as separate
 fields. The absolute CLI working directory can be copied there and is the same

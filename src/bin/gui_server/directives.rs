@@ -49,7 +49,12 @@ pub async fn propose(
 ) -> Result<Json<DirectiveProposal>, SessionError> {
     let workspace = require_trial(&state, &headers, true)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&workspace, &id);
+    let paths = SessionPaths::existing(&workspace, &id)
+        .map_err(|_| not_found("session run path is not safely readable"))?
+        .ok_or_else(|| not_found("session run was not found"))?;
+    paths
+        .require_execution_workspace()
+        .map_err(|_| not_found("session working directory is not safely available"))?;
     let events_path = paths.events_path();
     require_current_terminal(&events_path).await?;
     require_no_pending_directive(&events_path).await?;
@@ -75,7 +80,9 @@ pub async fn confirm(
 ) -> Result<impl IntoResponse, SessionError> {
     let workspace = require_trial(&state, &headers, true)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&workspace, &id);
+    let paths = SessionPaths::existing(&workspace, &id)
+        .map_err(|_| not_found("session run path is not safely readable"))?
+        .ok_or_else(|| not_found("session run was not found"))?;
     let events_path = paths.events_path();
     require_current_terminal(&events_path).await?;
     let mut shell = BoundaryShell::new(paths.confirmation_root(), Some(events_path.clone()));

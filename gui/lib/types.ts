@@ -59,6 +59,7 @@ export type TrialIntent = "create" | "fix" | "investigate";
 
 export type SessionSpec = {
   goal: string;
+  working_directory: string;
   profile: string;
   intent: TrialIntent | null;
   provider: string;

@@ -1,17 +1,21 @@
-use std::path::{Path as FilePath, PathBuf};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Component, Path as FilePath, PathBuf};
 
 use anyhow::Context;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::AppState;
 use super::error_response::GuiError;
 use super::sessions::{not_found, require_session_id, require_trial};
 
 pub(super) const SESSION_WORKSPACES_DIRECTORY: &str = "sessions";
+const WORKING_DIRECTORY_BINDING: &str = "gui-working-directory.json";
+const WORKING_DIRECTORY_BINDING_SCHEMA: &str = "commandagent.gui-working-directory/v1";
 
 #[derive(Debug, Serialize)]
 pub(super) struct SessionPathProjection {
@@ -43,14 +47,37 @@ pub(super) struct RunRecordPaths {
 pub(super) struct SessionPaths {
     run_root: PathBuf,
     execution_workspace: PathBuf,
+    selected_binding: Option<WorkingDirectoryBinding>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct WorkingDirectoryBinding {
+    schema_version: String,
+    relative_path: String,
+    canonical_path: PathBuf,
+    device: Option<u64>,
+    inode: Option<u64>,
 }
 
 impl SessionPaths {
-    pub(super) fn new(workspace: &FilePath, id: &str) -> Self {
-        Self {
+    pub(super) fn new(
+        workspace: &FilePath,
+        id: &str,
+        selected: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let selected_binding = selected
+            .map(|selected| WorkingDirectoryBinding::resolve(workspace, selected))
+            .transpose()?;
+        let execution_workspace = selected_binding.as_ref().map_or_else(
+            || workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
+            |binding| binding.canonical_path.clone(),
+        );
+        Ok(Self {
             run_root: commandagent::runtime_paths::runs_dir(workspace).join(id),
-            execution_workspace: workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
-        }
+            execution_workspace,
+            selected_binding,
+        })
     }
 
     pub(super) fn existing(workspace: &FilePath, id: &str) -> anyhow::Result<Option<Self>> {
@@ -71,9 +98,15 @@ impl SessionPaths {
             require_canonical_real_directory(runtime_root)?;
             require_canonical_real_directory(&runs_root)?;
             require_canonical_real_directory(&run_root)?;
+            let selected_binding = load_working_directory_binding(&run_root, workspace)?;
+            let execution_workspace = selected_binding.as_ref().map_or_else(
+                || workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
+                |binding| binding.canonical_path.clone(),
+            );
             return Ok(Some(Self {
                 run_root,
-                execution_workspace: workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
+                execution_workspace,
+                selected_binding,
             }));
         }
         Ok(None)
@@ -99,7 +132,38 @@ impl SessionPaths {
         &self.execution_workspace
     }
 
+    pub(super) fn gate_workspace<'a>(&'a self, execution_root: &'a FilePath) -> &'a FilePath {
+        if self.selected_binding.is_some() {
+            &self.execution_workspace
+        } else {
+            execution_root
+        }
+    }
+
+    pub(super) fn persist_working_directory(&self) -> anyhow::Result<()> {
+        let Some(binding) = self.selected_binding.as_ref() else {
+            return Ok(());
+        };
+        binding.require_current()?;
+        let path = self.state_root().join(WORKING_DIRECTORY_BINDING);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .with_context(|| format!("create working directory binding {}", path.display()))?;
+        let mut bytes = serde_json::to_vec_pretty(binding)?;
+        bytes.push(b'\n');
+        file.write_all(&bytes)
+            .with_context(|| format!("write working directory binding {}", path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync working directory binding {}", path.display()))
+    }
+
     pub(super) fn create_execution_workspace(&self) -> anyhow::Result<()> {
+        if self.selected_binding.is_some() {
+            self.require_execution_workspace()?;
+            return Ok(());
+        }
         let sessions_root = self
             .execution_workspace
             .parent()
@@ -151,6 +215,9 @@ impl SessionPaths {
     }
 
     pub(super) fn require_execution_workspace(&self) -> anyhow::Result<PathBuf> {
+        if let Some(binding) = self.selected_binding.as_ref() {
+            return binding.require_current();
+        }
         if self.execution_workspace_state()? != WorkingDirectoryState::Available {
             anyhow::bail!(
                 "session execution workspace is missing: {}",
@@ -161,6 +228,22 @@ impl SessionPaths {
     }
 
     pub(super) fn execution_workspace_state(&self) -> anyhow::Result<WorkingDirectoryState> {
+        if let Some(binding) = self.selected_binding.as_ref() {
+            return match std::fs::symlink_metadata(&binding.canonical_path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Ok(WorkingDirectoryState::Missing)
+                }
+                Err(error) => Err(error).with_context(|| {
+                    format!(
+                        "inspect selected working directory {}",
+                        binding.canonical_path.display()
+                    )
+                }),
+                Ok(_) => binding
+                    .require_current()
+                    .map(|_| WorkingDirectoryState::Available),
+            };
+        }
         let sessions_root = self
             .execution_workspace
             .parent()
@@ -197,6 +280,9 @@ impl SessionPaths {
     }
 
     pub(super) fn rollback_execution_workspace(&self) -> anyhow::Result<()> {
+        if self.selected_binding.is_some() {
+            return Ok(());
+        }
         let sessions_root = self
             .execution_workspace
             .parent()
@@ -222,6 +308,171 @@ impl SessionPaths {
             }),
         }
     }
+}
+
+impl WorkingDirectoryBinding {
+    fn resolve(execution_root: &FilePath, selected: &str) -> anyhow::Result<Self> {
+        let relative = validate_relative_selection(selected)?;
+        let canonical_path = require_selected_directory(execution_root, &relative)?;
+        let metadata = std::fs::metadata(&canonical_path).with_context(|| {
+            format!(
+                "inspect selected working directory {}",
+                canonical_path.display()
+            )
+        })?;
+        let (device, inode) = filesystem_identity(&metadata);
+        Ok(Self {
+            schema_version: WORKING_DIRECTORY_BINDING_SCHEMA.to_string(),
+            relative_path: relative.to_string_lossy().replace('\\', "/"),
+            canonical_path,
+            device,
+            inode,
+        })
+    }
+
+    fn require_current(&self) -> anyhow::Result<PathBuf> {
+        let metadata = std::fs::symlink_metadata(&self.canonical_path).with_context(|| {
+            format!(
+                "inspect selected working directory {}",
+                self.canonical_path.display()
+            )
+        })?;
+        require_real_directory(&self.canonical_path, &metadata)?;
+        let canonical = self.canonical_path.canonicalize().with_context(|| {
+            format!(
+                "canonicalize selected working directory {}",
+                self.canonical_path.display()
+            )
+        })?;
+        if canonical != self.canonical_path {
+            anyhow::bail!(
+                "selected working directory changed after confirmation: expected {}, found {}",
+                self.canonical_path.display(),
+                canonical.display()
+            );
+        }
+        let metadata = std::fs::metadata(&canonical)?;
+        let (device, inode) = filesystem_identity(&metadata);
+        if self.device.is_some_and(|expected| Some(expected) != device)
+            || self.inode.is_some_and(|expected| Some(expected) != inode)
+        {
+            anyhow::bail!(
+                "selected working directory was replaced after confirmation: {}",
+                self.canonical_path.display()
+            );
+        }
+        Ok(canonical)
+    }
+}
+
+fn validate_relative_selection(selected: &str) -> anyhow::Result<PathBuf> {
+    let selected = selected.trim();
+    if selected.is_empty() {
+        anyhow::bail!("working_directory must be omitted or name an existing relative directory");
+    }
+    let relative = FilePath::new(selected);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        anyhow::bail!("working_directory must be a traversal-free relative path");
+    }
+    let first = relative
+        .components()
+        .next()
+        .and_then(|component| match component {
+            Component::Normal(value) => value.to_str(),
+            _ => None,
+        });
+    if matches!(
+        first,
+        Some(
+            SESSION_WORKSPACES_DIRECTORY
+                | commandagent::runtime_paths::WORKSPACE_DIR
+                | commandagent::runtime_paths::LEGACY_WORKSPACE_DIR
+        )
+    ) {
+        anyhow::bail!("working_directory cannot select GUI runtime directories");
+    }
+    Ok(relative.to_path_buf())
+}
+
+fn require_selected_directory(
+    execution_root: &FilePath,
+    relative: &FilePath,
+) -> anyhow::Result<PathBuf> {
+    let requested = execution_root.join(relative);
+    let metadata = std::fs::symlink_metadata(&requested)
+        .with_context(|| format!("inspect selected working directory {}", requested.display()))?;
+    require_real_directory(&requested, &metadata)?;
+    let canonical = requested.canonicalize().with_context(|| {
+        format!(
+            "canonicalize selected working directory {}",
+            requested.display()
+        )
+    })?;
+    if canonical != requested || !canonical.starts_with(execution_root) {
+        anyhow::bail!("working_directory must resolve without symlinks below --execution-root");
+    }
+    Ok(canonical)
+}
+
+fn load_working_directory_binding(
+    run_root: &FilePath,
+    execution_root: &FilePath,
+) -> anyhow::Result<Option<WorkingDirectoryBinding>> {
+    let path = run_root.join("state").join(WORKING_DIRECTORY_BINDING);
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect working directory binding {}", path.display()));
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 16 * 1024 {
+        anyhow::bail!("working directory binding is not a safe regular file");
+    }
+    let binding: WorkingDirectoryBinding = serde_json::from_slice(
+        &std::fs::read(&path)
+            .with_context(|| format!("read working directory binding {}", path.display()))?,
+    )
+    .with_context(|| format!("parse working directory binding {}", path.display()))?;
+    if binding.schema_version != WORKING_DIRECTORY_BINDING_SCHEMA {
+        anyhow::bail!("unsupported working directory binding schema");
+    }
+    let relative = validate_relative_selection(&binding.relative_path)?;
+    let expected = execution_root.join(relative);
+    if expected != binding.canonical_path || !expected.starts_with(execution_root) {
+        anyhow::bail!("working directory binding escaped or changed execution root");
+    }
+    Ok(Some(binding))
+}
+
+#[cfg(unix)]
+fn filesystem_identity(metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
+    use std::os::unix::fs::MetadataExt;
+
+    (Some(metadata.dev()), Some(metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn filesystem_identity(_: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
+    (None, None)
+}
+
+pub(super) fn selected_gate_workspace(
+    execution_root: &FilePath,
+    selected: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    selected.map_or_else(
+        || Ok(execution_root.to_path_buf()),
+        |selected| {
+            WorkingDirectoryBinding::resolve(execution_root, selected)
+                .map(|value| value.canonical_path)
+        },
+    )
 }
 
 pub(super) async fn get(

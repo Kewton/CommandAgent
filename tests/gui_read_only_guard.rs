@@ -36,9 +36,15 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
     ];
     for path in sources {
         let source = std::fs::read_to_string(&path).unwrap();
+        let production_source = source.split("#[cfg(test)]").next().unwrap();
         for token in globally_forbidden {
+            if path == Path::new(SESSION_PATHS_MODULE)
+                && matches!(token, "OpenOptions" | ".write_all(" | ".write(")
+            {
+                continue;
+            }
             assert!(
-                !source.contains(token),
+                !production_source.contains(token),
                 "{} contains forbidden GUI capability {token:?}",
                 path.display()
             );
@@ -96,6 +102,7 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
         "paths.create_execution_workspace()",
+        "paths.persist_working_directory()",
         "Command::new(&state.commandagent_bin)",
         "command.env_clear()",
         "DELEGATE_PARENT_ENV_ALLOWLIST",
@@ -119,6 +126,11 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
     }
     assert!(
         delegate.find("shell.confirm(confirmation_hash)")
+            < delegate.find("paths.persist_working_directory()"),
+        "selected working directory binding must remain after Gate 1 confirmation"
+    );
+    assert!(
+        delegate.find("paths.persist_working_directory()")
             < delegate.find("paths.create_execution_workspace()"),
         "session workspace creation must remain after Gate 1 confirmation"
     );
@@ -383,6 +395,10 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
+        "data-testid=\"trial-working-directory\"",
+        "update(\"working_directory\"",
+        "working_directory.trim() === \"\" ? {} : { working_directory }",
+        "未指定: sessions/&lt;session-id&gt;",
         "このディレクトリ内の内容だけを作成・変更・削除できます",
         "apiPath(\"trial-options\")",
         "apiPath(\"pack-options\")",
@@ -476,8 +492,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     );
     assert_eq!(
         source.matches("disabled={launchIdentityLocked}").count(),
-        6,
-        "goal, token, intent, recovery limit, and both model controls must share the run-stage lock"
+        7,
+        "goal, token, working directory, intent, recovery limit, and both model controls must share the run-stage lock"
     );
     assert_eq!(
         source

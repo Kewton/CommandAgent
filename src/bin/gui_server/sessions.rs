@@ -209,7 +209,7 @@ pub async fn status(
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
-        identity: super::public_projection::identity(confirmed.identity()),
+        identity: super::public_projection::identity(confirmed.identity(), &workspace),
         recovery_auto_run: recovery_auto_run_status(current_events, confirmed.identity()),
     };
     let mut response = Json(session).into_response();
