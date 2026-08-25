@@ -3328,11 +3328,18 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let delegated_args = loop {
         if let Ok(args) = std::fs::read_to_string(&args_path) {
-            break args;
+            if args
+                .lines()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|pair| pair == ["--recovery-plan-auto-runs", "1"])
+            {
+                break args;
+            }
         }
         assert!(
             Instant::now() < deadline,
-            "delegated CLI did not write arguments"
+            "delegated CLI did not write the confirmed recovery flag and value"
         );
         std::thread::sleep(Duration::from_millis(20));
     };

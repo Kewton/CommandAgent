@@ -26,6 +26,20 @@
 - `cd gui && npm run smoke:session-index -- --output ../target/issue387-session-preflight-final`: `passed`
 - `cd gui && npm run smoke -- --overview-only --output ../target/issue387-browser-preflight-final --commandagent-bin ../target/release/commandagent`: `passed`
 
+## Post-merge CI follow-up checks
+
+- `cargo fmt --all -- --check`: `passed`
+- `cargo test --features gui --test gui_server recovery_auto_run_limit_is_hash_bound_validated_and_delegated`: `passed` (11 consecutive runs)
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo clippy --features gui --bin gui_server -- -D warnings`: `passed`
+
+Regression note: develop CI run `32818809861` observed
+`delegated-args.txt` after shell redirection created the path but before the
+single `printf` made the complete argument list observable. The test now uses
+the existing bounded deadline to wait for the exact adjacent confirmed
+flag/value pair before retaining its original exact assertions. The correction
+is test-only; no production or acceptance contract was changed.
+
 The browser report recorded overall `ok: true` for `/` and
 `/proxy/commandagent/`. In both cases the Trial compose regression recorded the
 explicit Recovery Plan value `3`, an edited proposal value `4`, confirmation

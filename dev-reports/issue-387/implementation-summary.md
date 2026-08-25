@@ -64,3 +64,13 @@ run from its count.
   edited proposals at both supported base paths.
 - Updated the CLI references, shell design, mechanism ledger, and UAT scenario
   checklist.
+
+## Post-merge CI follow-up
+
+- Fixed only the GUI delegation test synchronization after develop CI exposed
+  a shell-redirection observability race. The test now waits within its
+  existing five-second deadline until `delegated-args.txt` is readable and
+  contains the adjacent confirmed `--recovery-plan-auto-runs` / `1` pair.
+- Preserved the original exact flag-position and following-value assertions.
+  Production delegation, confirmation hashing, and recovery behavior are
+  unchanged.
