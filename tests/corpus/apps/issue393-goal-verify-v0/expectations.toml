@@ -1,0 +1,9 @@
+case_id = "issue393-goal-verify-v0"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.goal_verify.corpus.v0"
+fixtures/contract.json:authority.production_behavior_changed = "false"
+fixtures/contract.json:authority.event_authority_changed = "false"
+fixtures/contract.json:authority.assurance_verdict_changed = "false"
+fixtures/contract.json:baseline.false_full_count = "0"
+fixtures/contract.json:baseline.seed = "39320260825"
