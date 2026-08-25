@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 
 import type { TrialRunState } from "../hooks/use-trial-run";
 import { trialRoutePath } from "../lib/base-path";
@@ -6,6 +9,7 @@ import { byteLabel, trialGateLabel } from "../lib/format";
 import type { PolledSession } from "../lib/types";
 import { DocumentViewer } from "./document-viewer";
 import { TrialFailureExplanation } from "./trial-failure-explanation";
+import { TrialPhaseTiming } from "./trial-phase-timing";
 import { TrialRunIdentity } from "./trial-run-identity";
 import { TrialTaskProgress } from "./trial-task-progress";
 import {
@@ -17,10 +21,22 @@ import {
 export function TrialTerminal({ run }: { run: TrialRunState }) {
   const {
     artifacts, busy, confirmDirective, created, directive, directiveText,
-    evidenceDocument, evidenceError, evidenceLoading, evidenceOpen, persistDirective,
-    readArtifact, readEvents, readRecoveryDocument, session, setDirective, setDirectiveText, setStage,
-    stage, startNewRun, terminalRef,
+    evidenceAnnouncement, evidenceDocument, evidenceError, evidenceLoading, evidenceOpen,
+    persistDirective, readArtifact, readEvents, readRecoveryDocument, session, setDirective,
+    setDirectiveText, setStage, stage, startNewRun, terminalRef,
   } = run;
+  const evidenceViewerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (evidenceDocument === null || evidenceLoading) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = evidenceViewerRef.current;
+      if (target === null) return;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [evidenceDocument, evidenceLoading]);
 
   return (
     <>
@@ -84,6 +100,10 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
             <TrialRunIdentity
               identity={session.identity}
               recovery={session.recovery_auto_run}
+            />
+            <TrialPhaseTiming
+              phases={session.phases}
+              totalProcessingDurationMs={session.total_processing_duration_ms ?? null}
             />
             <TrialTaskProgress
               evidenceLoading={evidenceLoading}
@@ -192,7 +212,25 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
                 </button>
               ))}
             </aside>
-            <div className="session-file-document" data-testid="trial-file-viewer">
+            <div
+              aria-label={evidenceDocument === null
+                ? "セッション文書ビューアー"
+                : `${evidenceDocument.id} 文書ビューアー`}
+              className="session-file-document"
+              data-testid="trial-file-viewer"
+              ref={evidenceViewerRef}
+              role="region"
+              tabIndex={-1}
+            >
+              <p
+                aria-atomic="true"
+                aria-live="polite"
+                className="trial-copy-announcement"
+                data-testid="trial-document-open-announcement"
+                role="status"
+              >
+                {evidenceAnnouncement ?? ""}
+              </p>
               <DocumentViewer
                 document={evidenceDocument}
                 empty="イベント、サマリー、または受入成果物を選択すると、ここに表示します。"

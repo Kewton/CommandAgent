@@ -4431,6 +4431,15 @@ a.runtime-badge:focus-visible {
   min-width: 0;
 }
 
+.session-file-document:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.session-file-document > .trial-copy-announcement {
+  padding: 0 1rem;
+}
+
 .session-file-document .document-viewer {
   min-height: 100%;
   border: 0;
@@ -4479,6 +4488,84 @@ a.runtime-badge:focus-visible {
 
 .terminal-result-summary dd {
   color: var(--muted-strong);
+}
+
+.trial-phase-timing {
+  margin-top: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.trial-phase-timing > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  padding: 0.8rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.trial-phase-timing > header span,
+.trial-phase-timing > header h3,
+.trial-phase-timing > header p {
+  margin: 0;
+}
+
+.trial-phase-timing > header span {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.trial-phase-timing > header h3 {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+}
+
+.trial-phase-timing > header p {
+  display: grid;
+  gap: 0.2rem;
+  text-align: right;
+}
+
+.trial-phase-timing > header strong {
+  font: 700 0.82rem/1.3 var(--mono);
+}
+
+.trial-phase-timing-table {
+  overflow-x: auto;
+}
+
+.trial-phase-timing table {
+  width: 100%;
+  min-width: 38rem;
+  border-collapse: collapse;
+}
+
+.trial-phase-timing th,
+.trial-phase-timing td {
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 0.65rem;
+}
+
+.trial-phase-timing tbody tr:last-child th,
+.trial-phase-timing tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.trial-phase-timing td {
+  color: var(--muted-strong);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.trial-phase-timing > .source-note {
+  margin: 0;
+  padding: 0.8rem;
+  border-top: 1px solid var(--line);
 }
 
 .acceptance-sheet-details {

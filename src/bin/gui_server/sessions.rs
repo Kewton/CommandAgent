@@ -24,6 +24,7 @@ use super::session_paths::{SessionPaths, WorkingDirectoryState, relative_path};
 use super::trial_access::AccessError;
 
 const MAX_EVENTS_BYTES: u64 = 4 * 1024 * 1024;
+const STATUS_PROJECTION_REVISION: &str = "2026-08-25-phase-timing-v1";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PhaseStatus {
@@ -32,6 +33,9 @@ pub struct PhaseStatus {
     total: u64,
     stage: String,
     status: String,
+    started_at_epoch_ms: Option<u64>,
+    ended_at_epoch_ms: Option<u64>,
+    duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +53,7 @@ pub struct PolledSession {
     failure_explanation: Option<FailureExplanation>,
     next_action: Option<String>,
     phases: Vec<PhaseStatus>,
+    total_processing_duration_ms: Option<u64>,
     task_progress: super::session_tasks::TaskProgress,
     event_count: usize,
     acceptance_sheet: Option<String>,
@@ -182,6 +187,8 @@ pub async fn status(
     let average_duration_seconds =
         super::gate_one::average_duration_seconds(&state.repository_root, confirmed.identity())
             .await?;
+    let phases = phase_statuses(&events);
+    let total_processing_duration_ms = total_processing_duration_ms(current_events, &phases);
     let session = PolledSession {
         id,
         started_epoch_seconds,
@@ -195,7 +202,8 @@ pub async fn status(
         failure_diagnostics,
         failure_explanation,
         next_action: terminal_details.next_action,
-        phases: phase_statuses(&events),
+        phases,
+        total_processing_duration_ms,
         task_progress: super::session_tasks::project(&events, terminal_is_current),
         event_count: events.len(),
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
@@ -345,9 +353,11 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
         let event_name = string(event, "event").unwrap_or("unknown");
         if matches!(event_name, "tui_command_stop" | "run_stop") {
             terminal_seen = true;
+            let ended_at = event_epoch_ms(event);
             for phase in phases.values_mut() {
                 if matches!(phase.status.as_str(), "pending" | "running") {
                     phase.status = "interrupted".to_string();
+                    finish_phase_timing(phase, ended_at);
                 }
             }
             continue;
@@ -392,12 +402,21 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
             total,
             stage: "queued".to_string(),
             status: "pending".to_string(),
+            started_at_epoch_ms: None,
+            ended_at_epoch_ms: None,
+            duration_ms: None,
         });
         match effect {
             PhaseEventEffect::StageOnly => {
                 phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
             }
             PhaseEventEffect::Status(status) => {
+                if event_name == "ultra_phase_start" && phase.started_at_epoch_ms.is_none() {
+                    phase.started_at_epoch_ms = event_epoch_ms(event);
+                }
+                if matches!(status, "completed" | "failed") {
+                    finish_phase_timing(phase, event_epoch_ms(event));
+                }
                 let current_status = phase.status.as_str();
                 if current_status == "failed"
                     || (current_status == "completed" && status != "failed")
@@ -419,16 +438,30 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
 
 fn plan_generation_phase(events: &[Value]) -> Option<PhaseStatus> {
     let mut status = None;
+    let mut started_at_epoch_ms = None;
+    let mut ended_at_epoch_ms = None;
     for event in events {
         match string(event, "event").unwrap_or("unknown") {
-            "ultra_plan_generation_attempt"
-            | "ultra_plan_generation_metadata_normalized"
+            "ultra_plan_generation_attempt" => {
+                status = Some("running");
+                if started_at_epoch_ms.is_none() {
+                    started_at_epoch_ms = event_epoch_ms(event);
+                }
+            }
+            "ultra_plan_generation_metadata_normalized"
             | "ultra_plan_generation_retry"
             | "ultra_plan_generation_tool_call_rejected" => status = Some("running"),
-            "ultra_plan_generation_succeeded" => status = Some("completed"),
-            "ultra_plan_generation_failed" => status = Some("failed"),
+            "ultra_plan_generation_succeeded" => {
+                status = Some("completed");
+                ended_at_epoch_ms = event_epoch_ms(event);
+            }
+            "ultra_plan_generation_failed" => {
+                status = Some("failed");
+                ended_at_epoch_ms = event_epoch_ms(event);
+            }
             "tui_command_stop" | "run_stop" if status == Some("running") => {
                 status = Some("interrupted");
+                ended_at_epoch_ms = event_epoch_ms(event);
             }
             _ => {}
         }
@@ -443,7 +476,53 @@ fn plan_generation_phase(events: &[Value]) -> Option<PhaseStatus> {
             "scaffold".to_string()
         },
         status: status.to_string(),
+        started_at_epoch_ms,
+        ended_at_epoch_ms,
+        duration_ms: phase_duration_ms(started_at_epoch_ms, ended_at_epoch_ms),
     })
+}
+
+fn event_epoch_ms(event: &Value) -> Option<u64> {
+    event.get("occurred_at_epoch_ms").and_then(Value::as_u64)
+}
+
+fn finish_phase_timing(phase: &mut PhaseStatus, ended_at_epoch_ms: Option<u64>) {
+    if phase.ended_at_epoch_ms.is_none() {
+        phase.ended_at_epoch_ms = ended_at_epoch_ms;
+        phase.duration_ms = phase_duration_ms(phase.started_at_epoch_ms, ended_at_epoch_ms);
+    }
+}
+
+fn phase_duration_ms(
+    started_at_epoch_ms: Option<u64>,
+    ended_at_epoch_ms: Option<u64>,
+) -> Option<u64> {
+    ended_at_epoch_ms?.checked_sub(started_at_epoch_ms?)
+}
+
+fn total_processing_duration_ms(events: &[Value], phases: &[PhaseStatus]) -> Option<u64> {
+    events
+        .iter()
+        .rev()
+        .filter(|event| string(event, "event") == Some("tui_command_stop"))
+        .find_map(|event| {
+            event
+                .get("time_profile")
+                .and_then(|profile| profile.get("total_ms"))
+                .and_then(Value::as_u64)
+                .or_else(|| event.get("time_profile_total_ms").and_then(Value::as_u64))
+        })
+        .or_else(|| {
+            let started = phases
+                .iter()
+                .filter_map(|phase| phase.started_at_epoch_ms)
+                .min()?;
+            let ended = phases
+                .iter()
+                .filter_map(|phase| phase.ended_at_epoch_ms)
+                .max()?;
+            ended.checked_sub(started)
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -500,7 +579,7 @@ async fn status_etag(card_hash: &str, events_path: &FilePath) -> Result<String, 
         Err(error) => return Err(internal(error)),
     };
     Ok(format!(
-        "W/\"{}-{revision}\"",
+        "W/\"{}-{STATUS_PROJECTION_REVISION}-{revision}\"",
         card_hash.trim_start_matches("sha256:")
     ))
 }
@@ -800,6 +879,92 @@ mod tests {
         assert_eq!(phases[0].total, 0);
         assert_eq!(phases[0].stage, "scaffold");
         assert_eq!(phases[0].status, "running");
+    }
+
+    #[test]
+    fn phase_statuses_project_recorded_boundaries_and_total_duration() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_plan_generation_attempt",
+                "attempt": 1,
+                "occurred_at_epoch_ms": 1_000
+            }),
+            serde_json::json!({
+                "event": "ultra_plan_generation_succeeded",
+                "phase_count": 1,
+                "occurred_at_epoch_ms": 2_000
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "implementation",
+                "phase_index": 1,
+                "total_phases": 1,
+                "occurred_at_epoch_ms": 3_000
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "implementation",
+                "phase_index": 1,
+                "total_phases": 1,
+                "stage": "complete",
+                "occurred_at_epoch_ms": 8_000
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "status": "completed",
+                "occurred_at_epoch_ms": 9_000,
+                "time_profile": {"total_ms": 9_000}
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].id, "plan_generation");
+        assert_eq!(phases[0].started_at_epoch_ms, Some(1_000));
+        assert_eq!(phases[0].ended_at_epoch_ms, Some(2_000));
+        assert_eq!(phases[0].duration_ms, Some(1_000));
+        assert_eq!(phases[1].id, "implementation");
+        assert_eq!(phases[1].started_at_epoch_ms, Some(3_000));
+        assert_eq!(phases[1].ended_at_epoch_ms, Some(8_000));
+        assert_eq!(phases[1].duration_ms, Some(5_000));
+        assert_eq!(total_processing_duration_ms(&events, &phases), Some(9_000));
+    }
+
+    #[test]
+    fn phase_statuses_leave_legacy_boundaries_unknown() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "implementation",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "implementation",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases[0].started_at_epoch_ms, None);
+        assert_eq!(phases[0].ended_at_epoch_ms, None);
+        assert_eq!(phases[0].duration_ms, None);
+        assert_eq!(total_processing_duration_ms(&events, &phases), None);
+    }
+
+    #[tokio::test]
+    async fn status_etag_includes_projection_revision() {
+        let temp = tempfile::tempdir().unwrap();
+        let events_path = temp.path().join("events.jsonl");
+        std::fs::write(&events_path, "{\"event\":\"tui_command_start\"}\n").unwrap();
+
+        let etag = status_etag("sha256:card", &events_path).await.unwrap();
+
+        assert!(etag.contains(STATUS_PROJECTION_REVISION), "{etag}");
     }
 
     #[test]

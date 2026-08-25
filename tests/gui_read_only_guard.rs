@@ -1528,6 +1528,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "failure_explanation?:",
         "next_action:",
         "phases:",
+        "total_processing_duration_ms?:",
         "task_progress:",
         "event_count:",
         "acceptance_sheet:",
@@ -1538,7 +1539,7 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 24);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 25);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -1756,6 +1757,7 @@ fn trial_failure_explanation_is_bounded_typed_and_never_auto_runs_recovery() {
     for required in [
         "failure_sections_ordered",
         "recovery_documents_authenticated_get_only",
+        "recovery_documents_focus_viewer_and_announce",
         "recovery_command_copied_by_keyboard",
         "apply_prepared_continuation_only",
         "failure_heading_hierarchy_valid",
@@ -2130,6 +2132,11 @@ fn trial_session_files_are_get_only_authenticated_views() {
         "data-testid=\"trial-events-open\"",
         "data-testid={artifact.path === \"summary.md\" ? \"trial-summary-open\" : undefined}",
         "data-testid=\"trial-file-viewer\"",
+        "data-testid=\"trial-document-open-announcement\"",
+        "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
+        "target.focus({ preventScroll: true })",
+        "tabIndex={-1}",
+        "文書を開きました",
         "headers: trialAuthorizationHeaders(token)",
         "直近 200 行",
     ] {
@@ -2145,15 +2152,13 @@ fn trial_session_files_are_get_only_authenticated_views() {
 }
 
 #[test]
-fn trial_session_paths_are_dedicated_authenticated_and_copyable() {
+fn trial_session_paths_follow_configured_auth_and_are_copyable() {
     let entry = std::fs::read_to_string(SERVER_ROOT_MODULE).unwrap();
     assert!(entry.contains(".route(\"/api/sessions/{id}/paths\", get(session_paths::get))"));
     assert!(!entry.contains("post(session_paths::get)"));
 
     let paths = std::fs::read_to_string(SESSION_PATHS_MODULE).unwrap();
     for required in [
-        "state.trial_access.authentication_enabled()",
-        "trial_path_authentication_required",
         "require_trial(&state, &headers, false)",
         "require_session_id(&id)",
         "SessionPaths::existing(&workspace, &id)",
@@ -2172,6 +2177,8 @@ fn trial_session_paths_are_dedicated_authenticated_and_copyable() {
     let component = std::fs::read_to_string("gui/components/trial-session-paths.tsx").unwrap();
     for required in [
         "fetchSessionPaths(token, sessionId)",
+        "sessionId === null || (authenticationEnabled && token === \"\")",
+        "if (authenticationEnabled) onAccessTokenRejected(reason, token)",
         "navigator.clipboard.writeText(path)",
         "aria-live=\"polite\"",
         "data-testid=\"copy-working-directory\"",
@@ -2186,6 +2193,7 @@ fn trial_session_paths_are_dedicated_authenticated_and_copyable() {
             "session path UI is missing {required:?}"
         );
     }
+    assert!(!component.contains("trial-session-paths-auth-required"));
     let run = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
     assert!(run.contains("surface === \"status\" || surface === \"detail\""));
     assert!(run.contains("<TrialSessionPaths"));
@@ -2201,6 +2209,62 @@ fn trial_session_paths_are_dedicated_authenticated_and_copyable() {
         assert!(
             !source.contains("WorkingDirectoryProjection"),
             "{public_projection} exposes the dedicated absolute path projection"
+        );
+    }
+}
+
+#[test]
+fn trial_result_projects_recorded_phase_timing_without_guessing_legacy_values() {
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    for required in [
+        "started_at_epoch_ms: Option<u64>",
+        "ended_at_epoch_ms: Option<u64>",
+        "duration_ms: Option<u64>",
+        "total_processing_duration_ms: Option<u64>",
+        "STATUS_PROJECTION_REVISION",
+        ".get(\"time_profile\")",
+        ".get(\"total_ms\")",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "session timing projection is missing {required:?}"
+        );
+    }
+
+    let events = std::fs::read_to_string("src/eval_events/timing.rs").unwrap();
+    for required in [
+        "ultra_plan_generation_attempt",
+        "ultra_plan_generation_succeeded",
+        "ultra_plan_generation_failed",
+        "ultra_phase_start",
+        "ultra_phase_complete",
+        "ultra_phase_failed",
+        "occurred_at_epoch_ms",
+    ] {
+        assert!(
+            events.contains(required),
+            "phase boundary timing is missing {required:?}"
+        );
+    }
+
+    let terminal = std::fs::read_to_string("gui/components/trial-terminal.tsx").unwrap();
+    assert!(terminal.contains("<TrialPhaseTiming"));
+    assert!(terminal.contains("session.total_processing_duration_ms ?? null"));
+
+    let timing = std::fs::read_to_string("gui/components/trial-phase-timing.tsx").unwrap();
+    for required in [
+        "data-testid=\"trial-phase-timing\"",
+        "フェーズ別タイムライン",
+        "開始時刻",
+        "終了時刻",
+        "所要時間",
+        "トータル処理時間",
+        "dateTimeLabel(date, \"未記録\")",
+        "このセッションにはフェーズ境界時刻が記録されていない",
+    ] {
+        assert!(
+            timing.contains(required),
+            "phase timing UI is missing {required:?}"
         );
     }
 }

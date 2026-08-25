@@ -3,7 +3,7 @@ use std::path::{Path as FilePath, PathBuf};
 use anyhow::Context;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
@@ -229,13 +229,6 @@ pub(super) async fn get(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, GuiError> {
-    if !state.trial_access.authentication_enabled() {
-        return Err(GuiError::new(
-            StatusCode::FORBIDDEN,
-            "trial_path_authentication_required",
-            "absolute session paths require Trial token authentication",
-        ));
-    }
     let workspace = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
     let paths = SessionPaths::existing(&workspace, &id)

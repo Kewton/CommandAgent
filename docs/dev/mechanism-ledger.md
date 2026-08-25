@@ -1693,9 +1693,10 @@ keyboard操作可能なcopy buttonとpolite live通知を追加した。CLI作�
 `.commandagent/runs/<session-id>`の記録directory、`events.jsonl`、`summary.md`と
 別枠表示し、削除済みworkspaceは`missing`として成果物不在を明示する。
 
-絶対pathはTrial token認証を有効化・通過したGET-only
-`api/sessions/{id}/paths`だけが返す。create/status/index、public artifact/event、
-runtime-status、static projectionには追加しない。session ID検証、runtime/run/workspace
+絶対pathはGET-only `api/sessions/{id}/paths`だけが返す。Trial token認証ONではtokenを
+必須とし、管理者が信頼済みloopback向けに認証OFFで起動した場合はtokenなしで読む。
+create/status/index、public artifact/event、runtime-status、static projectionには追加しない。
+session ID検証、runtime/run/workspace
 各directoryのnon-symlink canonical confinement、execution root外拒否を維持し、
 endpointは再作成・削除・lease変更を行わない。既存Origin検証、read-only guard、
 confirmation/event/acceptance schema、`.anvil/` namespaceは不変である。
@@ -1737,7 +1738,9 @@ tokenを必須とし、管理者が信頼済みloopback向けに認証OFFで起�
 読み、copy/openは実行しない。「追加の依頼へ反映」はtextareaをprefillするだけで、保存・
 credential scrub・exact-byte表示・別確認を迂回しない。
 root／proxyのbrowser smokeはdesktop/mobile、heading、accessible name、polite live region、
-keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。
+keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。文書read成功後は同一pageの
+viewerへsmooth scrollしてfocusを移し、file名と「文書を開きました」をvisibleなpolite live regionで
+通知する。read失敗時は成功通知もfocus移動も行わない。
 
 ## CLI-GUI-387 — bounded Recovery Plan auto-run（Issue #387、2026-08-25）
 
@@ -1754,3 +1757,15 @@ GUI Trialは同じ値をGate 1 identity/hashへ固定し、`1 + N`の総Plan実�
 Gate 2とterminal／履歴詳細は現在回数、使用回数、上限、停止理由を加法表示する。Recovery文書の
 GET-only閲覧／copy境界は不変であり、自動Recovery成功後は過去失敗のRecovery fieldを最終
 completionからclearする。
+
+## GUI — Trial結果のphase境界時刻投影（2026-08-25）
+
+既存のplan生成開始／terminal、Ultra Plan phase開始／terminal、run terminal eventへ
+`occurred_at_epoch_ms`を加法記録する。既存event名と判定fieldは変えず、すでに時刻があるeventは
+上書きしない。session statusはphaseごとの開始時刻、終了時刻、差分durationと、terminal
+`time_profile.total_ms`を優先するトータル処理時間を加法投影する。
+
+結果詳細は共有日時formatterと経過時間formatterでこれらを表示する。過去sessionのようにphase
+境界時刻がない場合はfile metadataやevent順から推測せず`未記録`とし、terminal time profileが
+存在する場合だけトータル処理時間を表示する。honest-failure、acceptance／verification判定、
+event schema version、`.anvil/` namespaceは変更しない。

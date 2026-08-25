@@ -2827,6 +2827,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "started_epoch_seconds",
             "status",
             "stop_reason",
+            "total_processing_duration_ms",
             "verdict",
         ])
     );
@@ -3365,7 +3366,7 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
 
 #[cfg(unix)]
 #[test]
-fn trial_session_paths_are_token_only_confined_and_report_missing_workspaces() {
+fn trial_session_paths_follow_configured_auth_and_remain_confined() {
     use std::os::unix::fs::symlink;
 
     const AVAILABLE_ID: &str = "018f0e32-7b80-7000-8000-000000000080";
@@ -3456,22 +3457,23 @@ fn trial_session_paths_are_token_only_confined_and_report_missing_workspaces() {
         &workspace,
         std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
     );
-    let authentication_required =
+    let unauthenticated_paths =
         unauthenticated_server.request_without_access("GET", &available_path, None);
     assert_eq!(
-        authentication_required.status, 403,
+        unauthenticated_paths.status, 200,
         "{}",
-        authentication_required.body
+        unauthenticated_paths.body
     );
-    assert_error(
-        &authentication_required,
-        "trial_path_authentication_required",
-        "absolute session paths require Trial token authentication",
+    assert_eq!(
+        unauthenticated_paths.header("cache-control"),
+        Some("private, no-store")
     );
-    assert!(
-        !authentication_required
-            .body
-            .contains(canonical_workspace.to_string_lossy().as_ref())
+    assert_eq!(
+        unauthenticated_paths.json()["working_directory"],
+        serde_json::json!({
+            "path": canonical_workspace.join("sessions").join(AVAILABLE_ID).to_string_lossy(),
+            "state": "available"
+        })
     );
     unauthenticated_server.stop();
 }

@@ -35,6 +35,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Scroll and focus the Trial document viewer after a successful recovery-file
+  open, and announce the opened document without reporting failed reads as
+  successful.
 - Make the documented PTY commands execute the ignored integration suite.
 - Repair maintained documentation links and GitHub-style heading anchors, and
   bind bilingual table, flag, and slash-command counts to the implementation.

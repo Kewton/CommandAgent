@@ -14,6 +14,7 @@ pub mod failure_explanation;
 mod human_summary;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;
+mod timing;
 pub(crate) mod typed;
 
 const SNIPPET_LIMIT: usize = 500;
@@ -137,6 +138,7 @@ pub fn is_eval_events_override() -> bool {
 }
 
 pub fn emit(path: Option<&Path>, mut event: Value) {
+    timing::stamp_phase_boundary(&mut event);
     crate::tui::status_bus::publish_eval_projection(&event);
     crate::tui::presentation::project_event(&event);
     let Some(path) = path else {
@@ -154,6 +156,7 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
 
 pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> anyhow::Result<()> {
     let path = path.ok_or_else(|| anyhow::anyhow!("eval events path is unavailable"))?;
+    timing::stamp_phase_boundary(&mut event);
     if let Value::Object(ref mut object) = event {
         object
             .entry("schema_version")

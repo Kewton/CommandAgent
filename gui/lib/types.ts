@@ -215,6 +215,9 @@ export type PhaseStatus = {
   total: number;
   stage: string;
   status: string;
+  started_at_epoch_ms?: number | null;
+  ended_at_epoch_ms?: number | null;
+  duration_ms?: number | null;
 };
 
 export type PlanTaskStatus = {
@@ -358,6 +361,7 @@ export type PolledSession = {
   failure_explanation?: FailureExplanation | null;
   next_action: string | null;
   phases: PhaseStatus[];
+  total_processing_duration_ms?: number | null;
   task_progress: TaskProgress;
   event_count: number;
   acceptance_sheet: string | null;

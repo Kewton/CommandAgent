@@ -45,6 +45,11 @@ try {
     const browser = await chromium.launch({ headless: true });
     try {
       const lifecycle = await probeLifecycle(browser, server.origin, smokeCase.serverBasePath);
+      const authDisabledPaths = await probeAuthDisabledSessionPaths(
+        browser,
+        server.origin,
+        smokeCase.serverBasePath,
+      );
       const sourceMatrix = await probeSourceMatrix(
         browser,
         server.origin,
@@ -58,10 +63,15 @@ try {
       results.push({
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
+        auth_disabled_paths: authDisabledPaths,
         lifecycle,
         resource_revalidation: resourceRevalidation,
         source_matrix: sourceMatrix,
-        ok: lifecycle.ok && resourceRevalidation.ok && sourceMatrix.ok,
+        ok:
+          authDisabledPaths.ok &&
+          lifecycle.ok &&
+          resourceRevalidation.ok &&
+          sourceMatrix.ok,
       });
     } finally {
       await browser.close();
@@ -359,6 +369,18 @@ async function probeLifecycle(browser, origin, basePath) {
     const statusNavigatedToDetail =
       detailUrl.pathname === new URL(`${prefix}try/history/detail/`, origin).pathname &&
       detailUrl.searchParams.get("session") === createdSessionId;
+    const phaseTiming = page.locator("[data-testid='trial-phase-timing']");
+    await phaseTiming.waitFor();
+    const phaseTimingText = await phaseTiming.innerText();
+    const phaseTimingVisible =
+      phaseTimingText.includes("フェーズ別タイムライン") &&
+      phaseTimingText.includes("1. implementation") &&
+      phaseTimingText.includes("開始時刻") &&
+      phaseTimingText.includes("終了時刻") &&
+      phaseTimingText.includes("所要時間") &&
+      phaseTimingText.includes("トータル処理時間") &&
+      phaseTimingText.includes("00:01:05") &&
+      (await phaseTiming.locator("time").count()) === 2;
     assertIncludes(
       await page
         .locator("[data-testid='task-failed'] [data-testid='task-failure-reason']")
@@ -407,15 +429,51 @@ async function probeLifecycle(browser, origin, basePath) {
       document.querySelector("[data-testid='trial-file-viewer']")?.textContent?.includes(
         "Repair the exact final verification failure",
       ));
+    await page.waitForFunction(() => {
+      const viewer = document.querySelector("[data-testid='trial-file-viewer']");
+      const announcement = document.querySelector(
+        "[data-testid='trial-document-open-announcement']",
+      );
+      const bounds = viewer?.getBoundingClientRect();
+      return document.activeElement === viewer &&
+        announcement?.textContent?.includes("文書を開きました") && bounds !== undefined &&
+        bounds.bottom > 0 && bounds.top < window.innerHeight;
+    });
     const repairPromptOpened = (await recoveryViewer.innerText()).includes(
       "Repair the exact final verification failure",
     );
+    const repairPromptViewerFocusedAndAnnounced = await recoveryViewer.evaluate((viewer) => {
+      const announcement = viewer.querySelector(
+        "[data-testid='trial-document-open-announcement']",
+      )?.textContent ?? "";
+      const bounds = viewer.getBoundingClientRect();
+      return document.activeElement === viewer && announcement.includes("文書を開きました") &&
+        bounds.bottom > 0 && bounds.top < window.innerHeight;
+    });
     await failureCard.locator("[data-testid='open-recovery-plan']").click();
     await page.waitForFunction(() =>
       document.querySelector("[data-testid='trial-file-viewer']")?.textContent?.includes(
         "Recovery Plan",
       ));
+    await page.waitForFunction(() => {
+      const viewer = document.querySelector("[data-testid='trial-file-viewer']");
+      const announcement = document.querySelector(
+        "[data-testid='trial-document-open-announcement']",
+      );
+      const bounds = viewer?.getBoundingClientRect();
+      return document.activeElement === viewer &&
+        announcement?.textContent?.includes("文書を開きました") && bounds !== undefined &&
+        bounds.bottom > 0 && bounds.top < window.innerHeight;
+    });
     const recoveryPlanOpened = (await recoveryViewer.innerText()).includes("Recovery Plan");
+    const recoveryPlanViewerFocusedAndAnnounced = await recoveryViewer.evaluate((viewer) => {
+      const announcement = viewer.querySelector(
+        "[data-testid='trial-document-open-announcement']",
+      )?.textContent ?? "";
+      const bounds = viewer.getBoundingClientRect();
+      return document.activeElement === viewer && announcement.includes("文書を開きました") &&
+        bounds.bottom > 0 && bounds.top < window.innerHeight;
+    });
 
     const recoveryCommand = "/ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-build.md)\"";
     const copyRecoveryCommand = failureCard.locator("[data-testid='copy-recovery-command']");
@@ -757,6 +815,8 @@ async function probeLifecycle(browser, origin, basePath) {
       failure_sections_ordered: failureSectionsOrdered,
       repair_prompt_opened: repairPromptOpened,
       recovery_plan_opened: recoveryPlanOpened,
+      recovery_documents_focus_viewer_and_announce:
+        repairPromptViewerFocusedAndAnnounced && recoveryPlanViewerFocusedAndAnnounced,
       recovery_document_requests: recoveryDocumentRequests,
       recovery_documents_authenticated_get_only:
         recoveryDocumentRequests.length === 2 &&
@@ -770,6 +830,7 @@ async function probeLifecycle(browser, origin, basePath) {
       failure_heading_hierarchy_valid: failureHeadingHierarchyValid,
       failure_actions_have_accessible_names: failureActionsHaveAccessibleNames,
       failure_detail_mobile_fits: failureDetailMobileFits,
+      phase_timing_visible: phaseTimingVisible,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
       focus_revalidated: focusRevalidated,
@@ -826,6 +887,8 @@ async function probeLifecycle(browser, origin, basePath) {
         failureSectionsOrdered &&
         repairPromptOpened &&
         recoveryPlanOpened &&
+        repairPromptViewerFocusedAndAnnounced &&
+        recoveryPlanViewerFocusedAndAnnounced &&
         recoveryDocumentRequests.length === 2 &&
         recoveryDocumentRequests.every(
           (request) =>
@@ -837,12 +900,92 @@ async function probeLifecycle(browser, origin, basePath) {
         failureHeadingHierarchyValid &&
         failureActionsHaveAccessibleNames &&
         failureDetailMobileFits &&
+        phaseTimingVisible &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
         focusRevalidated &&
         visibilityRevalidated &&
         runtimeBadgeReconnect.ok &&
         routeOwnership.ok,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function probeAuthDisabledSessionPaths(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const pathRequests = [];
+  try {
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      const method = request.method();
+      if (pathname.endsWith("/api/runtime-status") && method === "GET") {
+        await json(route, 200, {
+          trial_available: true,
+          trial_token_auth_enabled: false,
+          session: null,
+        });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${existingSessionId}`) && method === "GET") {
+        await json(route, 200, terminalSession(existingSessionId));
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/paths`) &&
+        method === "GET"
+      ) {
+        pathRequests.push({
+          authorization: request.headers()["x-commandagent-trial-authorization"],
+          method,
+          pathname,
+        });
+        await json(route, 200, sessionPaths(existingSessionId));
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${existingSessionId}/artifacts`) &&
+        method === "GET"
+      ) {
+        await json(route, 200, []);
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && method === "GET") {
+        await json(route, 200, { sessions: [], lease: { status: "idle" } });
+        return;
+      }
+      await json(route, 404, {
+        error: `unexpected auth-disabled API: ${method} ${pathname}`,
+      });
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(
+      new URL(`${prefix}try/history/detail/?session=${existingSessionId}`, origin).href,
+      { waitUntil: "networkidle" },
+    );
+    const paths = page.locator("[data-testid='trial-session-paths'][data-state='available']");
+    await paths.waitFor();
+    const workingDirectory = await page
+      .locator("[data-testid='trial-working-directory-path']")
+      .innerText();
+    const noAuthPrompt =
+      (await page.locator("[data-testid='trial-session-auth-required']").count()) === 0;
+    const unauthenticatedGetOnly =
+      pathRequests.length === 1 &&
+      pathRequests.every(
+        (request) => request.method === "GET" && request.authorization === undefined,
+      );
+    const visible = workingDirectory === sessionPaths(existingSessionId).working_directory.path;
+    return {
+      no_auth_prompt: noAuthPrompt,
+      path_requests: pathRequests,
+      unauthenticated_get_only: unauthenticatedGetOnly,
+      visible,
+      working_directory: workingDirectory,
+      ok: noAuthPrompt && unauthenticatedGetOnly && visible,
     };
   } finally {
     await page.close();
@@ -1372,7 +1515,17 @@ function terminalSession(id) {
       probe_findings: [],
     },
     failure_explanation: supportedFailureExplanation(),
-    phases: [],
+    phases: [{
+      id: "implementation",
+      index: 1,
+      total: 1,
+      stage: "complete",
+      status: "completed",
+      started_at_epoch_ms: 1_723_769_600_000,
+      ended_at_epoch_ms: 1_723_769_665_000,
+      duration_ms: 65_000,
+    }],
+    total_processing_duration_ms: 65_000,
     task_progress: terminalTaskProgress(),
     event_count: 205,
     acceptance_sheet: "# Synthetic acceptance\n\nPASS",

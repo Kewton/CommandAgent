@@ -145,10 +145,12 @@ that generated code or execution targets are no longer present.
 
 Absolute paths are intentionally absent from create/status/index, public
 artifact/event, runtime-status, and static projections. Only the GET-only
-`api/sessions/{id}/paths` endpoint returns them, and that endpoint refuses to
-operate unless Trial token authentication is enabled and the valid token is
-supplied. Invalid IDs, traversal forms, symlinks, and paths resolving outside
-the configured execution root are rejected.
+`api/sessions/{id}/paths` endpoint returns them. When Trial token
+authentication is enabled, a valid token is required. When an administrator
+starts the server with Trial token authentication disabled, that startup
+configuration is trusted and the same endpoint is readable without a bearer
+token. Invalid IDs, traversal forms, symlinks, and paths resolving outside the
+configured execution root are rejected in either mode.
 
 ### Gate 3/4: read the result
 
@@ -158,6 +160,13 @@ separate fields. If no final verdict exists, the page says so; an assurance
 identifier such as `static` is not substituted for the verdict. The result
 card repeats the run's confirmed goal, profile, model pins, and pack so the
 outcome remains bound to the execution it describes.
+
+The result card also shows a **フェーズ別タイムライン** with each recorded
+phase's start time, end time, and duration, plus the terminal command's total
+processing duration. Boundary timestamps are recorded for new runs. Older
+sessions keep unavailable boundary values as **未記録** rather than inferring
+times from file metadata or event order; their total is still shown when the
+terminal time profile recorded it.
 
 The result detail lists every task represented by a typed lifecycle interval.
 `completed`, `short-circuited`, `FAILED`, and `interrupted` each have a symbol
@@ -201,7 +210,10 @@ bearer token. In either mode, the endpoint reads only the exact non-truncated
 path projected from the current terminal interval, below the available
 per-session working directory; traversal, symlinks, unrelated paths, and a
 missing workspace are refused. The reader does not create, rewrite, or execute
-a recovery artifact.
+a recovery artifact. After a successful open, the page scrolls the document
+viewer into view, moves keyboard focus to it, and announces the opened file name
+with **文書を開きました**. A failed read shows the existing error and does not
+announce success or move focus.
 
 The command copy buttons are keyboard-operable and announce that no execution
 occurred. **推奨内容を追加の依頼欄へ反映** only prefills and focuses the

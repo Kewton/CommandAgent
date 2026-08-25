@@ -29,7 +29,7 @@ export function TrialSessionPaths({
     setPaths(null);
     setError(null);
     setCopyAnnouncement("");
-    if (!authenticationEnabled || sessionId === null || token === "") {
+    if (sessionId === null || (authenticationEnabled && token === "")) {
       setLoading(false);
       return;
     }
@@ -41,7 +41,7 @@ export function TrialSessionPaths({
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
-        onAccessTokenRejected(reason, token);
+        if (authenticationEnabled) onAccessTokenRejected(reason, token);
         setError(describeError(reason));
       })
       .finally(() => {
@@ -77,11 +77,6 @@ export function TrialSessionPaths({
         </div>
       </header>
 
-      {!authenticationEnabled && (
-        <p className="source-note" data-testid="trial-session-paths-auth-required">
-          絶対パスは Trial トークン認証を有効にした専用セッション API からだけ取得できます。
-        </p>
-      )}
       {authenticationEnabled && sessionId === null && (
         <p className="source-note">セッション ID を指定すると作業ディレクトリを確認できます。</p>
       )}
@@ -152,9 +147,8 @@ function pathPanelState(
   paths: SessionPathProjection | null,
   error: string | null,
 ): string {
-  if (!authenticationEnabled) return "authentication_required";
   if (sessionId === null) return "session_required";
-  if (token === "") return "token_required";
+  if (authenticationEnabled && token === "") return "token_required";
   if (loading) return "loading";
   if (error !== null) return "error";
   return paths?.working_directory.state ?? "loading";

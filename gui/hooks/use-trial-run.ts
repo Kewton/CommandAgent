@@ -116,6 +116,7 @@ export function useTrialRun(
     editProposal: compose.editProposal,
     error: compose.error,
     errorReconnectSessionId: compose.errorReconnectSessionId,
+    evidenceAnnouncement: terminal.evidenceAnnouncement,
     evidenceDocument: terminal.evidenceDocument,
     evidenceError: terminal.evidenceError,
     evidenceLoading: terminal.evidenceLoading,
