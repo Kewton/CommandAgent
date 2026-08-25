@@ -107,6 +107,31 @@ fn switched_reproducer_lineage_cannot_earn_full() {
 }
 
 #[test]
+fn before_after_requirement_swap_cannot_earn_full() {
+    let mut bundle = full_bundle();
+    let before = bundle.before.as_mut().unwrap();
+    before.requirement_id = AFTER_PASSES_ID.to_string();
+    before.stage = EvidenceStage::After;
+    before.expected = ExpectedOutcome::Success;
+
+    let result = evaluate_fix_evidence(&bundle);
+
+    assert_eq!(result.assurance, FixAssurance::Failed);
+    assert_eq!(result.reason, "requirement_binding_mismatch:before_fails");
+}
+
+#[test]
+fn after_only_execution_cannot_earn_full() {
+    let mut bundle = full_bundle();
+    bundle.before = None;
+
+    let result = evaluate_fix_evidence(&bundle);
+
+    assert_eq!(result.assurance, FixAssurance::Failed);
+    assert_eq!(result.reason, "before_not_executed");
+}
+
+#[test]
 fn shrunken_regression_binding_set_cannot_earn_full() {
     let mut bundle = full_bundle();
     bundle.regressions.pop();

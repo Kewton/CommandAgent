@@ -1,0 +1,13 @@
+case_id = "issue396-fix-shadow-coverage"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.verification_spec.fix_shadow_coverage.v0"
+fixtures/contract.json:authority.shadow_only = "true"
+fixtures/contract.json:authority.candidate_execution_authorized = "false"
+fixtures/contract.json:authority.fix_evaluator_changed = "false"
+fixtures/contract.json:authority.fix_runtime_changed = "false"
+fixtures/contract.json:coverage.f1_f2_f3_post_hoc = "true"
+fixtures/contract.json:negative.after_only = "failed"
+fixtures/contract.json:negative.stale_epoch = "unverified"
+fixtures/contract.json:negative.regression_set_changed = "failed"
+fixtures/contract.json:negative.model_execution_claim = "non_authoritative"
