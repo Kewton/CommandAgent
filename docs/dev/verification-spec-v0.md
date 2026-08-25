@@ -77,3 +77,26 @@ observation, or strength is not semantically equivalent.
 The JSON Schema and provider prompt snapshots live under
 `eval/goal_verify/v0/`. Golden proposals live under
 `tests/fixtures/verification_spec_v0/`.
+
+## Investigate shadow projection
+
+`verification_spec::investigate_shadow` may correlate an accepted investigate
+proposal with already-authoritative I1/I2 artifacts. It is post-hoc and does
+not execute model-proposed commands. Correlation requires the exact evidence
+path, requirement, binding ID, diagnosis stage, reproducer lineage, epoch,
+claim kind, oracle strategy, polarity, and oracle artifact path.
+
+The projector assigns stable positional IDs to existing I2 claims:
+`error_quote:N`, `file_line:N`, and `code_snippet:N`. These IDs exist only in
+the shadow report; `output/diagnosis.md` and
+`evidence/investigation-binding.json` remain unchanged. Only
+`reproducer_observation` and `diagnosis_binding` claims can cover measured I1
+and I2 rows. Other investigate claim kinds are retained as causal hypotheses
+with `observed_fact=false` and `authoritative=false`, even when a provider or
+critic marks its oracle executed or passing.
+
+Shadow coverage neither promotes nor demotes the result returned by
+`evaluate_investigation_evidence`. Claims absent, fabricated bindings,
+reproducer defects, and a non-failing baseline retain their existing I1/I2
+caps. Create/fix scaffold, repair, and final-acceptance mechanisms are outside
+the projector and have no call path into it.

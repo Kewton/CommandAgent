@@ -1,0 +1,23 @@
+case_id = "issue397-investigate-shadow-coverage"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.verification_spec.investigate_shadow_coverage.v0"
+fixtures/contract.json:authority.shadow_only = "true"
+fixtures/contract.json:authority.candidate_execution_authorized = "false"
+fixtures/contract.json:authority.investigation_evaluator_changed = "false"
+fixtures/contract.json:authority.diagnosis_or_evidence_schema_changed = "false"
+fixtures/contract.json:authority.create_fix_acceptance_path_used = "false"
+fixtures/contract.json:coverage.i1_i2_post_hoc = "true"
+fixtures/contract.json:coverage.hypothesis_observed_fact = "false"
+fixtures/contract.json:negative.fabricated_binding = "failed"
+fixtures/contract.json:negative.claims_absent = "partial"
+fixtures/contract.json:negative.reproducer_defect = "failed"
+fixtures/contract.json:negative.baseline_not_reproduced = "failed"
+fixtures/contract.json:negative.critic_hypothesis_pass = "non_authoritative"
+
+[fixture_contains]
+fixtures/contract.json = [
+  "error_quote:0",
+  "file_line:1",
+  "code_snippet:2"
+]
