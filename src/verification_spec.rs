@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 
 use crate::tools::path_guard::validate_workspace_relative;
 
+pub mod create_shadow;
+
 pub const SCHEMA_VERSION: &str = "commandagent.verification_spec.v0";
 pub const PROMPT_VERSION: &str = "commandagent.verification_spec.prompt.v0";
 pub const MAX_INPUT_BYTES: usize = 65_536;
