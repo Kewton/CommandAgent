@@ -67,6 +67,7 @@ export type SessionSpec = {
   planner_model: string;
   pack: string | null;
   think: OllamaThink | null;
+  recovery_plan_auto_runs: number;
 };
 
 export type PackOption = {
@@ -117,6 +118,7 @@ export type ConfirmationIdentity = {
   band_measurement: string;
   band_source: string;
   full_meaning: string;
+  recovery_plan_auto_runs?: number;
   draft_manifest?: {
     source: "repository" | "local";
     path: string;
@@ -362,6 +364,12 @@ export type PolledSession = {
   section5: string | null;
   events_path: string;
   identity?: ConfirmationIdentity;
+  recovery_auto_run: {
+    current: number;
+    used: number;
+    limit: number;
+    stop_reason: string | null;
+  };
 };
 
 export type DirectiveProposal = {

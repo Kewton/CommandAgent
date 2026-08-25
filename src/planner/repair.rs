@@ -6,12 +6,12 @@ use crate::minimal_loop::completion::{
     CompileRepairPromptProtection, compile_repair_prompt_section_with_root,
 };
 use crate::minimal_loop::repair_target::classify_repair_target;
-use crate::planner::contract_attribute_repair;
 use crate::planner::profiles::data::repair_policy;
 use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
 use crate::planner::verify::VerificationReport;
+use crate::planner::{auto_recovery::record_candidate, contract_attribute_repair};
 
 #[derive(Debug, Clone, Default)]
 pub struct RepairContext {
@@ -447,6 +447,7 @@ fn save_recovery_ultra_plan_rendered(
         uuid::Uuid::now_v7()
     ));
     std::fs::write(&path, rendered)?;
+    record_candidate(path.clone(), plan.clone(), handoff.failure_kind.clone());
     Ok(path)
 }
 

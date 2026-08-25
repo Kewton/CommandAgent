@@ -433,6 +433,7 @@ pub struct Config {
     pub lm_studio_host: String,
     pub num_predict: usize,
     pub max_iterations: usize,
+    pub recovery_plan_auto_runs: u8,
     pub chat_timeout_secs: u64,
     pub chat_timeout_source: String,
     pub field_sources: ConfigFieldSources,
@@ -979,6 +980,7 @@ impl Config {
             lm_studio_host: normalize_lm_studio_host(&cli.lm_studio_host)?,
             num_predict: cli.num_predict,
             max_iterations: cli.max_iterations,
+            recovery_plan_auto_runs: cli.recovery_plan_auto_runs,
             chat_timeout_secs,
             chat_timeout_source,
             field_sources,
@@ -2176,6 +2178,19 @@ pub fn redact(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn recovery_auto_run_limit_is_retained_in_shared_config() {
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--ux-demo",
+            "--recovery-plan-auto-runs",
+            "20",
+        ]))
+        .unwrap();
+
+        assert_eq!(config.recovery_plan_auto_runs, 20);
+    }
 
     #[test]
     fn missing_api_key_error_includes_setup_and_doctor_remediation() {

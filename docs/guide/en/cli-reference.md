@@ -21,7 +21,7 @@ config action `--init-config`, and delegated manifest actions
 contracts are mutually exclusive.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-65 application flags below. The hidden `--completion-contract-json <PATH>` is an
+66 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -85,6 +85,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | Set the LM Studio base URL; an optional trailing `/v1` is normalized. | [LM Studio server](providers.md#lm-studio-server-and-models) |
 | `--num-predict` | `<NUM_PREDICT>` integer | `8192` | Set the maximum provider output-token request. | [Resolved defaults](#important-resolved-defaults) |
 | `--max-iterations` | `<MAX_ITERATIONS>` integer | `12` | Set the minimal-loop iteration budget. | [Resolved defaults](#important-resolved-defaults) |
+| `--recovery-plan-auto-runs` | `<0..20>` integer | `0` | Automatically execute at most this many validated Recovery Plans after a failed UltraPlan execution, including direct actions, matching REPL commands, and resume (0 disables; total plan executions are at most 1 + this value). | [Plan YAML](plan-yaml.md) |
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` integer | `600` if either role uses Ollama or LM Studio; otherwise `180` | Set connect and whole-request timeouts for provider calls. | [Resolved defaults](#important-resolved-defaults) |
 | `--chat-retries` | `<CHAT_RETRIES>` integer | `1` | Set retries after the initial provider attempt. | [Provider failures](troubleshooting.md#model-id-does-not-exist) |
 | `--stream` | `<on\|off>` | on for the TUI, off for direct actions | Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY. | [Top-level keys](configuration.md#top-level-keys) |

@@ -2177,13 +2177,14 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         body: JSON.stringify({
           ...proposal,
           card_hash: `sha256:${"5".repeat(64)}`,
-          card_markdown: "# Synthetic Gate 1\n\n- 作業種別: Web アプリ × 既存機能を修正 (fix)",
+          card_markdown: `# Synthetic Gate 1\n\n- 作業種別: Web アプリ × 既存機能を修正 (fix)\n- Plan 実行総数の上限: ${1 + body.recovery_plan_auto_runs} 回\n- 時間・コストの上限目安: 単一 Plan 実行の最大 ${1 + body.recovery_plan_auto_runs} 倍`,
           identity: {
             ...proposal.identity,
             request: body.goal,
             profile: "nextjs",
             intent: "fix",
             task_family: "compile_error_fix",
+            recovery_plan_auto_runs: body.recovery_plan_auto_runs,
           },
         }),
       });
@@ -2299,6 +2300,8 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
     await page.locator("[data-testid='trial-intent']").selectOption("fix");
     await page.locator("[data-testid='trial-goal']").fill("Create a fix for the Next.js compile error");
+    const recoveryControl = page.locator("[data-testid='trial-recovery-plan-auto-runs']");
+    await recoveryControl.fill("3");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const requestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -2317,6 +2320,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const explicitGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='gate-one-edit']").click();
+    await recoveryControl.fill("4");
     await page.locator("[data-testid='trial-profile']").selectOption("python-cli");
     await page.locator("[data-testid='trial-intent']").selectOption("");
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
@@ -2356,13 +2360,19 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const explicitIntentFrozen =
       explicitBody.intent === "fix" &&
       explicitBody.pack === null &&
+      explicitBody.recovery_plan_auto_runs === 3 &&
       explicitResponse.status() === 200 &&
-      explicitGateOne.includes("修正 (fix)");
+      explicitGateOne.includes("修正 (fix)") &&
+      explicitGateOne.includes("Plan 実行総数の上限: 4 回") &&
+      explicitGateOne.includes("単一 Plan 実行の最大 4 倍");
     const automaticIntentCompatible =
       !("intent" in proposalBody) &&
       proposalBody.pack === null &&
+      proposalBody.recovery_plan_auto_runs === 4 &&
       automaticResponse.status() === 200 &&
       automaticGateOne.includes("新しい機能を作成 (create)") &&
+      automaticGateOne.includes("Plan 実行総数の上限: 5 回") &&
+      automaticGateOne.includes("単一 Plan 実行の最大 5 倍") &&
       confirmationReset;
     const providersSeparated =
       proposalBody.provider === "openai" &&
@@ -2386,6 +2396,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       proposal_provider: proposalBody.provider,
       proposal_planner_provider: proposalBody.planner_provider,
       proposal_think: proposalBody.think,
+      proposal_recovery_plan_auto_runs: proposalBody.recovery_plan_auto_runs,
       proposal_status: automaticResponse.status(),
       provider_requests: providerRequests,
       provider_changes_preserve_models: providerChangesPreserveModels,

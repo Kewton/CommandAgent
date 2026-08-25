@@ -1,0 +1,3 @@
+{"event":"recovery_plan_auto_run_configured","recovery_plan_auto_run_current":0,"recovery_plan_auto_run_stop_reason":"initial_run","recovery_plan_auto_runs":2,"recovery_plan_auto_runs_used":0}
+{"event":"recovery_plan_auto_run_start","recovery_handoff_kind":"verification_failed","recovery_plan_auto_run_current":1,"recovery_plan_auto_run_stop_reason":"running","recovery_plan_auto_runs":2,"recovery_plan_auto_runs_used":1,"recovery_ultra_plan_path":".commandagent/plans/recovery.yaml"}
+{"event":"recovery_plan_auto_run_complete","recovery_plan_auto_run_current":1,"recovery_plan_auto_run_stop_reason":"recovery_succeeded","recovery_plan_auto_runs":2,"recovery_plan_auto_runs_used":1}

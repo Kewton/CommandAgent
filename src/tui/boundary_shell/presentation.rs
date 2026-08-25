@@ -112,6 +112,19 @@ fn render_gate_one_for_surface(
     if let Some(think) = identity.pins.think {
         lines.push(format!("- Ollama thinking: {}", think.as_str()));
     }
+    lines.push(format!(
+        "- Recovery Plan 自動実行上限: {} 回（初回実行を除く）",
+        identity.recovery_plan_auto_runs
+    ));
+    lines.push(format!(
+        "- Plan 実行総数の上限: {} 回（初回 1 回 + Recovery {} 回）",
+        u16::from(identity.recovery_plan_auto_runs) + 1,
+        identity.recovery_plan_auto_runs
+    ));
+    lines.push(format!(
+        "- 時間・コストの上限目安: 単一 Plan 実行の最大 {} 倍",
+        u16::from(identity.recovery_plan_auto_runs) + 1
+    ));
     render_pack(identity, pack_locator, &mut lines)?;
     let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
     lines.push(if candidates.is_empty() {

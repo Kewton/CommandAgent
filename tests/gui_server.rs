@@ -2822,6 +2822,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "phases",
             "task_progress",
             "next_action",
+            "recovery_auto_run",
             "section5",
             "started_epoch_seconds",
             "status",
@@ -2839,6 +2840,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(status_json["assurance_reason"].is_null());
     assert_eq!(status_json["stop_reason"], "completed");
     assert!(status_json["next_action"].is_null());
+    assert_eq!(status_json["recovery_auto_run"]["limit"], 0);
+    assert_eq!(status_json["recovery_auto_run"]["used"], 0);
     assert_eq!(status_json["identity"]["request"], spec["goal"]);
     assert_eq!(status_json["identity"]["profile"], spec["profile"]);
     assert_eq!(status_json["identity"]["workspace"], "<execution-root>");
@@ -3227,6 +3230,128 @@ fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
             .lines()
             .any(|argument| argument == "--think=high"),
         "{delegated_args}"
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("recovery-limit-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprintf '%s\\n' '{\"event\":\"recovery_plan_auto_run_complete\",\"effective_profile\":\"python-cli\",\"recovery_plan_auto_run_current\":1,\"recovery_plan_auto_runs_used\":1,\"recovery_plan_auto_runs\":1,\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\"}' '{\"event\":\"tui_command_stop\",\"effective_profile\":\"python-cli\",\"ok\":true,\"status\":\"completed\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let omitted = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(omitted.status, 200, "{}", omitted.body);
+    let mut zero = spec.clone();
+    zero["recovery_plan_auto_runs"] = serde_json::json!(0);
+    let explicit_zero = server.request("POST", "/api/session-proposals", Some(&zero));
+    assert_eq!(explicit_zero.status, 200, "{}", explicit_zero.body);
+    assert_eq!(
+        omitted.json()["card_hash"],
+        explicit_zero.json()["card_hash"]
+    );
+
+    let mut one = spec.clone();
+    one["recovery_plan_auto_runs"] = serde_json::json!(1);
+    let proposal = server.request("POST", "/api/session-proposals", Some(&one));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal_json = proposal.json();
+    assert_ne!(proposal_json["card_hash"], omitted.json()["card_hash"]);
+    assert_eq!(proposal_json["identity"]["recovery_plan_auto_runs"], 1);
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("自動実行上限: 1 回")
+    );
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Plan 実行総数の上限: 2 回")
+    );
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("時間・コストの上限目安: 単一 Plan 実行の最大 2 倍")
+    );
+
+    let mut twenty = spec.clone();
+    twenty["recovery_plan_auto_runs"] = serde_json::json!(20);
+    let maximum = server.request("POST", "/api/session-proposals", Some(&twenty));
+    assert_eq!(maximum.status, 200, "{}", maximum.body);
+    assert_eq!(maximum.json()["identity"]["recovery_plan_auto_runs"], 20);
+
+    let mut stale = one.clone();
+    stale["confirmation_hash"] = omitted.json()["card_hash"].clone();
+    let rejected = server.request("POST", "/api/sessions", Some(&stale));
+    assert_eq!(rejected.status, 412, "{}", rejected.body);
+
+    for invalid_value in [
+        serde_json::json!(-1),
+        serde_json::json!(21),
+        serde_json::json!(1.5),
+        serde_json::json!("1"),
+    ] {
+        let mut invalid = spec.clone();
+        invalid["recovery_plan_auto_runs"] = invalid_value;
+        let rejected = server.request("POST", "/api/session-proposals", Some(&invalid));
+        assert!(
+            matches!(rejected.status, 400 | 422),
+            "unexpected status {}: {}",
+            rejected.status,
+            rejected.body
+        );
+    }
+
+    let mut confirmed = one;
+    confirmed["confirmation_hash"] = proposal_json["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let delegated_args = loop {
+        if let Ok(args) = std::fs::read_to_string(&args_path) {
+            break args;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "delegated CLI did not write arguments"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let arguments = delegated_args.lines().collect::<Vec<_>>();
+    let flag = arguments
+        .iter()
+        .position(|argument| *argument == "--recovery-plan-auto-runs")
+        .expect("confirmed recovery flag was not delegated");
+    assert_eq!(arguments.get(flag + 1), Some(&"1"));
+    let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(
+        status.json()["recovery_auto_run"],
+        serde_json::json!({
+            "current": 1,
+            "used": 1,
+            "limit": 1,
+            "stop_reason": "recovery_succeeded",
+        })
     );
     server.stop();
 }

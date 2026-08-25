@@ -34,7 +34,9 @@ export function TrialGateTwo({ run }: { run: TrialRunState }) {
           <i /> 実行: {trialStatusLabel(session?.status ?? "starting")}
         </span>
       </header>
-      {runIdentity !== null && <TrialRunIdentity identity={runIdentity} />}
+      {runIdentity !== null && (
+        <TrialRunIdentity identity={runIdentity} recovery={session?.recovery_auto_run} />
+      )}
       <p
         aria-atomic="true"
         aria-live={monitor.status === "lost" ? "assertive" : "polite"}

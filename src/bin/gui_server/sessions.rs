@@ -55,6 +55,15 @@ pub struct PolledSession {
     section5: Option<String>,
     events_path: String,
     identity: ConfirmationIdentity,
+    recovery_auto_run: RecoveryAutoRunStatus,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct RecoveryAutoRunStatus {
+    current: u64,
+    used: u64,
+    limit: u64,
+    stop_reason: Option<String>,
 }
 
 pub type SessionError = GuiError;
@@ -193,10 +202,37 @@ pub async fn status(
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
         identity: super::public_projection::identity(confirmed.identity()),
+        recovery_auto_run: recovery_auto_run_status(current_events, confirmed.identity()),
     };
     let mut response = Json(session).into_response();
     insert_status_headers(&mut response, &etag);
     Ok(response)
+}
+
+fn recovery_auto_run_status(
+    events: &[Value],
+    identity: &ConfirmationIdentity,
+) -> RecoveryAutoRunStatus {
+    let latest = events.iter().rev().find(|event| {
+        string(event, "event").is_some_and(|name| name.starts_with("recovery_plan_auto_run_"))
+    });
+    RecoveryAutoRunStatus {
+        current: latest
+            .and_then(|event| event.get("recovery_plan_auto_run_current"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        used: latest
+            .and_then(|event| event.get("recovery_plan_auto_runs_used"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        limit: latest
+            .and_then(|event| event.get("recovery_plan_auto_runs"))
+            .and_then(Value::as_u64)
+            .unwrap_or(identity.recovery_plan_auto_runs.into()),
+        stop_reason: latest
+            .and_then(|event| string(event, "recovery_plan_auto_run_stop_reason"))
+            .map(str::to_string),
+    }
 }
 
 pub(super) fn current_event_interval(events: &[Value]) -> (usize, usize) {

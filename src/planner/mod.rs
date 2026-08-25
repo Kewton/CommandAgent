@@ -1,4 +1,5 @@
 pub mod adjudication;
+pub mod auto_recovery;
 pub mod capability_catalog;
 pub(crate) mod completion_contract_path;
 pub mod contract_attribute_repair;
@@ -36,6 +37,7 @@ pub mod profile_descriptor;
 pub mod profile_manifest;
 pub(crate) mod profile_preset;
 pub(crate) mod python_cli_plan_synthesis;
+pub(crate) mod recovery_validation;
 pub mod repair;
 mod repair_target_selection;
 pub mod repair_targeting;

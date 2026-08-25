@@ -20,7 +20,7 @@
 `Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-65 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+66 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -84,6 +84,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | LM StudioのベースURLを設定します。末尾の任意の`/v1`は正規化します。 | [LM Studioのサーバー](providers.md#lm-studio-のサーバーとモデル) |
 | `--num-predict` | `<NUM_PREDICT>` 整数 | `8192` | プロバイダへ要求する最大出力トークン数を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--max-iterations` | `<MAX_ITERATIONS>` 整数 | `12` | minimal loop の反復予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
+| `--recovery-plan-auto-runs` | `<0..20>` 整数 | `0` | 直接 action、対応する REPL command、resume の UltraPlan 実行失敗後、検証済み Recovery Plan を最大この回数だけ実行します。初回実行は含まず、Plan 総実行数は最大 `1 + N`、`0` は手動 Recovery を維持します。 | [Plan YAML](plan-yaml.md) |
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama または LM Studio なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-が存在しない) |
 | `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | executor と repair の表示ストリーミングを制御します。planner の機械形式出力は表示しません。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |

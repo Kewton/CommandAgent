@@ -43,6 +43,8 @@ pub struct SessionSpec {
     pack: Option<String>,
     #[serde(default)]
     think: Option<OllamaThink>,
+    #[serde(default)]
+    recovery_plan_auto_runs: u8,
 }
 
 #[derive(Debug, Serialize)]
@@ -167,7 +169,17 @@ pub(super) fn gate_one(
     };
     let mut shell = BoundaryShell::new(confirmation_root, None);
     let identity = shell
-        .begin_gate_one_with_locator(proposal, spec.goal.clone(), workspace, pins, pack, &locator)
+        .begin_gate_one_with_locator_and_recovery(
+            proposal,
+            spec.goal.clone(),
+            workspace,
+            pins,
+            pack,
+            commandagent::tui::boundary_shell::GateOneOptions {
+                locator: Some(&locator),
+                recovery_plan_auto_runs: spec.recovery_plan_auto_runs,
+            },
+        )
         .map_err(unprocessable)?
         .clone();
     let card = render_gate_one_for_gui(&identity, &locator).map_err(internal)?;
@@ -175,6 +187,9 @@ pub(super) fn gate_one(
 }
 
 fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
+    if spec.recovery_plan_auto_runs > 20 {
+        return Err(unprocessable("recovery_plan_auto_runs must be in 0..=20"));
+    }
     if spec.goal.trim().is_empty() || spec.goal.len() > MAX_GOAL_BYTES {
         return Err(unprocessable(format!(
             "goal must contain 1..={MAX_GOAL_BYTES} UTF-8 bytes"
@@ -334,6 +349,7 @@ mod tests {
             planner_model: "qwen/test".to_string(),
             pack: None,
             think: None,
+            recovery_plan_auto_runs: 0,
         };
 
         validate_spec(&spec).unwrap();

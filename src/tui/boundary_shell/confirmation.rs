@@ -75,6 +75,8 @@ pub struct ConfirmationIdentity {
     pub pack: PackSelection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft_manifest: Option<DraftManifestIdentity>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub recovery_plan_auto_runs: u8,
 }
 
 impl ConfirmationIdentity {
@@ -146,6 +148,7 @@ impl ConfirmationIdentity {
             pins,
             pack,
             draft_manifest: None,
+            recovery_plan_auto_runs: 0,
         })
     }
 
@@ -223,6 +226,7 @@ impl ConfirmationIdentity {
                 assurance_ceiling: profile.assurance_ceiling().to_string(),
                 base_profile: profile.base_profile.map(str::to_string),
             }),
+            recovery_plan_auto_runs: 0,
         })
     }
 
@@ -238,6 +242,9 @@ impl ConfirmationIdentity {
     }
 
     fn legacy_card_hash(&self) -> anyhow::Result<Option<String>> {
+        if self.recovery_plan_auto_runs != 0 {
+            return Ok(None);
+        }
         let PackSelection::Pinned {
             id,
             version,
@@ -274,6 +281,10 @@ impl ConfirmationIdentity {
         };
         Ok(Some(sha256(&serde_json::to_vec(&legacy)?)))
     }
+}
+
+const fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Serialize)]
@@ -538,6 +549,7 @@ mod tests {
                 source: PackSource::Admitted,
             },
             draft_manifest: None,
+            recovery_plan_auto_runs: 0,
         };
         assert!(crate::planner::pack::catalog::is_admitted(
             PackSource::Admitted,
@@ -550,6 +562,10 @@ mod tests {
         ));
         let legacy_hash = identity.legacy_card_hash().unwrap().unwrap();
         assert_eq!(identity.card_hash().unwrap(), legacy_hash);
+        let mut automatic = identity.clone();
+        automatic.recovery_plan_auto_runs = 1;
+        assert_ne!(automatic.card_hash().unwrap(), legacy_hash);
+        assert!(automatic.legacy_card_hash().unwrap().is_none());
         let legacy_identity = match &identity.pack {
             PackSelection::Pinned {
                 id,

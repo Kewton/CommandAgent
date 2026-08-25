@@ -573,12 +573,13 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     continue;
                 }
             };
-            let identity = match boundary_shell.begin_gate_one(
+            let identity = match boundary_shell.begin_gate_one_with_recovery(
                 proposal,
                 &parsed_request.request,
                 &config.workspace_root,
                 pins,
                 pack,
+                config.recovery_plan_auto_runs,
             ) {
                 Ok(identity) => identity,
                 Err(error) => {
@@ -771,6 +772,7 @@ fn apply_confirmed_identity(
         _ => None,
     };
     config.plan_preset = crate::config::PlanPreset::Profile;
+    config.recovery_plan_auto_runs = identity.recovery_plan_auto_runs;
 }
 
 fn begin_gate_four_pack_change<'a>(
@@ -1181,6 +1183,32 @@ mod tests {
             update_profile(&config, &crate::tui::slash::parse_words("/profile missing")).is_err()
         );
         assert!(update_executor_model(&config, &crate::tui::slash::parse_words("/model")).is_err());
+    }
+
+    #[test]
+    fn confirmed_gate_one_identity_preserves_recovery_limit_for_dispatch() {
+        let root = tempfile::tempdir().unwrap();
+        let mut shell = crate::tui::boundary_shell::BoundaryShell::new(
+            root.path().join("confirmations"),
+            Some(root.path().join("events.jsonl")),
+        );
+        let identity = shell
+            .begin_gate_one_with_recovery(
+                python_cli_proposal(),
+                "Python CLI filter",
+                root.path(),
+                pins(),
+                PackSelection::None,
+                7,
+            )
+            .unwrap()
+            .clone();
+        let mut config = session_config();
+        config.recovery_plan_auto_runs = 0;
+
+        apply_confirmed_identity(&mut config, &identity);
+
+        assert_eq!(config.recovery_plan_auto_runs, 7);
     }
 
     #[test]
