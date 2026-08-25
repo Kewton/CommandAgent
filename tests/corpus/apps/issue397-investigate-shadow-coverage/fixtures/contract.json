@@ -1,0 +1,22 @@
+{
+  "schema_version": "commandagent.verification_spec.investigate_shadow_coverage.v0",
+  "authority": {
+    "shadow_only": true,
+    "candidate_execution_authorized": false,
+    "investigation_evaluator_changed": false,
+    "diagnosis_or_evidence_schema_changed": false,
+    "create_fix_acceptance_path_used": false
+  },
+  "coverage": {
+    "i1_i2_post_hoc": true,
+    "stable_binding_ids": ["error_quote:0", "file_line:1", "code_snippet:2"],
+    "hypothesis_observed_fact": false
+  },
+  "negative": {
+    "fabricated_binding": "failed",
+    "claims_absent": "partial",
+    "reproducer_defect": "failed",
+    "baseline_not_reproduced": "failed",
+    "critic_hypothesis_pass": "non_authoritative"
+  }
+}
