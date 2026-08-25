@@ -100,3 +100,29 @@ Shadow coverage neither promotes nor demotes the result returned by
 reproducer defects, and a non-failing baseline retain their existing I1/I2
 caps. Create/fix scaffold, repair, and final-acceptance mechanisms are outside
 the projector and have no call path into it.
+
+## Critic, counterfactual, and lineage shadow validation
+
+`verification_spec::critic` keeps the provider's closed `CriticJudgment`
+schema separate from deterministic validation. An `accept` judgment is only an
+input: it is not verified unless the runtime validator also accepts the frozen
+contract, bind/execute lineage, counterfactual evidence, and registered
+resource envelope.
+
+Freeze, bind, and execute checkpoints each record an artifact SHA-256, run ID,
+monotonic epoch, model, prompt version, schema version, and request ID. The
+validator recomputes the freeze/bind hashes and requires execute to retain the
+bound hash. Workspace-relative path and structured argv concretization may be
+accepted when explicitly marked semantically equivalent with a reason.
+Changing claim identity, expected input/observation, or polarity is rejected;
+reducing evidence strength is also rejected. A stronger minimum remains valid.
+
+A generated counterfactual must reference the frozen contract hash, have safe
+evidence provenance, execute, and discriminate. If a counterfactual is absent
+or cannot be generated, the closed status requires a reason and produces
+`unverified`. Provider unavailability, critic rejection, malformed lineage,
+and token/latency/retry budget breaches are likewise diagnostic only. The
+report always records `shadow_only=true`,
+`authoritative_verdict_changed=false`, and
+`candidate_execution_authorized=false`; no runner, event, adjudication, or
+`.anvil` path consumes it as authority.

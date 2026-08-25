@@ -1,0 +1,22 @@
+{
+  "schema_version": "commandagent.verification_spec.critic.v0",
+  "authority": {
+    "shadow_only": true,
+    "candidate_execution_authorized": false,
+    "existing_verdict_changed": false
+  },
+  "lineage": {
+    "freeze_bind_execute": true,
+    "semantic_setup_concretization_allowed": true,
+    "tracked": ["artifact_sha256", "epoch", "run_id", "model", "prompt_version", "schema_version", "request_id"]
+  },
+  "negative": {
+    "expected_observation_change": "rejected",
+    "polarity_change": "rejected",
+    "strength_weakening": "rejected",
+    "counterfactual_absent": "unverified_with_reason",
+    "provider_unavailable": "unverified"
+  },
+  "adversarial": {"false_full": 0},
+  "resources": {"phase0_budget_required": true}
+}
