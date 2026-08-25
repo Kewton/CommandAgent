@@ -3203,7 +3203,8 @@ esac
         canonical_selected.to_string_lossy()
     );
 
-    std::fs::remove_dir_all(&selected).unwrap();
+    let displaced = workspace.join("projects/alpha-displaced");
+    std::fs::rename(&selected, &displaced).unwrap();
     std::fs::create_dir_all(&selected).unwrap();
     let replaced = restarted.request("GET", &format!("/api/sessions/{id}/paths"), None);
     assert_eq!(replaced.status, 404, "{}", replaced.body);
