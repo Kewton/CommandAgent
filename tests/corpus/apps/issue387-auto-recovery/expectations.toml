@@ -1,0 +1,34 @@
+case_id = "issue387-auto-recovery"
+source = "Issue #387 bounded Recovery Plan auto-run event contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recovery-events.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_configured\"",
+  "\"recovery_plan_auto_runs\":2",
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"recovery_plan_auto_runs_used\":1",
+  "\"event\":\"recovery_plan_auto_run_complete\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\""
+]

@@ -48,6 +48,7 @@ const initialSpec: SessionSpec = {
   planner_model: "",
   pack: null,
   think: null,
+  recovery_plan_auto_runs: 0,
 };
 
 export function useTrialCompose({ loadOptions = true, stage, setStage }: UseTrialComposeProps) {

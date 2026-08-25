@@ -262,6 +262,11 @@ fn delegated_cli_command(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if identity.recovery_plan_auto_runs > 0 {
+        command
+            .arg("--recovery-plan-auto-runs")
+            .arg(identity.recovery_plan_auto_runs.to_string());
+    }
     if let Some(think) = identity.pins.think {
         command.arg(format!("--think={}", think.as_str()));
     }

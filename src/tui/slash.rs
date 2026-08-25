@@ -594,14 +594,16 @@ pub fn handle_command(
                 let path = crate::planner::save_ultra_plan(&config.workspace_root, &plan)?;
                 Ok(path.display().to_string())
             }
-            SlashCommandKind::UltraPlanRun => crate::planner::generate_and_run_ultra_plan_with_ui(
-                planner,
-                execution,
-                &parsed.goal,
-                &config,
-                ui,
-            ),
-            SlashCommandKind::RunUltraPlan => crate::planner::run_ultra_plan_file_with_ui(
+            SlashCommandKind::UltraPlanRun => {
+                crate::planner::auto_recovery::generate_and_run_with_ui(
+                    planner,
+                    execution,
+                    &parsed.goal,
+                    &config,
+                    ui,
+                )
+            }
+            SlashCommandKind::RunUltraPlan => crate::planner::auto_recovery::run_file_with_ui(
                 planner,
                 execution,
                 Path::new(&parsed.goal),
@@ -623,7 +625,7 @@ pub fn handle_command(
                 let plan_card =
                     crate::tui::presentation::render_ultra_plan_card(&resume.plan, &progress);
                 crate::runs::emit_resume_start(&config, &resume);
-                let output = crate::planner::run_ultra_plan_with_ui(
+                let output = crate::planner::auto_recovery::run_plan_with_ui(
                     planner,
                     execution,
                     &resume.plan,
@@ -1337,6 +1339,7 @@ mod tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs: 1,
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
@@ -1532,6 +1535,55 @@ mod tests {
         )
         .unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn ultra_plan_execution_slashes_share_the_configured_recovery_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let recovery_path = dir.path().join("recovery.yaml");
+        std::fs::write(
+            &recovery_path,
+            crate::planner::ultra_plan::render_ultra_plan(
+                &crate::planner::ultra_plan::UltraPlan::deterministic(
+                    "resume goal",
+                    "generic",
+                    "default",
+                    "create",
+                ),
+            ),
+        )
+        .unwrap();
+        for (index, command) in [
+            "/ultra-plan-run goal".to_string(),
+            "/run-ultra-plan missing.yaml".to_string(),
+            "/resume recovery.yaml".to_string(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut config = config();
+            let events = dir.path().join(format!("slash-{index}.jsonl"));
+            config.workspace_root = dir.path().to_path_buf();
+            config.state_dir = dir.path().join(format!("state-{index}"));
+            config.eval_events_path = Some(events.clone());
+            config.max_iterations = 1;
+            config.recovery_plan_auto_runs = 1;
+            std::fs::create_dir_all(&config.state_dir).unwrap();
+            let mut planner = DummyClient;
+            let mut execution = DummyClient;
+            let _ = handle_command(
+                &command,
+                &config,
+                &mut planner,
+                &mut execution,
+                &crate::tui::NOOP_UI,
+            );
+            let emitted = std::fs::read_to_string(events).unwrap();
+            assert!(
+                emitted.contains("\"event\":\"recovery_plan_auto_run_configured\""),
+                "{command}: {emitted}"
+            );
+        }
     }
 
     #[test]

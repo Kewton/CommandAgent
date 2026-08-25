@@ -379,6 +379,26 @@ Closure checklist:
 Reviewer rule: assurance labels are never accepted without their gate-status
 fields.
 
+### RECOVERY-AUTO-RUN (CLI and GUI Trial)
+
+- Verify omitted and `0` produce the legacy CLI events and Gate 1 hash.
+- Verify CLI accepts `1` and `20`, rejects negative, `21`, and non-integers.
+- Force initial success (zero recovery starts), fail then recover (one start and
+  final success), and repeated failure (no more than the confirmed limit).
+- Repeat those routing checks for both top-level UltraPlan actions,
+  `/ultra-plan-run`, `/run-ultra-plan`, and `/resume` under one startup config.
+- For interruption, non-recoverable failure, missing/corrupt/review-required
+  YAML, workspace drift, path escape, and a repeated plan digest, quote the
+  `recovery_plan_auto_run_stopped` reason and the retained manual handoff.
+- In GUI Trial, change the value after proposal and prove the old hash is
+  rejected. Require Gate 1 to show `N`, total executions `1 + N`, and the
+  duration/cost upper-bound meaning. Inspect delegated arguments and require
+  the confirmed value.
+- On both `/` and `/proxy/commandagent/`, verify Gate 1 input `0..20`, Gate 2
+  progress, and terminal/history-detail current, used, limit, and stop reason.
+- After automatic success, verify terminal completion contains no Recovery Plan
+  path or failure reason from an earlier attempt.
+
 Honest fallback:
 
 - If the planner scaffolds an unknown stack, static-tier termination is correct

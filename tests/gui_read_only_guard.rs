@@ -476,8 +476,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     );
     assert_eq!(
         source.matches("disabled={launchIdentityLocked}").count(),
-        5,
-        "goal, token, intent, and both model controls must share the run-stage lock"
+        6,
+        "goal, token, intent, recovery limit, and both model controls must share the run-stage lock"
     );
     assert_eq!(
         source
@@ -1534,10 +1534,11 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "section5:",
         "events_path:",
         "identity?:",
+        "recovery_auto_run:",
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 19);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 24);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [

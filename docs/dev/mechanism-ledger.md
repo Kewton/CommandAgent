@@ -1738,3 +1738,19 @@ tokenを必須とし、管理者が信頼済みloopback向けに認証OFFで起�
 credential scrub・exact-byte表示・別確認を迂回しない。
 root／proxyのbrowser smokeはdesktop/mobile、heading、accessible name、polite live region、
 keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。
+
+## CLI-GUI-387 — bounded Recovery Plan auto-run（Issue #387、2026-08-25）
+
+`--recovery-plan-auto-runs 0..20`を共有Configに追加し、top-level 2 action、
+`/ultra-plan-run`、`/run-ultra-plan`、`/resume`の初回UltraPlan失敗後だけ、runnerがattempt内で
+渡したtyped Recovery candidateを既存resume安全検査とYAML検証に通して上限内で自動実行する。
+event、error文字列、suggested commandは実行判断へ使わない。初回実行は
+回数外であり、`0`は旧分岐・event・confirmation identity/hashを維持する。中断、対象外失敗、
+YAML欠落／破損、review-required、workspace drift、path escape、normalized plan循環は停止し、最新の
+honest failureと手動Recovery導線を残す。`max_iterations`とlocal repairは変更しない。
+
+GUI Trialは同じ値をGate 1 identity/hashへ固定し、`1 + N`の総Plan実行上限と時間／コスト上限
+倍率を表示し、確認済みidentityだけからCLI flagを委譲する。
+Gate 2とterminal／履歴詳細は現在回数、使用回数、上限、停止理由を加法表示する。Recovery文書の
+GET-only閲覧／copy境界は不変であり、自動Recovery成功後は過去失敗のRecovery fieldを最終
+completionからclearする。

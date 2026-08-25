@@ -1602,7 +1602,6 @@ fn fix_contract_freezes_the_run_start_profile_binding() {
     cfg.profile_explicit = false;
     let fix = UltraPlan::deterministic("fix parser", "generic", "default", "fix");
     let create = UltraPlan::deterministic("create parser", "generic", "default", "create");
-
     assert!(!ProfilePromotionState::for_run(&fix, &cfg).eligible);
     assert!(ProfilePromotionState::for_run(&create, &cfg).eligible);
 }
@@ -1634,6 +1633,7 @@ fn config(root: PathBuf) -> Config {
         lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 100,
         max_iterations: 4,
+        recovery_plan_auto_runs: 0,
         chat_timeout_secs: 1,
         chat_timeout_source: "override:test".to_string(),
         field_sources: crate::config::ConfigFieldSources::default(),

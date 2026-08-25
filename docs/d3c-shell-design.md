@@ -193,7 +193,10 @@ The confirmation card contains:
 6. planner/executor/provider/preset and any known measured limitation;
 7. the selected pack or explicit `no pack`, including ID, version, exact-byte
    hash, compatible point, and whether a comparable band row exists;
-8. unknown or unmeasured values rendered as such, never estimated silently.
+8. the confirmed Recovery Plan auto-run limit (`0..20`), excluding the initial
+   run, the maximum total plan executions (`1 + N`), and the equivalent upper
+   bound on duration/cost relative to one plan execution; and
+9. unknown or unmeasured values rendered as such, never estimated silently.
 
 The human can confirm, edit the request/bindings, choose an admitted compatible
 pack, or cancel. Confirmation persists the exact card identity and selected
@@ -215,6 +218,16 @@ interactive route or contract mutation.
 The shell may display progress already emitted by the product. It may not
 reinterpret progress as completion, auto-select a repair, swap models, change
 packs, or answer a runner question on the user's behalf.
+
+One narrow exception is the explicitly confirmed bounded Recovery Plan
+controller. The confirmed value is shared by top-level UltraPlan actions,
+`/ultra-plan-run`, `/run-ultra-plan`, and `/resume`. A nonzero Gate 1 value may
+execute only a typed runner-produced, workspace-confined, parseable Recovery
+Plan candidate after the existing resume safety checks pass; event files,
+rendered errors, and suggested commands are not execution inputs. Interruption,
+drift, path escape, review-required YAML, normalized-plan cycles,
+and the configured limit stop automatically and retain honest failure plus the
+manual recovery route. Zero preserves the legacy identity and execution path.
 
 For StepPlan task progress, the shell projects only schema-versioned
 `plan_step_started`, `plan_step_completed`, and `plan_step_failed` records.

@@ -563,6 +563,14 @@ pub struct Cli {
     pub max_iterations: usize,
     #[arg(
         long,
+        default_value_t = 0,
+        value_parser = clap::value_parser!(u8).range(0..=20),
+        help_heading = "Planning and Verification",
+        help = "Automatically execute at most this many validated Recovery Plans after a failed UltraPlan execution, including direct actions, matching REPL commands, and resume (0 disables; total plan executions are at most 1 + this value)."
+    )]
+    pub recovery_plan_auto_runs: u8,
+    #[arg(
+        long,
         value_parser = clap::value_parser!(u64).range(1..),
         help_heading = "Models and Providers",
         help = "Set connect and whole-request timeouts for provider calls."
@@ -1167,6 +1175,32 @@ mod tests {
         assert!(cli.ultra_plan_run);
         assert_eq!(cli.profile.as_deref(), Some("nextjs"));
         assert_eq!(cli.trailing_goal().as_deref(), Some("3011 port app"));
+    }
+
+    #[test]
+    fn recovery_plan_auto_runs_accepts_only_zero_through_twenty() {
+        assert_eq!(
+            Cli::try_parse_from(["commandagent", "--recovery-plan-auto-runs", "0"])
+                .unwrap()
+                .recovery_plan_auto_runs,
+            0
+        );
+        for value in ["1", "20"] {
+            assert_eq!(
+                Cli::try_parse_from(["commandagent", "--recovery-plan-auto-runs", value])
+                    .unwrap()
+                    .recovery_plan_auto_runs
+                    .to_string(),
+                value
+            );
+        }
+        for value in ["-1", "21", "1.5", "one"] {
+            assert!(
+                Cli::try_parse_from(["commandagent", "--recovery-plan-auto-runs", value]).is_err(),
+                "accepted {value}"
+            );
+        }
+        assert_eq!(Cli::parse_from(["commandagent"]).recovery_plan_auto_runs, 0);
     }
 
     #[test]

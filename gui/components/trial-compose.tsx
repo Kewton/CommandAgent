@@ -101,6 +101,20 @@ export function TrialCompose({ run }: { run: TrialRunState }) {
       />
       <div className="trial-fields">
         <label>
+          Recovery Plan 自動実行回数
+          <input
+            data-testid="trial-recovery-plan-auto-runs"
+            disabled={launchIdentityLocked}
+            max={20}
+            min={0}
+            onChange={(event) => update("recovery_plan_auto_runs", Number(event.target.value))}
+            step={1}
+            type="number"
+            value={spec.recovery_plan_auto_runs}
+          />
+          <small className="trial-field-hint">0〜20 回。初回実行はこの回数に含みません。</small>
+        </label>
+        <label>
           プロファイル
           <select
             data-testid="trial-profile"

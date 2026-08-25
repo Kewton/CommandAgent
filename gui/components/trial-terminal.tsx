@@ -81,7 +81,10 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
                   testId="terminal-verification-results"
                 />
             )}
-            <TrialRunIdentity identity={session.identity} />
+            <TrialRunIdentity
+              identity={session.identity}
+              recovery={session.recovery_auto_run}
+            />
             <TrialTaskProgress
               evidenceLoading={evidenceLoading}
               onOpenEvents={readEvents}

@@ -24,6 +24,12 @@ use self::ambiguity::RouteProposal;
 use self::confirmation::{ConfirmationIdentity, ConfirmedDispatch, ExecutionPins, PackSelection};
 use self::directive::{ConfirmedDirective, DirectiveContinuation, PersistedDirective};
 
+#[derive(Debug, Clone, Copy)]
+pub struct GateOneOptions<'a> {
+    pub locator: Option<&'a PackLocator>,
+    pub recovery_plan_auto_runs: u8,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoundaryState {
     Collecting,
@@ -136,7 +142,17 @@ impl BoundaryShell {
         pins: ExecutionPins,
         pack: PackSelection,
     ) -> anyhow::Result<&ConfirmationIdentity> {
-        self.begin_gate_one_inner(proposal, request.into(), workspace, pins, pack, None)
+        self.begin_gate_one_inner(
+            proposal,
+            request.into(),
+            workspace,
+            pins,
+            pack,
+            GateOneOptions {
+                locator: None,
+                recovery_plan_auto_runs: 0,
+            },
+        )
     }
 
     pub fn begin_gate_one_with_locator(
@@ -154,8 +170,45 @@ impl BoundaryShell {
             workspace,
             pins,
             pack,
-            Some(locator),
+            GateOneOptions {
+                locator: Some(locator),
+                recovery_plan_auto_runs: 0,
+            },
         )
+    }
+
+    pub fn begin_gate_one_with_recovery(
+        &mut self,
+        proposal: RouteProposal,
+        request: impl Into<String>,
+        workspace: &Path,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        recovery_plan_auto_runs: u8,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_gate_one_inner(
+            proposal,
+            request.into(),
+            workspace,
+            pins,
+            pack,
+            GateOneOptions {
+                locator: None,
+                recovery_plan_auto_runs,
+            },
+        )
+    }
+
+    pub fn begin_gate_one_with_locator_and_recovery(
+        &mut self,
+        proposal: RouteProposal,
+        request: impl Into<String>,
+        workspace: &Path,
+        pins: ExecutionPins,
+        pack: PackSelection,
+        options: GateOneOptions<'_>,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_gate_one_inner(proposal, request.into(), workspace, pins, pack, options)
     }
 
     fn begin_gate_one_inner(
@@ -165,7 +218,7 @@ impl BoundaryShell {
         workspace: &Path,
         pins: ExecutionPins,
         pack: PackSelection,
-        locator: Option<&PackLocator>,
+        options: GateOneOptions<'_>,
     ) -> anyhow::Result<&ConfirmationIdentity> {
         if !matches!(
             self.state,
@@ -178,10 +231,10 @@ impl BoundaryShell {
         let selected = proposal
             .selected
             .context("typed unknown route requires human correction before Gate 1")?;
-        let identity = if let Some(profile) =
+        let mut identity = if let Some(profile) =
             crate::planner::extension_profiles::find(selected.profile.as_str())
         {
-            if let Some(locator) = locator {
+            if let Some(locator) = options.locator {
                 ConfirmationIdentity::new_draft_with_locator(
                     request, workspace, &selected, pins, pack, profile, locator,
                 )?
@@ -192,7 +245,7 @@ impl BoundaryShell {
             let band = selected
                 .band()
                 .context("registered route is missing a capability band")?;
-            if let Some(locator) = locator {
+            if let Some(locator) = options.locator {
                 ConfirmationIdentity::new_with_locator(
                     request, workspace, &selected, band, pins, pack, locator,
                 )?
@@ -200,6 +253,7 @@ impl BoundaryShell {
                 ConfirmationIdentity::new(request, workspace, &selected, band, pins, pack)?
             }
         };
+        identity.recovery_plan_auto_runs = options.recovery_plan_auto_runs;
         let card_hash = identity.card_hash()?;
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),
