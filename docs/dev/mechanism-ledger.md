@@ -1731,9 +1731,10 @@ stateとpartial artifact state、viable action、repair prompt、Recovery Plan�
 root redactionを通す。event名/schema、acceptance/verification/release判定、Gate 1 hash、
 `.anvil/` namespaceは変更しない。
 
-recovery artifactはTrial token必須のGET-only
-`api/sessions/{id}/recovery-document`で、現在区間に投影されたexact path 2種だけを
-non-symlink canonical workspace境界内から読む。copy/openは実行せず、「追加の依頼へ反映」は
-textareaをprefillするだけで、保存・credential scrub・exact-byte表示・別確認を迂回しない。
+recovery artifactはGET-only `api/sessions/{id}/recovery-document`で、Trial token認証ONなら
+tokenを必須とし、管理者が信頼済みloopback向けに認証OFFで起動した場合はtokenなしで読む。
+どちらも現在区間に投影されたexact path 2種だけをnon-symlink canonical workspace境界内から
+読み、copy/openは実行しない。「追加の依頼へ反映」はtextareaをprefillするだけで、保存・
+credential scrub・exact-byte表示・別確認を迂回しない。
 root／proxyのbrowser smokeはdesktop/mobile、heading、accessible name、polite live region、
 keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。

@@ -193,12 +193,15 @@ visible as evidence but cannot be copied as a complete recommendation.
 An explicitly failed recovery prompt/YAML parse, missing recovery artifact, or
 invalid command target makes continuation ineligible rather than optimistic.
 
-**repair prompt を開く** and **Recovery Plan を開く** use the authenticated,
-GET-only `api/sessions/{id}/recovery-document` endpoint. It reads only the
-exact non-truncated path projected from the current terminal interval, below
-the available per-session working directory; traversal, symlinks, unrelated
-paths, and a missing workspace are refused. The reader does not create,
-rewrite, or execute a recovery artifact.
+**repair prompt を開く** and **Recovery Plan を開く** use the GET-only
+`api/sessions/{id}/recovery-document` endpoint. When Trial token authentication
+is on, the valid token remains mandatory. When an administrator starts the
+loopback server with authentication off, the documents are readable without a
+bearer token. In either mode, the endpoint reads only the exact non-truncated
+path projected from the current terminal interval, below the available
+per-session working directory; traversal, symlinks, unrelated paths, and a
+missing workspace are refused. The reader does not create, rewrite, or execute
+a recovery artifact.
 
 The command copy buttons are keyboard-operable and announce that no execution
 occurred. **推奨内容を追加の依頼欄へ反映** only prefills and focuses the

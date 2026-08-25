@@ -99,7 +99,9 @@ cargo run --features gui --bin gui_server -- \
 
 Open `http://127.0.0.1:4173/`. The server binds only to `127.0.0.1`. With
 authentication off, the token field is hidden, but every POST still requires a
-same-host or allowlisted Origin. Use this only for a trusted loopback session.
+same-host or allowlisted Origin. Read-only recovery documents are also
+available without a bearer token in this mode. Use this only for a trusted
+loopback session.
 If `--execution-root` is omitted, read-only dashboards remain available and
 all Trial APIs fail closed.
 

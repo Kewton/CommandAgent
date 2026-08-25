@@ -1687,7 +1687,7 @@ fn trial_failure_explanation_is_bounded_typed_and_never_auto_runs_recovery() {
     ));
     let recovery = std::fs::read_to_string("src/bin/gui_server/session_recovery.rs").unwrap();
     for required in [
-        "authentication_enabled()",
+        "require_trial(&state, &headers, false)",
         "current_event_interval(&events)",
         "path is not a current projected recovery document",
         "checked_existing_path_without_symlinks",
@@ -1698,7 +1698,13 @@ fn trial_failure_explanation_is_bounded_typed_and_never_auto_runs_recovery() {
             "recovery reader lost {required:?}"
         );
     }
-    for forbidden in ["Command::new", "tokio::process", "std::fs::write", "post("] {
+    for forbidden in [
+        "authentication_enabled()",
+        "Command::new",
+        "tokio::process",
+        "std::fs::write",
+        "post(",
+    ] {
         assert!(
             !recovery.contains(forbidden),
             "read-only recovery reader contains mutation primitive {forbidden:?}"

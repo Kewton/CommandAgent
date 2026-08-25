@@ -2,7 +2,7 @@ use std::path::Path as FilePath;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use commandagent::eval_events::failure_explanation::{
     ProjectionContext, WorkspaceState, project as project_failure,
@@ -28,13 +28,6 @@ pub(super) async fn get(
     headers: HeaderMap,
     Query(query): Query<RecoveryDocumentQuery>,
 ) -> Result<Response, GuiError> {
-    if !state.trial_access.authentication_enabled() {
-        return Err(GuiError::new(
-            StatusCode::FORBIDDEN,
-            "trial_recovery_authentication_required",
-            "recovery documents require Trial token authentication",
-        ));
-    }
     let execution_root = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
     let paths = SessionPaths::existing(&execution_root, &id)

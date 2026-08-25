@@ -2357,6 +2357,78 @@ fn failed_session_projects_exact_interval_and_reads_only_current_recovery_docume
 
 #[cfg(unix)]
 #[test]
+fn recovery_documents_are_readable_when_trial_token_auth_is_off() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("failure-projection-commandagent");
+    write_failure_projection_cli(&cli);
+    let mut server = Server::start_without_trial_token(&workspace, &cli);
+    let origin = format!("http://127.0.0.1:{}", server.port);
+
+    let spec = session_spec();
+    let proposal = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request_with_access(
+        "POST",
+        "/api/sessions",
+        Some(&confirmed),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
+    let failure_fixture =
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&events_path).unwrap(),
+        failure_fixture
+    );
+
+    for (path, expected) in [
+        (
+            ".anvil%2Frepairs%2Frepair-build.md",
+            "Repair the typed build failure.",
+        ),
+        (".anvil%2Fplans%2Frecovery-build.yaml", "Recovery Plan"),
+    ] {
+        let document = server.request_without_access(
+            "GET",
+            &format!("/api/sessions/{id}/recovery-document?path={path}"),
+            None,
+        );
+        assert_eq!(document.status, 200, "{}", document.body);
+        assert_eq!(document.header("cache-control"), Some("private, no-store"));
+        assert!(
+            document.json()["content"]
+                .as_str()
+                .unwrap()
+                .contains(expected),
+            "{}",
+            document.body
+        );
+    }
+
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 

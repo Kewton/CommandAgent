@@ -17,8 +17,10 @@ without removing the last successful list.
 
 `--trial-token-auth` accepts `on` or `off` and defaults to `off`. Off hides the
 token field and removes bearer authentication, but every POST still requires a
-same-host Origin or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. Use off only on a
-trusted local loopback session.
+same-host Origin or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. GET-only recovery
+documents are readable without a token when off; their projected-path,
+workspace-confinement, non-symlink, and no-store checks remain enforced. Use off
+only on a trusted local loopback session.
 
 On requires a 32–4096 character non-whitespace `GUI_TRIAL_TOKEN` in the server
 process environment. The browser sends it as

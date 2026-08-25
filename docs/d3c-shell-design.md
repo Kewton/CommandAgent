@@ -264,11 +264,13 @@ incomplete identity pairs degrade to `unknown`. Planning, execution,
 verification, release-gate, infrastructure, interrupted, and unknown are
 display classifications only; they do not change the terminal verdict or gate.
 
-Recovery-document opens are authenticated GETs confined to the current
-per-session workspace and to the exact projected repair-prompt or Recovery Plan
-path. Copy actions never execute a command. Applying a recommendation only
-prefills the existing additional-request draft, after which credential
-scrubbing, exact-byte review, and the separate confirmation remain mandatory.
+Recovery-document opens are GETs confined to the current per-session workspace
+and to the exact projected repair-prompt or Recovery Plan path. They require a
+valid bearer token when Trial token authentication is on and follow the
+administrator-selected trusted-loopback policy when it is off. Copy actions
+never execute a command. Applying a recommendation only prefills the existing
+additional-request draft, after which credential scrubbing, exact-byte review,
+and the separate confirmation remain mandatory.
 
 | Action | Required basis | Effect |
 |---|---|---|

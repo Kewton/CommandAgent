@@ -29,7 +29,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Show and copy the delegated GUI Trial working directory on live and result
   pages, separately from run records, through a token-authenticated path API.
 - Explain the final failed GUI Trial interval with a shared bounded typed
-  projection, exact StepPlan evidence and workspace state, plus authenticated
+  projection, exact StepPlan evidence and workspace state, plus auth-mode-aware
   read-only recovery-document, keyboard copy, and confirmation-preserving
   continuation-prefill actions.
 
