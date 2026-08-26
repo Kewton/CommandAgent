@@ -157,6 +157,56 @@ def _stable_claim_id(claim: dict[str, Any], index: int) -> str:
     return f"held-{prefix or 'claim'}-{index:02d}-{digest}"[:64]
 
 
+def _held_out_origin(
+    *,
+    case: dict[str, Any],
+    claim: dict[str, Any],
+    claim_oracles: list[dict[str, Any]],
+    index: int,
+) -> dict[str, Any]:
+    intent = case["intent"]
+    if intent == "create":
+        return {
+            "source_kind": "goal",
+            "start_byte": 0,
+            "end_byte": len(case["goal"].encode("utf-8")),
+        }
+    kind = claim.get("kind")
+    lineage = f"{case['case_id']}:held-out:{index:02d}"
+    if intent == "fix":
+        has_failure_polarity = any(
+            oracle.get("expected_polarity") == "failure"
+            for oracle in claim_oracles
+        )
+        if kind == "reproducer_observation" or has_failure_polarity:
+            requirement_id, stage, polarity = "before_fails", "before", "failure"
+        elif kind == "regression":
+            requirement_id, stage, polarity = "no_regression", "after", "success"
+        else:
+            requirement_id, stage, polarity = "after_passes", "after", "success"
+        return {
+            "source_kind": "fix_requirement",
+            "artifact_path": "evidence/fix-evidence.json",
+            "requirement_id": requirement_id,
+            "stage": stage,
+            "expected_polarity": polarity,
+            "lineage": lineage,
+            "epoch": 1,
+        }
+    if intent == "investigate":
+        diagnosis = kind == "diagnosis_binding"
+        return {
+            "source_kind": "investigation_requirement",
+            "artifact_path": "evidence/investigation-evidence.json",
+            "requirement_id": "diagnosis_bound" if diagnosis else "reproducer_fails",
+            "binding_id": f"{case['case_id']}:held-out:{index:02d}",
+            "stage": "diagnosis" if diagnosis else "reproduce",
+            "lineage": lineage,
+            "epoch": 1,
+        }
+    raise ValueError(f"unsupported held-out intent: {intent}")
+
+
 def canonicalize_held_out_proposal(
     raw: str, *, case: dict[str, Any], model: str, request_id: str
 ) -> str:
@@ -176,16 +226,24 @@ def canonicalize_held_out_proposal(
         raise ValueError("held-out provider claim IDs must be unique")
     canonical = copy.deepcopy(value)
     mapping: dict[str, str] = {}
+    provider_oracles_by_claim: dict[str, list[dict[str, Any]]] = {
+        claim_id: [] for claim_id in old_ids
+    }
+    for oracle in oracles:
+        if isinstance(oracle, dict) and oracle.get("claim_id") in provider_oracles_by_claim:
+            provider_oracles_by_claim[oracle["claim_id"]].append(oracle)
     for index, claim in enumerate(canonical["claims"], 1):
+        provider_claim_id = claim["id"]
         new_id = _stable_claim_id(claim, index)
-        mapping[claim["id"]] = new_id
+        mapping[provider_claim_id] = new_id
         claim["id"] = new_id
         claim["required"] = True
-        claim["origin"] = {
-            "source_kind": "goal",
-            "start_byte": 0,
-            "end_byte": len(case["goal"].encode("utf-8")),
-        }
+        claim["origin"] = _held_out_origin(
+            case=case,
+            claim=claim,
+            claim_oracles=provider_oracles_by_claim[provider_claim_id],
+            index=index,
+        )
         claim["oracle_ids"] = []
     by_id = {claim["id"]: claim for claim in canonical["claims"]}
     counts: dict[str, int] = {}

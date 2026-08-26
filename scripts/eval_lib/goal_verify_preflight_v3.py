@@ -74,7 +74,14 @@ def cross_source_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
             "one oracle",
             "shell command",
             "expected_polarity",
-            "Host code computes UTF-8 origins",
+            "Host code computes intent-compatible origins",
+            "UTF-8 goal byte",
+            "frozen fix-requirement references",
+            "Claim-kind allow table by intent",
+            "Input-kind field table",
+            "Observation-kind field table",
+            "Strategy/input/observation allow table",
+            "require setup.argv with",
         ):
             if requirement not in text:
                 errors.append(f"prompt_rule_missing:{requirement}")

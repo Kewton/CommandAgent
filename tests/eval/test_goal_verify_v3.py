@@ -122,6 +122,37 @@ class PromptAndCanonicalizationTest(unittest.TestCase):
             len(case["goal"].encode("utf-8")),
         )
 
+    def test_held_out_fix_origin_is_intent_compatible_and_deterministic(self):
+        case = self.case("fix-reproduced-after-regression")
+        proposal = load("tests/fixtures/verification_spec_v0/fix.json")
+        proposal["claims"][0]["id"] = "temporary-provider-id"
+        proposal["claims"][0]["kind"] = "regression"
+        proposal["oracles"][0]["claim_id"] = "temporary-provider-id"
+        normalized_a = canonicalize_held_out_proposal(
+            json.dumps(proposal), case=case, model="m", request_id="r"
+        )
+        normalized_b = canonicalize_held_out_proposal(
+            json.dumps(proposal), case=case, model="m", request_id="r"
+        )
+        self.assertEqual(normalized_a, normalized_b)
+        origin = json.loads(normalized_a)["claims"][0]["origin"]
+        self.assertEqual(origin["source_kind"], "fix_requirement")
+        self.assertEqual(origin["requirement_id"], "before_fails")
+        self.assertEqual(origin["stage"], "before")
+        self.assertEqual(origin["expected_polarity"], "failure")
+
+    def test_preflight_prompt_fixes_kind_fields_and_allow_tables(self):
+        for required in (
+            "Claim-kind allow table by intent",
+            "Input-kind field table",
+            'http -> {"kind":"http","method":"GET or HEAD","port":4173',
+            'dom -> {"kind":"dom","route":"/absolute-route-path"',
+            "Observation-kind field table",
+            "Strategy/input/observation allow table",
+            "require setup.argv with",
+        ):
+            self.assertIn(required, self.base)
+
     def test_prompt_path_mismatch_aborts(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v3-contract.json")
         with self.assertRaisesRegex(ValueError, "CLI prompt differs"):
