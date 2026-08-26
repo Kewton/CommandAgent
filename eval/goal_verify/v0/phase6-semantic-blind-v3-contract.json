@@ -1,0 +1,188 @@
+{
+  "schema_version": "commandagent.goal_verify.semantic_blind_contract.v3",
+  "status": "draft",
+  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "drafted_at": "2026-08-26",
+  "frozen_at": null,
+  "input": {
+    "unit": "paired raw proposals for the same goal under the same processing boundary",
+    "arms": {
+      "candidate": "held_out_synthesis lane VerificationSpec v0 proposal, host-canonicalized, rendered by the host renderer",
+      "baseline": "current_product_live verification plan (StepPlan.verify commands, profile probes, CompletionContract verify_commands, browser/fetch probes) rendered by the same host renderer into the same card structure",
+      "conformance_lane_proposals": "not reviewed; conformance is measured by machine gates only"
+    }
+  },
+  "lanes": {
+    "semantic_hidden": {
+      "role": "primary",
+      "visible": [
+        "goal",
+        "intent",
+        "profile",
+        "required_claims (gold, without min_strength)",
+        "raw claims",
+        "raw oracle semantics (strategy, expected polarity, observation kind, expected value)"
+      ],
+      "hidden": [
+        "execution results",
+        "arm identity",
+        "provider",
+        "model",
+        "request ID",
+        "token counts",
+        "timing",
+        "record path",
+        "lineage hashes",
+        "machine verdict",
+        "canonical answer key"
+      ],
+      "question": "which arm's claims and oracles better cover and correctly verify the required claims, judged from the proposal text alone"
+    },
+    "execution_visible": {
+      "role": "reference",
+      "visible": [
+        "everything in semantic_hidden",
+        "candidate-specific execution results",
+        "baseline execution results",
+        "canonical answer key marked as reference"
+      ],
+      "hidden": [
+        "arm identity",
+        "provider",
+        "model",
+        "request ID",
+        "token counts",
+        "timing",
+        "record path",
+        "lineage hashes",
+        "machine verdict"
+      ],
+      "decision_use": "none; reported for continuity with v2 and for calibrating the hidden lane"
+    }
+  },
+  "criteria": [
+    "required claim semantic coverage",
+    "oracle relevance to its claim",
+    "expected polarity correctness",
+    "observation specificity",
+    "absence of unsupported or fabricated requirements"
+  ],
+  "reason_codes": [
+    "better_coverage",
+    "better_oracle_binding",
+    "better_polarity",
+    "more_specific_observation",
+    "unsupported_claim",
+    "equivalent",
+    "both_unusable"
+  ],
+  "randomization": {
+    "arm_label_assignment": "per item, from a seed derived as the unsigned big-endian integer of the first 16 hex characters of this contract's sha256 at freeze",
+    "item_order": "same seed, independent stream",
+    "secret_mapping_path": "blind-review/secret/mapping.json",
+    "secret_directory_commit_policy": "excluded from commits until the human calibration of this run is final; then committed as audit artifacts in the same commit as the final report (publication voids blinding for the run)"
+  },
+  "reviewers": {
+    "model": {
+      "minimum_count": 2,
+      "distinct_model_families_required": true,
+      "same_family_sessions_count_as_one": true,
+      "at_least_one_local_ollama": true,
+      "planned_reviewers": [
+        {
+          "provider": "ollama",
+          "model_id_or_version": "qwen3.8:27b-mlx",
+          "model_digest": "5642e97495e1",
+          "model_family": "qwen3",
+          "independent": true
+        },
+        {
+          "provider": "ollama",
+          "model_id_or_version": "gemma4:26b",
+          "model_digest": "5571076f3d70",
+          "model_family": "gemma4",
+          "independent": true
+        }
+      ],
+      "external_provider": {
+        "live_review_authorized": false,
+        "scope": null,
+        "approved_by": null,
+        "approved_at": null,
+        "rule": "an external provider may be used only when this block is set before freeze"
+      },
+      "provenance_required_per_reviewer": [
+        "provider",
+        "model_id_or_version",
+        "model_digest_if_available",
+        "invoked_at",
+        "items_sha256",
+        "raw_response",
+        "parsed_reviews",
+        "invocation_script_sha256"
+      ],
+      "independence_declaration": "a reviewer session or agent that authored any harness, contract, prompt, or adapter file for this run is recorded as non-independent and excluded from inter-rater statistics"
+    },
+    "human": {
+      "assigned_reviewer_id": "fable",
+      "assigned_at": "2026-08-26",
+      "independence_confirmed": true,
+      "minimum_items_per_lane": {
+        "semantic_hidden": 10,
+        "execution_visible": 0
+      },
+      "eligibility": "has not seen unblinded per-model or aggregate results for this run",
+      "selection_rule": "pair-01 from each of the 7 primary cells, then pair-02 from the first 3 primary cells in lexicographic case order (10 items); presentation order randomized by the contract seed",
+      "template": "blind-review/human-calibration-template.json",
+      "records": [
+        "reviewer_id",
+        "reviewed_at",
+        "preferred",
+        "reason_codes",
+        "rationale"
+      ],
+      "shared_sample": true,
+      "shared_sample_rule": "the human items are a fixed subset of the same semantic_hidden items every model reviewer scores; humans never see model outputs, model reviewers never see human outputs"
+    }
+  },
+  "agreement_gates": {
+    "model_model": {
+      "statistic": "Cohen kappa on all 40 semantic_hidden items",
+      "minimum": 0.4,
+      "below": "the two model reviewers are treated as one non-corroborating reference; model review cannot count as corroborating evidence"
+    },
+    "human_vs_model_consensus": {
+      "statistic": "raw agreement on the 10 shared items (an item agrees when the human preference equals the model consensus; disagree-consensus items count as disagreement)",
+      "minimum": 0.7,
+      "below": "model reviews are inadmissible as evidence in the 360-pair experiment; only human review counts there and the human sample is enlarged"
+    },
+    "statistical_note": "with 10 items kappa is unstable; raw agreement is the preregistered gate and kappa is reported alongside",
+    "effect_on_preflight_readiness": "agreement gates do not block ready_for_full_experiment_design; they determine whether model review is admissible in the 360-pair design",
+    "full_experiment_human_minimum_proposed": {
+      "items": 36,
+      "rule": "3 per cell, shared with model reviewers; fixed in the 360-pair contract"
+    }
+  },
+  "statistics": {
+    "inter_rater": [
+      "exact agreement rate",
+      "expected agreement rate",
+      "Cohen kappa per reviewer pair",
+      "human vs model consensus agreement"
+    ],
+    "orientation_consensus": [
+      "baseline",
+      "candidate",
+      "tie",
+      "disagree"
+    ],
+    "preflight_thresholds": "none on preference direction; report only",
+    "gate": {
+      "semantic_blind_review_complete": "requires human minimum met in semantic_hidden, model provenance complete for every model reviewer, and secret mapping withheld until all reviews are final",
+      "model_only_review": "reference evidence; never satisfies the gate"
+    }
+  },
+  "old_run_handling": {
+    "phase6-preflight-v2-20260826-live-01": "frozen as formal gate NO-GO with semantic blind review structurally biased and human calibration incomplete (0/10); no further calibration is performed on it; its secret mapping and model reviews are published as audit artifacts with the frozen run (decision v3-D5)"
+  }
+}

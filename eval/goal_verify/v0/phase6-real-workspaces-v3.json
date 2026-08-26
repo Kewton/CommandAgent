@@ -1,0 +1,414 @@
+{
+  "schema_version": "commandagent.goal_verify.real_workspaces.v3",
+  "status": "draft",
+  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "drafted_at": "2026-08-26",
+  "policy": {
+    "decision": "v3-D4: every primary cell gets a frozen real workspace; snapshot_value / snapshot_multi_value / snapshot_equal executors are retired for primary cells",
+    "stage_model": {
+      "create": "initial (what the current product starts from) and reference (frozen completed artifact against which candidate oracles execute)",
+      "fix": "before (initial for the product; contains the defect) and after (frozen fixed artifact; reference for candidate oracles)"
+    },
+    "baseline_arm": "the current product runs from the initial/before stage; its executed verifications are replayed inside its own output workspace (see contract baseline.primary.scoring_rule)",
+    "candidate_arm": "candidate oracles are concretized and executed against the reference/after stage; fix oracles that declare stage=before execute against the before stage",
+    "negative_cells": "for negative fix cells the frozen workspace deliberately cannot satisfy every answer-key entry (e.g. the reproducer dependency is absent); both arms are expected to end unverified there and a full verdict would be false-full",
+    "freeze": "every tracked file gets a sha256 recorded in frozen_file_sha256; vendored tarballs get a sha256 in provisioning; readiness fails on any mismatch",
+    "not_snapshot_json": "phase6-artifact-snapshots-v2.json is retained for reference reporting only and is not an execution source in v3",
+    "authoring_record": "all seven workspaces authored 2026-08-26; python must_contain checks and Next.js offline build/serve checks passed; frozen_file_sha256 stays null until freeze",
+    "fixture_test": "tests/eval/test_goal_verify_v3_workspaces.py"
+  },
+  "workspaces": [
+    {
+      "case_id": "create-build-only-functional",
+      "intent": "create",
+      "profile": "nextjs",
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "root": "tests/fixtures/goal_verify_v3/create-build-only-functional/",
+      "stages": {
+        "initial": "empty workspace with package.json name only; no app code",
+        "reference": "minimal Next.js app (app/page.tsx) with a button #increment and a counter #count starting at 0; `npm run build` and `npm run start -- -p 4174` succeed offline"
+      },
+      "product_run": {
+        "initial_stage": "initial",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "reference",
+      "must_contain": [
+        "reference: clicking #increment twice changes #count from 0 to 2",
+        "reference: production build succeeds",
+        "initial: no page implementing the counter"
+      ],
+      "provisioning": {
+        "mode": "vendored_tarball",
+        "location": "outside git: <localwork>/commandagent_trial/provisioned/<case>.tar.zst",
+        "sha256": "e42ae88b4e762f0b5fea698b31236f8fd47cb0942677856dacc90abcbc5c48a0",
+        "contents": "node_modules and lockfile-resolved dependencies for the initial and reference stages",
+        "restore": "readiness verifies sha256 and restores into execution_root before each run",
+        "rationale": "network is denied during runs; the product's dependency setup must succeed offline",
+        "tarball": "create-build-only-functional-pwcore-1.62.1.tar.zst",
+        "browser_tool": {
+          "source": "chromium-headless-shell-139.0.7258.5.bundle",
+          "workspace_link": ".goal-verify-tools/chromium",
+          "files_sha256": {
+            "headless_command_resources.pak": "0e93bf297a466b78f86a36513cc8fad2631314c7b9f807edf9efb5fe34a70145",
+            "headless_lib_data.pak": "c15e518215999cd489a57310ce64d3acfab691daa086effde9906a9cb0b15f25",
+            "headless_lib_strings.pak": "ef22dbe38f24f8506e9ce0b1cf5a47c3576ec9fc9b26ef00de801774b9493441",
+            "headless_shell": "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21",
+            "icudtl.dat": "5070de99fbd8a48378543511fb7a072f85bf36f94b4f4e1d420d54be1435d6f1",
+            "libEGL.dylib": "6b0d9423ed0587395ceaf44ec0a5904916d2aa5b24ed809035579c1051920dab",
+            "libGLESv2.dylib": "6a23da37c2b2e12c9348672968672e55cec8c4c235574c9d86a9fa2fee006051",
+            "libvk_swiftshader.dylib": "c962092c1591e1423a9167d905f18ee1283d3094f131b99b38ace430aae5c36b",
+            "v8_context_snapshot.arm64.bin": "ea0c66bb9fc5d363665e858b628b85196928f7e95b946711e95bd455f5522b82",
+            "vk_swiftshader_icd.json": "d717d915e31e7c27948b80b36ab34e2d897888114c5c7d0af835f93eb53e58f5"
+          }
+        },
+        "produced_by": "scripts/goal-verify-v3-provision.sh (npm ci --offline --include=dev; 55 packages; next 16.3.1, react 19.2.8, playwright-core 1.62.1; system Chrome)",
+        "offline_build_verified": "npm_config_offline=true npm run build succeeded; next start served the route with the required markers (2026-08-26)"
+      },
+      "frozen_file_sha256": {
+        "initial/package.json": "35a54b7ec77c5aeaa9009372a76f7046e4e3835d81fa8b913f05db0ae9ef81e2",
+        "reference/app/layout.js": "842e50f219f9982f88f7e386eecbff8693fb8072e6fafaa28b187a48b924dbee",
+        "reference/app/page.js": "7a7bc41225bdde24ffc1063158b59d5ed2d27c397551298499356b9b7a461a4c",
+        "reference/next.config.js": "9ec21e32c339ca74d2d5272dec98e6a6f959c8780061e9d337a8ea9779c746b0",
+        "reference/package-lock.json": "c093198ef120e227f7ab9e52a36e28dc8faed4795fd183f29fcb976c89b18c10",
+        "reference/package.json": "5ff3eb84eb0f14f7882309239ea363da242dab0c0488c5b1c5f7944e75ea3033"
+      },
+      "status": "frozen",
+      "tracked_files": [
+        "initial/package.json",
+        "reference/app/layout.js",
+        "reference/app/page.js",
+        "reference/next.config.js",
+        "reference/package-lock.json",
+        "reference/package.json"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "intent": "create",
+      "profile": "nextjs",
+      "goal": "見出しを『開始』、背景を青にし、明示port 4173の /play で表示する。",
+      "root": "tests/fixtures/goal_verify_v3/create-ui-copy-style-port-path/",
+      "stages": {
+        "initial": "empty workspace with package.json name only",
+        "reference": "minimal Next.js app with route /play whose h1 text is 開始 and body computed background-color is blue; `npm run start -- -p 4173` serves it"
+      },
+      "product_run": {
+        "initial_stage": "initial",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "reference",
+      "must_contain": [
+        "reference: GET http://127.0.0.1:4173/play returns 200",
+        "reference: h1 text equals 開始",
+        "reference: computed background-color of body equals rgb(0, 0, 255)"
+      ],
+      "provisioning": {
+        "mode": "vendored_tarball",
+        "location": "outside git: <localwork>/commandagent_trial/provisioned/<case>.tar.zst",
+        "sha256": "f71db0db8aaeffefd48589f568ce99f08ef8236112fd7325bb8cb7b3ff70a729",
+        "contents": "node_modules and lockfile-resolved dependencies for the initial and reference stages",
+        "restore": "readiness verifies sha256 and restores into execution_root before each run",
+        "rationale": "network is denied during runs; the product's dependency setup must succeed offline",
+        "tarball": "create-ui-copy-style-port-path-pwcore-1.62.1.tar.zst",
+        "browser_tool": {
+          "source": "chromium-headless-shell-139.0.7258.5.bundle",
+          "workspace_link": ".goal-verify-tools/chromium",
+          "files_sha256": {
+            "headless_command_resources.pak": "0e93bf297a466b78f86a36513cc8fad2631314c7b9f807edf9efb5fe34a70145",
+            "headless_lib_data.pak": "c15e518215999cd489a57310ce64d3acfab691daa086effde9906a9cb0b15f25",
+            "headless_lib_strings.pak": "ef22dbe38f24f8506e9ce0b1cf5a47c3576ec9fc9b26ef00de801774b9493441",
+            "headless_shell": "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21",
+            "icudtl.dat": "5070de99fbd8a48378543511fb7a072f85bf36f94b4f4e1d420d54be1435d6f1",
+            "libEGL.dylib": "6b0d9423ed0587395ceaf44ec0a5904916d2aa5b24ed809035579c1051920dab",
+            "libGLESv2.dylib": "6a23da37c2b2e12c9348672968672e55cec8c4c235574c9d86a9fa2fee006051",
+            "libvk_swiftshader.dylib": "c962092c1591e1423a9167d905f18ee1283d3094f131b99b38ace430aae5c36b",
+            "v8_context_snapshot.arm64.bin": "ea0c66bb9fc5d363665e858b628b85196928f7e95b946711e95bd455f5522b82",
+            "vk_swiftshader_icd.json": "d717d915e31e7c27948b80b36ab34e2d897888114c5c7d0af835f93eb53e58f5"
+          }
+        },
+        "produced_by": "scripts/goal-verify-v3-provision.sh (npm ci --offline --include=dev; 55 packages; next 16.3.1, react 19.2.8, playwright-core 1.62.1; system Chrome)",
+        "offline_build_verified": "npm_config_offline=true npm run build succeeded; next start served the route with the required markers (2026-08-26)"
+      },
+      "frozen_file_sha256": {
+        "initial/package.json": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+        "reference/app/layout.js": "decfc2f161f8d2c2ba495ac56a7e558e74c8c022cff5653e955b41e5fa96ca29",
+        "reference/app/page.js": "032b7b312b929ebf46d90208ac5e3e2c982843cb0cac4f7c7f9ef9e99b8c4602",
+        "reference/app/play/page.js": "f955747df19e0cb2969fec01b0cf15b36f2c4191d6207a18f451064b15906573",
+        "reference/next.config.js": "9ec21e32c339ca74d2d5272dec98e6a6f959c8780061e9d337a8ea9779c746b0",
+        "reference/package-lock.json": "c8e204a5b21d7097413ec677b7a4d04694a7cedd8586e27199d127582b4d4a13",
+        "reference/package.json": "aa80c18a2ae106b018e23e49991b1bf9d40d6208dc44341ead268a6213588496"
+      },
+      "status": "frozen",
+      "tracked_files": [
+        "initial/package.json",
+        "reference/app/layout.js",
+        "reference/app/page.js",
+        "reference/app/play/page.js",
+        "reference/next.config.js",
+        "reference/package-lock.json",
+        "reference/package.json"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "intent": "create",
+      "profile": "cli",
+      "goal": "Create sum-cli; inputs 2 3 print the known value 5, and -1 1 print 0.",
+      "root": "tests/fixtures/goal_verify_v3/create-cli-known-multiple-inputs/",
+      "stages": {
+        "initial": "empty workspace",
+        "reference": "sum_cli.py (existing fixture tests/fixtures/goal_verify_v2/create-cli-known-multiple-inputs/sum_cli.py, copied unchanged)"
+      },
+      "product_run": {
+        "initial_stage": "initial",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "reference",
+      "must_contain": [
+        "reference: python3 sum_cli.py 2 3 prints 5",
+        "reference: python3 sum_cli.py -1 1 prints 0"
+      ],
+      "provisioning": {
+        "mode": "stdlib_only",
+        "sha256": null,
+        "rationale": "python3 standard library only; no network needed"
+      },
+      "frozen_file_sha256": {
+        "initial/.gitkeep": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "reference/sum_cli.py": "53fe35e701e1f478cf3e6c3a629aee76436582386b3606fd1c4fe98f0eecc71d"
+      },
+      "status": "frozen",
+      "tracked_files": [
+        "initial/.gitkeep",
+        "reference/sum_cli.py"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "intent": "fix",
+      "profile": "cli",
+      "goal": "終了コード2になる既知入力を再現し、修正後に0、既存回帰集合も維持する。",
+      "root": "tests/fixtures/goal_verify_v3/fix-reproduced-after-regression/",
+      "stages": {
+        "before": "python CLI cli.py that exits 2 for the known input 7 (defect), tests/ with a regression suite that passes",
+        "after": "same project with the defect fixed: cli.py exits 0 for input 7; tests/ unchanged and passing; scripts/contract_check.py passes"
+      },
+      "product_run": {
+        "initial_stage": "before",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "after",
+      "must_contain": [
+        "before: python3 cli.py 7 exits 2",
+        "after: python3 cli.py 7 exits 0",
+        "after: python3 -m pytest -q tests passes",
+        "after: python3 scripts/contract_check.py exits 0",
+        "registered regression ids: pytest-tests, contract-check"
+      ],
+      "provisioning": {
+        "mode": "stdlib_only",
+        "sha256": null,
+        "rationale": "python3 standard library only; no network needed"
+      },
+      "frozen_file_sha256": {
+        "after/README.md": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+        "after/cli.py": "488025aeeb7846c4e6964fc74d50e263830a5745c10844afe63957ae2745f5d4",
+        "after/scripts/contract_check.py": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+        "after/tests/test_cli.py": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+        "before/README.md": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+        "before/cli.py": "f09ae529e39a70297f8cb52099daed28d81369a5323bcda361863db0a43a4bfd",
+        "before/scripts/contract_check.py": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+        "before/tests/test_cli.py": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497"
+      },
+      "status": "frozen",
+      "tracked_files": [
+        "after/README.md",
+        "after/cli.py",
+        "after/scripts/contract_check.py",
+        "after/tests/test_cli.py",
+        "before/README.md",
+        "before/cli.py",
+        "before/scripts/contract_check.py",
+        "before/tests/test_cli.py"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "intent": "fix",
+      "profile": "generic",
+      "goal": "Fix crash for input fixture/a.json, but the run substitutes fixture/b.json and never reproduces baseline.",
+      "root": "tests/fixtures/goal_verify_v3/fix-baseline-not-reproduced-substitution/",
+      "stages": {
+        "before": "app.py that crashes (exit 1, traceback) on fixture/a.json and succeeds on fixture/b.json; both fixtures present",
+        "after": "app.py fixed so fixture/a.json succeeds; fixtures unchanged"
+      },
+      "product_run": {
+        "initial_stage": "before",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "after",
+      "must_contain": [
+        "before: python3 app.py fixture/a.json exits 1",
+        "before: python3 app.py fixture/b.json exits 0",
+        "after: python3 app.py fixture/a.json exits 0",
+        "registered reproducer fixture is fixture/a.json with its sha256 recorded at freeze"
+      ],
+      "provisioning": {
+        "mode": "stdlib_only",
+        "sha256": null,
+        "rationale": "python3 standard library only; no network needed"
+      },
+      "frozen_file_sha256": {
+        "after/README.md": "cecf2355b25e11a97c066c919fbbc46e88fb64084aa860258c8e7d9453675a03",
+        "after/app.py": "4a38acfefcbb46366b60f1f2ed5e944bad601dd56de167b5db8fc1aff3dda393",
+        "after/fixture/a.json": "5805c796d17a1ca4cf3af60df2c6f1c8a8b01573b15a61aea6941abce3cf295d",
+        "after/fixture/b.json": "80aca2b3a1fe7b010b0797ee866d1e0785cab57b287d640111462eec175031e7",
+        "before/README.md": "cecf2355b25e11a97c066c919fbbc46e88fb64084aa860258c8e7d9453675a03",
+        "before/app.py": "21ff454c0511f7ded5c4e8ec8ff9372a5168d995c3eabe89a3897f136ce8f5a6",
+        "before/fixture/a.json": "5805c796d17a1ca4cf3af60df2c6f1c8a8b01573b15a61aea6941abce3cf295d",
+        "before/fixture/b.json": "80aca2b3a1fe7b010b0797ee866d1e0785cab57b287d640111462eec175031e7"
+      },
+      "status": "frozen",
+      "note": "the substitution scenario is a run behavior; the answer key binds the reproducer to the sha256 of fixture/a.json so a run that executes fixture/b.json cannot match",
+      "tracked_files": [
+        "after/README.md",
+        "after/app.py",
+        "after/fixture/a.json",
+        "after/fixture/b.json",
+        "before/README.md",
+        "before/app.py",
+        "before/fixture/a.json",
+        "before/fixture/b.json"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "intent": "fix",
+      "profile": "nextjs",
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "root": "tests/fixtures/goal_verify_v3/fix-after-not-run-regression-shrunk/",
+      "stages": {
+        "before": "python project with a reproducer repro.py exiting 1 and a registered regression set of two commands",
+        "after": "repro.py exits 0; both regression commands pass"
+      },
+      "product_run": {
+        "initial_stage": "before",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "after",
+      "must_contain": [
+        "after: python3 repro.py exits 0",
+        "after: python3 -m pytest -q tests passes",
+        "after: python3 scripts/contract_check.py exits 0",
+        "registered regression ids: pytest-tests, contract-check"
+      ],
+      "provisioning": {
+        "mode": "stdlib_only",
+        "sha256": null,
+        "rationale": "python3 standard library only; no network needed"
+      },
+      "frozen_file_sha256": {
+        "after/README.md": "1d878bee8e7876682ab6d3e05a3882c67652cbc8f75a51e4c2541f50b5f98e9c",
+        "after/lib.py": "3b3101a03ef4f311d1e3c54b11f6375e9d435f806e4b45460a296f58e2f7a628",
+        "after/repro.py": "dbdff296b2ad7ad0ac418d7291375763657794ec9795119ff8bad1f472ee5391",
+        "after/scripts/contract_check.py": "4550653c5c7f83ab2ee2103900e550e7d74ed12b986e45288d49165e045b31f0",
+        "after/tests/test_lib.py": "56fbd94a3ca519179630a8de5b4cc578a0840f30cd926619591cb2344da916c7",
+        "before/README.md": "1d878bee8e7876682ab6d3e05a3882c67652cbc8f75a51e4c2541f50b5f98e9c",
+        "before/lib.py": "ab5d08d4dc74ffe9135ca34552b3fc5c444b764abf7a6a9d25048f247e9eb857",
+        "before/repro.py": "dbdff296b2ad7ad0ac418d7291375763657794ec9795119ff8bad1f472ee5391",
+        "before/scripts/contract_check.py": "4550653c5c7f83ab2ee2103900e550e7d74ed12b986e45288d49165e045b31f0",
+        "before/tests/test_lib.py": "56fbd94a3ca519179630a8de5b4cc578a0840f30cd926619591cb2344da916c7"
+      },
+      "status": "frozen",
+      "note": "profile stays nextjs per corpus for product routing, but the frozen artifact is a python project so that regression commands run offline; recorded as a known deviation to confirm at freeze",
+      "tracked_files": [
+        "after/README.md",
+        "after/lib.py",
+        "after/repro.py",
+        "after/scripts/contract_check.py",
+        "after/tests/test_lib.py",
+        "before/README.md",
+        "before/lib.py",
+        "before/repro.py",
+        "before/scripts/contract_check.py",
+        "before/tests/test_lib.py"
+      ],
+      "authored_at": "2026-08-26"
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "intent": "fix",
+      "profile": "data",
+      "goal": "Claim the bug fixed because old tests pass, while the reproducer dependency is unavailable.",
+      "root": "tests/fixtures/goal_verify_v3/fix-existing-tests-only-dependency-missing/",
+      "stages": {
+        "before": "python project whose tests/ pass while repro.py imports a module repro_dep that is intentionally not installed",
+        "after": "same project; repro_dep still absent; tests/ still pass"
+      },
+      "product_run": {
+        "initial_stage": "before",
+        "workspace_copy": "fresh copy into execution_root per pair index",
+        "network": "denied",
+        "toolchain": "offline via provisioning"
+      },
+      "candidate_oracle_execution_stage": "after",
+      "must_contain": [
+        "before and after: python3 -m pytest -q tests passes",
+        "before and after: python3 -c 'import repro_dep' exits 1 (ModuleNotFoundError)",
+        "before and after: python3 repro.py exits 1 with ModuleNotFoundError"
+      ],
+      "provisioning": {
+        "mode": "stdlib_only",
+        "sha256": null,
+        "rationale": "python3 standard library only; no network needed"
+      },
+      "frozen_file_sha256": {
+        "after/README.md": "d4d210dcbb1c13de49a98d861266af8caa82e5ee1fee93b7248e537b3b8325c1",
+        "after/lib.py": "8d8469ea6cc7a852998fe35a1219607b5c2b6e867822c7dfbb3aabe8a276c1cc",
+        "after/repro.py": "53365c75061fd6d9e876807906afa16c549a73f78d2d5fd43c94341ab9ddc514",
+        "after/tests/test_lib.py": "b1fa79647de67e6a87d9e6119b8e1e52df2688371a9f0bf0bfc2e6b839f8527e",
+        "before/README.md": "d4d210dcbb1c13de49a98d861266af8caa82e5ee1fee93b7248e537b3b8325c1",
+        "before/lib.py": "8d8469ea6cc7a852998fe35a1219607b5c2b6e867822c7dfbb3aabe8a276c1cc",
+        "before/repro.py": "53365c75061fd6d9e876807906afa16c549a73f78d2d5fd43c94341ab9ddc514",
+        "before/tests/test_lib.py": "b1fa79647de67e6a87d9e6119b8e1e52df2688371a9f0bf0bfc2e6b839f8527e"
+      },
+      "status": "frozen",
+      "note": "negative cell: the dependency is deliberately absent in every stage so that neither arm can verify bug-reproducer; the expected honest outcome is unverified",
+      "tracked_files": [
+        "after/README.md",
+        "after/lib.py",
+        "after/repro.py",
+        "after/tests/test_lib.py",
+        "before/README.md",
+        "before/lib.py",
+        "before/repro.py",
+        "before/tests/test_lib.py"
+      ],
+      "authored_at": "2026-08-26"
+    }
+  ],
+  "executor_unavailable_cells": [
+    {
+      "case_id": "create-negative-constraint-injection",
+      "reason": "no-network has no schema mapping and no executor; no workspace is authored in v3"
+    }
+  ]
+}

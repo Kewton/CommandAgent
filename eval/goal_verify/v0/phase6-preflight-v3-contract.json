@@ -1,0 +1,695 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v3",
+  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "contract_id_rule": "at freeze, contract_id must equal the run directory basename; the runner aborts when they differ (v2 defect: request_id carried a stale v1 contract_id)",
+  "status": "draft",
+  "drafted_at": "2026-08-26",
+  "frozen_at": null,
+  "code_sha": null,
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "provider": "ollama-local",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": null,
+  "required_ci_workflows": [
+    "CI",
+    "acceptance"
+  ],
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "purpose": {
+    "statement": "contract-integration preflight for VerificationSpec v0 proposals under contract v3; validates that the generation side, the execution side, the scoring side, and the blind review side agree before any 360-pair collection",
+    "not_a_product_go_decision": true,
+    "issue_392_goals_measured": {
+      "goal_1_claim_decomposition": "held_out_synthesis lane only",
+      "goal_2_executable_oracle_binding": "held_out_synthesis lane via observation-match scoring of concretized, executed candidate oracles",
+      "goal_3_adjudication": "not measured; candidate verdict is not computed in v3 preflight",
+      "goal_5_improvement_over_current": "baseline arm is the current product run live; improvement is reported, not gated, in preflight"
+    }
+  },
+  "supersedes": {
+    "runs": [
+      {
+        "run_id": "phase6-live-ab-20260826-v2",
+        "contract": "eval/goal_verify/v0/phase6-paired-contract.json",
+        "decision": "NO-GO",
+        "rescoring_under_v3": "forbidden"
+      },
+      {
+        "run_id": "phase6-preflight-v2-20260826-live-01",
+        "contract": "eval/goal_verify/v0/phase6-preflight-v2-contract.json",
+        "decision": "NO-GO",
+        "rescoring_under_v3": "forbidden",
+        "evidence_publication": "secret-mapping.json and review-model-*.json are committed with the run directory as audit artifacts once the blind report is finalized with semantic_blind_review_complete=false; blinding is void after publication and no further blind review is performed on this run; an audit-required calibration must happen before that commit"
+      }
+    ],
+    "rule": "prior decisions stand under their own contract definitions; v3 definitions apply only to runs collected after v3 is frozen"
+  },
+  "thresholds_carried_over_unchanged": {
+    "schema_compliance_rate": 0.95,
+    "command_oracle_success_rate": 0.8,
+    "fix_registry_reference_integrity": 1.0,
+    "systematic_unknown_variant_max_per_variant": 2,
+    "host_owned_validator_errors": 0,
+    "baseline_observation_copy_count": 0,
+    "resource_budgets_source": "eval/goal_verify/v0/baseline-config.json resource_budget_registration.values (unchanged)",
+    "phase0_improvement_targets": "unchanged; applied only in the 360-pair experiment against the current_product_live baseline"
+  },
+  "amendments_from_v2": [
+    {
+      "id": "v3-001",
+      "change": "baseline arm becomes the current product executed live on the same goal and snapshot; the canonical adapter spec is demoted to a scoring answer key and is never a comparison arm",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "review-questions §7.3; analysis §8.4, §8.6 #4",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-002",
+      "change": "two proposal lanes: contract_conformance (registered claim IDs and adapter granularity given) and held_out_synthesis (no claim IDs, no expected oracle counts, no adapter argv/expected, no snapshot contents)",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "review-questions §7.4; analysis §8.6 #1, #2",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-003",
+      "change": "runner must load the prompt named by generation.prompt; manifest records prompt_file_sha256 and effective_prompt_sha256 per intent; readiness fails on any mismatch",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "analysis §3.1 note, §7.2 note (v2 run used the CLI default prompt, not the frozen v2 prompt file)",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-004",
+      "change": "metric semantics fixed as primary (decision) plus reference (continuity) definitions; numeric thresholds unchanged",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "review-questions §7.2; analysis §8.3(1)",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-005",
+      "change": "one bounded regeneration on model-attributable validation errors, counted in the token budget, with first-attempt yield recorded separately",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "analysis §8.4 (Ollama format does not enforce scalar types inside oneOf branches)",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-006",
+      "change": "oracle unit fixed to one oracle per registered adapter entry in the conformance lane; expected_observations passed only in that lane; extra oracles reported separately",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "analysis §4.3, §6.2, §8.2(4)",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-007",
+      "change": "expected polarity defined as acceptance polarity; current-state observations live only in execution results",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "analysis §4.4, §6.3, §8.2(5)",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-008",
+      "change": "executor_unavailable cells separated from primary denominators and reported as a lane; reference denominators keep the v2 definition",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "analysis §4.1 note, §8.2(10); capability registry declared the lane before the v2 run",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-009",
+      "change": "semantic blind review split into a hidden-execution primary lane and an execution-visible reference lane; reviewer provenance, model family diversity, human calibration, and external-provider authorization are preregistered",
+      "reason_category": "measurement_instrument_defect",
+      "evidence": "review-questions §7.1, §7.5; analysis §3.4 note, §4.5 note",
+      "result_dependent": false
+    },
+    {
+      "id": "v3-010",
+      "change": "secret mapping and model reviews are stored under blind-review/secret/ and excluded from commits until human calibration is final",
+      "reason_category": "process",
+      "evidence": "analysis §5-6 note, §8.1(4)",
+      "result_dependent": false
+    }
+  ],
+  "preregistered_decisions": [
+    {
+      "id": "v3-D1",
+      "topic": "deterministic conversion of current_product_live evidence into claim coverage",
+      "location": "baseline.primary.scoring_rule",
+      "decision_status": "confirmed by repository owner before freeze (2026-08-26)",
+      "evidence": "the current product emits no claim IDs; gold claims are defined by adapter entries, so both arms are scored by adapter-entry observation match"
+    },
+    {
+      "id": "v3-D2",
+      "topic": "allocation of pairs across lanes and held-out thresholds",
+      "location": "lane_allocation, acceptance.held_out_synthesis, full_experiment_threshold_mapping",
+      "decision_status": "confirmed by repository owner before freeze (2026-08-26)",
+      "evidence": "splitting 40 pairs leaves 2-3 samples per cell, below what a 95% gate resolves; lanes measure different capabilities"
+    },
+    {
+      "id": "v3-D3",
+      "topic": "human calibration sample sharing and inter-rater thresholds",
+      "location": "phase6-semantic-blind-v3-contract.json reviewers.human.shared_sample, agreement_gates",
+      "decision_status": "confirmed by repository owner before freeze (2026-08-26)",
+      "evidence": "with 10 items kappa is unstable; raw agreement on a shared sample is the only interpretable calibration gate"
+    },
+    {
+      "id": "v3-D4",
+      "topic": "real workspaces for every primary cell",
+      "location": "artifact_production, oracle_execution, phase6-real-workspaces-v3.json, phase6-command-adapters-v3.json, phase6-execution-capabilities-v3.json",
+      "decision_status": "adopted_in_draft (repository owner, 2026-08-26); file hashes and executor readiness confirmed at freeze",
+      "evidence": "the current product cannot run against JSON snapshots; only the CLI cell had a real artifact; snapshot lookups cannot produce earned coverage"
+    },
+    {
+      "id": "v3-D5",
+      "topic": "publication condition for frozen run evidence that includes blind-review secrets",
+      "location": "supersedes.runs[1].evidence_publication, integrity.secret_isolation, phase6-semantic-blind-v3-contract.json randomization.secret_directory_commit_policy",
+      "decision_status": "adopted_in_draft (2026-08-26)",
+      "evidence": "a frozen run with no further calibration can never satisfy a 'commit after calibration' condition; the trigger becomes finalization of the blind report"
+    }
+  ],
+  "runner_sources": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_artifacts_v2.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_observation_match_v3.py",
+    "scripts/eval_lib/goal_verify_live_v3.py",
+    "scripts/eval_lib/goal_verify_preflight_v3.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v3.py",
+    "scripts/eval_lib/goal_verify_blind_v3.py",
+    "scripts/eval-goal-verify-v3-readiness.py",
+    "scripts/eval-goal-verify-v3-freeze-workspaces.py",
+    "scripts/eval-goal-verify-v3-report.py",
+    "scripts/eval-goal-verify-blind-v3-prepare.py",
+    "scripts/eval-goal-verify-blind-v3-report.py",
+    "src/bin/verification_spec_validate.rs",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_executors_v3.py"
+  ],
+  "frozen_inputs": [
+    "eval/goal_verify/v0/corpus.json",
+    "eval/goal_verify/v0/verification-spec.schema.json",
+    "eval/goal_verify/v0/verification-spec-preflight-v3.prompt.txt",
+    "eval/goal_verify/v0/phase6-semantic-blind-v3-contract.json",
+    "eval/goal_verify/v0/baseline-config.json",
+    "tests/fixtures/verification_spec_v0/create.json",
+    "tests/fixtures/verification_spec_v0/fix.json",
+    "tests/fixtures/goal_verify_v2/create-cli-known-multiple-inputs/sum_cli.py",
+    "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+    "eval/goal_verify/v0/phase6-command-adapters-v3.json",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+    "tests/fixtures/goal_verify_v3/** (every tracked file, sha256 recorded in phase6-real-workspaces-v3.json at freeze)"
+  ],
+  "samples_per_cell": 5,
+  "selected_cells": [
+    {
+      "case_id": "create-build-only-functional",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-negative-constraint-injection",
+      "intent": "create",
+      "lane": "executor_unavailable",
+      "note": "no-network has no schema mapping and no executor; collected and reported, excluded from primary denominators"
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "intent": "fix",
+      "lane": "primary",
+      "note": "claim after-executed is executor_unavailable at claim level and is reported separately; the proposal remains primary-eligible"
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "intent": "fix",
+      "lane": "primary"
+    }
+  ],
+  "denominators": {
+    "primary_pairs_per_lane": 35,
+    "reference_pairs_per_lane": 40,
+    "rule": "primary counts only cells whose lane is primary; reference keeps the v2 definition (all selected cells); both numbers are always reported"
+  },
+  "lane_allocation": {
+    "rule": "no split: every pair index is collected in both lanes; 8 cells x 5 samples per lane = 40 proposals per lane, 80 proposals total",
+    "shared_baseline": "one current_product_live run per pair index is shared by both lanes (40 baseline runs)",
+    "seed_policy": {
+      "contract_conformance": "seed_base + pair_index",
+      "held_out_synthesis": "seed_base + 1000 + pair_index",
+      "regeneration": "+ attempt_index"
+    },
+    "rationale": "splitting 40 pairs across lanes leaves 2-3 samples per cell, below what a 95% schema gate can resolve; the lanes measure different capabilities and are not substitutes",
+    "cost_note": "80 proposals are about 30 minutes on the local 27B model; the 40 baseline product runs dominate wall time"
+  },
+  "proposal_lanes": {
+    "contract_conformance": {
+      "mode": "phase6_preflight_v3_conformance",
+      "purpose": "measure schema conformance and adherence to the execution contract when the registered structure is given",
+      "input_json_fields": [
+        "goal",
+        "intent",
+        "profile",
+        "required_claims[].id",
+        "required_claims[].expected_observations",
+        "required_claims[].adapter_units[] (strategy, expected_polarity, observation_kind)",
+        "existing_evidence_registry (fix)",
+        "closed_vocabulary",
+        "generation"
+      ],
+      "oracle_unit": "exactly one oracle per registered adapter entry; composite oracles are rejected as concretization failures",
+      "scoring": "exact registered claim ID plus adapter-entry match"
+    },
+    "held_out_synthesis": {
+      "mode": "phase6_preflight_v3_held_out",
+      "purpose": "measure claim decomposition and executable oracle synthesis without the registered structure",
+      "input_json_fields": [
+        "goal",
+        "intent",
+        "profile",
+        "closed_vocabulary",
+        "executor_capabilities (strategy-level list of available executors, no per-case adapters)",
+        "existing_evidence_registry projected without claim_id (fix: requirement_id, stage, expected_polarity, lineage, epoch)",
+        "generation"
+      ],
+      "withheld": [
+        "required_claims[].id",
+        "expected_observations",
+        "adapter argv and expected values",
+        "snapshot contents",
+        "canonical answer key"
+      ],
+      "scoring": "observation match: each candidate oracle is concretized against the artifact-aware boundary, executed, and its observation compared with the answer-key expected observation; claim IDs are never compared",
+      "decision_use_in_preflight": "integrity gates only; recall and executability are reported without thresholds"
+    },
+    "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json"
+  },
+  "baseline": {
+    "primary": {
+      "mode": "current_product_live",
+      "definition": "the current product (commandagent at the pinned product SHA; product code unchanged since e74b7113) is run from the initial/before stage of the frozen real workspace on the same goal with the same wall and token budgets; executed verifications (StepPlan.verify commands, profile probes, CompletionContract verify_commands, browser/fetch probes) are extracted from events.jsonl and evidence/ in the product's output workspace and scored by the same observation-match scorer",
+      "samples_per_cell": 5,
+      "records": [
+        "wall_time_ms",
+        "input_tokens",
+        "output_tokens",
+        "verify_runtime_ms",
+        "executed_verifications[]",
+        "observation_match_results[]"
+      ],
+      "unavailable_handling": "a cell the product cannot run is recorded as baseline_unavailable and reported; it is never filled from annotations or from the answer key",
+      "scoring_rule": {
+        "name": "adapter_entry_observation_match",
+        "principle": "baseline evidence is scored against the same adapter entries as the candidate; claim IDs are never required because each gold claim is defined by its registered adapter entries",
+        "extraction_sources": [
+          {
+            "source": ".anvil/runs/<run_id>/events.jsonl",
+          "events": [
+            "declarative_command_check_result",
+            "runtime bash verify command events"
+          ],
+          "fields": [
+            "executed argv",
+            "exit status",
+            "step id",
+            "timestamp"
+          ],
+          "normalization_telemetry_rule": "planner_verify_command_normalized, verify_command_normalized_at_runtime, and verify_command_substituted are provenance only and never establish execution/pass without a separate explicit result event"
+          },
+          {
+            "source": ".anvil/runs/<run_id>/evidence/*.json",
+            "families": [
+              "browser-interaction",
+              "browser-readiness",
+              "fetch-evidence",
+              "cli-probe",
+              "python-cli-behavior",
+              "cli-case-binding",
+              "fix-*",
+              "investigation-binding"
+            ],
+            "rule": "values are taken as persisted; nothing is inferred from goal text, plan text, or summaries"
+          }
+        ],
+        "observation_value_capture": "when the product persists only an exit status for a command, the harness replays the recorded normalized argv in the sandbox on the identical snapshot to capture stdout/stderr; the product's recorded exit status remains the executed/pass authority; if the replay exit status differs from the recorded one, the observation is marked baseline_observation_inconsistent and is never matched",
+        "matching": "adapter entry E is matched by the baseline when an extracted observation satisfies all of: strategy in E.proposal.strategies; observation kind in E.proposal.observation_kinds; executed with pass; and, when E defines expected_values, expected_contains, or checks, the captured value satisfies them by the same comparison used for the candidate",
+        "strength_mapping": {
+          "command exit status or stdout observation": "runtime",
+          "browser-interaction / browser-readiness evidence": "runtime",
+          "fetch-evidence http observation": "runtime",
+          "cli-probe / python-cli-behavior / cli-case-binding": "runtime",
+          "fix-* before/after evidence with lineage and epoch": "runtime",
+          "file existence / required_paths": "deterministic",
+          "build or compile success": "weak",
+          "static grep / source assertion": "weak"
+        },
+        "coverage": "a claim is strong when every adapter entry of the claim is matched with strength >= min_strength; weak when matched only below min_strength; unverified otherwise; identical to the candidate rule",
+        "fail_closed": [
+          "no inference from goal text, plan text, or summaries",
+          "an observation may match several entries only if its value satisfies each entry's comparison",
+          "ambiguous or unparseable evidence is unmatched",
+          "baseline_extra_observations (matched to no entry) are reported and never scored"
+        ],
+        "determinism_test": "scoring the same run directory twice must be byte-identical; fixture tests cover every listed evidence family and the replay-mismatch path"
+      }
+    },
+    "reference": {
+      "mode": "phase0_observation_replay",
+      "source": "eval/goal_verify/v0/corpus.json observation fields (annotated; source_reference 11/12 are document references)",
+      "use": "continuity reporting only; never a decision arm"
+    },
+    "canonical_answer_key": {
+      "source": "eval/goal_verify/v0/phase6-command-adapters-v3.json (proposal blocks identical to v2) plus phase6-real-workspaces-v3.json",
+      "role": "scoring answer key for observation match and the execution-visible blind lane",
+      "never_a_comparison_arm": true
+    }
+  },
+  "pairing": {
+    "unit": "one candidate proposal per lane paired with one current_product_live baseline run by source task and sample index",
+    "case_id_format": "{source_case_id}--pair-{sample_index:02d}",
+    "shared": [
+      "source_case_id",
+      "goal",
+      "intent",
+      "profile",
+      "snapshot",
+      "wall_budget",
+      "token_budget"
+    ],
+    "baseline_observation_copy": "forbidden",
+    "exclusion_rules": [
+      "abort the campaign, without excluding a row, when a result record cannot be persisted",
+      "timeouts, provider errors, malformed JSON, schema rejection after regeneration, empty claims, policy rejection, concretization failure, and baseline_unavailable remain included as failures",
+      "no exclusion rule, lane assignment, or denominator may change after the first candidate response is persisted"
+    ]
+  },
+  "generation": {
+    "think": false,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "seed_base": 399000,
+    "keep_alive": "30m",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec.schema.json",
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v3.prompt.txt",
+    "prompt_single_source": "the runner loads generation.prompt; a CLI prompt argument that differs is a readiness blocker",
+    "prompt_must_state": [
+      "closed vocabulary for claim.kind, strategy, input.kind, observation.kind",
+      "http_status expected is a JSON integer 100-599",
+      "file observation carries only path and exists",
+      "expected size bound format with an example",
+      "one oracle per expected observation; never chain inputs in one command",
+      "never emit shell command strings, absolute paths, or parent traversal",
+      "expected polarity is the acceptance polarity",
+      "host owns origins, oracle IDs, lifecycle, result, and lineage hashes"
+    ],
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json"
+    },
+    "manifest_records": [
+      "prompt_file_sha256",
+      "effective_prompt_sha256 per intent and lane (base prompt + host-composed rules block + shape example)",
+      "shape_example_sha256"
+    ]
+  },
+  "regeneration": {
+    "max_attempts_per_pair": 2,
+    "trigger": [
+      "schema_invalid",
+      "oracle_expected_size_invalid",
+      "oracle_path_unsafe"
+    ],
+    "not_a_trigger": [
+      "host_owned_field_errors (host bug, gate 0)",
+      "provider timeout",
+      "empty response"
+    ],
+    "feedback": "validator error codes only; no repaired example is shown",
+    "seed_policy": "seed_base + pair_index + attempt_index",
+    "tokens_counted_in_budget": true,
+    "first_attempt_metrics_recorded": true,
+    "primary_metrics_use": "post-regeneration",
+    "reference_metrics_use": "first attempt"
+  },
+  "host_owned_fields": [
+    "claim.origin",
+    "claim.oracle_ids",
+    "oracle.id",
+    "oracle.lifecycle",
+    "oracle.result",
+    "oracle.lineage"
+  ],
+  "known_limitations": {
+    "claim_origin": "origin is the whole goal (0..len); substring location is not attempted in v3",
+    "composite_oracles": "not supported; rejected as concretization failure",
+    "investigate": "not selected; I1/I2 executors do not exist beyond existing_investigation_binding; a separate preflight is required",
+    "candidate_verdict": "not computed; false-full for the candidate remains unmeasured in preflight and must be measured in the 360-pair experiment via candidate-specific claim-level results",
+    "workspaces": "workspaces are minimal synthetic-but-real projects authored for the corpus goals; they are not user projects; nextjs cells depend on offline provisioning of node_modules",
+    "profile_deviation": "fix-after-not-run-regression-shrunk keeps profile nextjs for product routing while its frozen artifact is a python project; confirm or re-profile at freeze"
+  },
+  "polarity_semantics": {
+    "expected_polarity": "acceptance polarity: the state required after the change (fix) or the required behavior (create)",
+    "current_state_observations": "recorded only in execution results; never encoded as expected_polarity",
+    "schema_change": "none; additive fields only if introduced later"
+  },
+  "execution_boundary": {
+    "raw_provider_argv_execution": "forbidden",
+    "command_execution": "only after artifact-aware concretization, path safety validation, and isolated-workspace policy",
+    "existing_evidence": "reference validation only against a frozen provenance-verified registry",
+    "baseline_observation_copy": "forbidden",
+    "network": "denied",
+    "shell": false
+  },
+  "artifact_production": {
+    "enabled": true,
+    "mode": "frozen_real_workspace",
+    "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+    "stage_model": "create: initial -> reference; fix: before -> after",
+    "product_runs_from": "initial / before stage, fresh copy per pair index",
+    "candidate_oracles_execute_against": "reference / after stage (before stage when the oracle declares stage=before)",
+    "provisioning": "offline; vendored dependency tarballs outside git with sha256 recorded in the workspace registry; network denied during runs",
+    "retired": "phase6-artifact-snapshots-v2.json is reference reporting only; snapshot_value / snapshot_multi_value / snapshot_equal executors are not used for primary cells",
+    "interpretation": "contract-integration preflight on frozen synthetic-but-real workspaces; not product task-success evidence"
+  },
+  "oracle_execution": {
+    "enabled": true,
+    "adapter_registry": "eval/goal_verify/v0/phase6-command-adapters-v3.json",
+    "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+    "runner": "macos_sandbox_exec",
+    "fallback": "fail_closed",
+    "executor_kinds": {
+      "sandbox_command": "existing",
+      "stage_command": "existing (sandbox_command bound to a workspace stage)",
+      "regression_set": "existing (sequence of sandbox_command with registered ids)",
+      "fixture_hash_command": "existing (sandbox_command plus sha256 check of the executed fixture)",
+      "http_get": "existing (fetch probe boundary, loopback only, server started by the harness)",
+      "playwright_script": "existing (hash-bound headless-shell bundle, host-fixed script, private HOME/TMPDIR, loopback-only Playwright request interception)"
+    },
+    "server_policy": "the harness starts and stops any dev/start server per oracle execution on a fixed loopback port declared by the adapter; ports 4173 and 4174 are reserved and never shared between cells in one process",
+    "not_ready_at_freeze": "an adapter whose executor kind is not implemented and verified at freeze moves its claim to executor_unavailable at claim level; it never falls back to a snapshot lookup",
+    "held_out_lane_concretization": "candidate oracle strategy/observation/expected are mapped to an executable plan on the reference/after stage by the artifact-aware boundary; provider argv is still ignored; unmapped oracles are classified executor_unavailable or policy_rejected and reported"
+  },
+  "scoring": {
+    "contract_conformance": "exact registered claim ID plus adapter-entry match",
+    "held_out_synthesis": "observation match only; claim IDs never compared",
+    "extra_candidate_oracles": "reported as a separate count; never in a denominator",
+    "candidate_verdict": "not computed",
+    "provider_execution_claims": "ignored and overwritten to proposed/unverified"
+  },
+  "acceptance": {
+    "interpretation": "contract-integration readiness only; never a product GO decision",
+    "contract_conformance": {
+      "schema_compliance": {
+        "primary": {
+          "minimum_passes": 34,
+          "denominator_pairs": 35,
+          "attempt": "post_regeneration"
+        },
+        "reference": {
+          "minimum_passes": 38,
+          "denominator_pairs": 40,
+          "attempt": "first",
+          "gated": false
+        }
+      },
+      "systematic_unknown_variant": {
+        "maximum_occurrences_per_variant": 2
+      },
+      "host_owned_validator_errors": 0,
+      "command_oracle_success": {
+        "minimum_rate": 0.8,
+        "denominator": "individual eligible concretized command oracles in primary cells",
+        "concretization_failure": "count_as_failure",
+        "oracle_unit": "one per registered adapter entry"
+      },
+      "fix_registry_reference_integrity": {
+        "minimum_rate": 1.0,
+        "denominator": "registered adapter entries in primary fix cells",
+        "extra_candidate_oracles": "reported separately, not in denominator"
+      },
+      "baseline_observation_copy_count": 0
+    },
+    "held_out_synthesis": {
+      "schema_compliance": {
+        "primary": {
+          "minimum_passes": 34,
+          "denominator_pairs": 35,
+          "attempt": "post_regeneration"
+        }
+      },
+      "observation_match_scoring_coverage": {
+        "minimum_rate": 1.0,
+        "denominator": "schema-valid held-out proposals",
+        "meaning": "every valid proposal was scored by observation match and none by claim ID"
+      },
+      "executability_classification_coverage": {
+        "minimum_rate": 1.0,
+        "denominator": "candidate oracles",
+        "classes": [
+          "executable",
+          "executor_unavailable",
+          "policy_rejected",
+          "concretization_failure"
+        ]
+      },
+      "report_only": [
+        "required_claim_observation_recall",
+        "oracle_executability_rate",
+        "strong_binding_by_observation",
+        "unsupported_claim_count",
+        "extra_candidate_oracle_count"
+      ],
+      "observation_match_smoke": {
+        "requirement": "in every primary cell, at least one held-out proposal yields at least one executed observation (executed = true, any result) through the workspace executors",
+        "cells": [
+          "create-build-only-functional",
+          "create-ui-copy-style-port-path",
+          "create-cli-known-multiple-inputs",
+          "fix-reproduced-after-regression",
+          "fix-baseline-not-reproduced-substitution",
+          "fix-after-not-run-regression-shrunk",
+          "fix-existing-tests-only-dependency-missing"
+        ],
+        "meaning": "proves the held-out concretization and executors produce signal; negative cells are expected to execute without matching, so a match is not required"
+      },
+      "thresholds_in_preflight": "schema compliance, scoring coverage, classification coverage, and smoke only; recall, executability, and strong binding are report-only and receive thresholds in the 360-pair contract (see full_experiment_threshold_mapping)"
+    },
+    "baseline_arm": {
+      "baseline_run_completed_and_parsed": {
+        "minimum_rate": 1.0,
+        "denominator": "pairs in primary cells",
+        "baseline_unavailable": "counted as failure"
+      },
+      "report_only": [
+        "baseline_required_claim_observation_recall",
+        "baseline_strong_binding_by_observation",
+        "baseline_wall_time_ms",
+        "baseline_total_tokens"
+      ]
+    },
+    "integrity": {
+      "contract_id_matches_run_directory": true,
+      "prompt_equivalence": true,
+      "effective_prompt_sha256_recorded": true,
+      "regeneration_accounting_complete": true,
+      "secret_mapping_isolated": true,
+      "workspace_hashes_match_registry": true,
+      "provisioning_tarball_hashes_match": true
+    },
+    "ready_for_full_experiment_design_requires": [
+      "all contract_conformance gates",
+      "all held_out_synthesis gates",
+      "all baseline_arm gates",
+      "all integrity gates",
+      "semantic blind review complete per phase6-semantic-blind-v3-contract.json"
+    ]
+  },
+  "full_experiment_threshold_mapping": {
+    "status": "preregistered mapping of the unchanged Phase 0 thresholds to lanes; numeric values live in eval/goal_verify/v0/baseline-config.json",
+    "held_out_synthesis_vs_current_product_live": [
+      "required_claim_recall_min_gain_pp",
+      "strong_binding_coverage_min_gain_pp",
+      "unverified_rate_min_reduction_pp",
+      "false_full_target_count (candidate claim-level results; verdict inheritance forbidden)"
+    ],
+    "contract_conformance_regression_gates": [
+      "schema_compliance_yield_floor",
+      "fix_registry_reference_integrity",
+      "command_oracle_success_rate"
+    ],
+    "both_lanes": [
+      "resource budgets against the shared current_product_live baseline"
+    ],
+    "end_to_end_boundary": [
+      "task_success_max_drop_pp",
+      "final_acceptance_max_drop_pp",
+      "flake_max_increase_pp"
+    ],
+    "note": "the end_to_end boundary requires product shadow wiring that does not exist yet; until then those indicators are INSUFFICIENT-EVIDENCE by construction"
+  },
+  "bootstrap": {
+    "samples": 0,
+    "confidence_level": null,
+    "method": "not_run_for_preflight",
+    "full_experiment_reference": "eval/goal_verify/v0/phase6-measurement-boundary-v2.json cluster_design (hierarchical cluster paired percentile, 2000 samples, 95%)"
+  },
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10.0,
+    "p95_wall_time_max_increase_pct": 20.0,
+    "p50_total_tokens_max_increase_pct": 10.0,
+    "p95_total_tokens_max_increase_pct": 20.0,
+    "preflight_use": "reported against the current_product_live baseline; not gated in preflight"
+  },
+  "semantic_blind_review_contract": "eval/goal_verify/v0/phase6-semantic-blind-v3-contract.json",
+  "authorization": {
+    "approved_live": true,
+    "approved_at": "2026-08-26",
+    "approved_by": "repository owner (session approval)",
+    "scope": "local Ollama proposals for 8 cells x 5 samples x 2 lanes (80 proposals) plus 40 current_product_live baseline runs on frozen real workspaces; reviewer providers per the semantic blind v3 contract",
+    "required_before_run": [
+      "status frozen with contract_id equal to the run directory basename",
+      "exact product code SHA pinned and exact-SHA CI and acceptance evidence attached",
+      "all seven primary workspaces authored under tests/fixtures/goal_verify_v3/, their must_contain checks passing, file and provisioning sha256 recorded in phase6-real-workspaces-v3.json",
+      "executor kinds sandbox_command, stage_command, regression_set, fixture_hash_command, http_get implemented and verified; playwright_script implemented or its claims moved to executor_unavailable at claim level",
+      "v3 prompt file authored and loaded by the runner; effective prompt hash test green",
+      "held-out lane input builder, observation-match scorer, regeneration accounting, current_product_live baseline runner, and blind v3 item builder implemented with tests",
+      "cross-source equivalence check green (contract budgets == baseline-config values; prompt path == runner prompt; adapters, capabilities, and corpus claim sets consistent)",
+      "independent human reviewer assigned and named for the hidden-execution lane",
+      "repository-owner approval recorded here with date"
+    ]
+  },
+  "pre_live_amendments": [],
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "chain": "sha256(previous_entry_sha256 + canonical_entry_without_entry_sha256)",
+    "existing_record_without_ledger_entry": "abort",
+    "record_hash_mismatch": "abort",
+    "pair_or_source_mismatch": "abort",
+    "secret_isolation": "blind-review/secret/ (variant mapping, model reviews) is excluded from commits until the human calibration of this run is final; it is then committed as audit artifacts in the same commit as the final blind report, which voids blinding for this run"
+  },
+  "execution": {
+    "concurrency": 1,
+    "sharding": false,
+    "resume_requires_valid_hash_chain": true
+  }
+}

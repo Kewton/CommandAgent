@@ -27,6 +27,7 @@ from eval_lib.goal_verify_v2 import (
     classify_oracle_execution,
     normalize_v2_proposal,
 )
+from eval_lib.goal_verify_v3 import load_prompt_from_contract
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -432,7 +433,7 @@ def run_campaign(
     corpus_path: Path,
     contract_path: Path,
     schema_path: Path,
-    prompt_path: Path,
+    prompt_path: Path | None,
     validator: Path,
     run_dir: Path,
     execution_root: Path | None = None,
@@ -441,7 +442,9 @@ def run_campaign(
     corpus = load_json(corpus_path)
     contract = load_json(contract_path)
     schema = load_json(schema_path)
-    prompt = prompt_path.read_text(encoding="utf-8")
+    prompt_path, prompt = load_prompt_from_contract(
+        root=root, contract=contract, cli_prompt=prompt_path
+    )
     proposal_mode = contract.get("proposal_contract", {}).get("mode", "legacy_v1")
     if proposal_mode not in {"legacy_v1", "phase6_preflight_v2"}:
         raise ValueError(f"unsupported proposal contract mode: {proposal_mode}")
