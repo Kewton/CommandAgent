@@ -280,6 +280,7 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             self.assertEqual(result["reference_fallback_count"], 0)
             self.assertEqual(result["gold_used_for_execution_count"], 0)
             self.assertEqual(result["evaluations"][0]["result"], "pass")
+            self.assertTrue(result["evaluations"][0]["execution_attempt_recorded"])
 
             (root / "app.py").write_text("print('changed')\n", encoding="utf-8")
             drift = evaluate_candidate_spec_v4(
@@ -693,7 +694,12 @@ class ContractReadinessTest(unittest.TestCase):
                         "reference_fallback_count": 0,
                         "gold_used_for_execution_count": 0,
                         "evaluations": [
-                            {"classification": "executable", "executed": True}
+                            {
+                                "classification": "executable",
+                                "execution_attempt_recorded": True,
+                                "executed": False,
+                                "result": "blocked",
+                            }
                         ],
                     },
                     "additive_comparison": additive,

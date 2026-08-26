@@ -163,6 +163,7 @@ def execute_candidate_plan(
         path = (root / plan["path"]).resolve()
         if not path.is_relative_to(root):
             return {
+                "execution_attempt_recorded": False,
                 "executed": False,
                 "result": "oracle_error",
                 "reason": "path_escape",
@@ -170,6 +171,7 @@ def execute_candidate_plan(
         actual = path.exists()
         passed = actual is plan["exists"]
         return {
+            "execution_attempt_recorded": True,
             "executed": True,
             "result": "pass" if passed else "fail",
             "reason": "observation_match" if passed else "observation_mismatch",
@@ -177,18 +179,25 @@ def execute_candidate_plan(
             "observed_strength": "deterministic" if passed else None,
         }
     if plan["kind"] in {"http_probe", "browser_probe"}:
-        return _execute_web_plan(
+        outcome = _execute_web_plan(
             plan,
             workspace=workspace,
             runner=web_runner,
             browser_toolchain=browser_toolchain,
         )
+        return outcome
     cwd = (root / plan["cwd"]).resolve()
     if not cwd.is_relative_to(root) or not cwd.is_dir():
-        return {"executed": False, "result": "oracle_error", "reason": "cwd_missing"}
+        return {
+            "execution_attempt_recorded": False,
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "cwd_missing",
+        }
     resolved = _resolve_executable(plan["argv"][0])
     if resolved is None:
         return {
+            "execution_attempt_recorded": False,
             "executed": False,
             "result": "oracle_error",
             "reason": "executable_unavailable",
@@ -211,18 +220,26 @@ def execute_candidate_plan(
     if outcome.get("runner_error"):
         return {
             **outcome,
+            "execution_attempt_recorded": True,
             "executed": False,
             "result": "oracle_error",
             "reason": str(outcome["runner_error"]),
         }
     if outcome.get("timed_out"):
-        return {**outcome, "executed": False, "result": "blocked", "reason": "timeout"}
+        return {
+            **outcome,
+            "execution_attempt_recorded": True,
+            "executed": False,
+            "result": "blocked",
+            "reason": "timeout",
+        }
     observation = plan["observation"]
     actual = _observed_value(observation, outcome, root)
     expected = observation.get("expected", observation.get("exists"))
     passed = actual == expected
     return {
         **outcome,
+        "execution_attempt_recorded": True,
         "executed": True,
         "result": "pass" if passed else "fail",
         "reason": "observation_match" if passed else "observation_mismatch",
@@ -250,6 +267,7 @@ def evaluate_candidate_spec_v4(
                     "oracle_id": oracle.get("id"),
                     "claim_id": oracle.get("claim_id"),
                     "classification": "concretization_failure",
+                    "execution_attempt_recorded": False,
                     "executed": False,
                     "result": "unverified",
                     "reason": "claim_missing",
@@ -265,6 +283,7 @@ def evaluate_candidate_spec_v4(
                     "oracle_id": oracle.get("id"),
                     "claim_id": oracle.get("claim_id"),
                     "classification": "concretization_failure",
+                    "execution_attempt_recorded": False,
                     "executed": False,
                     "result": "unverified",
                     "reason": f"workspace_missing:{stage}",
@@ -279,6 +298,7 @@ def evaluate_candidate_spec_v4(
                     "oracle_id": oracle.get("id"),
                     "claim_id": oracle.get("claim_id"),
                     "classification": "concretization_failure",
+                    "execution_attempt_recorded": False,
                     "executed": False,
                     "result": "unverified",
                     "reason": f"snapshot_hash_mismatch:{stage}",
@@ -301,6 +321,7 @@ def evaluate_candidate_spec_v4(
             evaluations.append(
                 {
                     **base,
+                    "execution_attempt_recorded": False,
                     "executed": False,
                     "result": "unverified",
                     "reason": concrete["reason"],
@@ -621,10 +642,16 @@ def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
     root = workspace.resolve()
     cwd = (root / plan["cwd"]).resolve()
     if not cwd.is_relative_to(root) or not cwd.is_dir():
-        return {"executed": False, "result": "oracle_error", "reason": "cwd_missing"}
+        return {
+            "execution_attempt_recorded": False,
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "cwd_missing",
+        }
     resolved = _resolve_executable(plan["server_argv"][0])
     if resolved is None:
         return {
+            "execution_attempt_recorded": False,
             "executed": False,
             "result": "oracle_error",
             "reason": "executable_unavailable",
@@ -642,12 +669,14 @@ def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
         browser = (root / plan["browser_executable"]).resolve()
         if not browser.is_file() or _sha256_file(browser) != plan["browser_sha256"]:
             return {
+                "execution_attempt_recorded": False,
                 "executed": False,
                 "result": "oracle_error",
                 "reason": "browser_unavailable_or_hash_mismatch",
             }
         if browser_toolchain is None:
             return {
+                "execution_attempt_recorded": False,
                 "executed": False,
                 "result": "oracle_error",
                 "reason": "browser_toolchain_missing",
@@ -658,6 +687,7 @@ def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
             or not (playwright / "package.json").is_file()
         ):
             return {
+                "execution_attempt_recorded": False,
                 "executed": False,
                 "result": "oracle_error",
                 "reason": "playwright_module_missing",
@@ -665,7 +695,7 @@ def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
         host_plan["browser_executable"] = str(browser)
         host_plan["playwright_module"] = str(playwright)
     host_plan["plan_sha256"] = _plan_hash(host_plan)
-    return runner(host_plan)
+    return {"execution_attempt_recorded": True, **runner(host_plan)}
 
 
 def _safe_route(value):

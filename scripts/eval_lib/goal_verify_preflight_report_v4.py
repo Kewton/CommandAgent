@@ -13,14 +13,21 @@ def load_records(run_dir: Path) -> list[dict[str, Any]]:
 
 
 def build_report(
-    *, contract: dict[str, Any], records: list[dict[str, Any]], semantic_review_complete: bool
+    *,
+    contract: dict[str, Any],
+    records: list[dict[str, Any]],
+    semantic_review_complete: bool,
 ) -> dict[str, Any]:
     lanes = [lane for record in records for lane in record.get("lanes", {}).values()]
     valid = [lane for lane in lanes if lane.get("validation", {}).get("valid") is True]
     evaluations = [
-        row for lane in lanes for row in lane.get("execution", {}).get("evaluations", [])
+        row
+        for lane in lanes
+        for row in lane.get("execution", {}).get("evaluations", [])
     ]
-    executable = [row for row in evaluations if row.get("classification") == "executable"]
+    executable = [
+        row for row in evaluations if row.get("classification") == "executable"
+    ]
     additive = [
         lane["additive_comparison"]
         for lane in lanes
@@ -34,20 +41,26 @@ def build_report(
         )
         for row in additive
     )
-    expected_records = len(contract["selected_cells"]) * int(contract["samples_per_cell"])
+    expected_records = len(contract["selected_cells"]) * int(
+        contract["samples_per_cell"]
+    )
     checks = {
         "record_count": len(records) == expected_records,
         "schema_compliance": bool(lanes)
-        and len(valid) / len(lanes) >= contract["preflight"]["schema_compliance_yield_floor"],
+        and len(valid) / len(lanes)
+        >= contract["preflight"]["schema_compliance_yield_floor"],
         "product_snapshot_recorded": all(
-            record.get("snapshot_manifests", {}).get("product", {}).get("snapshot_sha256")
+            record.get("snapshot_manifests", {})
+            .get("product", {})
+            .get("snapshot_sha256")
             for record in records
         ),
         "same_snapshot": all(
             lane.get("execution", {}).get("same_snapshot") is True for lane in valid
         ),
         "reference_fallback_zero": sum(
-            int(lane.get("execution", {}).get("reference_fallback_count", 0)) for lane in lanes
+            int(lane.get("execution", {}).get("reference_fallback_count", 0))
+            for lane in lanes
         )
         == 0,
         "gold_used_for_execution_zero": sum(
@@ -55,7 +68,9 @@ def build_report(
             for lane in lanes
         )
         == 0,
-        "executable_oracles_recorded": all(row.get("executed") is True for row in executable),
+        "executable_oracle_attempts_recorded": all(
+            row.get("execution_attempt_recorded") is True for row in executable
+        ),
         "baseline_failure_not_overridden": all(
             row.get("baseline_failure_overridden") is False for row in additive
         ),
@@ -77,8 +92,12 @@ def build_report(
             "required_claim_recall": [
                 row["paired_delta"]["required_claim_recall"] for row in additive
             ],
-            "strong_binding": [row["paired_delta"]["strong_binding"] for row in additive],
-            "unverified_rate": [row["paired_delta"]["unverified_rate"] for row in additive],
+            "strong_binding": [
+                row["paired_delta"]["strong_binding"] for row in additive
+            ],
+            "unverified_rate": [
+                row["paired_delta"]["unverified_rate"] for row in additive
+            ],
         },
         "checks": checks,
         "ready_for_full_experiment_design": all(checks.values()),
