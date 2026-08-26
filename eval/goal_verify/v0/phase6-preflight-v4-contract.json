@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
-  "contract_id": "phase6-preflight-v4-20260826-live-03",
+  "contract_id": "phase6-preflight-v4-20260827-live-04",
   "status": "frozen",
-  "code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2826e36f.json",
+  "code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-96b762d9.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -78,6 +78,30 @@
       "denominator_changes": "none",
       "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
       "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2826e36f.json"
+    },
+    {
+      "id": "v4-A3",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_manifest_resume_gate": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-03",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-04",
+      "superseded_code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
+      "replacement_code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
+      "reason": "the live-03 manifest proved that the CLI default selected the production v0 schema hash instead of the v4 schema declared by the frozen contract; the v4 runner did not bind the resolved CLI schema path back to contract.generation.structured_output_schema",
+      "change": "derive the CLI schema default from the contract and reject any v4 schema path that differs from the contract before readiness checks, workspace creation, baseline execution, or provider requests",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "superseded_schema_sha256": "c08838d8bdf9d2d1caa6426b79c3ccfbcb2234b4ecab0a1ab6e01a126a4b188a",
+      "required_schema_sha256": "7c88c3d74dab59673bcc287ab076f473ff0ea153a02c4079862252bfa828f894",
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-96b762d9.json"
     }
   ],
   "comparison": {
@@ -229,7 +253,7 @@
   "authorization": {
     "implementation_authorized": true,
     "live_collection_authorized": true,
-    "approved_at": "2026-08-26",
+    "approved_at": "2026-08-27",
     "approved_by": "repository owner (continued execution of the reviewed v4 design)",
     "scope": "limit-0, bounded smoke, and additive preflight collection using the frozen v4 contract",
     "note": "exact SHA, CI evidence, run id, budgets, exclusions, and input boundary are frozen before the first provider response"
