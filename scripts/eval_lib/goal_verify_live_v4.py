@@ -62,6 +62,13 @@ def run_campaign_v4(
     baseline_runner=None,
 ) -> dict[str, Any]:
     contract = load_json(contract_path)
+    expected_schema = (
+        root / contract["generation"]["structured_output_schema"]
+    ).resolve()
+    if schema_path.resolve() != expected_schema:
+        raise ValueError(
+            "v4 schema path differs from contract.generation.structured_output_schema"
+        )
     readiness = readiness_report(
         root=root, contract_path=contract_path, execution_root=execution_root
     )

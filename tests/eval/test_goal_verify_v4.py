@@ -527,6 +527,23 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
         self.assertNotIn("live_collection_not_authorized", report["blockers"])
 
+    def test_v4_campaign_rejects_schema_path_not_frozen_by_contract(self):
+        contract_path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-contract.json"
+        with self.assertRaisesRegex(
+            ValueError,
+            "schema path differs from contract.generation.structured_output_schema",
+        ):
+            run_campaign_v4(
+                root=ROOT,
+                corpus_path=ROOT / "eval/goal_verify/v0/corpus.json",
+                contract_path=contract_path,
+                schema_path=ROOT / "eval/goal_verify/v0/verification-spec.schema.json",
+                prompt_path=None,
+                validator=ROOT / "target/release/verification_spec_validate",
+                run_dir=ROOT / "unused",
+                execution_root=ROOT / "unused-execution",
+            )
+
     def test_v4_prompt_has_manifest_but_no_gold_adapter_id(self):
         corpus = load("eval/goal_verify/v0/corpus.json")
         case = next(

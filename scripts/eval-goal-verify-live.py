@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument(
         "--schema",
         type=Path,
-        default=Path("eval/goal_verify/v0/verification-spec.schema.json"),
+        help="defaults to contract.generation.structured_output_schema",
     )
     parser.add_argument(
         "--prompt", type=Path, help="must equal contract.generation.prompt when set"
@@ -50,6 +50,15 @@ def main() -> int:
         if isinstance(path, Path)
     }
     contract_value = json.loads(paths["contract"].read_text(encoding="utf-8"))
+    schema_argument = args.schema or Path(
+        contract_value.get("generation", {}).get(
+            "structured_output_schema",
+            "eval/goal_verify/v0/verification-spec.schema.json",
+        )
+    )
+    paths["schema"] = (
+        schema_argument if schema_argument.is_absolute() else ROOT / schema_argument
+    )
     schema_version = contract_value.get("schema_version")
     runner = {
         "commandagent.goal_verify.phase6_preflight_contract.v3": run_campaign_v3,
