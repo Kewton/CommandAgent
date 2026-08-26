@@ -51,6 +51,11 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
     if full.get("bootstrap_samples") != 2000:
         errors.append("bootstrap_count_changed")
     prompt = root / contract.get("generation", {}).get("prompt", "")
+    schema = root / contract.get("generation", {}).get(
+        "structured_output_schema", ""
+    )
+    if not schema.is_file():
+        errors.append("structured_output_schema_missing")
     if not prompt.is_file():
         errors.append("prompt_missing")
     else:

@@ -66,7 +66,9 @@ def run_campaign_v4(
         root=root, contract_path=contract_path, execution_root=execution_root
     )
     if not readiness["ready"]:
-        raise ValueError("v4 preflight is not ready: " + ",".join(readiness["blockers"]))
+        raise ValueError(
+            "v4 preflight is not ready: " + ",".join(readiness["blockers"])
+        )
     commandagent = (commandagent_bin or root / "target/release/commandagent").resolve()
     live_inputs = verify_live_inputs_v3(
         root=root,
@@ -104,7 +106,9 @@ def run_campaign_v4(
         "answer_key_sha256": sha256_file(root / contract["scoring"]["answer_key"]),
         "workspace_registry_sha256": sha256_file(root / contract["workspace_registry"]),
         "target_pairs": len(selected) * int(contract["samples_per_cell"]),
-        "target_proposals": len(selected) * int(contract["samples_per_cell"]) * len(LANES),
+        "target_proposals": len(selected)
+        * int(contract["samples_per_cell"])
+        * len(LANES),
         "execution_root": str(execution_root.resolve()),
         "commandagent_bin": str(commandagent),
         **live_inputs,
@@ -127,7 +131,9 @@ def run_campaign_v4(
                 if limit is not None and completed >= limit:
                     return _summary(run_dir, completed, target, ledger_head)
                 pair_id = f"{case['case_id']}--pair-{sample_index:02d}"
-                relative = Path("raw") / case["case_id"] / f"pair-{sample_index:02d}.json"
+                relative = (
+                    Path("raw") / case["case_id"] / f"pair-{sample_index:02d}.json"
+                )
                 record_path = run_dir / relative
                 reference = str(record_path.relative_to(root))
                 if record_path.exists():
@@ -141,6 +147,9 @@ def run_campaign_v4(
                         destination=pair_root,
                     )
                     product_workspace = _product_workspace(case, stage_paths)
+                    browser_toolchain = _freeze_browser_toolchain(
+                        product_workspace, pair_root
+                    )
                     frozen_before = _freeze_before(case, product_workspace, pair_root)
                     baseline = _run_baseline(
                         root=root,
@@ -150,8 +159,7 @@ def run_campaign_v4(
                         stage_paths=stage_paths,
                         adapters=adapters,
                         commandagent_bin=commandagent,
-                        baseline_runner=baseline_runner
-                        or _default_baseline_runner(),
+                        baseline_runner=baseline_runner or _default_baseline_runner(),
                     )
                     frozen_product = pair_root / "frozen-product"
                     _copy_workspace(product_workspace, frozen_product)
@@ -160,7 +168,9 @@ def run_campaign_v4(
                     }
                     if frozen_before is not None:
                         snapshot_manifests["before"] = workspace_manifest(frozen_before)
-                    pair_index = source_index * int(contract["samples_per_cell"]) + sample_index
+                    pair_index = (
+                        source_index * int(contract["samples_per_cell"]) + sample_index
+                    )
                     lanes = {
                         lane: _run_lane_v4(
                             root=root,
@@ -179,6 +189,7 @@ def run_campaign_v4(
                             frozen_product=frozen_product,
                             frozen_before=frozen_before,
                             snapshot_manifests=snapshot_manifests,
+                            browser_toolchain=browser_toolchain,
                             baseline=baseline,
                             pair_root=pair_root,
                         )
@@ -194,6 +205,11 @@ def run_campaign_v4(
                         "required_claims": copy.deepcopy(case["required_claims"]),
                         "record_path": reference,
                         "snapshot_manifests": snapshot_manifests,
+                        "browser_toolchain_sha256": (
+                            workspace_manifest(browser_toolchain)["snapshot_sha256"]
+                            if browser_toolchain is not None
+                            else None
+                        ),
                         "baseline": baseline,
                         "lanes": lanes,
                     }
@@ -216,9 +232,26 @@ def run_campaign_v4(
 
 
 def _run_lane_v4(
-    *, root, contract, schema, validator, provider, case, pair_id, pair_index, lane,
-    base_prompt, shape, adapters, capabilities, frozen_product, frozen_before,
-    snapshot_manifests, baseline, pair_root,
+    *,
+    root,
+    contract,
+    schema,
+    validator,
+    provider,
+    case,
+    pair_id,
+    pair_index,
+    lane,
+    base_prompt,
+    shape,
+    adapters,
+    capabilities,
+    frozen_product,
+    frozen_before,
+    snapshot_manifests,
+    browser_toolchain,
+    baseline,
+    pair_root,
 ):
     attempts = []
     validation = {"valid": False, "spec": None, "errors": ["not_attempted"]}
@@ -243,7 +276,9 @@ def _run_lane_v4(
             model=contract["model"],
             prompt=prompt,
             schema=schema,
-            seed=regeneration_seed(contract["generation"]["seed_base"], pair_index, lane, attempt),
+            seed=regeneration_seed(
+                contract["generation"]["seed_base"], pair_index, lane, attempt
+            ),
             temperature=float(contract["generation"]["temperature"]),
             num_predict=int(contract["generation"]["num_predict"]),
             timeout_sec=int(contract["generation"]["request_timeout_sec"]),
@@ -255,26 +290,48 @@ def _run_lane_v4(
             raw = response["response"].get("response", "")
             try:
                 normalized = (
-                    normalize_v2_proposal(raw, case=case, model=contract["model"], request_id=request_id)
+                    normalize_v2_proposal(
+                        raw, case=case, model=contract["model"], request_id=request_id
+                    )
                     if lane == "contract_conformance"
-                    else canonicalize_held_out_proposal(raw, case=case, model=contract["model"], request_id=request_id)
+                    else canonicalize_held_out_proposal(
+                        raw, case=case, model=contract["model"], request_id=request_id
+                    )
                 )
-                validation = validate_proposal(
+                validation = _validate_proposal_v4(
                     validator=validator,
                     goal=case["goal"],
                     intent=case["intent"],
                     normalized_raw=normalized,
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as error:
-                validation = {"valid": False, "spec": None, "errors": [f"proposal_parse_failed:{error}"]}
+                validation = {
+                    "valid": False,
+                    "spec": None,
+                    "errors": [f"proposal_parse_failed:{error}"],
+                }
         else:
-            validation = {"valid": False, "spec": None, "errors": [response.get("error_kind", "provider_error")]}
+            validation = {
+                "valid": False,
+                "spec": None,
+                "errors": [response.get("error_kind", "provider_error")],
+            }
         attempts.append(
-            {"attempt": attempt, "response": response, "normalized_proposal": normalized, "validation": copy.deepcopy(validation)}
+            {
+                "attempt": attempt,
+                "response": response,
+                "normalized_proposal": normalized,
+                "validation": copy.deepcopy(validation),
+            }
         )
         if not should_regenerate(validation, attempt):
             break
-    execution = {"evaluations": [], "same_snapshot": False, "reference_fallback_count": 0, "gold_used_for_execution_count": 0}
+    execution = {
+        "evaluations": [],
+        "same_snapshot": False,
+        "reference_fallback_count": 0,
+        "gold_used_for_execution_count": 0,
+    }
     coverage = None
     additive = None
     if validation.get("valid"):
@@ -284,6 +341,7 @@ def _run_lane_v4(
             frozen_product=frozen_product,
             frozen_before=frozen_before,
             snapshot_manifests=snapshot_manifests,
+            browser_toolchain=browser_toolchain,
         )
         scored = score_candidate_outcomes(
             case_id=case["case_id"],
@@ -293,7 +351,9 @@ def _run_lane_v4(
             adapters=adapters,
         )
         execution = {**raw_execution, "evaluations": scored}
-        coverage = score_claim_coverage(case=case, adapters=adapters, evaluations=scored)
+        coverage = score_claim_coverage(
+            case=case, adapters=adapters, evaluations=scored
+        )
         additive = combine_evaluations(
             case=case,
             adapters=adapters,
@@ -311,11 +371,17 @@ def _run_lane_v4(
     }
 
 
-def _build_prompt_v4(*, lane, base_prompt, case, request_id, shape, adapters, capabilities, manifests):
+def _build_prompt_v4(
+    *, lane, base_prompt, case, request_id, shape, adapters, capabilities, manifests
+):
     prompt = (
-        build_conformance_prompt(base_prompt, case, request_id, shape, adapters=adapters)
+        build_conformance_prompt(
+            base_prompt, case, request_id, shape, adapters=adapters
+        )
         if lane == "contract_conformance"
-        else build_held_out_prompt(base_prompt, case, request_id, shape, capabilities=capabilities)
+        else build_held_out_prompt(
+            base_prompt, case, request_id, shape, capabilities=capabilities
+        )
     )
     prefix, payload = prompt.rsplit("INPUT JSON:\n", 1)
     request = json.loads(payload)
@@ -323,11 +389,105 @@ def _build_prompt_v4(*, lane, base_prompt, case, request_id, shape, adapters, ca
     for claim in request.get("required_claims", []):
         for observation in claim.get("expected_observations", []):
             observation.pop("adapter_id", None)
-    return prefix + "INPUT JSON:\n" + json.dumps(request, ensure_ascii=False, sort_keys=True) + "\n"
+    return (
+        prefix
+        + "INPUT JSON:\n"
+        + json.dumps(request, ensure_ascii=False, sort_keys=True)
+        + "\n"
+    )
+
+
+def _validate_proposal_v4(*, validator, goal, intent, normalized_raw):
+    """Validate the v0 core in Rust and preserve v4-only browser bindings."""
+    proposal = json.loads(normalized_raw)
+    extensions = {}
+    extension_errors = []
+    stripped = copy.deepcopy(proposal)
+    for oracle in stripped.get("oracles", []):
+        input_value = oracle.get("input")
+        if not isinstance(input_value, dict) or input_value.get("kind") != "dom":
+            if oracle.get("strategy") in {"dom", "interaction"}:
+                extension_errors.append(
+                    f"v4_dom_input_required:{oracle.get('id', 'unknown')}"
+                )
+            continue
+        extension = {
+            key: input_value.pop(key)
+            for key in ("port", "actions", "property")
+            if key in input_value
+        }
+        extensions[oracle.get("id")] = extension
+        extension_errors.extend(_v4_browser_extension_errors(oracle, extension))
+    validation = validate_proposal(
+        validator=validator,
+        goal=goal,
+        intent=intent,
+        normalized_raw=json.dumps(stripped, ensure_ascii=False, sort_keys=True),
+    )
+    if extension_errors:
+        return {
+            "valid": False,
+            "spec": None,
+            "errors": sorted({*validation.get("errors", []), *extension_errors}),
+        }
+    if not validation.get("valid"):
+        return validation
+    for oracle in validation["spec"].get("oracles", []):
+        oracle["input"].update(extensions.get(oracle.get("id"), {}))
+    return validation
+
+
+def _v4_browser_extension_errors(oracle, extension):
+    oracle_id = oracle.get("id", "unknown")
+    errors = []
+    port = extension.get("port")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        errors.append(f"v4_dom_port_invalid:{oracle_id}")
+    setup = oracle.get("setup")
+    argv = setup.get("argv") if isinstance(setup, dict) else None
+    if isinstance(port, int) and (not isinstance(argv, list) or str(port) not in argv):
+        errors.append(f"v4_dom_port_unbound:{oracle_id}")
+    actions = extension.get("actions", [])
+    actions_valid = (
+        isinstance(actions, list)
+        and len(actions) <= 32
+        and all(
+            isinstance(action, dict)
+            and set(action) <= {"kind", "selector", "repeat"}
+            and action.get("kind") == "click"
+            and isinstance(action.get("selector"), str)
+            and bool(action["selector"])
+            and isinstance(action.get("repeat", 1), int)
+            and not isinstance(action.get("repeat", 1), bool)
+            and 1 <= action.get("repeat", 1) <= 16
+            for action in actions
+        )
+    )
+    if not actions_valid:
+        errors.append(f"v4_dom_actions_invalid:{oracle_id}")
+    strategy = oracle.get("strategy")
+    if strategy == "interaction" and not actions:
+        errors.append(f"v4_interaction_actions_missing:{oracle_id}")
+    if strategy == "dom" and actions:
+        errors.append(f"v4_dom_actions_forbidden:{oracle_id}")
+    property_value = extension.get("property")
+    if property_value is not None and (
+        not isinstance(property_value, str)
+        or not property_value
+        or len(property_value) > 128
+    ):
+        errors.append(f"v4_dom_property_invalid:{oracle_id}")
+    return errors
 
 
 def _execute_spec_isolated(
-    *, spec, lane_root, frozen_product, frozen_before, snapshot_manifests
+    *,
+    spec,
+    lane_root,
+    frozen_product,
+    frozen_before,
+    snapshot_manifests,
+    browser_toolchain,
 ):
     evaluations = []
     same_snapshot = True
@@ -348,6 +508,7 @@ def _execute_spec_isolated(
             spec={"claims": spec["claims"], "oracles": [oracle]},
             workspaces=workspaces,
             frozen_snapshot_sha256=frozen,
+            browser_toolchain=browser_toolchain,
         )
         evaluations.extend(result["evaluations"])
         same_snapshot = same_snapshot and result["same_snapshot"]
@@ -374,6 +535,18 @@ def _freeze_before(case, product_workspace, pair_root):
         return None
     destination = pair_root / "frozen-before"
     _copy_workspace(product_workspace, destination)
+    return destination
+
+
+def _freeze_browser_toolchain(product_workspace, pair_root):
+    source = product_workspace / "node_modules" / "playwright-core"
+    if not source.is_dir():
+        return None
+    destination = pair_root / "candidate-toolchain"
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+    shutil.copytree(source, destination / "playwright-core", symlinks=True)
     return destination
 
 

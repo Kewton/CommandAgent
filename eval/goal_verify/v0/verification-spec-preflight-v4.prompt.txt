@@ -27,7 +27,8 @@ Input-kind field table:
 - text: kind and non-empty value
 - fixture: kind, safe workspace-relative path, and exact 64-hex sha256
 - http: kind, GET or HEAD method, loopback port, and absolute route path
-- dom: kind, absolute route, and non-empty CSS selector
+- dom: kind, loopback port, absolute route, non-empty observation CSS selector,
+  optional click actions, and optional computed-style property
 
 Observation-kind field table:
 - exit_code: integer expected
@@ -45,8 +46,10 @@ Strategy/input/observation allow table:
 - fixture: fixture -> file
 - file: none or fixture -> file
 - http: http -> http_status
-- dom: dom -> dom
-- interaction: dom or none -> interaction
+- dom: dom -> dom; setup.argv starts the loopback server, selector identifies
+  the observed element, and actions is empty
+- interaction: dom -> interaction; setup.argv starts the loopback server and
+  actions contains 1-32 {kind:"click", selector, repeat:1-16} items
 - existing_fix_evidence: none or fixture -> existing_binding
 - existing_investigation_binding: none or fixture -> existing_binding
 
@@ -58,6 +61,10 @@ Command rules:
 - Use only relative files and entrypoints present in workspace_manifest.
 - setup.cwd is a safe workspace-relative directory, normally '.'.
 - A fixture input must use the exact path and sha256 from workspace_manifest.
+- http, dom, and interaction require setup.argv for the loopback server. The
+  decimal input port must occur as a distinct argv item. External network is
+  unavailable. Browser observations must use exact expected text or exact
+  computed-style values, never prose such as "button exists".
 
 Oracle rules:
 - One oracle observes exactly one thing.

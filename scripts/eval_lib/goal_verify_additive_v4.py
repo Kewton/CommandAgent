@@ -8,10 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from eval_lib.goal_verify_sandbox import run_macos_sandbox
+from eval_lib.goal_verify_sandbox import run_macos_sandbox, run_macos_sandbox_web_probe
 from eval_lib.goal_verify_v2 import _plan_hash
 
 CommandRunner = Callable[[dict[str, Any]], dict[str, Any]]
+WebRunner = Callable[[dict[str, Any]], dict[str, Any]]
 
 _IGNORED_PARTS = {
     ".anvil",
@@ -25,6 +26,8 @@ _IGNORED_PARTS = {
 _SHELL_PROGRAMS = {"bash", "dash", "env", "fish", "sh", "xargs", "zsh"}
 _COMMANDISH = {"command", "exit_code", "stdout", "stderr"}
 _SENSITIVE_NAMES = {".env", ".npmrc", ".pypirc", "credentials", "credentials.json"}
+_BROWSER_RELATIVE = Path(".goal-verify-tools/chromium/headless_shell")
+_BROWSER_SHA256 = "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21"
 
 
 def workspace_manifest(workspace: Path) -> dict[str, Any]:
@@ -34,14 +37,21 @@ def workspace_manifest(workspace: Path) -> dict[str, Any]:
         relative = path.relative_to(root)
         if any(part in _IGNORED_PARTS for part in relative.parts):
             continue
-        if any(part in _SENSITIVE_NAMES or part.startswith(".env.") for part in relative.parts):
+        if any(
+            part in _SENSITIVE_NAMES or part.startswith(".env.")
+            for part in relative.parts
+        ):
             continue
         if path.is_symlink():
             target = path.resolve()
             if not target.is_relative_to(root):
                 continue
             entries.append(
-                {"path": relative.as_posix(), "kind": "symlink", "target": str(path.readlink())}
+                {
+                    "path": relative.as_posix(),
+                    "kind": "symlink",
+                    "target": str(path.readlink()),
+                }
             )
         elif path.is_file():
             entries.append(
@@ -83,7 +93,9 @@ def concretize_candidate_oracle(
     if not isinstance(observation, dict):
         return _rejected("concretization_failure", "observation_missing")
     paths = {
-        row["path"]: row for row in manifest.get("entries", []) if row.get("kind") == "file"
+        row["path"]: row
+        for row in manifest.get("entries", [])
+        if row.get("kind") == "file"
     }
     stage = _claim_stage(claim)
     if strategy in _COMMANDISH:
@@ -126,17 +138,35 @@ def concretize_candidate_oracle(
             },
             "gold_used_for_concretization": False,
         }
+    if strategy == "http":
+        return _concretize_web(oracle, stage=stage, browser=False)
+    if strategy in {"dom", "interaction"}:
+        return _concretize_web(
+            oracle,
+            stage=stage,
+            browser=True,
+            interaction=strategy == "interaction",
+        )
     return _rejected("executor_unavailable", f"strategy_not_implemented:{strategy}")
 
 
 def execute_candidate_plan(
-    plan: dict[str, Any], *, workspace: Path, runner: CommandRunner = run_macos_sandbox
+    plan: dict[str, Any],
+    *,
+    workspace: Path,
+    runner: CommandRunner = run_macos_sandbox,
+    web_runner: WebRunner = run_macos_sandbox_web_probe,
+    browser_toolchain: Path | None = None,
 ) -> dict[str, Any]:
     root = workspace.resolve()
     if plan["kind"] == "file_probe":
         path = (root / plan["path"]).resolve()
         if not path.is_relative_to(root):
-            return {"executed": False, "result": "oracle_error", "reason": "path_escape"}
+            return {
+                "executed": False,
+                "result": "oracle_error",
+                "reason": "path_escape",
+            }
         actual = path.exists()
         passed = actual is plan["exists"]
         return {
@@ -146,6 +176,13 @@ def execute_candidate_plan(
             "actual": actual,
             "observed_strength": "deterministic" if passed else None,
         }
+    if plan["kind"] in {"http_probe", "browser_probe"}:
+        return _execute_web_plan(
+            plan,
+            workspace=workspace,
+            runner=web_runner,
+            browser_toolchain=browser_toolchain,
+        )
     cwd = (root / plan["cwd"]).resolve()
     if not cwd.is_relative_to(root) or not cwd.is_dir():
         return {"executed": False, "result": "oracle_error", "reason": "cwd_missing"}
@@ -200,6 +237,8 @@ def evaluate_candidate_spec_v4(
     workspaces: dict[str, Path],
     frozen_snapshot_sha256: dict[str, str],
     runner: CommandRunner = run_macos_sandbox,
+    web_runner: WebRunner = run_macos_sandbox_web_probe,
+    browser_toolchain: Path | None = None,
 ) -> dict[str, Any]:
     claims = {row.get("id"): row for row in spec.get("claims", [])}
     evaluations = []
@@ -273,7 +312,11 @@ def evaluate_candidate_spec_v4(
                 **base,
                 "execution_plan": concrete["plan"],
                 **execute_candidate_plan(
-                    concrete["plan"], workspace=workspace, runner=runner
+                    concrete["plan"],
+                    workspace=workspace,
+                    runner=runner,
+                    web_runner=web_runner,
+                    browser_toolchain=browser_toolchain,
                 ),
             }
         )
@@ -319,7 +362,9 @@ def combine_evaluations(
     ]
     if baseline_status != "completed" or candidate_failures:
         shadow = "failure"
-    elif candidate_unknown or any(row["status"] != "strong" for row in combined["claims"]):
+    elif candidate_unknown or any(
+        row["status"] != "strong" for row in combined["claims"]
+    ):
         shadow = "unverified"
     else:
         shadow = "pass"
@@ -334,7 +379,9 @@ def combine_evaluations(
             "unverified_rate": _unverified_rate(combined) - _unverified_rate(baseline),
             "recovered_claim_count": sum(
                 before["status"] == "unverified" and after["status"] == "strong"
-                for before, after in zip(baseline["claims"], combined["claims"], strict=True)
+                for before, after in zip(
+                    baseline["claims"], combined["claims"], strict=True
+                )
             ),
         },
         "shadow_verdict": shadow,
@@ -358,7 +405,10 @@ def score_candidate_outcomes(
             adapter
             for adapter in adapters
             if adapter["case_id"] == case_id
-            and (lane != "contract_conformance" or adapter["claim_id"] == oracle.get("claim_id"))
+            and (
+                lane != "contract_conformance"
+                or adapter["claim_id"] == oracle.get("claim_id")
+            )
             and oracle.get("strategy") in adapter["proposal"]["strategies"]
             and oracle.get("expected_polarity") in adapter["proposal"]["polarities"]
             and oracle.get("observation", {}).get("kind")
@@ -435,14 +485,20 @@ def _union_by_adapter(baseline, candidate):
         if not adapter_id:
             continue
         current = rows.get(adapter_id)
-        if current is None or (not current.get("observation_match") and row.get("observation_match")):
+        if current is None or (
+            not current.get("observation_match") and row.get("observation_match")
+        ):
             rows[adapter_id] = row
     return [rows[key] for key in sorted(rows)]
 
 
 def _unverified_rate(score):
     claims = score["claims"]
-    return sum(row["status"] == "unverified" for row in claims) / len(claims) if claims else 1.0
+    return (
+        sum(row["status"] == "unverified" for row in claims) / len(claims)
+        if claims
+        else 1.0
+    )
 
 
 def _observed_value(observation, outcome, workspace):
@@ -461,7 +517,9 @@ def _claim_stage(claim):
 def _argv_error(argv):
     if not isinstance(argv, list) or not argv:
         return "argv_missing"
-    if any(not isinstance(value, str) or not value or "\x00" in value for value in argv):
+    if any(
+        not isinstance(value, str) or not value or "\x00" in value for value in argv
+    ):
         return "argv_invalid"
     executable = Path(argv[0])
     if executable.is_absolute() or executable.name in _SHELL_PROGRAMS:
@@ -470,13 +528,172 @@ def _argv_error(argv):
         return "argv_inline_code_unsafe"
     if executable.name in {"node", "perl", "ruby"} and "-e" in argv[1:]:
         return "argv_inline_code_unsafe"
-    if any(any(operator in value for operator in ("&&", "||", "$(", "`", ";")) for value in argv):
+    if any(
+        any(operator in value for operator in ("&&", "||", "$(", "`", ";"))
+        for value in argv
+    ):
         return "argv_shell_syntax_unsafe"
     if any(Path(value).is_absolute() for value in argv[1:]):
         return "argv_absolute_argument_unsafe"
     if any(".." in Path(value).parts for value in argv[1:]):
         return "argv_parent_traversal_unsafe"
     return None
+
+
+def _concretize_web(oracle, *, stage, browser, interaction=False):
+    setup = oracle.get("setup")
+    argv = setup.get("argv") if isinstance(setup, dict) else None
+    reason = _argv_error(argv)
+    if reason:
+        return _rejected("policy_rejected", reason)
+    cwd = setup.get("cwd", ".")
+    if not _safe_relative(cwd):
+        return _rejected("policy_rejected", "cwd_unsafe")
+    input_value = oracle.get("input")
+    observation = oracle.get("observation")
+    expected_input = "dom" if browser else "http"
+    expected_observation = (
+        "interaction" if interaction else "dom" if browser else "http_status"
+    )
+    if not isinstance(input_value, dict) or input_value.get("kind") != expected_input:
+        return _rejected("concretization_failure", f"{expected_input}_input_required")
+    if (
+        not isinstance(observation, dict)
+        or observation.get("kind") != expected_observation
+    ):
+        return _rejected(
+            "concretization_failure", f"{expected_observation}_observation_required"
+        )
+    port = input_value.get("port")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        return _rejected("concretization_failure", "loopback_port_required")
+    if str(port) not in argv:
+        return _rejected("policy_rejected", "server_argv_port_unbound")
+    route_key = "route" if browser else "path"
+    route = input_value.get(route_key)
+    if not _safe_route(route):
+        return _rejected("policy_rejected", f"{route_key}_unsafe")
+    plan = {
+        "kind": "browser_probe" if browser else "http_probe",
+        "server_argv": list(argv),
+        "cwd": cwd,
+        "port": port,
+        "ready_path": route,
+        "timeout_ms": int(oracle.get("timeout_ms", 30_000)),
+        "expected": observation.get("expected"),
+    }
+    if browser:
+        actions = input_value.get("actions", [])
+        if interaction and not actions:
+            return _rejected("concretization_failure", "interaction_actions_required")
+        if not interaction and actions:
+            return _rejected("concretization_failure", "dom_actions_forbidden")
+        if not _safe_dom_actions(actions):
+            return _rejected("policy_rejected", "dom_actions_unsafe")
+        selector = input_value.get("selector")
+        if not isinstance(selector, str) or not selector:
+            return _rejected("concretization_failure", "observation_selector_required")
+        plan.update(
+            {
+                "route": route,
+                "selector": selector,
+                "actions": actions,
+                "property": input_value.get("property"),
+                "browser_executable": _BROWSER_RELATIVE.as_posix(),
+                "browser_sha256": _BROWSER_SHA256,
+            }
+        )
+    else:
+        method = input_value.get("method")
+        if method not in {"GET", "HEAD"}:
+            return _rejected("policy_rejected", "http_method_unsafe")
+        plan.update({"path": route, "method": method})
+    return {
+        "classification": "executable",
+        "reason": None,
+        "stage": stage,
+        "plan": plan,
+        "gold_used_for_concretization": False,
+    }
+
+
+def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
+    root = workspace.resolve()
+    cwd = (root / plan["cwd"]).resolve()
+    if not cwd.is_relative_to(root) or not cwd.is_dir():
+        return {"executed": False, "result": "oracle_error", "reason": "cwd_missing"}
+    resolved = _resolve_executable(plan["server_argv"][0])
+    if resolved is None:
+        return {
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "executable_unavailable",
+        }
+    host_plan = {
+        **plan,
+        "schema_version": "commandagent.goal_verify.web_plan.v4",
+        "source": "host_validated_candidate_web_v4",
+        "workspace_root": str(root),
+        "cwd": str(cwd),
+        "raw_provider_argv_used": False,
+        "server_argv": [resolved, *plan["server_argv"][1:]],
+    }
+    if plan["kind"] == "browser_probe":
+        browser = (root / plan["browser_executable"]).resolve()
+        if not browser.is_file() or _sha256_file(browser) != plan["browser_sha256"]:
+            return {
+                "executed": False,
+                "result": "oracle_error",
+                "reason": "browser_unavailable_or_hash_mismatch",
+            }
+        if browser_toolchain is None:
+            return {
+                "executed": False,
+                "result": "oracle_error",
+                "reason": "browser_toolchain_missing",
+            }
+        playwright = (browser_toolchain.resolve() / "playwright-core").resolve()
+        if (
+            playwright.is_relative_to(root)
+            or not (playwright / "package.json").is_file()
+        ):
+            return {
+                "executed": False,
+                "result": "oracle_error",
+                "reason": "playwright_module_missing",
+            }
+        host_plan["browser_executable"] = str(browser)
+        host_plan["playwright_module"] = str(playwright)
+    host_plan["plan_sha256"] = _plan_hash(host_plan)
+    return runner(host_plan)
+
+
+def _safe_route(value):
+    return (
+        isinstance(value, str)
+        and value.startswith("/")
+        and not value.startswith("//")
+        and "://" not in value
+        and "\x00" not in value
+    )
+
+
+def _safe_dom_actions(actions):
+    return (
+        isinstance(actions, list)
+        and len(actions) <= 32
+        and all(
+            isinstance(action, dict)
+            and set(action) <= {"kind", "selector", "repeat"}
+            and action.get("kind") == "click"
+            and isinstance(action.get("selector"), str)
+            and bool(action["selector"])
+            and isinstance(action.get("repeat", 1), int)
+            and not isinstance(action.get("repeat", 1), bool)
+            and 1 <= action.get("repeat", 1) <= 16
+            for action in actions
+        )
+    )
 
 
 def _resolve_executable(argv0):

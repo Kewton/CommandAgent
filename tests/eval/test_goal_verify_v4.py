@@ -17,7 +17,11 @@ from eval_lib.goal_verify_additive_v4 import (
     score_candidate_outcomes,
     workspace_manifest,
 )
-from eval_lib.goal_verify_live_v4 import _build_prompt_v4, run_campaign_v4
+from eval_lib.goal_verify_live_v4 import (
+    _build_prompt_v4,
+    _validate_proposal_v4,
+    run_campaign_v4,
+)
 from eval_lib.goal_verify_preflight_report_v4 import build_report
 from eval_lib.goal_verify_preflight_v4 import design_errors, readiness_report
 from eval_lib.goal_verify_sandbox import _sandbox_profile, sandbox_backend_status
@@ -33,9 +37,7 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             profile = _sandbox_profile(
                 Path(temporary), restricted_reads=True, argv0="python3"
             )
-            self.assertIn(
-                f'(deny file-read-data (subpath "{Path.home()}"))', profile
-            )
+            self.assertIn(f'(deny file-read-data (subpath "{Path.home()}"))', profile)
             self.assertIn(
                 f'(allow file-read-data (subpath "{Path(temporary).resolve()}"))',
                 profile,
@@ -104,7 +106,11 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
                 oracle={
                     "strategy": "command",
                     "setup": {"argv": ["python3", "app.py"], "cwd": "."},
-                    "input": {"kind": "fixture", "path": "fixture.json", "sha256": "0" * 64},
+                    "input": {
+                        "kind": "fixture",
+                        "path": "fixture.json",
+                        "sha256": "0" * 64,
+                    },
                     "observation": {"kind": "exit_code", "expected": 0},
                 },
                 claim={"origin": {}},
@@ -112,9 +118,92 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             )
             self.assertEqual(drift["reason"], "fixture_hash_mismatch")
 
+    def test_interaction_concretizer_requires_self_contained_browser_plan(self):
+        concrete = concretize_candidate_oracle(
+            oracle={
+                "strategy": "interaction",
+                "setup": {
+                    "argv": ["npm", "run", "dev", "--", "-p", "4174"],
+                    "cwd": ".",
+                },
+                "input": {
+                    "kind": "dom",
+                    "port": 4174,
+                    "route": "/",
+                    "selector": "#count",
+                    "actions": [
+                        {"kind": "click", "selector": "#increment", "repeat": 2}
+                    ],
+                },
+                "observation": {"kind": "interaction", "expected": "2"},
+                "timeout_ms": 30000,
+            },
+            claim={"origin": {"source_kind": "goal"}},
+            manifest={"entries": []},
+        )
+        self.assertEqual(concrete["classification"], "executable")
+        self.assertEqual(concrete["plan"]["actions"][0]["repeat"], 2)
+        missing_actions = concretize_candidate_oracle(
+            oracle={
+                "strategy": "interaction",
+                "setup": {
+                    "argv": ["npm", "run", "dev", "--", "-p", "4174"],
+                    "cwd": ".",
+                },
+                "input": {
+                    "kind": "dom",
+                    "port": 4174,
+                    "route": "/",
+                    "selector": "#count",
+                },
+                "observation": {"kind": "interaction", "expected": "2"},
+            },
+            claim={"origin": {"source_kind": "goal"}},
+            manifest={"entries": []},
+        )
+        self.assertEqual(missing_actions["reason"], "interaction_actions_required")
+
+    def test_http_candidate_executes_host_validated_web_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captured = []
+
+            def web_runner(plan):
+                captured.append(plan)
+                return {
+                    "executed": True,
+                    "result": "pass",
+                    "reason": "observation_match",
+                    "actual": 200,
+                    "observed_strength": "runtime",
+                }
+
+            result = execute_candidate_plan(
+                {
+                    "kind": "http_probe",
+                    "server_argv": ["python3", "-m", "http.server", "4175"],
+                    "cwd": ".",
+                    "port": 4175,
+                    "ready_path": "/",
+                    "path": "/",
+                    "method": "GET",
+                    "timeout_ms": 5000,
+                    "expected": 200,
+                },
+                workspace=root,
+                web_runner=web_runner,
+                browser_toolchain=root,
+            )
+            self.assertEqual(result["result"], "pass")
+            self.assertEqual(captured[0]["source"], "host_validated_candidate_web_v4")
+            self.assertTrue(Path(captured[0]["server_argv"][0]).is_absolute())
+            self.assertFalse(captured[0]["raw_provider_argv_used"])
+
     def test_candidate_sandbox_denies_sibling_file_read(self):
         if not sandbox_backend_status()["available"]:
-            self.skipTest("macOS sandbox backend unavailable in this execution boundary")
+            self.skipTest(
+                "macOS sandbox backend unavailable in this execution boundary"
+            )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             workspace = root / "workspace"
@@ -174,7 +263,12 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
                 self.assertEqual(plan["source"], "host_validated_candidate_v4")
                 self.assertTrue(Path(plan["argv"][0]).is_absolute())
                 self.assertEqual(plan["argv"][1:], ["app.py"])
-                return {"exit_code": 0, "stdout": "ok\n", "stderr": "", "timed_out": False}
+                return {
+                    "exit_code": 0,
+                    "stdout": "ok\n",
+                    "stderr": "",
+                    "timed_out": False,
+                }
 
             result = evaluate_candidate_spec_v4(
                 spec=spec,
@@ -194,7 +288,9 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
                 frozen_snapshot_sha256={"product": manifest["snapshot_sha256"]},
                 runner=runner,
             )
-            self.assertEqual(drift["evaluations"][0]["reason"], "snapshot_hash_mismatch:product")
+            self.assertEqual(
+                drift["evaluations"][0]["reason"], "snapshot_hash_mismatch:product"
+            )
 
 
 class UnionAndVerdictTest(unittest.TestCase):
@@ -202,9 +298,13 @@ class UnionAndVerdictTest(unittest.TestCase):
     def setUpClass(cls):
         corpus = load("eval/goal_verify/v0/corpus.json")
         cls.case = next(
-            row for row in corpus["cases"] if row["case_id"] == "create-cli-known-multiple-inputs"
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
         )
-        cls.adapters = load("eval/goal_verify/v0/phase6-command-adapters-v3.json")["adapters"]
+        cls.adapters = load("eval/goal_verify/v0/phase6-command-adapters-v3.json")[
+            "adapters"
+        ]
 
     def test_union_adds_candidate_without_replacing_baseline(self):
         baseline = []
@@ -224,7 +324,7 @@ class UnionAndVerdictTest(unittest.TestCase):
                 "result": "pass",
                 "observation_match": True,
                 "observed_strength": "runtime",
-            }
+            },
         ]
         result = combine_evaluations(
             case=self.case,
@@ -311,7 +411,14 @@ class UnionAndVerdictTest(unittest.TestCase):
             case_id=self.case["case_id"],
             lane="held_out_synthesis",
             oracles=[oracle],
-            outcomes=[{"executed": True, "result": "pass", "actual": "5\n", "observed_strength": "runtime"}],
+            outcomes=[
+                {
+                    "executed": True,
+                    "result": "pass",
+                    "actual": "5\n",
+                    "observed_strength": "runtime",
+                }
+            ],
             adapters=self.adapters,
         )
         self.assertFalse(rows[0]["gold_used_for_execution"])
@@ -320,10 +427,93 @@ class UnionAndVerdictTest(unittest.TestCase):
 
 
 class ContractReadinessTest(unittest.TestCase):
+    def test_v4_browser_schema_is_additive_and_separate_from_production_v0(self):
+        base = load("eval/goal_verify/v0/verification-spec.schema.json")
+        extended = load(
+            "eval/goal_verify/v0/verification-spec-preflight-v4.schema.json"
+        )
+        self.assertNotEqual(base["$id"], extended["$id"])
+        base_dom = base["$defs"]["input"]["oneOf"][-1]
+        extended_dom = extended["$defs"]["input"]["oneOf"][-1]
+        self.assertNotIn("port", base_dom["properties"])
+        self.assertIn("port", extended_dom["required"])
+        self.assertIn("actions", extended_dom["properties"])
+
+    def test_v4_validator_preserves_browser_extension_outside_production_type(self):
+        proposal = load("tests/fixtures/verification_spec_v0/create.json")
+        proposal["oracles"][0]["strategy"] = "interaction"
+        proposal["oracles"][0]["setup"]["argv"] = [
+            "npm",
+            "run",
+            "dev",
+            "--",
+            "-p",
+            "4174",
+        ]
+        proposal["oracles"][0]["input"] = {
+            "kind": "dom",
+            "route": "/",
+            "selector": "#count",
+            "port": 4174,
+            "actions": [{"kind": "click", "selector": "#increment", "repeat": 2}],
+        }
+
+        def validator(**kwargs):
+            stripped = json.loads(kwargs["normalized_raw"])
+            self.assertNotIn("port", stripped["oracles"][0]["input"])
+            return {"valid": True, "spec": stripped, "errors": []}
+
+        with mock.patch(
+            "eval_lib.goal_verify_live_v4.validate_proposal", side_effect=validator
+        ):
+            result = _validate_proposal_v4(
+                validator=Path("validator"),
+                goal=proposal["goal"],
+                intent=proposal["intent"],
+                normalized_raw=json.dumps(proposal),
+            )
+        self.assertEqual(result["spec"]["oracles"][0]["input"]["port"], 4174)
+        self.assertEqual(
+            result["spec"]["oracles"][0]["input"]["actions"][0]["repeat"], 2
+        )
+
+    def test_v4_validator_rejects_browser_extension_before_execution(self):
+        proposal = load("tests/fixtures/verification_spec_v0/create.json")
+        proposal["oracles"][0]["strategy"] = "interaction"
+        proposal["oracles"][0]["setup"]["argv"] = ["npm", "run", "dev"]
+        proposal["oracles"][0]["input"] = {
+            "kind": "dom",
+            "route": "/",
+            "selector": "#count",
+            "port": 4174,
+            "actions": [],
+        }
+
+        with mock.patch(
+            "eval_lib.goal_verify_live_v4.validate_proposal",
+            return_value={"valid": True, "spec": proposal, "errors": []},
+        ):
+            result = _validate_proposal_v4(
+                validator=Path("validator"),
+                goal=proposal["goal"],
+                intent=proposal["intent"],
+                normalized_raw=json.dumps(proposal),
+            )
+        self.assertFalse(result["valid"])
+        self.assertIn(
+            f"v4_dom_port_unbound:{proposal['oracles'][0]['id']}", result["errors"]
+        )
+        self.assertIn(
+            f"v4_interaction_actions_missing:{proposal['oracles'][0]['id']}",
+            result["errors"],
+        )
+
     def test_v4_pair_root_keeps_provisioning_at_execution_root(self):
         execution_root = Path("/execution")
         pair_root = execution_root / "run-id" / "pair-id"
-        self.assertEqual(pair_root.parents[1] / "provisioned", execution_root / "provisioned")
+        self.assertEqual(
+            pair_root.parents[1] / "provisioned", execution_root / "provisioned"
+        )
 
     def test_v4_contract_is_frozen_with_exact_ci_evidence(self):
         path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-contract.json"
@@ -339,13 +529,17 @@ class ContractReadinessTest(unittest.TestCase):
     def test_v4_prompt_has_manifest_but_no_gold_adapter_id(self):
         corpus = load("eval/goal_verify/v0/corpus.json")
         case = next(
-            row for row in corpus["cases"] if row["case_id"] == "create-cli-known-multiple-inputs"
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
         )
-        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v3.json")["adapters"]
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v3.json")[
+            "adapters"
+        ]
         capabilities = load("eval/goal_verify/v0/phase6-execution-capabilities-v3.json")
-        base = (ROOT / "eval/goal_verify/v0/verification-spec-preflight-v4.prompt.txt").read_text(
-            encoding="utf-8"
-        )
+        base = (
+            ROOT / "eval/goal_verify/v0/verification-spec-preflight-v4.prompt.txt"
+        ).read_text(encoding="utf-8")
         shape = (ROOT / "tests/fixtures/verification_spec_v0/create.json").read_text(
             encoding="utf-8"
         )
@@ -360,7 +554,9 @@ class ContractReadinessTest(unittest.TestCase):
             manifests={"product": {"snapshot_sha256": "a" * 64, "entries": []}},
         )
         payload = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
-        self.assertEqual(payload["workspace_manifests"]["product"]["snapshot_sha256"], "a" * 64)
+        self.assertEqual(
+            payload["workspace_manifests"]["product"]["snapshot_sha256"], "a" * 64
+        )
         self.assertNotIn("adapter_id", json.dumps(payload["required_claims"]))
 
     def test_v4_campaign_records_shared_product_snapshot_and_additive_score(self):
@@ -373,7 +569,9 @@ class ContractReadinessTest(unittest.TestCase):
         contract["samples_per_cell"] = 1
         corpus = load("eval/goal_verify/v0/corpus.json")
         case = next(
-            row for row in corpus["cases"] if row["case_id"] == "create-cli-known-multiple-inputs"
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
         )
         proposal = load("tests/fixtures/verification_spec_v0/create.json")
         proposal["goal"] = case["goal"]
@@ -395,7 +593,11 @@ class ContractReadinessTest(unittest.TestCase):
             return {"status": "completed", "product_run_dir": None, "wall_time_ms": 1}
 
         def validation(**kwargs):
-            return {"valid": True, "spec": json.loads(kwargs["normalized_raw"]), "errors": []}
+            return {
+                "valid": True,
+                "spec": json.loads(kwargs["normalized_raw"]),
+                "errors": [],
+            }
 
         fake_execution = {
             "evaluations": [
@@ -442,7 +644,8 @@ class ContractReadinessTest(unittest.TestCase):
                     root=ROOT,
                     corpus_path=ROOT / "eval/goal_verify/v0/corpus.json",
                     contract_path=contract_path,
-                    schema_path=ROOT / contract["generation"]["structured_output_schema"],
+                    schema_path=ROOT
+                    / contract["generation"]["structured_output_schema"],
                     prompt_path=None,
                     validator=ROOT / "target/release/verification_spec_validate",
                     run_dir=run_dir,
