@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
-  "contract_id": "phase6-preflight-v4-pending-live-01",
-  "status": "draft",
-  "code_sha": null,
-  "exact_sha_ci_evidence": null,
+  "contract_id": "phase6-preflight-v4-20260826-live-01",
+  "status": "frozen",
+  "code_sha": "b43e3633c66c0b169eb03b53dd267051199b6b47",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-b43e3633.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -186,8 +186,11 @@
   },
   "authorization": {
     "implementation_authorized": true,
-    "live_collection_authorized": false,
-    "note": "freeze exact SHA, CI evidence, run id, and inputs before live collection"
+    "live_collection_authorized": true,
+    "approved_at": "2026-08-26",
+    "approved_by": "repository owner (continued execution of the reviewed v4 design)",
+    "scope": "limit-0, bounded smoke, and additive preflight collection using the frozen v4 contract",
+    "note": "exact SHA, CI evidence, run id, budgets, exclusions, and input boundary are frozen before the first provider response"
   },
   "integrity": {
     "exclusive_run_lock": ".campaign.lock",
