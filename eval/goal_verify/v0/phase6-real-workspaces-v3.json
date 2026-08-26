@@ -1,7 +1,7 @@
 {
   "schema_version": "commandagent.goal_verify.real_workspaces.v3",
   "status": "frozen",
-  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "contract_id": "phase6-preflight-v3-20260826-live-02",
   "drafted_at": "2026-08-26",
   "policy": {
     "decision": "v3-D4: every primary cell gets a frozen real workspace; snapshot_value / snapshot_multi_value / snapshot_equal executors are retired for primary cells",

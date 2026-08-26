@@ -1,7 +1,7 @@
 {
   "schema_version": "commandagent.goal_verify.execution_capabilities.v3",
   "status": "frozen",
-  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "contract_id": "phase6-preflight-v3-20260826-live-02",
   "drafted_at": "2026-08-26",
   "supersedes": "eval/goal_verify/v0/phase6-execution-capabilities-v2.json for v3 runs",
   "classification_dimensions": {

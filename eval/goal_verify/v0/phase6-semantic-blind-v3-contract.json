@@ -1,7 +1,7 @@
 {
   "schema_version": "commandagent.goal_verify.semantic_blind_contract.v3",
   "status": "frozen",
-  "contract_id": "phase6-preflight-v3-20260826-live-01",
+  "contract_id": "phase6-preflight-v3-20260826-live-02",
   "drafted_at": "2026-08-26",
   "frozen_at": "2026-08-26",
   "input": {
