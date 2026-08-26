@@ -12,6 +12,7 @@ from eval_lib.goal_verify_phase6 import (
     FINAL_DECISIONS,
     build_phase6_report,
     validate_manifest,
+    validate_pair_contract,
     write_phase6_report,
 )
 
@@ -101,6 +102,18 @@ class GoalVerifyPhase6Test(unittest.TestCase):
                     run_dir=first_dir,
                     root=ROOT,
                 )
+
+    def test_pair_contract_rejects_missing_extra_and_changed_shared_fields(self):
+        corpus = json.loads((ROOT / self.manifest["baseline"]["corpus"]).read_text(encoding="utf-8"))
+        baseline = copy.deepcopy(corpus["cases"][:2])
+        candidate = copy.deepcopy(baseline)
+        candidate.pop()
+        candidate.append(copy.deepcopy(corpus["cases"][2]))
+        candidate[0]["goal"] = "changed after pairing"
+        errors = validate_pair_contract(baseline, candidate)
+        self.assertTrue(any("missing paired case IDs" in error for error in errors), errors)
+        self.assertTrue(any("extra paired case IDs" in error for error in errors), errors)
+        self.assertTrue(any("changed shared fields" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

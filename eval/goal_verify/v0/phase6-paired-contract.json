@@ -1,0 +1,82 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_paired_contract.v0",
+  "contract_id": "phase6-live-ab-20260826-v1",
+  "frozen_at": "2026-08-26",
+  "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "provider": "ollama-local",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-b8474aad.json",
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "runner_sources": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "samples_per_cell": 30,
+  "execution": {
+    "concurrency": 1,
+    "sharding": false,
+    "resume_requires_valid_hash_chain": true
+  },
+  "pairing": {
+    "unit": "one independent provider request paired with the immutable authoritative observation for the same reviewed case",
+    "case_id_format": "{source_case_id}--pair-{sample_index:02d}",
+    "baseline": "byte-preserving replay of the frozen Phase 0 observation; no outcome or evidence is inferred",
+    "candidate": "VerificationSpec v0 generated from the same goal, intent, and profile; fix/investigate also receive their frozen reviewed evidence registry; provider-declared execution is never trusted",
+    "shared": ["source_case_id", "goal", "intent", "profile", "language", "size", "polarity", "required_claims", "optional_claims", "allowed_verdicts", "forbidden_verdicts"],
+    "exclusion_rules": [
+      "abort the campaign, without excluding a row, when a result record cannot be persisted",
+      "timeouts, provider errors, malformed JSON, schema rejection, empty claims, and policy rejection remain included as candidate failures",
+      "no exclusion rule may be changed after the first candidate response is persisted"
+    ]
+  },
+  "generation": {
+    "think": false,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "seed_base": 39320260825,
+    "keep_alive": "30m",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec.schema.json",
+    "prompt": "eval/goal_verify/v0/verification-spec.prompt.txt",
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json",
+      "investigate": "tests/fixtures/verification_spec_v0/investigate.json"
+    }
+  },
+  "scoring": {
+    "claim_match": "exact registered claim ID only; no semantic similarity or LLM judge",
+    "strong_binding": "candidate claim must exactly match a registered claim ID and the frozen authoritative observation must contain executed evidence at or above its registered minimum strength",
+    "candidate_verdict": "the frozen authoritative verdict, because the candidate remains shadow-only and cannot alter authority",
+    "resource_measurement": "Ollama prompt_eval_count, eval_count, and total_duration for the candidate request",
+    "provider_execution_claims": "ignored"
+  },
+  "bootstrap": {
+    "samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39320260825,
+    "method": "paired percentile bootstrap"
+  },
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10.0,
+    "p95_wall_time_max_increase_pct": 20.0,
+    "p50_total_tokens_max_increase_pct": 10.0,
+    "p95_total_tokens_max_increase_pct": 20.0
+  },
+  "authorization": {
+    "approved_live": true,
+    "approved_at": "2026-08-26",
+    "scope": "local Ollama Phase 6 paired A/B only"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "chain": "sha256(previous_entry_sha256 + canonical_entry_without_entry_sha256)",
+    "existing_record_without_ledger_entry": "abort",
+    "record_hash_mismatch": "abort",
+    "pair_or_source_mismatch": "abort"
+  }
+}

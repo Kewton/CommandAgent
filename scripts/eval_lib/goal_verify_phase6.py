@@ -4,8 +4,9 @@ import copy
 import json
 import math
 import random
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from eval_lib.goal_verify_baseline import aggregate, load_json, validate_corpus
 
@@ -13,6 +14,19 @@ SCHEMA_VERSION = "commandagent.goal_verify.phase6_matrix.v0"
 LANES = ("blind_review", "ci", "offline_local", "approved_live")
 DIMENSIONS = ("intent", "profile", "language", "size")
 FINAL_DECISIONS = {"GO", "NO-GO", "INSUFFICIENT-EVIDENCE"}
+PAIR_SHARED_FIELDS = (
+    "intent",
+    "profile",
+    "language",
+    "size",
+    "polarity",
+    "goal",
+    "tags",
+    "required_claims",
+    "optional_claims",
+    "allowed_verdicts",
+    "forbidden_verdicts",
+)
 
 
 def _repo_path(root: Path, value: str) -> Path:
@@ -118,6 +132,27 @@ def _metric(metrics: dict[str, Any], name: str) -> float | int | None:
     return metrics.get(name)
 
 
+def validate_pair_contract(
+    baseline_cases: list[dict[str, Any]], candidate_cases: list[dict[str, Any]]
+) -> list[str]:
+    errors: list[str] = []
+    baseline_by_id = {case["case_id"]: case for case in baseline_cases}
+    candidate_by_id = {case["case_id"]: case for case in candidate_cases}
+    missing = sorted(set(baseline_by_id) - set(candidate_by_id))
+    extra = sorted(set(candidate_by_id) - set(baseline_by_id))
+    if missing:
+        errors.append(f"candidate missing paired case IDs: {missing}")
+    if extra:
+        errors.append(f"candidate has extra paired case IDs: {extra}")
+    for case_id in sorted(set(baseline_by_id).intersection(candidate_by_id)):
+        baseline = baseline_by_id[case_id]
+        candidate = candidate_by_id[case_id]
+        changed = [field for field in PAIR_SHARED_FIELDS if baseline.get(field) != candidate.get(field)]
+        if changed:
+            errors.append(f"paired case {case_id} changed shared fields: {changed}")
+    return errors
+
+
 def _paired_interval(
     baseline_cases: list[dict[str, Any]],
     candidate_cases: list[dict[str, Any]],
@@ -212,9 +247,9 @@ def _indicator_specs(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _verdict(
     rule: str,
-    candidate: float | int,
+    candidate: float,
     delta: float,
-    threshold: float | int,
+    threshold: float,
     interval: dict[str, Any],
 ) -> str:
     if interval["status"] != "estimated":
@@ -249,6 +284,10 @@ def build_phase6_report(manifest: dict[str, Any], config: dict[str, Any], root: 
             raise ValueError("invalid candidate corpus:\n- " + "\n- ".join(candidate_errors))
     baseline_cases = baseline_corpus["cases"]
     candidate_cases = candidate_corpus["cases"] if candidate_corpus else []
+    if candidate_corpus is not None:
+        pair_errors = validate_pair_contract(baseline_cases, candidate_cases)
+        if pair_errors:
+            raise ValueError("invalid paired corpus:\n- " + "\n- ".join(pair_errors))
     baseline_metrics = aggregate(baseline_cases)
     candidate_metrics = aggregate(candidate_cases) if candidate_cases else None
     indicators: list[dict[str, Any]] = []

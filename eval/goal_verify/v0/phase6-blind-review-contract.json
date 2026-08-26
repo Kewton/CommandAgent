@@ -1,0 +1,44 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_blind_review_contract.v0",
+  "contract_id": "phase6-blind-review-20260826-v0",
+  "frozen_at": "2026-08-26",
+  "reviewer_provider": "ollama-local",
+  "reviewer_model": "qwen3.5:9b",
+  "reviewer_model_digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "randomization_seed": 39920260826,
+  "batch_size": 30,
+  "max_retries": 1,
+  "generation": {
+    "think": false,
+    "temperature": 0.0,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "keep_alive": "30m"
+  },
+  "visible_fields": [
+    "pair_id",
+    "intent",
+    "profile",
+    "language",
+    "size",
+    "required_claims",
+    "claimed_claim_ids",
+    "verified_claims",
+    "verdict",
+    "schema_valid"
+  ],
+  "hidden_fields": [
+    "baseline_or_candidate_label",
+    "wall_time_ms",
+    "token_counts",
+    "source_reference",
+    "provider_metadata"
+  ],
+  "criteria": [
+    "prefer complete exact-ID coverage of required claims",
+    "prefer executed evidence that meets each required minimum strength",
+    "penalize schema invalidity and a full verdict without complete strong evidence",
+    "return tie when neither anonymous variant is materially stronger"
+  ]
+}

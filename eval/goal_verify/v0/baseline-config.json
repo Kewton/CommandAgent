@@ -38,6 +38,15 @@
       "p50_total_tokens_max_increase_pct",
       "p95_total_tokens_max_increase_pct"
     ],
-    "unset_reason": "A defensible VerificationSpec resource delta does not exist before Phase 1 shadow generation."
+    "values": {
+      "p50_wall_time_max_increase_pct": 10.0,
+      "p95_wall_time_max_increase_pct": 20.0,
+      "p50_total_tokens_max_increase_pct": 10.0,
+      "p95_total_tokens_max_increase_pct": 20.0
+    },
+    "registered_at": "2026-08-26",
+    "registered_before_candidate_collection": true,
+    "authorized_by": "repository_owner_in_phase6_session",
+    "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539"
   }
 }
