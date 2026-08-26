@@ -5,12 +5,13 @@
   "status": "frozen",
   "drafted_at": "2026-08-26",
   "frozen_at": "2026-08-26",
-  "code_sha": "32f477e5c814426851a99722f231a2c7681fe640",
+  "last_amended_at": "2026-08-26",
+  "code_sha": "3037d4ec3e4970abaf486b3b3eefdb7e48c50cff",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
   "provider": "ollama-local",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-32f477e5.json",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-3037d4ec.json",
   "required_ci_workflows": [
     "CI",
     "acceptance"
@@ -677,7 +678,20 @@
       "repository-owner approval recorded here with date"
     ]
   },
-  "pre_live_amendments": [],
+  "pre_live_amendments": [
+    {
+      "id": "v3-A1",
+      "recorded_at": "2026-08-26",
+      "before_first_proposal": true,
+      "superseded_code_sha": "32f477e5c814426851a99722f231a2c7681fe640",
+      "replacement_code_sha": "3037d4ec3e4970abaf486b3b3eefdb7e48c50cff",
+      "reason": "the final launch audit found that the v3 manifest recorded only the commandagent path and did not fail closed on binary commit, runner-source drift, validator hash, model digest, or the remaining frozen input hashes",
+      "change": "verify the clean commandagent build commit and model digest before collection; reject runner-source drift; record commandagent, validator, runner, budget, exact-CI, and shape hashes in the immutable campaign manifest",
+      "result_dependent": false,
+      "proposal_count_before_amendment": 0,
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-3037d4ec.json"
+    }
+  ],
   "integrity": {
     "exclusive_run_lock": ".campaign.lock",
     "record_ledger": "record-ledger.jsonl",
