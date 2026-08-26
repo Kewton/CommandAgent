@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
-  "contract_id": "phase6-preflight-v4-20260826-live-02",
+  "contract_id": "phase6-preflight-v4-20260826-live-03",
   "status": "frozen",
-  "code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4d93c0c1.json",
+  "code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2826e36f.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -58,6 +58,26 @@
       "exclusion_rule_changes": "none",
       "superseded_evidence_policy": "retain the zero-proposal manifest and summary; do not resume or reuse the run id",
       "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4d93c0c1.json"
+    },
+    {
+      "id": "v4-A2",
+      "recorded_at": "2026-08-26",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-02",
+      "replacement_run_id": "phase6-preflight-v4-20260826-live-03",
+      "superseded_code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
+      "replacement_code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
+      "reason": "the first bounded pair proved the same-snapshot and gold-isolation invariants but exposed that v4 classified dom and interaction proposals as executor_unavailable instead of executing candidate-owned browser bindings; the report also conflated a recorded timeout or server-not-ready attempt with no host execution record",
+      "change": "add a v4-only browser binding schema, host-validated loopback HTTP/DOM/interaction execution, a pre-product frozen Playwright toolchain, offline npm execution, and a separate execution_attempt_recorded field without changing pass/fail outcomes",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2826e36f.json"
     }
   ],
   "comparison": {
@@ -122,7 +142,7 @@
   },
   "generation": {
     "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4.prompt.txt",
-    "structured_output_schema": "eval/goal_verify/v0/verification-spec.schema.json",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec-preflight-v4.schema.json",
     "model": "qwen3.6:27b-coding-nvfp4",
     "seed_base": 399400,
     "temperature": 0.2,
@@ -138,8 +158,10 @@
     }
   },
   "execution": {
-    "sandbox": "macos_sandbox_exec",
-    "network": "denied",
+    "sandbox": "candidate commands and candidate servers use macos_sandbox_exec",
+    "network": "external denied; candidate servers are loopback-only; host-fixed browser blocks non-same-origin requests",
+    "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
+    "browser_toolchain": "playwright-core copied from the provisioned bundle before product execution and hash-recorded outside candidate workspaces",
     "shell": false,
     "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4",
     "same_snapshot_hash_required": true,
