@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,7 +22,7 @@ from eval_lib.goal_verify_blind_v3 import (
     records_to_blind_inputs,
 )
 from eval_lib.goal_verify_executors_v3 import execute_registered
-from eval_lib.goal_verify_live_v3 import run_campaign_v3
+from eval_lib.goal_verify_live_v3 import run_campaign_v3, verify_live_inputs_v3
 from eval_lib.goal_verify_observation_match_v3 import (
     evaluate_candidate_spec,
     proposal_matches_adapter,
@@ -292,6 +293,22 @@ class ExecutorAndScoringTest(unittest.TestCase):
 
 
 class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
+    def test_live_input_verification_rejects_wrong_binary_commit(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v3-contract.json")
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="commandagent 0.1.0 deadbeef now\n", stderr=""
+        )
+        with (
+            mock.patch("subprocess.run", return_value=completed),
+            self.assertRaisesRegex(ValueError, "clean frozen code SHA"),
+        ):
+            verify_live_inputs_v3(
+                root=ROOT,
+                contract=contract,
+                commandagent_bin=ROOT / "target/release/commandagent",
+                validator=ROOT / "target/release/verification_spec_validate",
+            )
+
     def test_exact_sha_ci_evidence_requires_matching_successful_workflows(self):
         code_sha = "a" * 40
         contract = {
@@ -605,6 +622,10 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
                 mock.patch(
                     "eval_lib.goal_verify_live_v3.evaluate_candidate_spec",
                     return_value={"evaluations": [], "scoring_coverage": True},
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_live_v3.verify_live_inputs_v3",
+                    return_value={"commandagent_binary_sha256": "a" * 64},
                 ),
             ):
                 summary = run_campaign_v3(

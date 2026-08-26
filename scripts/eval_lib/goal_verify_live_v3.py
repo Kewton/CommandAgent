@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -48,6 +50,88 @@ Provider = Callable[..., dict[str, Any]]
 BaselineRunner = Callable[..., dict[str, Any]]
 
 
+def verify_live_inputs_v3(
+    *,
+    root: Path,
+    contract: dict[str, Any],
+    commandagent_bin: Path,
+    validator: Path,
+) -> dict[str, Any]:
+    code_sha = contract.get("code_sha")
+    if not isinstance(code_sha, str) or len(code_sha) != 40:
+        raise ValueError("frozen code SHA is absent or invalid")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", code_sha, "HEAD"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if ancestor.returncode != 0:
+        raise ValueError(f"frozen code SHA is not an ancestor of HEAD: {code_sha}")
+    runner_sources = contract.get("runner_sources")
+    if not isinstance(runner_sources, list) or not runner_sources:
+        raise ValueError("frozen runner source paths are absent")
+    unchanged = subprocess.run(
+        ["git", "diff", "--quiet", code_sha, "--", *runner_sources],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if unchanged.returncode == 1:
+        raise ValueError("frozen runner source differs from code SHA")
+    if unchanged.returncode != 0:
+        raise RuntimeError("unable to compare frozen runner sources with code SHA")
+
+    binary = commandagent_bin.resolve()
+    if not binary.is_file() or not validator.is_file():
+        raise ValueError("commandagent or validator binary is missing")
+    version = subprocess.run(
+        [str(binary), "--version"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    version_text = version.stdout.strip()
+    expected_commit = code_sha[:8]
+    fields = version_text.split()
+    if (
+        version.returncode != 0
+        or len(fields) < 3
+        or fields[0] != "commandagent"
+        or fields[2] != expected_commit
+        or "+dirty" in version_text
+    ):
+        raise ValueError("commandagent binary does not match the clean frozen code SHA")
+
+    tags_endpoint = contract["endpoint"].removesuffix("/api/generate") + "/api/tags"
+    with urllib.request.urlopen(tags_endpoint, timeout=30) as response:
+        tags = json.loads(response.read().decode())
+    matching = [
+        model
+        for model in tags.get("models", [])
+        if model.get("name") == contract["model"]
+    ]
+    if len(matching) != 1 or matching[0].get("digest") != contract["model_digest"]:
+        raise ValueError("local provider model digest differs from frozen contract")
+
+    return {
+        "commandagent_binary_sha256": sha256_file(binary),
+        "commandagent_version": version_text,
+        "validator_binary_sha256": sha256_file(validator),
+        "runner_source_sha256": {
+            path: sha256_file(root / path) for path in runner_sources
+        },
+        "resource_budget_config_sha256": sha256_file(
+            root / contract["resource_budget_config"]
+        ),
+        "exact_sha_ci_evidence_sha256": sha256_file(
+            root / contract["exact_sha_ci_evidence"]
+        ),
+    }
+
+
 def run_campaign_v3(
     *,
     root: Path,
@@ -71,6 +155,15 @@ def run_campaign_v3(
         raise ValueError(
             "v3 preflight is not ready: " + ",".join(readiness["blockers"])
         )
+    resolved_commandagent = (
+        commandagent_bin or root / "target/release/commandagent"
+    ).resolve()
+    live_input_evidence = verify_live_inputs_v3(
+        root=root,
+        contract=contract,
+        commandagent_bin=resolved_commandagent,
+        validator=validator,
+    )
     if run_dir.name != contract["contract_id"]:
         raise ValueError("contract_id differs from run directory basename")
     prompt_path, base_prompt = load_prompt_from_contract(
@@ -120,6 +213,10 @@ def run_campaign_v3(
         "corpus_sha256": sha256_file(corpus_path),
         "schema_sha256": sha256_file(schema_path),
         "prompt_file_sha256": sha256_file(prompt_path),
+        "shape_example_sha256": {
+            intent: sha256_file(root / path)
+            for intent, path in contract["generation"]["shape_examples"].items()
+        },
         "effective_prompt_sha256": effective_hashes,
         "adapter_registry_sha256": sha256_file(
             root / contract["oracle_execution"]["adapter_registry"]
@@ -134,9 +231,8 @@ def run_campaign_v3(
         "target_pair_indexes": len(selected) * contract["samples_per_cell"],
         "target_proposals": len(selected) * contract["samples_per_cell"] * len(LANES),
         "execution_root": str(execution_root.resolve()),
-        "commandagent_bin": str(
-            (commandagent_bin or root / "target/release/commandagent").resolve()
-        ),
+        "commandagent_bin": str(resolved_commandagent),
+        **live_input_evidence,
     }
     manifest_path = run_dir / "campaign-manifest.json"
     if manifest_path.exists() and load_json(manifest_path) != manifest:
