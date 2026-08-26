@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
-  "contract_id": "phase6-preflight-v4-20260826-live-01",
+  "contract_id": "phase6-preflight-v4-20260826-live-02",
   "status": "frozen",
-  "code_sha": "b43e3633c66c0b169eb03b53dd267051199b6b47",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-b43e3633.json",
+  "code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4d93c0c1.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -40,6 +40,26 @@
     "policy": "retain without rescoring, proposal reuse, completion, or quality inference",
     "reason": "v3 compared current-product implementation from initial/before with candidate oracles executed on completed reference/after artifacts"
   },
+  "pre_live_amendments": [
+    {
+      "id": "v4-A1",
+      "recorded_at": "2026-08-26",
+      "before_first_provider_response": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-01",
+      "replacement_run_id": "phase6-preflight-v4-20260826-live-02",
+      "superseded_code_sha": "b43e3633c66c0b169eb03b53dd267051199b6b47",
+      "replacement_code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
+      "reason": "the first smoke attempt failed before baseline and provider execution because v4 passed pair_root/source-stages to the inherited stage helper, which resolved the frozen dependency bundle under execution_root/run-id/provisioned instead of execution_root/provisioned",
+      "change": "pass pair_root directly so the inherited helper resolves the preregistered execution_root/provisioned bundle",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 0,
+      "superseded_run_completed_proposals": 0,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "superseded_evidence_policy": "retain the zero-proposal manifest and summary; do not resume or reuse the run id",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4d93c0c1.json"
+    }
+  ],
   "comparison": {
     "baseline": "current_product_evidence",
     "candidate": "baseline_plus_candidate_evidence",
