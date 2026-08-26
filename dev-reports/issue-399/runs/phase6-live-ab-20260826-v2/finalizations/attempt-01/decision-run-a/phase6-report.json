@@ -1,0 +1,537 @@
+{
+  "baseline": {
+    "corpus": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/baseline-corpus.json",
+    "label": "phase0-current-authority-paired-replay",
+    "report": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/finalizations/attempt-01/baseline-eval/baseline.json"
+  },
+  "candidate": {
+    "corpus": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/candidate-corpus.json",
+    "label": "verification-spec-v0-live-shadow",
+    "report": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/finalizations/attempt-01/candidate-eval/baseline.json"
+  },
+  "evidence_lanes": {
+    "approved_live": {
+      "authorized": true,
+      "references": [
+        "eval/goal_verify/v0/phase6-paired-contract.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-summary.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "blind_review": {
+      "references": [
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/blind-review-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/blind-review-report.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "ci": {
+      "references": [
+        "eval/goal_verify/v0/exact-sha-ci-b8474aad.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "offline_local": {
+      "references": [
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-summary.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/baseline-corpus.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/candidate-corpus.json"
+      ],
+      "required": true,
+      "status": "available"
+    }
+  },
+  "failure_cases": [
+    {
+      "reason": "failed",
+      "scope": "indicator:required_claim_recall"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:required_claim_precision"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:strong_binding_coverage"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:false_full_count"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:schema_compliance_yield"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:required_claim_recall_gain"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:strong_binding_coverage_gain"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:unverified_rate_reduction"
+    },
+    {
+      "reason": "failed",
+      "scope": "indicator:false_full_target"
+    }
+  ],
+  "final_decision": "NO-GO",
+  "flag_off_compatibility": {
+    "references": [
+      "docs/dev/verification-spec-v0.md",
+      "tests/create_shadow_oracle.rs",
+      "tests/fix_shadow_conformance.rs",
+      "tests/investigate_shadow_conformance.rs",
+      "tests/critic_shadow_conformance.rs"
+    ],
+    "verified": true
+  },
+  "indicators": [
+    {
+      "baseline": 0.5,
+      "candidate": 0.03125,
+      "confidence_interval_95": {
+        "lower": -0.523711,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -0.412766
+      },
+      "delta": -0.46875,
+      "name": "required_claim_recall",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.705882,
+      "candidate": 0.09697,
+      "confidence_interval_95": {
+        "lower": -0.682706,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -0.531948
+      },
+      "delta": -0.608912,
+      "name": "required_claim_precision",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.01
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": 0.03125,
+      "confidence_interval_95": {
+        "lower": -0.521561,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -0.414226
+      },
+      "delta": -0.46875,
+      "name": "strong_binding_coverage",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 1.0,
+      "candidate": 1.0,
+      "confidence_interval_95": {
+        "lower": 0.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.0
+      },
+      "delta": 0.0,
+      "name": "task_success_rate",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 0.333333,
+      "candidate": 0.333333,
+      "confidence_interval_95": {
+        "lower": 0.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.0
+      },
+      "delta": 0.0,
+      "name": "final_acceptance_rate",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 0,
+      "candidate": 114,
+      "confidence_interval_95": {
+        "lower": 97.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 131.0
+      },
+      "delta": 114.0,
+      "name": "false_full_count",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.0,
+      "candidate": 0.0,
+      "confidence_interval_95": {
+        "lower": 0.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.0
+      },
+      "delta": 0.0,
+      "name": "false_fail_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 0.0,
+      "candidate": 0.0,
+      "confidence_interval_95": {
+        "lower": 0.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.0
+      },
+      "delta": 0.0,
+      "name": "false_partial_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 0.027778,
+      "candidate": 0.027778,
+      "confidence_interval_95": {
+        "lower": 0.0,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.0
+      },
+      "delta": 0.0,
+      "name": "flake_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 0.916667,
+      "candidate": 0.330556,
+      "confidence_interval_95": {
+        "lower": 0.280556,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.380556
+      },
+      "delta": -0.586111,
+      "name": "schema_compliance_yield",
+      "threshold": {
+        "rule": "candidate_min",
+        "value": 0.95
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": 0.03125,
+      "confidence_interval_95": {
+        "lower": -0.520408,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -0.410789
+      },
+      "delta": -0.46875,
+      "name": "required_claim_recall_gain",
+      "threshold": {
+        "rule": "delta_min",
+        "value": 0.1
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": 0.03125,
+      "confidence_interval_95": {
+        "lower": -0.522358,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -0.409586
+      },
+      "delta": -0.46875,
+      "name": "strong_binding_coverage_gain",
+      "threshold": {
+        "rule": "delta_min",
+        "value": 0.15
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0.375,
+      "candidate": 0.966667,
+      "confidence_interval_95": {
+        "lower": 0.540425,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": 0.644309
+      },
+      "delta": 0.591667,
+      "name": "unverified_rate_reduction",
+      "threshold": {
+        "rule": "delta_max",
+        "value": -0.1
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 0,
+      "candidate": 114,
+      "confidence_interval_95": {
+        "lower": 97.0,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 131.0
+      },
+      "delta": 114.0,
+      "name": "false_full_target",
+      "threshold": {
+        "rule": "candidate_max",
+        "value": 0
+      },
+      "verdict": "failed"
+    },
+    {
+      "baseline": 244500,
+      "candidate": 23010,
+      "confidence_interval_95": {
+        "lower": -106.863804,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -74.396319
+      },
+      "delta": -90.588957,
+      "name": "wall_time_p50",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": 10.0
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 900000,
+      "candidate": 37562,
+      "confidence_interval_95": {
+        "lower": -95.928778,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -95.490222
+      },
+      "delta": -95.826444,
+      "name": "wall_time_p95",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": 20.0
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 14550,
+      "candidate": 1665,
+      "confidence_interval_95": {
+        "lower": -97.90378,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -79.230241
+      },
+      "delta": -88.556701,
+      "name": "total_tokens_p50",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": 10.0
+      },
+      "verdict": "passed"
+    },
+    {
+      "baseline": 36000,
+      "candidate": 2291,
+      "confidence_interval_95": {
+        "lower": -93.725,
+        "paired_sample_size": 360,
+        "status": "estimated",
+        "upper": -93.469444
+      },
+      "delta": -93.636111,
+      "name": "total_tokens_p95",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": 20.0
+      },
+      "verdict": "passed"
+    }
+  ],
+  "matrix_cells": [
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "create",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "cli",
+      "size": "small",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "create",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "small",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "create",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "medium",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "create",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "medium",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "fix",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "cli",
+      "size": "medium",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "fix",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "data",
+      "size": "small",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "fix",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "medium",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "fix",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "large",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "investigate",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "data",
+      "size": "large",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "investigate",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "medium",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "investigate",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "small",
+      "verdict": "passed"
+    },
+    {
+      "baseline_samples": 30,
+      "candidate_samples": 30,
+      "intent": "investigate",
+      "language": "ja-en",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "large",
+      "verdict": "passed"
+    }
+  ],
+  "matrix_id": "phase6-live-ab-20260826-v2",
+  "report_schema_version": "commandagent.goal_verify.phase6_report.v0",
+  "rollback": {
+    "references": [
+      "docs/dev/goal-to-verify-v0.md",
+      "tests/verification_spec_v0.rs"
+    ],
+    "rehearsed": true
+  }
+}

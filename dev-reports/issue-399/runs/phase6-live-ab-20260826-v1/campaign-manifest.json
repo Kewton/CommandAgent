@@ -1,0 +1,33 @@
+{
+  "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539",
+  "commandagent_binary_sha256": "18e006e058519b457b77915a9a23073bd5e25d7a603d027cd742f512adc10905",
+  "contract": "eval/goal_verify/v0/phase6-paired-contract.json",
+  "contract_sha256": "5f8a0cbeeceae048e0dfd39b50b115de54a13dad75c2e8443b5f3840c8f5701a",
+  "corpus": "eval/goal_verify/v0/corpus.json",
+  "corpus_sha256": "4b61f3d77a7d448d6d9ceb19b206751e213f7c382514b8e97fa10a0e85b86845",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-b8474aad.json",
+  "exact_sha_ci_evidence_sha256": "322fce6a14c2930a57df045e363df7d9b0b10f55a3ddb7ca6b4103035bcb781f",
+  "exclusion_rules": [
+    "abort the campaign, without excluding a row, when a result record cannot be persisted",
+    "timeouts, provider errors, malformed JSON, schema rejection, empty claims, and policy rejection remain included as candidate failures",
+    "no exclusion rule may be changed after the first candidate response is persisted"
+  ],
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "prompt_sha256": "5097c22466b43adf3326080c2856248f4c774530782f88f6f2a9c0c2784cba47",
+  "resource_budget_config_sha256": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+  "runner_source_sha256": {
+    "scripts/eval-goal-verify-live.py": "aa610749df5ebcef213058e0b10de907b43b47347a9d3b7f77325196a5e3d612",
+    "scripts/eval_lib/goal_verify_live.py": "a145684743c83c7a898d9044e59e4016360a9b301d95ec2bf08eeab7d7658403",
+    "src/bin/verification_spec_validate.rs": "33a5dfb1ae9b56cc5d174e73ee253d00b47a5ac8b4c6a37012ec21f4cc099c20"
+  },
+  "samples_per_cell": 30,
+  "schema_sha256": "c08838d8bdf9d2d1caa6426b79c3ccfbcb2234b4ecab0a1ab6e01a126a4b188a",
+  "schema_version": "commandagent.goal_verify.phase6_live_manifest.v0",
+  "shape_example_sha256": {
+    "create": "c8014c3953f61dcff66473a17094fd073871b77ece40e0eb13c78800349afad8",
+    "fix": "6b51314186241e01cfbf637b2fad253c0ec80577027774336b8a2183741d15e4",
+    "investigate": "989fc5175b92b651eeee6231d4d2b0b097beb9571a3a17e3a2bc047e2c32ac0f"
+  },
+  "validator_binary_sha256": "d901d628e3853f863d5f6359d29a8235c947bdea7d38300bca468ae147df8232"
+}

@@ -1,0 +1,8 @@
+{
+  "complete": false,
+  "completed_pairs": 1,
+  "record_ledger_entries": 1,
+  "record_ledger_head_sha256": "0498a9076e0dd92ea53519ac86581e84e4cb5dcec534fb4cc535adc132ad6570",
+  "target_pairs": 360,
+  "valid_candidate_specs": 0
+}

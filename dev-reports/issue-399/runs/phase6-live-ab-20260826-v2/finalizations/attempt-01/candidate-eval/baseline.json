@@ -1,0 +1,1685 @@
+{
+  "bootstrap_samples": 2000,
+  "confidence_intervals_95": {
+    "by_dimension": {
+      "intent": {
+        "create": {
+          "final_acceptance_rate": {
+            "lower": 0.408333,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.591667
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": null,
+            "sample_size": 120,
+            "status": "insufficient_evidence",
+            "upper": null
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "fix": {
+          "final_acceptance_rate": {
+            "lower": 0.175,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.333333
+          },
+          "flake_rate": {
+            "lower": 0.058333,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.111111
+          },
+          "required_claim_f1": {
+            "lower": 0.031746,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.163516
+          },
+          "required_claim_precision": {
+            "lower": 0.051282,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.265957
+          },
+          "required_claim_recall": {
+            "lower": 0.022099,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.118919
+          },
+          "strong_binding_coverage": {
+            "lower": 0.022472,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.119565
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "investigate": {
+          "final_acceptance_rate": {
+            "lower": 0.175,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.333333
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.012987,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.086419
+          },
+          "required_claim_precision": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.044586
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.044304
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        }
+      },
+      "language": {
+        "en": {
+          "final_acceptance_rate": {
+            "lower": 0.266667,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.405556
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.030928
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 180,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "ja": {
+          "final_acceptance_rate": {
+            "lower": 0.326667,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.48
+          },
+          "flake_rate": {
+            "lower": 0.046667,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.088889
+          },
+          "required_claim_f1": {
+            "lower": 0.026755,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.149069
+          },
+          "required_claim_precision": {
+            "lower": 0.065574,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.369231
+          },
+          "required_claim_recall": {
+            "lower": 0.016393,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.092827
+          },
+          "strong_binding_coverage": {
+            "lower": 0.016529,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.09205
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "ja-en": {
+          "final_acceptance_rate": {
+            "lower": 0.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.032788,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 0.181818
+          },
+          "required_claim_precision": {
+            "lower": 1.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 1.0
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 0.1
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 0.116667
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 30,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        }
+      },
+      "profile": {
+        "cli": {
+          "final_acceptance_rate": {
+            "lower": 1.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 1.0
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.057143,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.280255
+          },
+          "required_claim_precision": {
+            "lower": 0.074074,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.382353
+          },
+          "required_claim_recall": {
+            "lower": 0.044944,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.231579
+          },
+          "strong_binding_coverage": {
+            "lower": 0.044444,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.234043
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "data": {
+          "final_acceptance_rate": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": null,
+            "sample_size": 60,
+            "status": "insufficient_evidence",
+            "upper": null
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 60,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "generic": {
+          "final_acceptance_rate": {
+            "lower": 0.175,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.325
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.069767
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "nextjs": {
+          "final_acceptance_rate": {
+            "lower": 0.175,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.333333
+          },
+          "flake_rate": {
+            "lower": 0.058333,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.108333
+          },
+          "required_claim_f1": {
+            "lower": 0.007937,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.056452
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.214286
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.033019
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.033175
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        }
+      },
+      "size": {
+        "large": {
+          "final_acceptance_rate": {
+            "lower": 0.0,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "flake_rate": {
+            "lower": 0.081481,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.144444
+          },
+          "required_claim_f1": {
+            "lower": 0.012196,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.083334
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.636364
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.045455
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 0.046053
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 90,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "medium": {
+          "final_acceptance_rate": {
+            "lower": 0.52,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.673333
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": 0.029176,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.151725
+          },
+          "required_claim_precision": {
+            "lower": 0.064103,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.289157
+          },
+          "required_claim_recall": {
+            "lower": 0.018692,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.103774
+          },
+          "strong_binding_coverage": {
+            "lower": 0.019048,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 0.104762
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 150,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        },
+        "small": {
+          "final_acceptance_rate": {
+            "lower": 0.175,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.333333
+          },
+          "flake_rate": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_f1": {
+            "lower": null,
+            "sample_size": 120,
+            "status": "insufficient_evidence",
+            "upper": null
+          },
+          "required_claim_precision": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "required_claim_recall": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "strong_binding_coverage": {
+            "lower": 0.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 0.0
+          },
+          "task_success_rate": {
+            "lower": 1.0,
+            "sample_size": 120,
+            "status": "estimated",
+            "upper": 1.0
+          }
+        }
+      }
+    },
+    "cells": {
+      "create|cli|en|small": {
+        "final_acceptance_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "create|generic|ja|small": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "create|nextjs|en|medium": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "create|nextjs|ja|medium": {
+        "final_acceptance_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "fix|cli|ja|medium": {
+        "final_acceptance_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": 0.105264,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.47619
+        },
+        "required_claim_precision": {
+          "lower": 0.25,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.857143
+        },
+        "required_claim_recall": {
+          "lower": 0.066667,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.366667
+        },
+        "strong_binding_coverage": {
+          "lower": 0.066667,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.366667
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "fix|data|en|small": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "fix|generic|en|medium": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.1
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "fix|nextjs|ja|large": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.333333,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.333333
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "investigate|data|en|large": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "investigate|generic|en|medium": {
+        "final_acceptance_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "investigate|generic|ja|small": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_precision": {
+          "lower": null,
+          "sample_size": 30,
+          "status": "insufficient_evidence",
+          "upper": null
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      },
+      "investigate|nextjs|ja-en|large": {
+        "final_acceptance_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "flake_rate": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.0
+        },
+        "required_claim_f1": {
+          "lower": 0.032788,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.208956
+        },
+        "required_claim_precision": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        },
+        "required_claim_recall": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.1
+        },
+        "strong_binding_coverage": {
+          "lower": 0.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 0.116667
+        },
+        "task_success_rate": {
+          "lower": 1.0,
+          "sample_size": 30,
+          "status": "estimated",
+          "upper": 1.0
+        }
+      }
+    },
+    "confidence": 0.95,
+    "method": "percentile_bootstrap",
+    "overall": {
+      "final_acceptance_rate": {
+        "lower": 0.286111,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.380556
+      },
+      "flake_rate": {
+        "lower": 0.018519,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.037037
+      },
+      "required_claim_f1": {
+        "lower": 0.018987,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.078987
+      },
+      "required_claim_precision": {
+        "lower": 0.041667,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.163842
+      },
+      "required_claim_recall": {
+        "lower": 0.012526,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.053388
+      },
+      "strong_binding_coverage": {
+        "lower": 0.012346,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 0.054737
+      },
+      "task_success_rate": {
+        "lower": 1.0,
+        "sample_size": 360,
+        "status": "estimated",
+        "upper": 1.0
+      }
+    }
+  },
+  "corpus_schema_version": "commandagent.goal_verify.corpus.v0",
+  "corpus_sha256": "29d8486aa53d38ab8f25461f4760278d02c109219a07eefc64e7f4b3710fe73b",
+  "go_no_go": {
+    "basis": [
+      "corpus_valid",
+      "annotation_review_complete",
+      "baseline_replay_reproducible",
+      "thresholds_frozen",
+      "compatibility_policy_frozen"
+    ],
+    "phase_1_may_start": true,
+    "status": "go"
+  },
+  "improvement_targets": {
+    "false_full_target_count": 0,
+    "required_claim_recall_min_gain_pp": 10.0,
+    "strong_binding_coverage_min_gain_pp": 15.0,
+    "unverified_rate_min_reduction_pp": 10.0
+  },
+  "metrics": {
+    "by_dimension": {
+      "intent": {
+        "create": {
+          "false_full_count": 60,
+          "final_acceptance_rate": 0.5,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 729,
+            "p95": 734,
+            "total": 87390
+          },
+          "output_tokens": {
+            "p50": 963,
+            "p95": 1457,
+            "total": 123512
+          },
+          "required_claim_precision": 0.0,
+          "required_claim_recall": 0.0,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.358333,
+          "strong_binding_coverage": 0.0,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 27151,
+            "p95": 40944,
+            "total": 3475009
+          }
+        },
+        "fix": {
+          "false_full_count": 24,
+          "final_acceptance_rate": 0.25,
+          "flake_rate": 0.083333,
+          "input_tokens": {
+            "p50": 915,
+            "p95": 955,
+            "total": 109920
+          },
+          "output_tokens": {
+            "p50": 788,
+            "p95": 1387,
+            "total": 106558
+          },
+          "required_claim_precision": 0.152941,
+          "required_claim_recall": 0.066667,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.608333,
+          "strong_binding_coverage": 0.066667,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 22607,
+            "p95": 39417,
+            "total": 3049384
+          }
+        },
+        "investigate": {
+          "false_full_count": 30,
+          "final_acceptance_rate": 0.25,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 867,
+            "p95": 941,
+            "total": 106110
+          },
+          "output_tokens": {
+            "p50": 595,
+            "p95": 1017,
+            "total": 82623
+          },
+          "required_claim_precision": 1.0,
+          "required_claim_recall": 0.02,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.025,
+          "strong_binding_coverage": 0.02,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 17201,
+            "p95": 29154,
+            "total": 2380224
+          }
+        }
+      },
+      "language": {
+        "en": {
+          "false_full_count": 60,
+          "final_acceptance_rate": 0.333333,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 866,
+            "p95": 884,
+            "total": 148380
+          },
+          "output_tokens": {
+            "p50": 679,
+            "p95": 1104,
+            "total": 133532
+          },
+          "required_claim_precision": 0.009615,
+          "required_claim_recall": 0.0,
+          "sample_size": 180,
+          "schema_compliance_yield": 0.483333,
+          "strong_binding_coverage": 0.0,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 19399,
+            "p95": 30772,
+            "total": 3802084
+          }
+        },
+        "ja": {
+          "false_full_count": 54,
+          "final_acceptance_rate": 0.4,
+          "flake_rate": 0.066667,
+          "input_tokens": {
+            "p50": 864,
+            "p95": 955,
+            "total": 126810
+          },
+          "output_tokens": {
+            "p50": 952,
+            "p95": 1473,
+            "total": 149981
+          },
+          "required_claim_precision": 0.206897,
+          "required_claim_recall": 0.05,
+          "sample_size": 150,
+          "schema_compliance_yield": 0.193333,
+          "strong_binding_coverage": 0.05,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 26773,
+            "p95": 41467,
+            "total": 4265101
+          }
+        },
+        "ja-en": {
+          "false_full_count": 0,
+          "final_acceptance_rate": 0.0,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 941,
+            "p95": 941,
+            "total": 28230
+          },
+          "output_tokens": {
+            "p50": 1014,
+            "p95": 1019,
+            "total": 29180
+          },
+          "required_claim_precision": 1.0,
+          "required_claim_recall": 0.05,
+          "sample_size": 30,
+          "schema_compliance_yield": 0.1,
+          "strong_binding_coverage": 0.05,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 29055,
+            "p95": 29347,
+            "total": 837432
+          }
+        }
+      },
+      "profile": {
+        "cli": {
+          "false_full_count": 54,
+          "final_acceptance_rate": 1.0,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 839,
+            "p95": 947,
+            "total": 50370
+          },
+          "output_tokens": {
+            "p50": 970,
+            "p95": 1387,
+            "total": 65728
+          },
+          "required_claim_precision": 0.214286,
+          "required_claim_recall": 0.133333,
+          "sample_size": 60,
+          "schema_compliance_yield": 0.466667,
+          "strong_binding_coverage": 0.133333,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 27357,
+            "p95": 40784,
+            "total": 1865931
+          }
+        },
+        "data": {
+          "false_full_count": 0,
+          "final_acceptance_rate": 0.0,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 874,
+            "p95": 878,
+            "total": 52440
+          },
+          "output_tokens": {
+            "p50": 683,
+            "p95": 774,
+            "total": 40911
+          },
+          "required_claim_precision": 0.0,
+          "required_claim_recall": 0.0,
+          "sample_size": 60,
+          "schema_compliance_yield": 0.433333,
+          "strong_binding_coverage": 0.0,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 19618,
+            "p95": 22076,
+            "total": 1171777
+          }
+        },
+        "generic": {
+          "false_full_count": 30,
+          "final_acceptance_rate": 0.25,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 863,
+            "p95": 884,
+            "total": 100110
+          },
+          "output_tokens": {
+            "p50": 619,
+            "p95": 1123,
+            "total": 87854
+          },
+          "required_claim_precision": 0.020833,
+          "required_claim_recall": 0.0,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.325,
+          "strong_binding_coverage": 0.0,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 18131,
+            "p95": 31578,
+            "total": 2509087
+          }
+        },
+        "nextjs": {
+          "false_full_count": 30,
+          "final_acceptance_rate": 0.25,
+          "flake_rate": 0.083333,
+          "input_tokens": {
+            "p50": 837,
+            "p95": 955,
+            "total": 100500
+          },
+          "output_tokens": {
+            "p50": 1013,
+            "p95": 1457,
+            "total": 118200
+          },
+          "required_claim_precision": 0.085714,
+          "required_claim_recall": 0.014286,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.216667,
+          "strong_binding_coverage": 0.014286,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 29016,
+            "p95": 40944,
+            "total": 3357822
+          }
+        }
+      },
+      "size": {
+        "large": {
+          "false_full_count": 0,
+          "final_acceptance_rate": 0.0,
+          "flake_rate": 0.111111,
+          "input_tokens": {
+            "p50": 941,
+            "p95": 955,
+            "total": 82980
+          },
+          "output_tokens": {
+            "p50": 799,
+            "p95": 1019,
+            "total": 71687
+          },
+          "required_claim_precision": 0.3,
+          "required_claim_recall": 0.02,
+          "sample_size": 90,
+          "schema_compliance_yield": 0.1,
+          "strong_binding_coverage": 0.02,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 23085,
+            "p95": 29194,
+            "total": 2062114
+          }
+        },
+        "medium": {
+          "false_full_count": 84,
+          "final_acceptance_rate": 0.6,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 862,
+            "p95": 947,
+            "total": 124410
+          },
+          "output_tokens": {
+            "p50": 790,
+            "p95": 1473,
+            "total": 140619
+          },
+          "required_claim_precision": 0.168831,
+          "required_claim_recall": 0.057143,
+          "sample_size": 150,
+          "schema_compliance_yield": 0.386667,
+          "strong_binding_coverage": 0.057143,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 22573,
+            "p95": 41467,
+            "total": 3996070
+          }
+        },
+        "small": {
+          "false_full_count": 30,
+          "final_acceptance_rate": 0.25,
+          "flake_rate": 0.0,
+          "input_tokens": {
+            "p50": 798,
+            "p95": 878,
+            "total": 96030
+          },
+          "output_tokens": {
+            "p50": 832,
+            "p95": 1123,
+            "total": 100387
+          },
+          "required_claim_precision": 0.0,
+          "required_claim_recall": 0.0,
+          "sample_size": 120,
+          "schema_compliance_yield": 0.433333,
+          "strong_binding_coverage": 0.0,
+          "task_success_rate": 1.0,
+          "verify_runtime_ms": {
+            "p50": 0,
+            "p95": 0,
+            "total": 0
+          },
+          "wall_time_ms": {
+            "p50": 23588,
+            "p95": 31578,
+            "total": 2846433
+          }
+        }
+      }
+    },
+    "case_count": 360,
+    "dependency_blocked_rate": 0.166667,
+    "false_fail_count": 0,
+    "false_full_count": 114,
+    "false_partial_count": 0,
+    "final_acceptance_rate": 0.333333,
+    "flake_rate": 0.027778,
+    "input_tokens": {
+      "p50": 867,
+      "p95": 955,
+      "total": 303420
+    },
+    "output_tokens": {
+      "p50": 798,
+      "p95": 1336,
+      "total": 312693
+    },
+    "planner_calls_total": 360,
+    "policy_rejection_rate": 0.083333,
+    "repair_count": 0,
+    "required_claim_count": 480,
+    "required_claim_f1": 0.047267,
+    "required_claim_precision": 0.09697,
+    "required_claim_recall": 0.03125,
+    "retry_count": 0,
+    "schema_compliance_yield": 0.330556,
+    "strong_binding_coverage": 0.03125,
+    "task_success_rate": 1.0,
+    "unverified_rate": 0.966667,
+    "verify_runtime_ms": {
+      "p50": 0,
+      "p95": 0,
+      "total": 0
+    },
+    "wall_time_ms": {
+      "p50": 23010,
+      "p95": 37562,
+      "total": 8904617
+    },
+    "weak_only_coverage": 0.002083
+  },
+  "non_inferiority_budgets": {
+    "false_fail_max_increase_pp": 1.0,
+    "false_full_max_increase_count": 0,
+    "false_partial_max_increase_pp": 1.0,
+    "final_acceptance_max_drop_pp": 2.0,
+    "flake_max_increase_pp": 1.0,
+    "required_claim_precision_max_drop_pp": 1.0,
+    "required_claim_recall_max_drop_pp": 2.0,
+    "schema_compliance_yield_floor": 0.95,
+    "strong_binding_coverage_max_drop_pp": 2.0,
+    "task_success_max_drop_pp": 2.0
+  },
+  "provenance": {
+    "current_path": "goal -> intent/profile -> StepPlan.verify -> CompletionContract -> profile/runtime probe -> adjudication/terminal projection",
+    "live_provider_run": false,
+    "measurement_note": "Durations and tokens are frozen replay observations. They are not a new provider benchmark.",
+    "mode": "offline_fixture_replay"
+  },
+  "report_schema_version": "commandagent.goal_verify.baseline.v0",
+  "resource_budget_registration": {
+    "authorized_by": "repository_owner_in_phase6_session",
+    "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539",
+    "immutable_after_registration": true,
+    "registered_at": "2026-08-26",
+    "registered_before_candidate_collection": true,
+    "required_fields": [
+      "p50_wall_time_max_increase_pct",
+      "p95_wall_time_max_increase_pct",
+      "p50_total_tokens_max_increase_pct",
+      "p95_total_tokens_max_increase_pct"
+    ],
+    "timing": "once_after_phase_1_shadow_measurement_before_phase_2",
+    "values": {
+      "p50_total_tokens_max_increase_pct": 10.0,
+      "p50_wall_time_max_increase_pct": 10.0,
+      "p95_total_tokens_max_increase_pct": 20.0,
+      "p95_wall_time_max_increase_pct": 20.0
+    }
+  },
+  "schema_compliance_by_model": {
+    "qwen3.6:27b-coding-nvfp4": {
+      "mode": "offline_fixture_replay_proxy",
+      "phase_1_go": false,
+      "sample_size": 360,
+      "yield": 0.330556
+    }
+  },
+  "seed": 39320260825
+}

@@ -1,0 +1,505 @@
+{
+  "annotation_protocol": {
+    "disagreements": [],
+    "label_author": "phase6-live-runner",
+    "method": "provider generation projected mechanically; variant-blind review pending",
+    "reviewed_at": "pending",
+    "reviewer": "pending-blind-review",
+    "status": "pending"
+  },
+  "cases": [
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-01",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 1121,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-01.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 31567
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-02",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 1084,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-02.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 31517
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-03",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 535,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-03.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 15114
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-04",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 533,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-04.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 15081
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-05",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [
+          "counter-increments-twice"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 649,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-05.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 18344
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-06",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 1105,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-06.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 31107
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-07",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 533,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-07.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 15023
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-08",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [
+          "counter-increments-twice"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 647,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-08.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 18195
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-09",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [
+          "counter-increments-twice"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 720,
+        "output_tokens": 532,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v0/raw/create-build-only-functional/pair-09.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 14972
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.corpus.v0"
+}

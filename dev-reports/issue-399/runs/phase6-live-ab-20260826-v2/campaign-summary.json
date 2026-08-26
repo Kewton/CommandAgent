@@ -1,0 +1,8 @@
+{
+  "complete": true,
+  "completed_pairs": 360,
+  "record_ledger_entries": 360,
+  "record_ledger_head_sha256": "2a880c9a30fea668fb6064a360fdc20a4c5178d839df6f32868c3fd5af17bddf",
+  "target_pairs": 360,
+  "valid_candidate_specs": 119
+}

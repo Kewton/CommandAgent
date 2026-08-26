@@ -1,0 +1,7 @@
+{
+  "config": "eval/goal_verify/v0/baseline-config.json",
+  "corpus": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/candidate-corpus.json",
+  "corpus_sha256": "29d8486aa53d38ab8f25461f4760278d02c109219a07eefc64e7f4b3710fe73b",
+  "report": "baseline.json",
+  "seed": 39320260825
+}

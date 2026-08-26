@@ -1,0 +1,17 @@
+{
+  "baseline_sha256": "49ab8642b00e83c1c5a12ae8df2ed02ad54fdd708e6eb284e3f20e845cf12afd",
+  "blind_items_sha256": "b979f731fa823d4888f62d4fae2db9d1a347ef6aa61d49d22a2f9a8956eb8f07",
+  "candidate_draft_sha256": "47f37dda202fe6d6a04bc1e4d66968e9dee8fd5a64f7f148a8bffe9850e2acc3",
+  "contract": "eval/goal_verify/v0/phase6-blind-review-contract.json",
+  "contract_sha256": "537bd1ea784ec7b7a4eb7d574902bdc7d6e8b9d6dcafaf6563346ce8c597ebf5",
+  "item_count": 360,
+  "review_schema_sha256": "2505cec194ef50faf4e34b9800d6270ebce6ccaa1ccbad3904d271d5e085ac38",
+  "reviewer_model": "qwen3.5:9b",
+  "reviewer_model_digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+  "reviewer_source_sha256": {
+    "scripts/eval-goal-verify-blind.py": "b44db9b4f594571289c885c3dc2e020a41377c53ae105ef52dcff182d03a752c",
+    "scripts/eval_lib/goal_verify_blind.py": "592d7481e0f7ae2d63bbc25dca0fbaf914b0be148e2bf46c051f95ea41bca895"
+  },
+  "schema_version": "commandagent.goal_verify.phase6_blind_manifest.v0",
+  "variant_mapping_sha256": "7bedfca2f13bf274114e745534267a0f2bedd8d48f0f2a8769d12bc5032a3886"
+}

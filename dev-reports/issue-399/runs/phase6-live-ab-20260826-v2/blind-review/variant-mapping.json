@@ -1,0 +1,1442 @@
+{
+  "create-build-only-functional--pair-01": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-08": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-12": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-16": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-18": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-build-only-functional--pair-29": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-build-only-functional--pair-30": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-02": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-06": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-08": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-09": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-12": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-13": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-19": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-24": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-cli-known-multiple-inputs--pair-29": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-cli-known-multiple-inputs--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-02": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-03": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-04": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-09": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-12": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-13": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-16": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-17": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-18": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-24": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-negative-constraint-injection--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-negative-constraint-injection--pair-30": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-01": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-04": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-13": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-18": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-24": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-28": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "create-ui-copy-style-port-path--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "create-ui-copy-style-port-path--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-01": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-06": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-09": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-17": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-19": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-24": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-28": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-after-not-run-regression-shrunk--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-after-not-run-regression-shrunk--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-03": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-13": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-17": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-18": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-26": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-28": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-29": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-baseline-not-reproduced-substitution--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-02": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-03": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-04": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-06": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-12": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-25": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-existing-tests-only-dependency-missing--pair-30": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-01": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-03": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-08": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-18": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-19": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-28": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "fix-reproduced-after-regression--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "fix-reproduced-after-regression--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-07": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-08": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-26": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-claims-absent-causality--pair-29": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-claims-absent-causality--pair-30": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-09": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-12": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-16": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-20": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-composite-timeout--pair-25": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-26": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-composite-timeout--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-01": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-02": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-03": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-04": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-05": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-06": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-08": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-09": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-10": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-11": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-14": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-15": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-16": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-17": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-19": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-21": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-22": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-23": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-25": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-26": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-27": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-28": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-fabricated-location--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-fabricated-location--pair-30": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-01": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-02": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-03": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-04": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-05": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-06": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-07": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-08": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-09": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-10": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-11": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-12": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-13": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-14": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-15": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-16": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-17": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-18": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-19": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-20": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-21": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-22": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-23": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-24": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-25": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-26": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-27": {
+    "A": "candidate",
+    "B": "baseline"
+  },
+  "investigate-reproducer-defect--pair-28": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-29": {
+    "A": "baseline",
+    "B": "candidate"
+  },
+  "investigate-reproducer-defect--pair-30": {
+    "A": "candidate",
+    "B": "baseline"
+  }
+}
