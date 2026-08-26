@@ -9,7 +9,7 @@ from eval_lib.goal_verify_preflight_v2 import assess_v2_readiness
 
 
 class GoalVerifyPreflightV2Test(unittest.TestCase):
-    def test_checked_in_draft_fails_closed_with_actionable_blockers(self):
+    def test_checked_in_frozen_contract_still_requires_live_authorization(self):
         result = assess_v2_readiness(
             root=ROOT,
             contract_path=ROOT
@@ -21,12 +21,7 @@ class GoalVerifyPreflightV2Test(unittest.TestCase):
         self.assertEqual(result["registered_adapter_count"], 14)
         self.assertEqual(
             result["blockers"],
-            [
-                "contract_not_frozen",
-                "exact_code_sha_missing",
-                "exact_sha_ci_evidence_missing",
-                "live_preflight_not_authorized",
-            ],
+            ["live_preflight_not_authorized"],
         )
 
 

@@ -1,14 +1,14 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v2",
-  "contract_id": "phase6-preflight-v2-draft-20260826",
-  "status": "draft_not_frozen_not_live_authorized",
-  "frozen_at": null,
-  "code_sha": "TO_BE_FROZEN",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "status": "frozen",
+  "frozen_at": "2026-08-26",
+  "code_sha": "9c8ab86ecd19e5d78785ff835765c43dec38ddbf",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
   "provider": "ollama-local",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "TO_BE_FROZEN",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-9c8ab86e.json",
   "required_ci_workflows": [
     "CI",
     "acceptance"
@@ -132,10 +132,12 @@
   "authorization": {
     "approved_live": false,
     "required_before_run": [
-      "freeze exact code SHA",
-      "attach completed/success exact-SHA CI evidence",
-      "implement and verify the eligible command concretization boundary",
       "approve local live preflight"
+    ],
+    "completed_prerequisites": [
+      "frozen exact code SHA 9c8ab86ecd19e5d78785ff835765c43dec38ddbf",
+      "completed/success exact-SHA CI and acceptance evidence attached",
+      "eligible command concretization boundary implemented and verified"
     ]
   },
   "integrity": {
