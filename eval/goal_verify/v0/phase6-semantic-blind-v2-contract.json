@@ -1,6 +1,8 @@
 {
   "schema_version": "commandagent.goal_verify.semantic_blind_contract.v2",
-  "status": "draft_ready_for_contract_integration_preflight",
+  "status": "frozen_contract_integration_preflight",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "frozen_at": "2026-08-26",
   "input": {
     "unit": "paired raw proposals generated for the same goal under the same processing boundary",
     "visible": ["goal", "intent", "required_claims", "raw claims", "raw oracle semantics", "candidate-specific execution results"],

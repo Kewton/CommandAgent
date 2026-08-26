@@ -1,6 +1,8 @@
 {
   "schema_version": "commandagent.goal_verify.oracle_adapters.v2",
-  "status": "draft_integrity_preflight_only",
+  "status": "frozen_contract_integration_preflight",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "frozen_at": "2026-08-26",
   "rules": {
     "provider_argv": "ignored",
     "candidate_mapping": "claim ID plus preregistered strategy, polarity, observation kind, and optional expected-value constraint",

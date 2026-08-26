@@ -1,6 +1,8 @@
 {
   "schema_version": "commandagent.goal_verify.execution_capabilities.v2",
-  "status": "draft_preflight",
+  "status": "frozen_contract_integration_preflight",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "frozen_at": "2026-08-26",
   "classification_dimensions": {
     "schema_mapping": ["full", "partial", "none"],
     "executor_status": ["existing", "adaptation_required", "unavailable"],

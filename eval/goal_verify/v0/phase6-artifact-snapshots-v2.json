@@ -1,6 +1,8 @@
 {
   "schema_version": "commandagent.goal_verify.artifact_snapshots.v2",
-  "status": "draft_integrity_preflight_only",
+  "status": "frozen_contract_integration_preflight",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "frozen_at": "2026-08-26",
   "interpretation": "Synthetic reviewed snapshots for contract integration; not live product evidence and not task-success evidence.",
   "cases": [
     {
