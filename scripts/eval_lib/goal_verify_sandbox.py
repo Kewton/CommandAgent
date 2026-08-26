@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -37,14 +38,35 @@ def sandbox_backend_status() -> dict[str, Any]:
     }
 
 
-def _sandbox_profile(workspace_root: Path) -> str:
+def _sandbox_profile(
+    workspace_root: Path, *, restricted_reads: bool = False, argv0: str | None = None
+) -> str:
     escaped = str(workspace_root).replace("\\", "\\\\").replace('"', '\\"')
-    return "\n".join(
+    rules = [
+        "(version 1)",
+        "(deny default)",
+        "(allow process*)",
+    ]
+    if restricted_reads:
+        rules.append("(allow file-read*)")
+        for protected in (
+            Path.home(),
+            Path("/Volumes"),
+            Path("/private/tmp"),
+            Path("/private/var/folders"),
+        ):
+            rules.append(
+                f'(deny file-read-data (subpath "{_escape_profile_path(protected)}"))'
+            )
+        roots = [workspace_root, *_runtime_read_roots(argv0)]
+        for allowed in sorted({path.resolve() for path in roots if path.exists()}):
+            rules.append(
+                f'(allow file-read-data (subpath "{_escape_profile_path(allowed)}"))'
+            )
+    else:
+        rules.append("(allow file-read*)")
+    rules.extend(
         (
-            "(version 1)",
-            "(deny default)",
-            "(allow process*)",
-            "(allow file-read*)",
             "(allow sysctl-read)",
             "(allow mach-lookup)",
             f'(allow file-write* (subpath "{escaped}"))',
@@ -52,6 +74,27 @@ def _sandbox_profile(workspace_root: Path) -> str:
             "(deny network*)",
         )
     )
+    return "\n".join(rules)
+
+
+def _escape_profile_path(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _runtime_read_roots(argv0: str | None) -> list[Path]:
+    if not argv0:
+        return []
+    resolved = shutil.which(argv0)
+    if not resolved:
+        return []
+    executable = Path(resolved).resolve()
+    parts = executable.parts
+    for marker in (".pyenv", ".nvm", ".rustup"):
+        if marker in parts and "versions" in parts:
+            version_index = parts.index("versions") + 1
+            if version_index < len(parts):
+                return [Path(*parts[: version_index + 1])]
+    return [executable.parent]
 
 
 def _minimal_environment(workspace_root: Path) -> dict[str, str]:
@@ -78,9 +121,10 @@ def run_macos_sandbox(plan: dict[str, Any]) -> dict[str, Any]:
     status = sandbox_backend_status()
     if not status["available"]:
         return {"runner_error": "sandbox_backend_unavailable", "runtime_ms": 0}
-    if plan.get("source") != "frozen_host_adapter" or plan.get(
-        "raw_provider_argv_used"
-    ):
+    if plan.get("source") not in {
+        "frozen_host_adapter",
+        "host_validated_candidate_v4",
+    } or plan.get("raw_provider_argv_used"):
         return {"runner_error": "untrusted_command_plan", "runtime_ms": 0}
     if plan.get("plan_sha256") != _plan_hash(plan):
         return {"runner_error": "command_plan_integrity_failed", "runtime_ms": 0}
@@ -92,7 +136,15 @@ def run_macos_sandbox(plan: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(argv, list) or not argv:
         return {"runner_error": "command_argv_invalid", "runtime_ms": 0}
 
-    command = [str(SANDBOX_EXEC), "-p", _sandbox_profile(workspace_root), *argv]
+    restricted_reads = plan.get("read_scope") == "workspace_and_runtime"
+    command = [
+        str(SANDBOX_EXEC),
+        "-p",
+        _sandbox_profile(
+            workspace_root, restricted_reads=restricted_reads, argv0=argv[0]
+        ),
+        *argv,
+    ]
     started = time.monotonic_ns()
     try:
         completed = subprocess.run(

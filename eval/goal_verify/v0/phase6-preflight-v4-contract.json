@@ -1,0 +1,196 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
+  "contract_id": "phase6-preflight-v4-pending-live-01",
+  "status": "draft",
+  "code_sha": null,
+  "exact_sha_ci_evidence": null,
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "samples_per_cell": 5,
+  "selected_cells": [
+    {"case_id": "create-build-only-functional", "intent": "create", "lane": "primary"},
+    {"case_id": "create-ui-copy-style-port-path", "intent": "create", "lane": "primary"},
+    {"case_id": "create-cli-known-multiple-inputs", "intent": "create", "lane": "primary"},
+    {"case_id": "create-negative-constraint-injection", "intent": "create", "lane": "executor_unavailable"},
+    {"case_id": "fix-reproduced-after-regression", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-baseline-not-reproduced-substitution", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-after-not-run-regression-shrunk", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-existing-tests-only-dependency-missing", "intent": "fix", "lane": "primary"}
+  ],
+  "runner_sources": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live_v4.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v4.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval-goal-verify-v4-readiness.py",
+    "scripts/eval-goal-verify-v4-report.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "supersedes": {
+    "run_id": "phase6-preflight-v3-20260826-live-02",
+    "completed_pairs": 29,
+    "completed_proposals": 58,
+    "policy": "retain without rescoring, proposal reuse, completion, or quality inference",
+    "reason": "v3 compared current-product implementation from initial/before with candidate oracles executed on completed reference/after artifacts"
+  },
+  "comparison": {
+    "baseline": "current_product_evidence",
+    "candidate": "baseline_plus_candidate_evidence",
+    "estimand": "score(union(baseline_evidence,candidate_evidence))-score(baseline_evidence)",
+    "task_execution_count_per_pair": 1,
+    "shared_product_snapshot": true,
+    "baseline_failure_override_allowed": false,
+    "unverified_as_pass_allowed": false
+  },
+  "pairing": {
+    "shared": [
+      "source_task_id",
+      "goal",
+      "initial_or_before_snapshot",
+      "product_run",
+      "product_snapshot_sha256",
+      "baseline_evidence",
+      "model",
+      "seed",
+      "wall_budget",
+      "token_budget",
+      "dependency_bundle",
+      "cache_policy"
+    ],
+    "candidate_execution_target": "product_snapshot",
+    "fix_before_execution_target": "frozen_before_snapshot",
+    "reference_or_after_fallback": "forbidden",
+    "exclusion_rules": [
+      "timeout remains a failure",
+      "dependency failure remains a failure",
+      "schema failure remains a failure",
+      "concretization failure remains a failure",
+      "baseline_unavailable remains a failure",
+      "no denominator, exclusion, threshold, or lane change after the first provider response"
+    ]
+  },
+  "information_boundary": {
+    "candidate_visible": [
+      "goal",
+      "intent",
+      "profile",
+      "lane-appropriate claim contract",
+      "bounded product workspace manifest",
+      "executor capabilities",
+      "safety policy",
+      "frozen fix or investigation evidence registry"
+    ],
+    "candidate_hidden": [
+      "gold adapter ids",
+      "gold argv",
+      "gold expected values",
+      "gold observations",
+      "reference implementation contents",
+      "baseline scores and verdict",
+      "blind variant mapping"
+    ],
+    "gold_use": "scoring_only_after_candidate_execution",
+    "provider_argv_policy": "host_validate_then_execute_as_direct_argv_without_shell",
+    "semantic_repair": "forbidden"
+  },
+  "generation": {
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4.prompt.txt",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec.schema.json",
+    "model": "qwen3.6:27b-coding-nvfp4",
+    "seed_base": 399400,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "regeneration_limit": 1,
+    "regeneration_cost_included": true,
+    "think": false,
+    "keep_alive": "30m",
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json"
+    }
+  },
+  "execution": {
+    "sandbox": "macos_sandbox_exec",
+    "network": "denied",
+    "shell": false,
+    "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4",
+    "same_snapshot_hash_required": true,
+    "candidate_primary_reference_fallback_max_count": 0,
+    "gold_used_for_execution_max_count": 0,
+    "baseline_observation_copy_max_count": 0
+  },
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+  "scoring": {
+    "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v3.json",
+    "answer_key_use": "post_execution_scoring_only",
+    "variants": [
+      "baseline",
+      "baseline_plus_candidate"
+    ],
+    "deduplication_key": [
+      "claim_id",
+      "observation_semantics",
+      "input_binding",
+      "stage"
+    ],
+    "shadow_verdict": true,
+    "candidate_verdict_inherits_baseline_pass": false
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10.0,
+    "p95_wall_time_max_increase_pct": 20.0,
+    "p50_total_tokens_max_increase_pct": 10.0,
+    "p95_total_tokens_max_increase_pct": 20.0,
+    "preflight_use": "report_only"
+  },
+  "preflight": {
+    "purpose": "additive measurement instrument readiness; never product GO",
+    "schema_compliance_yield_floor": 0.95,
+    "same_snapshot_rate": 1.0,
+    "executable_oracle_execution_record_rate": 1.0,
+    "union_scorer_determinism_rate": 1.0,
+    "shadow_false_full_max_count": 0,
+    "semantic_review_required": true
+  },
+  "full_experiment": {
+    "cells": 12,
+    "minimum_pairs_per_cell": 30,
+    "minimum_total_pairs": 360,
+    "minimum_distinct_source_tasks_per_cell": 10,
+    "minimum_runs_per_source_task": 3,
+    "cluster_unit": "source_task_id",
+    "cluster_weighting": "equal",
+    "bootstrap": "hierarchical paired percentile",
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39920260826
+  },
+  "semantic_review": {
+    "primary": "source-blind atomic verification item review",
+    "raw_candidate_proposal_only": true,
+    "canonicalized_spec_visible": false,
+    "execution_result_visible": false,
+    "superset_portfolio_review": "secondary_non_blind",
+    "independent_human_required": true,
+    "different_model_families_required": 2
+  },
+  "authorization": {
+    "implementation_authorized": true,
+    "live_collection_authorized": false,
+    "note": "freeze exact SHA, CI evidence, run id, and inputs before live collection"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl"
+  }
+}

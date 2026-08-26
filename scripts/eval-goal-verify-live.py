@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_live import run_campaign
 from eval_lib.goal_verify_live_v3 import run_campaign_v3
+from eval_lib.goal_verify_live_v4 import run_campaign_v4
 
 
 def main() -> int:
@@ -49,14 +50,13 @@ def main() -> int:
         if isinstance(path, Path)
     }
     contract_value = json.loads(paths["contract"].read_text(encoding="utf-8"))
-    runner = (
-        run_campaign_v3
-        if contract_value.get("schema_version")
-        == "commandagent.goal_verify.phase6_preflight_contract.v3"
-        else run_campaign
-    )
-    if runner is run_campaign_v3 and "execution_root" not in paths:
-        parser.error("v3 requires --execution-root")
+    schema_version = contract_value.get("schema_version")
+    runner = {
+        "commandagent.goal_verify.phase6_preflight_contract.v3": run_campaign_v3,
+        "commandagent.goal_verify.phase6_preflight_contract.v4": run_campaign_v4,
+    }.get(schema_version, run_campaign)
+    if runner in {run_campaign_v3, run_campaign_v4} and "execution_root" not in paths:
+        parser.error("v3/v4 requires --execution-root")
     runner_args = {
         "root": ROOT,
         "corpus_path": paths["corpus"],
@@ -68,7 +68,7 @@ def main() -> int:
         "execution_root": paths.get("execution_root"),
         "limit": args.limit,
     }
-    if runner is run_campaign_v3:
+    if runner in {run_campaign_v3, run_campaign_v4}:
         runner_args["commandagent_bin"] = paths.get("commandagent_bin")
     summary = runner(**runner_args)
     print(
