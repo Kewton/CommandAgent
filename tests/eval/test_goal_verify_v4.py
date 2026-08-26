@@ -320,6 +320,11 @@ class UnionAndVerdictTest(unittest.TestCase):
 
 
 class ContractReadinessTest(unittest.TestCase):
+    def test_v4_pair_root_keeps_provisioning_at_execution_root(self):
+        execution_root = Path("/execution")
+        pair_root = execution_root / "run-id" / "pair-id"
+        self.assertEqual(pair_root.parents[1] / "provisioned", execution_root / "provisioned")
+
     def test_v4_contract_is_frozen_with_exact_ci_evidence(self):
         path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-contract.json"
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")

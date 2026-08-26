@@ -138,7 +138,7 @@ def run_campaign_v4(
                         root=root,
                         case=case,
                         workspace=workspaces.get(case["case_id"]),
-                        destination=pair_root / "source-stages",
+                        destination=pair_root,
                     )
                     product_workspace = _product_workspace(case, stage_paths)
                     frozen_before = _freeze_before(case, product_workspace, pair_root)
