@@ -267,6 +267,38 @@ class UnionAndVerdictTest(unittest.TestCase):
         self.assertEqual(result["shadow_verdict"], "failure")
         self.assertFalse(result["baseline_failure_overridden"])
 
+    def test_required_candidate_failure_tightens_shadow_verdict(self):
+        oracle = {
+            "id": "o1",
+            "claim_id": self.case["required_claims"][0]["id"],
+            "strategy": "stdout",
+            "expected_polarity": "success",
+            "observation": {"kind": "stdout", "expected": "5\n"},
+        }
+        candidate = score_candidate_outcomes(
+            case_id=self.case["case_id"],
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[
+                {
+                    "classification": "executable",
+                    "executed": True,
+                    "result": "fail",
+                    "actual": "4\n",
+                }
+            ],
+            adapters=self.adapters,
+        )
+        self.assertEqual(candidate[0]["adapter_id"], "cli-known-values-2-3")
+        result = combine_evaluations(
+            case=self.case,
+            adapters=self.adapters,
+            baseline_evaluations=[],
+            candidate_evaluations=candidate,
+            baseline_status="completed",
+        )
+        self.assertEqual(result["shadow_verdict"], "failure")
+
     def test_gold_is_used_only_after_candidate_execution(self):
         oracle = {
             "id": "o1",

@@ -308,7 +308,9 @@ def combine_evaluations(
     candidate_failures = [
         row
         for row in candidate_evaluations
-        if row.get("executed") is True and row.get("result") == "fail"
+        if row.get("adapter_id")
+        and row.get("executed") is True
+        and row.get("result") == "fail"
     ]
     candidate_unknown = [
         row
@@ -362,10 +364,18 @@ def score_candidate_outcomes(
             and oracle.get("observation", {}).get("kind")
             in adapter["proposal"]["observation_kinds"]
         ]
-        matching_outcome = [
-            adapter for adapter in matches if _outcome_matches_adapter(outcome, adapter)
+        matching_expectation = [
+            adapter
+            for adapter in matches
+            if _oracle_expected_matches_adapter(oracle, adapter)
         ]
-        adapter = matching_outcome[0] if len(matching_outcome) == 1 else None
+        adapter = (
+            matching_expectation[0]
+            if len(matching_expectation) == 1
+            else matches[0]
+            if len(matches) == 1
+            else None
+        )
         observation_match = bool(adapter) and _outcome_matches_adapter(outcome, adapter)
         rows.append(
             {
@@ -393,6 +403,21 @@ def _outcome_matches_adapter(outcome: dict[str, Any], adapter: dict[str, Any]) -
         return str(actual) in {str(value) for value in proposal["expected_values"]}
     if "expected_contains" in proposal:
         text = json.dumps(actual, ensure_ascii=False, sort_keys=True)
+        return all(fragment in text for fragment in proposal["expected_contains"])
+    return True
+
+
+def _oracle_expected_matches_adapter(
+    oracle: dict[str, Any], adapter: dict[str, Any]
+) -> bool:
+    proposal = adapter["proposal"]
+    observation = oracle.get("observation", {})
+    if "expected_values" in proposal:
+        return str(observation.get("expected")) in {
+            str(value) for value in proposal["expected_values"]
+        }
+    if "expected_contains" in proposal:
+        text = json.dumps(observation, ensure_ascii=False, sort_keys=True)
         return all(fragment in text for fragment in proposal["expected_contains"])
     return True
 
