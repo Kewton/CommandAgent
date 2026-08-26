@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.semantic_blind_contract.v3",
-  "status": "draft",
+  "status": "frozen",
   "contract_id": "phase6-preflight-v3-20260826-live-01",
   "drafted_at": "2026-08-26",
-  "frozen_at": null,
+  "frozen_at": "2026-08-26",
   "input": {
     "unit": "paired raw proposals for the same goal under the same processing boundary",
     "arms": {

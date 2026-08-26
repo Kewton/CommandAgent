@@ -2,15 +2,15 @@
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v3",
   "contract_id": "phase6-preflight-v3-20260826-live-01",
   "contract_id_rule": "at freeze, contract_id must equal the run directory basename; the runner aborts when they differ (v2 defect: request_id carried a stale v1 contract_id)",
-  "status": "draft",
+  "status": "frozen",
   "drafted_at": "2026-08-26",
-  "frozen_at": null,
-  "code_sha": null,
+  "frozen_at": "2026-08-26",
+  "code_sha": "32f477e5c814426851a99722f231a2c7681fe640",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
   "provider": "ollama-local",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": null,
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-32f477e5.json",
   "required_ci_workflows": [
     "CI",
     "acceptance"
@@ -152,14 +152,14 @@
       "id": "v3-D4",
       "topic": "real workspaces for every primary cell",
       "location": "artifact_production, oracle_execution, phase6-real-workspaces-v3.json, phase6-command-adapters-v3.json, phase6-execution-capabilities-v3.json",
-      "decision_status": "adopted_in_draft (repository owner, 2026-08-26); file hashes and executor readiness confirmed at freeze",
+      "decision_status": "confirmed by repository owner and frozen (2026-08-26); file hashes and executor readiness confirmed at freeze",
       "evidence": "the current product cannot run against JSON snapshots; only the CLI cell had a real artifact; snapshot lookups cannot produce earned coverage"
     },
     {
       "id": "v3-D5",
       "topic": "publication condition for frozen run evidence that includes blind-review secrets",
       "location": "supersedes.runs[1].evidence_publication, integrity.secret_isolation, phase6-semantic-blind-v3-contract.json randomization.secret_directory_commit_policy",
-      "decision_status": "adopted_in_draft (2026-08-26)",
+      "decision_status": "confirmed and frozen (2026-08-26)",
       "evidence": "a frozen run with no further calibration can never satisfy a 'commit after calibration' condition; the trigger becomes finalization of the blind report"
     }
   ],

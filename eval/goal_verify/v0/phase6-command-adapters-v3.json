@@ -1,6 +1,6 @@
 {
   "schema_version": "commandagent.goal_verify.oracle_adapters.v3",
-  "status": "draft",
+  "status": "frozen",
   "contract_id": "phase6-preflight-v3-20260826-live-01",
   "drafted_at": "2026-08-26",
   "rules": {

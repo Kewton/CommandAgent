@@ -525,7 +525,7 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
         self.assertTrue(report["semantic_blind_review_complete"])
         self.assertEqual(cohen_kappa(["a", "b"], ["a", "b"])["kappa"], 1.0)
 
-    def test_cross_source_equivalence_is_green_but_draft_readiness_is_blocked(self):
+    def test_frozen_contract_is_blocked_without_provisioned_execution_root(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v3-contract.json")
         self.assertEqual(cross_source_errors(root=ROOT, contract=contract), [])
         report = readiness_report(
@@ -534,7 +534,9 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
             / "eval/goal_verify/v0/phase6-preflight-v3-contract.json",
         )
         self.assertFalse(report["ready"])
-        self.assertIn("contract_not_frozen", report["blockers"])
+        self.assertNotIn("contract_not_frozen", report["blockers"])
+        self.assertNotIn("exact_code_sha_missing", report["blockers"])
+        self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
         self.assertNotIn("live_preflight_not_authorized", report["blockers"])
         self.assertNotIn("independent_human_reviewer_missing", report["blockers"])
         self.assertEqual(report["pending_executor_adapters"], [])
