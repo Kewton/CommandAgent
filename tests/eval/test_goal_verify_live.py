@@ -1,8 +1,10 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -13,6 +15,8 @@ from eval_lib.goal_verify_live import (
     _atomic_json,
     _candidate_case,
     _load_record_ledger,
+    _verify_exact_sha_ci,
+    _verify_frozen_git_inputs,
     build_prompt,
 )
 
@@ -103,6 +107,58 @@ class GoalVerifyLiveTest(unittest.TestCase):
                     _acquire_run_lock(run_dir, ".campaign.lock")
             finally:
                 first.close()
+
+    def test_frozen_code_sha_may_be_an_ancestor_when_inputs_are_unchanged(self):
+        contract = {
+            "code_sha": "a" * 40,
+            "frozen_inputs": ["scripts/runner.py", "eval/prompt.txt"],
+        }
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch(
+            "eval_lib.goal_verify_live.subprocess.run",
+            side_effect=[completed, completed],
+        ) as run:
+            self.assertEqual(_verify_frozen_git_inputs(ROOT, contract), "a" * 40)
+        self.assertEqual(run.call_args_list[0].args[0][-2:], ["a" * 40, "HEAD"])
+        self.assertEqual(
+            run.call_args_list[1].args[0][-2:],
+            ["scripts/runner.py", "eval/prompt.txt"],
+        )
+
+    def test_frozen_input_change_is_rejected(self):
+        contract = {"code_sha": "a" * 40, "frozen_inputs": ["eval/prompt.txt"]}
+        ancestor = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        changed = subprocess.CompletedProcess([], 1, stdout="", stderr="")
+        with mock.patch(
+            "eval_lib.goal_verify_live.subprocess.run",
+            side_effect=[ancestor, changed],
+        ), self.assertRaisesRegex(ValueError, "frozen runner or experiment"):
+            _verify_frozen_git_inputs(ROOT, contract)
+
+    def test_exact_sha_ci_requires_every_registered_workflow(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            evidence = Path(temporary) / "ci.json"
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "head_sha": "a" * 40,
+                        "workflows": [
+                            {
+                                "name": "CI",
+                                "status": "completed",
+                                "conclusion": "success",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            contract = {
+                "exact_sha_ci_evidence": str(evidence.relative_to(ROOT)),
+                "required_ci_workflows": ["CI", "acceptance"],
+            }
+            with self.assertRaisesRegex(ValueError, "absent or non-green"):
+                _verify_exact_sha_ci(ROOT, contract, "a" * 40)
 
 
 if __name__ == "__main__":

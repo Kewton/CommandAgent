@@ -308,22 +308,68 @@ def validate_proposal(
     return value
 
 
-def preflight(root: Path, contract: dict[str, Any]) -> None:
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+def _verify_frozen_git_inputs(root: Path, contract: dict[str, Any]) -> str:
+    code_sha = contract["code_sha"]
+    frozen_inputs = contract.get("frozen_inputs", contract.get("runner_sources"))
+    if not isinstance(frozen_inputs, list) or not frozen_inputs or not all(
+        isinstance(path, str) and path for path in frozen_inputs
+    ):
+        raise ValueError("frozen input paths are absent or invalid")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", code_sha, "HEAD"],
         cwd=root,
         text=True,
         capture_output=True,
-        check=True,
-    ).stdout.strip()
-    if head != contract["code_sha"]:
-        raise ValueError(f"HEAD {head} differs from frozen code SHA {contract['code_sha']}")
+        check=False,
+    )
+    if ancestor.returncode != 0:
+        raise ValueError(f"frozen code SHA is not an ancestor of HEAD: {code_sha}")
+    unchanged = subprocess.run(
+        ["git", "diff", "--quiet", code_sha, "--", *frozen_inputs],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if unchanged.returncode == 1:
+        raise ValueError("frozen runner or experiment input differs from code SHA")
+    if unchanged.returncode != 0:
+        raise RuntimeError(
+            "unable to compare frozen inputs with code SHA: "
+            + unchanged.stderr.strip()
+        )
+    return code_sha
+
+
+def _verify_exact_sha_ci(root: Path, contract: dict[str, Any], code_sha: str) -> None:
     ci = load_json(root / contract["exact_sha_ci_evidence"])
-    if ci.get("head_sha") != head or any(
-        run.get("status") != "completed" or run.get("conclusion") != "success"
-        for run in ci.get("workflows", [])
+    workflows = ci.get("workflows")
+    if (
+        not isinstance(workflows, list)
+        or not workflows
+        or not all(isinstance(run, dict) for run in workflows)
     ):
         raise ValueError("exact-SHA CI evidence is absent or non-green")
+    required = set(contract.get("required_ci_workflows", ["CI"]))
+    successful = {
+        run.get("name")
+        for run in workflows
+        if run.get("status") == "completed" and run.get("conclusion") == "success"
+    }
+    if (
+        ci.get("head_sha") != code_sha
+        or any(
+            run.get("status") != "completed" or run.get("conclusion") != "success"
+            for run in workflows
+        )
+        or not required.issubset(successful)
+    ):
+        raise ValueError("exact-SHA CI evidence is absent or non-green")
+
+
+def preflight(root: Path, contract: dict[str, Any]) -> None:
+    code_sha = _verify_frozen_git_inputs(root, contract)
+    _verify_exact_sha_ci(root, contract, code_sha)
     budget_config = load_json(root / contract["resource_budget_config"])
     registered = budget_config["resource_budget_registration"].get("values")
     if registered != contract["resource_budgets"]:

@@ -9,6 +9,10 @@
   "provider": "ollama-local",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "exact_sha_ci_evidence": "TO_BE_FROZEN",
+  "required_ci_workflows": [
+    "CI",
+    "acceptance"
+  ],
   "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
   "runner_sources": [
     "scripts/eval-goal-verify-live.py",
@@ -17,6 +21,26 @@
     "scripts/eval_lib/goal_verify_artifacts_v2.py",
     "scripts/eval_lib/goal_verify_sandbox.py",
     "src/bin/verification_spec_validate.rs"
+  ],
+  "frozen_inputs": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_artifacts_v2.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "src/bin/verification_spec_validate.rs",
+    "eval/goal_verify/v0/corpus.json",
+    "eval/goal_verify/v0/verification-spec.schema.json",
+    "eval/goal_verify/v0/verification-spec-preflight-v2.prompt.txt",
+    "eval/goal_verify/v0/phase6-execution-capabilities-v2.json",
+    "eval/goal_verify/v0/phase6-artifact-snapshots-v2.json",
+    "eval/goal_verify/v0/phase6-command-adapters-v2.json",
+    "eval/goal_verify/v0/phase6-semantic-blind-v2-contract.json",
+    "eval/goal_verify/v0/baseline-config.json",
+    "tests/fixtures/verification_spec_v0/create.json",
+    "tests/fixtures/verification_spec_v0/fix.json",
+    "tests/fixtures/verification_spec_v0/investigate.json",
+    "tests/fixtures/goal_verify_v2/create-cli-known-multiple-inputs/sum_cli.py"
   ],
   "samples_per_cell": 5,
   "execution": {
