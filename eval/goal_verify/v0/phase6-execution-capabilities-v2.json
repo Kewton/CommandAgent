@@ -1,0 +1,28 @@
+{
+  "schema_version": "commandagent.goal_verify.execution_capabilities.v2",
+  "status": "draft_preflight",
+  "classification_dimensions": {
+    "schema_mapping": ["full", "partial", "none"],
+    "executor_status": ["existing", "adaptation_required", "unavailable"],
+    "primary_endpoint_rule": "include only claims whose executor_status is existing or becomes implemented and verified before the first preflight response"
+  },
+  "unavailable_lane": {
+    "name": "executor_unavailable",
+    "primary_endpoint_eligible": false,
+    "reporting": "retain in corpus and report count, corpus share, and unverified count separately"
+  },
+  "cases": [
+    {"case_id": "create-build-only-functional", "claims": [{"claim_id": "counter-two-clicks", "schema_mapping": "full", "executor_status": "existing", "strategies": ["interaction"]}]},
+    {"case_id": "create-ui-copy-style-port-path", "claims": [{"claim_id": "ui-copy-style", "schema_mapping": "full", "executor_status": "adaptation_required", "strategies": ["dom"], "note": "computed-style adapter required"}, {"claim_id": "port-path", "schema_mapping": "full", "executor_status": "existing", "strategies": ["http"]}]},
+    {"case_id": "create-cli-known-multiple-inputs", "claims": [{"claim_id": "cli-known-values", "schema_mapping": "full", "executor_status": "adaptation_required", "strategies": ["command", "stdout"]}]},
+    {"case_id": "create-negative-constraint-injection", "claims": [{"claim_id": "no-network", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}]},
+    {"case_id": "fix-reproduced-after-regression", "claims": [{"claim_id": "before-after", "schema_mapping": "full", "executor_status": "existing", "strategies": ["command", "existing_fix_evidence"]}, {"claim_id": "regressions", "schema_mapping": "full", "executor_status": "existing", "strategies": ["command", "existing_fix_evidence"]}]},
+    {"case_id": "fix-baseline-not-reproduced-substitution", "claims": [{"claim_id": "exact-reproducer", "schema_mapping": "full", "executor_status": "existing", "strategies": ["existing_fix_evidence"]}]},
+    {"case_id": "fix-after-not-run-regression-shrunk", "claims": [{"claim_id": "after-executed", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}, {"claim_id": "full-regression-set", "schema_mapping": "full", "executor_status": "adaptation_required", "strategies": ["command"]}]},
+    {"case_id": "fix-existing-tests-only-dependency-missing", "claims": [{"claim_id": "bug-reproducer", "schema_mapping": "full", "executor_status": "adaptation_required", "strategies": ["command"]}]},
+    {"case_id": "investigate-reproducer-defect", "claims": [{"claim_id": "reproducer-defect", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}]},
+    {"case_id": "investigate-fabricated-location", "claims": [{"claim_id": "location-exists", "schema_mapping": "full", "executor_status": "existing", "strategies": ["existing_investigation_binding"]}]},
+    {"case_id": "investigate-claims-absent-causality", "claims": [{"claim_id": "causal-intervention", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}]},
+    {"case_id": "investigate-composite-timeout", "claims": [{"claim_id": "intent-unresolved", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}, {"claim_id": "timeout-boundary", "schema_mapping": "none", "executor_status": "unavailable", "strategies": []}]}
+  ]
+}

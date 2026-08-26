@@ -35,6 +35,7 @@ def main() -> int:
         "--validator", type=Path, default=Path("target/release/verification_spec_validate")
     )
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--execution-root", type=Path)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
     paths = {
@@ -50,6 +51,7 @@ def main() -> int:
         prompt_path=paths["prompt"],
         validator=paths["validator"],
         run_dir=paths["run_dir"],
+        execution_root=paths.get("execution_root"),
         limit=args.limit,
     )
     print(

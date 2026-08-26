@@ -12,6 +12,22 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from eval_lib.goal_verify_artifacts_v2 import (
+    build_registered_baseline_spec,
+    evaluate_spec_against_snapshot,
+    prepare_snapshot_workspace,
+    snapshot_case_v2,
+    validate_adapter_registry,
+    validate_snapshot_registry,
+)
+from eval_lib.goal_verify_sandbox import run_macos_sandbox
+from eval_lib.goal_verify_v2 import (
+    build_v2_prompt,
+    candidate_case_v2,
+    classify_oracle_execution,
+    normalize_v2_proposal,
+)
+
 
 def load_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -373,12 +389,45 @@ def run_campaign(
     prompt_path: Path,
     validator: Path,
     run_dir: Path,
+    execution_root: Path | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     corpus = load_json(corpus_path)
     contract = load_json(contract_path)
     schema = load_json(schema_path)
     prompt = prompt_path.read_text(encoding="utf-8")
+    proposal_mode = contract.get("proposal_contract", {}).get("mode", "legacy_v1")
+    if proposal_mode not in {"legacy_v1", "phase6_preflight_v2"}:
+        raise ValueError(f"unsupported proposal contract mode: {proposal_mode}")
+    selected_intents = set(
+        contract.get("proposal_contract", {}).get(
+            "selected_intents", ["create", "fix", "investigate"]
+        )
+    )
+    selected_cases = [
+        case for case in corpus["cases"] if case["intent"] in selected_intents
+    ]
+    if not selected_cases:
+        raise ValueError("proposal contract selects no corpus cases")
+    oracle_execution = contract.get("oracle_execution", {"enabled": False})
+    adapters: list[dict[str, Any]] = []
+    snapshot_cases: dict[str, dict[str, Any]] = {}
+    if oracle_execution.get("enabled"):
+        if proposal_mode != "phase6_preflight_v2" or execution_root is None:
+            raise ValueError("v2 oracle execution requires an explicit execution root")
+        adapter_registry = load_json(root / oracle_execution["adapter_registry"])
+        snapshot_registry = load_json(root / oracle_execution["snapshot_registry"])
+        registry_errors = validate_adapter_registry(
+            adapters=adapter_registry, corpus=corpus
+        ) + validate_snapshot_registry(
+            root=root, registry=snapshot_registry, corpus=corpus
+        )
+        if registry_errors:
+            raise ValueError(
+                "invalid v2 artifact registry:\n- " + "\n- ".join(registry_errors)
+            )
+        adapters = adapter_registry["adapters"]
+        snapshot_cases = {case["case_id"]: case for case in snapshot_registry["cases"]}
     preflight(root, contract)
     if contract["execution"] != {
         "concurrency": 1,
@@ -387,6 +436,17 @@ def run_campaign(
     }:
         raise ValueError("live runner requires the frozen single-process execution contract")
     run_lock = _acquire_run_lock(run_dir, contract["integrity"]["exclusive_run_lock"])
+    artifact_workspaces = {}
+    if oracle_execution.get("enabled"):
+        workspace_root = execution_root / contract["contract_id"]
+        artifact_workspaces = {
+            case["case_id"]: prepare_snapshot_workspace(
+                root=root,
+                snapshot_case=snapshot_cases[case["case_id"]],
+                destination=workspace_root / case["case_id"],
+            )
+            for case in selected_cases
+        }
     shape_examples = {
         intent: (root / path).read_text(encoding="utf-8")
         for intent, path in contract["generation"]["shape_examples"].items()
@@ -424,6 +484,18 @@ def run_campaign(
         "record_ledger": contract["integrity"]["record_ledger"],
         "exclusive_run_lock": contract["integrity"]["exclusive_run_lock"],
     }
+    if proposal_mode == "phase6_preflight_v2":
+        frozen["proposal_contract_mode"] = proposal_mode
+        frozen["selected_intents"] = sorted(selected_intents)
+        frozen["oracle_execution"] = oracle_execution
+        if oracle_execution.get("enabled"):
+            frozen["adapter_registry_sha256"] = sha256_file(
+                root / oracle_execution["adapter_registry"]
+            )
+            frozen["snapshot_registry_sha256"] = sha256_file(
+                root / oracle_execution["snapshot_registry"]
+            )
+            frozen["execution_root"] = str(execution_root.resolve())
     if manifest_path.exists():
         if load_json(manifest_path) != frozen:
             raise ValueError("campaign manifest differs from the frozen contract")
@@ -438,8 +510,8 @@ def run_campaign(
     baseline_cases: list[dict[str, Any]] = []
     candidate_cases: list[dict[str, Any]] = []
     completed_count = 0
-    target = len(corpus["cases"]) * int(contract["samples_per_cell"])
-    for source_index, source in enumerate(corpus["cases"]):
+    target = len(selected_cases) * int(contract["samples_per_cell"])
+    for source_index, source in enumerate(selected_cases):
         for sample_index in range(1, int(contract["samples_per_cell"]) + 1):
             pair_id = f"{source['case_id']}--pair-{sample_index:02d}"
             relative_record = Path("raw") / source["case_id"] / f"pair-{sample_index:02d}.json"
@@ -453,7 +525,7 @@ def run_campaign(
                 if record_reference in ledger_entries:
                     raise ValueError(f"ledger references missing record: {record_reference}")
                 if limit is not None and completed_count >= limit:
-                    return _write_corpora(
+                    result = _write_corpora(
                         corpus,
                         baseline_cases,
                         candidate_cases,
@@ -462,8 +534,15 @@ def run_campaign(
                         target,
                         ledger_head,
                     )
+                    run_lock.close()
+                    return result
                 request_id = f"{contract['contract_id']}:{pair_id}"
-                generated_prompt = build_prompt(
+                prompt_builder = (
+                    build_v2_prompt
+                    if proposal_mode == "phase6_preflight_v2"
+                    else build_prompt
+                )
+                generated_prompt = prompt_builder(
                     prompt, source, request_id, shape_examples[source["intent"]]
                 )
                 response = request_ollama(
@@ -489,9 +568,17 @@ def run_campaign(
                 if response["status"] == "completed":
                     raw = response["response"].get("response", "")
                     try:
-                        normalized_raw = normalize_proposal(
-                            raw, model=contract["model"], request_id=request_id
-                        )
+                        if proposal_mode == "phase6_preflight_v2":
+                            normalized_raw = normalize_v2_proposal(
+                                raw,
+                                case=source,
+                                model=contract["model"],
+                                request_id=request_id,
+                            )
+                        else:
+                            normalized_raw = normalize_proposal(
+                                raw, model=contract["model"], request_id=request_id
+                            )
                         validation = validate_proposal(
                             validator=validator,
                             goal=source["goal"],
@@ -504,6 +591,47 @@ def run_campaign(
                             "spec": None,
                             "errors": [f"proposal_parse_failed:{error}"],
                         }
+                execution_classification = []
+                oracle_evaluations = []
+                candidate_execution = {"unmatched_candidate_oracle_ids": []}
+                if proposal_mode == "phase6_preflight_v2" and validation.get("valid"):
+                    execution_classification = [
+                        classify_oracle_execution(oracle)
+                        for oracle in validation["spec"]["oracles"]
+                    ]
+                    if oracle_execution.get("enabled"):
+                        candidate_execution = evaluate_spec_against_snapshot(
+                            case_id=source["case_id"],
+                            spec=validation["spec"],
+                            adapters=adapters,
+                            workspace=artifact_workspaces[source["case_id"]],
+                            sandbox_runner=run_macos_sandbox,
+                        )
+                        oracle_evaluations = candidate_execution["evaluations"]
+                        for evaluation in oracle_evaluations:
+                            evaluation["arm"] = "candidate"
+                baseline_spec = None
+                baseline_evaluations = []
+                unmatched_candidate_oracle_ids = []
+                if proposal_mode == "phase6_preflight_v2" and oracle_execution.get(
+                    "enabled"
+                ):
+                    baseline_spec = build_registered_baseline_spec(
+                        case=source, adapters=adapters
+                    )
+                    baseline_execution = evaluate_spec_against_snapshot(
+                        case_id=source["case_id"],
+                        spec=baseline_spec,
+                        adapters=adapters,
+                        workspace=artifact_workspaces[source["case_id"]],
+                        sandbox_runner=run_macos_sandbox,
+                    )
+                    baseline_evaluations = baseline_execution["evaluations"]
+                    for evaluation in baseline_evaluations:
+                        evaluation["arm"] = "baseline"
+                    unmatched_candidate_oracle_ids = candidate_execution[
+                        "unmatched_candidate_oracle_ids"
+                    ]
                 record = {
                     "schema_version": "commandagent.goal_verify.phase6_live_record.v0",
                     "pair_id": pair_id,
@@ -512,6 +640,11 @@ def run_campaign(
                     "response": response,
                     "normalized_proposal": normalized_raw,
                     "validation": validation,
+                    "execution_classification": execution_classification,
+                    "oracle_evaluations": oracle_evaluations,
+                    "unmatched_candidate_oracle_ids": unmatched_candidate_oracle_ids,
+                    "baseline_spec": baseline_spec,
+                    "baseline_oracle_evaluations": baseline_evaluations,
                 }
                 _atomic_json(record_path, record)
                 ledger_head = _append_record_ledger(
@@ -529,10 +662,48 @@ def run_campaign(
                 source_case_id=source["case_id"],
                 record_reference=record_reference,
             )
-            baseline = copy.deepcopy(source)
-            baseline["case_id"] = pair_id
+            if proposal_mode == "phase6_preflight_v2" and oracle_execution.get(
+                "enabled"
+            ):
+                baseline = snapshot_case_v2(
+                    source=source,
+                    pair_id=pair_id,
+                    spec=record["baseline_spec"],
+                    evaluations=record["baseline_oracle_evaluations"],
+                    source_reference=record_reference,
+                )
+                response = record.get("response", {})
+                ollama = (
+                    response.get("response", {})
+                    if response.get("status") == "completed"
+                    else {}
+                )
+                wall_ns = ollama.get(
+                    "total_duration", response.get("client_wall_time_ns", 0)
+                )
+                candidate = snapshot_case_v2(
+                    source=source,
+                    pair_id=pair_id,
+                    spec=record["validation"].get("spec")
+                    if record["validation"].get("valid")
+                    else None,
+                    evaluations=record["oracle_evaluations"],
+                    source_reference=record_reference,
+                    proposal_wall_time_ms=int(wall_ns or 0) // 1_000_000,
+                    input_tokens=int(ollama.get("prompt_eval_count", 0) or 0),
+                    output_tokens=int(ollama.get("eval_count", 0) or 0),
+                    schema_valid=bool(record["validation"].get("valid")),
+                )
+            else:
+                baseline = copy.deepcopy(source)
+                baseline["case_id"] = pair_id
+                candidate = (
+                    candidate_case_v2(source, pair_id, record)
+                    if proposal_mode == "phase6_preflight_v2"
+                    else _candidate_case(source, pair_id, record)
+                )
             baseline_cases.append(baseline)
-            candidate_cases.append(_candidate_case(source, pair_id, record))
+            candidate_cases.append(candidate)
             completed_count += 1
             _write_corpora(
                 corpus,
@@ -568,8 +739,30 @@ def _write_corpora(
     baseline = copy.deepcopy(source_corpus)
     baseline["cases"] = baseline_cases
     candidate = copy.deepcopy(source_corpus)
+    preflight_v2 = bool(baseline_cases) and all(
+        case.get("preflight_only", {}).get("measurement")
+        == "proposal_oracle_contract_integration"
+        for case in baseline_cases
+    )
+    if preflight_v2:
+        baseline["annotation_protocol"] = {
+            "method": "deterministic registered proposal evaluated against synthetic snapshot",
+            "label_author": "phase6-v2-host",
+            "reviewer": "pending-semantic-blind-review",
+            "reviewed_at": "pending",
+            "status": "pending",
+            "disagreements": [],
+        }
+        candidate_method = (
+            "raw provider proposal independently evaluated against identical synthetic snapshot; "
+            "variant-blind review pending"
+        )
+    else:
+        candidate_method = (
+            "provider generation projected mechanically; variant-blind review pending"
+        )
     candidate["annotation_protocol"] = {
-        "method": "provider generation projected mechanically; variant-blind review pending",
+        "method": candidate_method,
         "label_author": "phase6-live-runner",
         "reviewer": "pending-blind-review",
         "reviewed_at": "pending",

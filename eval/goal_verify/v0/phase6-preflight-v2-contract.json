@@ -1,0 +1,125 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v2",
+  "contract_id": "phase6-preflight-v2-draft-20260826",
+  "status": "draft_not_frozen_not_live_authorized",
+  "frozen_at": null,
+  "code_sha": "TO_BE_FROZEN",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "provider": "ollama-local",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": "TO_BE_FROZEN",
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "runner_sources": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_artifacts_v2.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "samples_per_cell": 5,
+  "execution": {
+    "concurrency": 1,
+    "sharding": false,
+    "resume_requires_valid_hash_chain": true
+  },
+  "pairing": {
+    "unit": "one provider proposal paired by source task and sample index; no baseline observation is copied into candidate evidence",
+    "case_id_format": "{source_case_id}--pair-{sample_index:02d}",
+    "baseline": "not scored in proposal-contract preflight",
+    "candidate": "VerificationSpec v0 proposal normalized by the host-owned contract-v2 boundary",
+    "shared": ["source_case_id", "goal", "intent", "profile", "required_claims"],
+    "exclusion_rules": [
+      "abort the campaign, without excluding a row, when a result record cannot be persisted",
+      "timeouts, provider errors, malformed JSON, schema rejection, empty claims, policy rejection, and concretization failure remain included as failures",
+      "no exclusion rule or capability lane may change after the first candidate response is persisted"
+    ]
+  },
+  "proposal_contract": {
+    "mode": "phase6_preflight_v2",
+    "selected_intents": ["create", "fix"],
+    "required_claim_ids": "copy exactly from corpus required_claims",
+    "host_owned_fields": ["claim.origin", "claim.oracle_ids", "oracle.id", "oracle.lifecycle", "oracle.result", "oracle.lineage"],
+    "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v2.json"
+  },
+  "generation": {
+    "think": false,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "seed_base": 39920260826,
+    "keep_alive": "30m",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec.schema.json",
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v2.prompt.txt",
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json",
+      "investigate": "tests/fixtures/verification_spec_v0/investigate.json"
+    }
+  },
+  "execution_boundary": {
+    "raw_provider_argv_execution": "forbidden",
+    "command_execution": "only after artifact-aware concretization, path safety validation, and isolated-workspace policy are implemented",
+    "existing_evidence": "reference validation is allowed only against a frozen provenance-verified registry",
+    "baseline_observation_copy": "forbidden"
+  },
+  "artifact_production": {
+    "enabled": true,
+    "mode": "preregistered_synthetic_snapshot",
+    "interpretation": "contract-integration preflight only; not product task-success or live implementation evidence",
+    "task_manifest": "eval/goal_verify/v0/phase6-artifact-snapshots-v2.json",
+    "same_scope_baseline_raw": "deterministic VerificationSpec built from the same adapter registry and executed against the identical snapshot"
+  },
+  "oracle_execution": {
+    "enabled": true,
+    "adapter_registry": "eval/goal_verify/v0/phase6-command-adapters-v2.json",
+    "snapshot_registry": "eval/goal_verify/v0/phase6-artifact-snapshots-v2.json",
+    "runner": "macos_sandbox_exec",
+    "fallback": "fail_closed"
+  },
+  "scoring": {
+    "claim_match": "exact registered claim ID in the registered-ID preflight lane",
+    "candidate_verdict": "not computed in this proposal preflight",
+    "provider_execution_claims": "ignored and overwritten to proposed/unverified"
+  },
+  "semantic_blind_review_contract": "eval/goal_verify/v0/phase6-semantic-blind-v2-contract.json",
+  "acceptance": {
+    "schema_compliance": {"minimum_passes": 38, "denominator_pairs": 40},
+    "systematic_unknown_variant": {"maximum_occurrences_per_variant": 2},
+    "host_owned_validator_errors": 0,
+    "command_oracle_success": {
+      "minimum_rate": 0.8,
+      "denominator": "individual eligible concretized command oracles",
+      "concretization_failure": "count_as_failure",
+      "multiple_oracles_per_proposal": "count_individually"
+    },
+    "fix_registry_reference_integrity": 1.0,
+    "baseline_observation_copy_count": 0
+  },
+  "bootstrap": {
+    "samples": 0,
+    "confidence_level": null,
+    "method": "not_run_for_preflight"
+  },
+  "resource_budgets": {
+    "status": "reuse_frozen_values_only_after_measurement_boundary_is_equalized"
+  },
+  "authorization": {
+    "approved_live": false,
+    "required_before_run": [
+      "freeze exact code SHA",
+      "attach completed/success exact-SHA CI evidence",
+      "implement and verify the eligible command concretization boundary",
+      "approve local live preflight"
+    ]
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "chain": "sha256(previous_entry_sha256 + canonical_entry_without_entry_sha256)",
+    "existing_record_without_ledger_entry": "abort",
+    "record_hash_mismatch": "abort",
+    "pair_or_source_mismatch": "abort"
+  }
+}

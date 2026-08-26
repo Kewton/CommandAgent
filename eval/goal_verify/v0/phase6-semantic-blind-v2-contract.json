@@ -1,0 +1,32 @@
+{
+  "schema_version": "commandagent.goal_verify.semantic_blind_contract.v2",
+  "status": "draft_ready_for_contract_integration_preflight",
+  "input": {
+    "unit": "paired raw proposals generated for the same goal under the same processing boundary",
+    "visible": ["goal", "intent", "required_claims", "raw claims", "raw oracle semantics", "candidate-specific execution results"],
+    "hidden": ["arm identity", "provider", "model", "request ID", "token counts", "timing", "record path", "lineage hashes", "machine verdict"]
+  },
+  "criteria": [
+    "required claim semantic coverage",
+    "oracle relevance to its claim",
+    "expected polarity correctness",
+    "observation specificity",
+    "absence of unsupported or fabricated requirements"
+  ],
+  "reason_codes": [
+    "better_coverage",
+    "better_oracle_binding",
+    "better_polarity",
+    "more_specific_observation",
+    "unsupported_claim",
+    "equivalent",
+    "both_unusable"
+  ],
+  "gate": {
+    "same_scope_raw_baseline_required": true,
+    "baseline_source": "deterministic registered VerificationSpec stored with each paired raw record",
+    "minimum_human_calibration_sample": 10,
+    "inter_rater_agreement_required": true,
+    "live_review_authorized": false
+  }
+}
