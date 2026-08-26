@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -9,19 +10,28 @@ from eval_lib.goal_verify_preflight_v2 import assess_v2_readiness
 
 
 class GoalVerifyPreflightV2Test(unittest.TestCase):
-    def test_checked_in_frozen_contract_still_requires_live_authorization(self):
+    def test_checked_in_authorized_frozen_contract_is_ready(self):
+        contract_path = (
+            ROOT / "eval/goal_verify/v0/phase6-preflight-v2-contract.json"
+        )
         result = assess_v2_readiness(
             root=ROOT,
-            contract_path=ROOT
-            / "eval/goal_verify/v0/phase6-preflight-v2-contract.json",
+            contract_path=contract_path,
         )
-        self.assertFalse(result["ready"])
+        self.assertTrue(result["ready"])
         self.assertEqual(result["selected_case_count"], 8)
         self.assertEqual(result["expected_pair_count"], 40)
         self.assertEqual(result["registered_adapter_count"], 14)
+        self.assertEqual(result["blockers"], [])
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        baseline = json.loads(
+            (ROOT / "eval/goal_verify/v0/baseline-config.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(
-            result["blockers"],
-            ["live_preflight_not_authorized"],
+            contract["resource_budgets"],
+            baseline["resource_budget_registration"]["values"],
         )
 
 

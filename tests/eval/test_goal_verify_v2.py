@@ -301,7 +301,7 @@ class GoalVerifyV2Test(unittest.TestCase):
         self.assertEqual(len(registered), len(set(registered)))
         self.assertEqual(set(registered), expected)
 
-    def test_frozen_contract_still_cannot_authorize_a_live_run(self):
+    def test_frozen_contract_records_scoped_live_authorization(self):
         contract = json.loads(
             (ROOT / "eval/goal_verify/v0/phase6-preflight-v2-contract.json").read_text(
                 encoding="utf-8"
@@ -315,7 +315,11 @@ class GoalVerifyV2Test(unittest.TestCase):
             contract["exact_sha_ci_evidence"],
             "eval/goal_verify/v0/exact-sha-ci-9c8ab86e.json",
         )
-        self.assertFalse(contract["authorization"]["approved_live"])
+        self.assertTrue(contract["authorization"]["approved_live"])
+        self.assertEqual(
+            contract["authorization"]["scope"],
+            "local Ollama 40-pair contract-integration preflight only",
+        )
         self.assertEqual(
             contract["acceptance"]["schema_compliance"]["minimum_passes"], 38
         )

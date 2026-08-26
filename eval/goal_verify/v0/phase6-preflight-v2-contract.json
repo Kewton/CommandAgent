@@ -127,19 +127,36 @@
     "method": "not_run_for_preflight"
   },
   "resource_budgets": {
-    "status": "reuse_frozen_values_only_after_measurement_boundary_is_equalized"
+    "p50_wall_time_max_increase_pct": 10.0,
+    "p95_wall_time_max_increase_pct": 20.0,
+    "p50_total_tokens_max_increase_pct": 10.0,
+    "p95_total_tokens_max_increase_pct": 20.0
   },
   "authorization": {
-    "approved_live": false,
-    "required_before_run": [
-      "approve local live preflight"
-    ],
+    "approved_live": true,
+    "approved_at": "2026-08-26",
+    "approved_by": "repository_owner_in_session",
+    "scope": "local Ollama 40-pair contract-integration preflight only",
+    "required_before_run": [],
     "completed_prerequisites": [
       "frozen exact code SHA 9c8ab86ecd19e5d78785ff835765c43dec38ddbf",
       "completed/success exact-SHA CI and acceptance evidence attached",
-      "eligible command concretization boundary implemented and verified"
+      "eligible command concretization boundary implemented and verified",
+      "local live preflight explicitly approved by repository owner"
     ]
   },
+  "pre_live_amendments": [
+    {
+      "amendment_id": "phase6-preflight-v2-pre-live-001",
+      "recorded_at": "2026-08-26",
+      "candidate_responses_before_amendment": 0,
+      "changes": [
+        "copied the four preregistered budget values from baseline-config.json into resource_budgets",
+        "recorded explicit repository-owner authorization for the 40-pair local preflight"
+      ],
+      "reason": "the runner compares the contract budget object exactly with the immutable preregistration; the placeholder description would fail before collection"
+    }
+  ],
   "integrity": {
     "exclusive_run_lock": ".campaign.lock",
     "record_ledger": "record-ledger.jsonl",
