@@ -873,14 +873,18 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
         self.assertNotIn("live_collection_not_authorized", report["blockers"])
 
-    def test_a5_contract_is_design_complete_but_not_frozen_early(self):
+    def test_a5_contract_is_frozen_with_exact_ci_evidence(self):
         path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json"
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")
         self.assertEqual(design_errors(root=ROOT, contract=contract), [])
         report = readiness_report(root=ROOT, contract_path=path)
-        self.assertIn("contract_not_frozen", report["blockers"])
-        self.assertIn("exact_code_sha_missing", report["blockers"])
-        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertNotIn("contract_not_frozen", report["blockers"])
+        self.assertNotIn("exact_code_sha_missing", report["blockers"])
+        self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertEqual(
+            contract["code_sha"],
+            "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+        )
         self.assertEqual(
             contract["claim_policy"]["scoring"],
             "retain claim in denominator as unverified",

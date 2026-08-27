@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
   "contract_id": "phase6-preflight-v4-20260827-live-06",
-  "status": "draft_pending_exact_sha_ci",
-  "code_sha": null,
-  "exact_sha_ci_evidence": null,
+  "status": "frozen",
+  "code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-de99dbac.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -175,8 +175,8 @@
       "scoring_changes": "use the pre-live v4-A5 answer key to require task-relevant candidate input bindings (including explicit UI port/path/selectors and CLI argv) and split the composite UI text/style observation into two atomic adapter entries under the same required claim",
       "task_input_changes": "bind a candidate-visible per-case execution goal and CompletionContract to both arms before product execution; these clarify offline dependencies and verifier paths without supplying outcomes",
       "superseded_evidence_policy": "retain live-05 as immutable NO-GO evidence; never rescore it into the live-06 decision",
-      "replacement_code_sha": "pending exact-SHA freeze",
-      "exact_sha_ci_evidence": "pending exact-SHA freeze"
+      "replacement_code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-de99dbac.json"
     }
   ],
   "comparison": {
