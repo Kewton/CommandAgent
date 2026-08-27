@@ -40,10 +40,8 @@ from eval_lib.goal_verify_v3 import (
     regeneration_seed,
     should_regenerate,
 )
-from eval_lib.goal_verify_workspaces_v3 import (
-    load_workspace_registry,
-    workspace_by_case,
-)
+from eval_lib.goal_verify_workspaces_v3 import workspace_by_case
+from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
 
 
 def run_campaign_v4(
@@ -93,7 +91,7 @@ def run_campaign_v4(
     adapters = load_json(root / contract["scoring"]["answer_key"])["adapters"]
     capabilities = load_json(root / contract["capability_registry"])
     workspaces = workspace_by_case(
-        load_workspace_registry(root / contract["workspace_registry"])
+        load_v4_workspace_registry(root=root, contract=contract)
     )
     selected_ids = [row["case_id"] for row in contract["selected_cells"]]
     corpus_by_case = {row["case_id"]: row for row in corpus["cases"]}
@@ -102,6 +100,7 @@ def run_campaign_v4(
         intent: (root / path).read_text(encoding="utf-8")
         for intent, path in contract["generation"]["shape_examples"].items()
     }
+    workspace_additions = contract.get("workspace_registry_additions")
     manifest = {
         "schema_version": "commandagent.goal_verify.phase6_live_manifest.v4",
         "contract_id": contract["contract_id"],
@@ -112,6 +111,15 @@ def run_campaign_v4(
         "prompt_file_sha256": sha256_file(resolved_prompt),
         "answer_key_sha256": sha256_file(root / contract["scoring"]["answer_key"]),
         "workspace_registry_sha256": sha256_file(root / contract["workspace_registry"]),
+        **(
+            {
+                "workspace_registry_additions_sha256": sha256_file(
+                    root / workspace_additions
+                )
+            }
+            if workspace_additions
+            else {}
+        ),
         "target_pairs": len(selected) * int(contract["samples_per_cell"]),
         "target_proposals": len(selected)
         * int(contract["samples_per_cell"])

@@ -25,6 +25,10 @@ from eval_lib.goal_verify_live_v4 import (
 from eval_lib.goal_verify_preflight_report_v4 import build_report
 from eval_lib.goal_verify_preflight_v4 import design_errors, readiness_report
 from eval_lib.goal_verify_sandbox import _sandbox_profile, sandbox_backend_status
+from eval_lib.goal_verify_workspaces_v4 import (
+    load_v4_workspace_registry,
+    selected_product_workspace_errors,
+)
 
 
 def load(relative):
@@ -526,6 +530,91 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertNotIn("exact_code_sha_missing", report["blockers"])
         self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
         self.assertNotIn("live_collection_not_authorized", report["blockers"])
+
+    def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        contract["workspace_registry_additions"] = (
+            "eval/goal_verify/v0/phase6-real-workspaces-v4-a4.json"
+        )
+        registry = load_v4_workspace_registry(root=ROOT, contract=contract)
+        self.assertEqual(
+            selected_product_workspace_errors(
+                root=ROOT, contract=contract, registry=registry
+            ),
+            [],
+        )
+        negative = next(
+            row
+            for row in registry["workspaces"]
+            if row["case_id"] == "create-negative-constraint-injection"
+        )
+        self.assertEqual(negative["product_run"]["initial_stage"], "initial")
+
+    def test_v4_readiness_rejects_missing_selected_product_workspace(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        registry = load_v4_workspace_registry(root=ROOT, contract=contract)
+        self.assertIn(
+            "selected_product_workspace_missing:create-negative-constraint-injection",
+            selected_product_workspace_errors(
+                root=ROOT, contract=contract, registry=registry
+            ),
+        )
+
+    def test_v4_readiness_rejects_wrong_selected_product_stage(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        contract["selected_cells"] = [
+            {
+                "case_id": "create-negative-constraint-injection",
+                "intent": "create",
+            }
+        ]
+        registry = {
+            "workspaces": [
+                {
+                    "case_id": "create-negative-constraint-injection",
+                    "intent": "create",
+                    "stages": {"before": "wrong stage"},
+                    "product_run": {"initial_stage": "before"},
+                }
+            ]
+        }
+        errors = selected_product_workspace_errors(
+            root=ROOT, contract=contract, registry=registry
+        )
+        self.assertIn(
+            "selected_product_stage_missing:create-negative-constraint-injection:initial",
+            errors,
+        )
+        self.assertIn(
+            "selected_product_stage_contract_mismatch:create-negative-constraint-injection:initial",
+            errors,
+        )
+
+    def test_v4_readiness_rejects_missing_selected_product_stage_directory(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        contract["selected_cells"] = [
+            {
+                "case_id": "create-negative-constraint-injection",
+                "intent": "create",
+            }
+        ]
+        registry = {
+            "workspaces": [
+                {
+                    "case_id": "create-negative-constraint-injection",
+                    "intent": "create",
+                    "root": "tests/fixtures/goal_verify_v4/not-authored/",
+                    "stages": {"initial": "declared but absent"},
+                    "product_run": {"initial_stage": "initial"},
+                }
+            ]
+        }
+        self.assertIn(
+            "selected_product_stage_directory_missing:create-negative-constraint-injection:initial",
+            selected_product_workspace_errors(
+                root=ROOT, contract=contract, registry=registry
+            ),
+        )
 
     def test_v4_campaign_rejects_schema_path_not_frozen_by_contract(self):
         contract_path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-contract.json"

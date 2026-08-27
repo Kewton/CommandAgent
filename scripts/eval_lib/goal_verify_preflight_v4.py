@@ -10,6 +10,10 @@ from eval_lib.goal_verify_workspaces_v3 import (
     validate_provisioning,
     validate_workspace_registry,
 )
+from eval_lib.goal_verify_workspaces_v4 import (
+    load_v4_workspace_registry,
+    selected_product_workspace_errors,
+)
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -93,18 +97,29 @@ def readiness_report(
     blockers.extend(exact_sha_ci_evidence_errors(root=root, contract=contract))
     if contract.get("authorization", {}).get("live_collection_authorized") is not True:
         blockers.append("live_collection_not_authorized")
-    workspace_registry = load_json(root / contract["workspace_registry"])
-    blockers.extend(
-        validate_workspace_registry(
-            root=root, registry=workspace_registry, require_frozen=True
+    try:
+        workspace_registry = load_v4_workspace_registry(root=root, contract=contract)
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        blockers.append(f"workspace_registry_load_failed:{error}")
+    else:
+        blockers.extend(
+            validate_workspace_registry(
+                root=root, registry=workspace_registry, require_frozen=True
+            )
         )
-    )
-    blockers.extend(
-        validate_provisioning(
-            workspace_registry,
-            execution_root / "provisioned" if execution_root is not None else None,
+        blockers.extend(
+            selected_product_workspace_errors(
+                root=root, contract=contract, registry=workspace_registry
+            )
         )
-    )
+        blockers.extend(
+            validate_provisioning(
+                workspace_registry,
+                execution_root / "provisioned"
+                if execution_root is not None
+                else None,
+            )
+        )
     sandbox = sandbox_backend_status()
     if not sandbox["available"]:
         blockers.append(f"sandbox_backend_unavailable:{sandbox['reason']}")
