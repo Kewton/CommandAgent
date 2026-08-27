@@ -261,7 +261,7 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
     if prepare_argv:
         try:
             prepared = subprocess.run(
-                _sandboxed_command(root, prepare_argv, loopback=False),
+                _sandboxed_command(root, prepare_argv, loopback=True),
                 cwd=cwd,
                 env=_minimal_environment(root),
                 stdin=subprocess.DEVNULL,

@@ -890,6 +890,19 @@ class ContractReadinessTest(unittest.TestCase):
             "retain claim in denominator as unverified",
         )
 
+    def test_a6_contract_is_design_complete_but_not_frozen_early(self):
+        path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a6-contract.json"
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a6-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        report = readiness_report(root=ROOT, contract_path=path)
+        self.assertIn("contract_not_frozen", report["blockers"])
+        self.assertIn("exact_code_sha_missing", report["blockers"])
+        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertFalse(
+            contract["baseline"]["completion_verify_result_required"]
+        )
+        self.assertTrue(contract["baseline"]["honest_terminal_required"])
+
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
         contract["workspace_registry_additions"] = (
@@ -1238,6 +1251,62 @@ class ContractReadinessTest(unittest.TestCase):
             contract=contract, records=[record], semantic_review_complete=True
         )
         self.assertFalse(blocked["checks"]["baseline_completion_verify_attempted"])
+
+    def test_a6_report_accepts_recorded_honest_early_baseline_failure(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")
+        contract["selected_cells"] = [{"case_id": "x"}]
+        contract["samples_per_cell"] = 1
+        contract["baseline"].update(
+            {
+                "completion_verify_result_required": False,
+                "task_contract_bound_required": True,
+                "product_run_discovered_required": True,
+                "honest_terminal_required": True,
+            }
+        )
+        record = {
+            "baseline": {
+                "completion_contract_bound": True,
+                "product_run_dir": "/run/1",
+                "completion_verify_attempt_recorded": False,
+                "status": "failed",
+                "returncode": 1,
+                "observations": [],
+            },
+            "snapshot_manifests": {"product": {"snapshot_sha256": "a" * 64}},
+            "lanes": {
+                "held_out_synthesis": {
+                    "validation": {"valid": True},
+                    "execution": {
+                        "same_snapshot": True,
+                        "reference_fallback_count": 0,
+                        "gold_used_for_execution_count": 0,
+                        "evaluations": [],
+                    },
+                    "additive_comparison": {
+                        "baseline_failure_overridden": False,
+                        "shadow_verdict": "failure",
+                        "combined_score": {"claims": [{"status": "unverified"}]},
+                        "paired_delta": {
+                            "required_claim_recall": 0.0,
+                            "strong_binding": 0.0,
+                            "unverified_rate": 0.0,
+                        },
+                    },
+                }
+            },
+        }
+        report = build_report(
+            contract=contract, records=[record], semantic_review_complete=True
+        )
+        self.assertTrue(report["ready_for_full_experiment_design"])
+        self.assertTrue(report["checks"]["baseline_honest_terminal_recorded"])
+        self.assertEqual(report["counts"]["baseline_honest_early_failures"], 1)
+        record["baseline"]["returncode"] = 0
+        blocked = build_report(
+            contract=contract, records=[record], semantic_review_complete=True
+        )
+        self.assertFalse(blocked["checks"]["baseline_honest_terminal_recorded"])
 
     def test_preflight_semantic_gate_cannot_be_set_by_boolean_only(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")

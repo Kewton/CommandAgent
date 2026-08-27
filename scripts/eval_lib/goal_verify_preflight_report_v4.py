@@ -34,6 +34,17 @@ def semantic_review_gate(
     )
 
 
+def _baseline_honest_terminal(row: dict[str, Any]) -> bool:
+    if row.get("completion_verify_attempt_recorded") is True:
+        return True
+    return (
+        row.get("status") == "failed"
+        and isinstance(row.get("returncode"), int)
+        and row["returncode"] != 0
+        and bool(row.get("product_run_dir"))
+    )
+
+
 def build_report(
     *,
     contract: dict[str, Any],
@@ -75,8 +86,19 @@ def build_report(
         for lane in valid
         for claim in lane.get("validation", {}).get("unverifiable_claims", [])
     ]
-    baseline_contract_required = (
+    baseline_completion_required = (
         contract.get("baseline", {}).get("completion_verify_result_required") is True
+    )
+    baseline_task_contract_required = (
+        contract.get("baseline", {}).get("task_contract_bound_required") is True
+        or baseline_completion_required
+    )
+    baseline_run_required = (
+        contract.get("baseline", {}).get("product_run_discovered_required") is True
+        or baseline_completion_required
+    )
+    baseline_terminal_required = (
+        contract.get("baseline", {}).get("honest_terminal_required") is True
     )
     false_full = sum(
         row.get("shadow_verdict") == "pass"
@@ -121,12 +143,14 @@ def build_report(
         ),
         "shadow_false_full_zero": false_full == 0,
         "semantic_review_complete": semantic_review_complete,
-        "baseline_task_contract_bound": not baseline_contract_required
+        "baseline_task_contract_bound": not baseline_task_contract_required
         or all(row.get("completion_contract_bound") is True for row in baselines),
-        "baseline_run_discovered": not baseline_contract_required
+        "baseline_run_discovered": not baseline_run_required
         or all(bool(row.get("product_run_dir")) for row in baselines),
-        "baseline_completion_verify_attempted": not baseline_contract_required
+        "baseline_completion_verify_attempted": not baseline_completion_required
         or all(row.get("completion_verify_attempt_recorded") is True for row in baselines),
+        "baseline_honest_terminal_recorded": not baseline_terminal_required
+        or all(_baseline_honest_terminal(row) for row in baselines),
     }
     return {
         "schema_version": "commandagent.goal_verify.phase6_preflight_report.v4",
@@ -149,6 +173,11 @@ def build_report(
             ),
             "baseline_completion_verify_attempts": sum(
                 row.get("completion_verify_attempt_recorded") is True
+                for row in baselines
+            ),
+            "baseline_honest_early_failures": sum(
+                row.get("completion_verify_attempt_recorded") is not True
+                and _baseline_honest_terminal(row)
                 for row in baselines
             ),
             "baseline_observations": sum(

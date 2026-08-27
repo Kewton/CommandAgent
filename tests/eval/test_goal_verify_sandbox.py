@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,10 +10,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_sandbox import (
     _remaining_timeout_ms,
+    _sandboxed_command,
     run_macos_sandbox,
+    run_macos_sandbox_web_probe,
     sandbox_backend_status,
 )
 from eval_lib.goal_verify_v2 import (
+    _plan_hash,
     concretize_registered_command,
     evaluate_concretized_command,
 )
@@ -26,11 +30,67 @@ class GoalVerifySandboxTest(unittest.TestCase):
         ):
             self.assertEqual(_remaining_timeout_ms(1_000_000_000, 1_000), 750)
 
+    def test_web_prepare_uses_loopback_only_sandbox(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            workspace = Path(temporary)
+            plan = {
+                "source": "host_validated_candidate_web_v4",
+                "raw_provider_argv_used": False,
+                "workspace_root": str(workspace),
+                "cwd": str(workspace),
+                "prepare_argv": ["npx", "next", "build"],
+                "server_argv": ["npx", "next", "start", "-p", "3000"],
+                "timeout_ms": 1000,
+                "port": 3000,
+                "ready_path": "/",
+            }
+            plan["plan_sha256"] = _plan_hash(plan)
+            completed = mock.Mock(returncode=1, stdout=b"", stderr=b"")
+            with (
+                mock.patch(
+                    "eval_lib.goal_verify_sandbox.sandbox_backend_status",
+                    return_value={"available": True},
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_sandbox._sandboxed_command",
+                    wraps=_sandboxed_command,
+                ) as command,
+                mock.patch(
+                    "eval_lib.goal_verify_sandbox.subprocess.run",
+                    return_value=completed,
+                ),
+            ):
+                result = run_macos_sandbox_web_probe(plan)
+            self.assertEqual(result["reason"], "server_prepare_failed")
+            self.assertTrue(command.call_args.kwargs["loopback"])
+
     def test_backend_is_fail_closed(self):
         status = sandbox_backend_status()
         self.assertEqual(status["fallback"], "fail_closed")
         self.assertEqual(status["network"], "denied")
         self.assertEqual(status["writes"], "workspace_only")
+
+    @unittest.skipUnless(
+        sandbox_backend_status()["available"], "macOS sandbox unavailable"
+    )
+    def test_loopback_profile_allows_local_bind(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            workspace = Path(temporary)
+            completed = subprocess.run(
+                _sandboxed_command(
+                    workspace,
+                    [
+                        "python3",
+                        "-c",
+                        "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); s.close()",
+                    ],
+                    loopback=True,
+                ),
+                cwd=workspace,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode())
 
     @unittest.skipUnless(
         sandbox_backend_status()["available"], "macOS sandbox unavailable"
