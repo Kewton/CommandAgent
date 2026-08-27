@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
   "contract_id": "phase6-preflight-v4-20260827-live-09",
-  "status": "draft_pending_exact_sha_ci",
-  "code_sha": null,
-  "exact_sha_ci_evidence": null,
+  "status": "frozen",
+  "code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-37df7f95.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -135,7 +135,7 @@
       "superseded_run_id": "phase6-preflight-v4-20260827-live-08",
       "replacement_run_id": "phase6-preflight-v4-20260827-live-09",
       "superseded_code_sha": "4234e0a171deaf9db085e9d3f50a90959d450bee",
-      "replacement_code_sha": "pending exact-SHA freeze",
+      "replacement_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
       "reason": "the first live-08 pair proved that the host-owned browser prepare path used webpack safely, but an independently proposed npm run build command oracle still invoked Next.js 16 Turbopack and was incorrectly scored as a product failure when the measurement sandbox denied Turbopack's internal network bind",
       "change": "declare the safely executable Next.js production-build argv [\"npx\",\"next\",\"build\",\"--webpack\"] in the candidate-visible prompt; keep raw candidate argv unchanged; deterministically classify the exact Turbopack sandbox-denial signature as blocked safe_execution_unavailable rather than a product failure",
       "result_dependent": false,
@@ -149,7 +149,7 @@
       "scoring_changes": "none; correct sandbox-policy denial classification before scoring",
       "task_input_changes": "none",
       "superseded_evidence_policy": "retain live-08 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-09 quality inference",
-      "exact_sha_ci_evidence": "pending exact-SHA freeze"
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-37df7f95.json"
     }
   ],
   "comparison": {

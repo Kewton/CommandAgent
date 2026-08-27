@@ -956,14 +956,18 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertIn("--webpack", contract["pre_live_amendments"][-1]["change"])
         self.assertIn("same-sandbox", contract["execution"]["server_policy"])
 
-    def test_a8_contract_is_design_complete_but_not_frozen_early(self):
+    def test_a8_contract_is_frozen_with_exact_ci_evidence(self):
         path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a8-contract.json"
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-a8-contract.json")
         self.assertEqual(design_errors(root=ROOT, contract=contract), [])
         report = readiness_report(root=ROOT, contract_path=path)
-        self.assertIn("contract_not_frozen", report["blockers"])
-        self.assertIn("exact_code_sha_missing", report["blockers"])
-        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertNotIn("contract_not_frozen", report["blockers"])
+        self.assertNotIn("exact_code_sha_missing", report["blockers"])
+        self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertEqual(
+            contract["code_sha"],
+            "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+        )
         prompt = (ROOT / contract["generation"]["prompt"]).read_text()
         self.assertIn('["npx","next","build","--webpack"]', prompt)
         self.assertIn("safe_execution_unavailable", prompt)
