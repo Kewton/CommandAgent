@@ -1,0 +1,335 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
+  "contract_id": "phase6-preflight-v4-20260827-live-08",
+  "status": "draft_pending_exact_sha_ci",
+  "code_sha": null,
+  "exact_sha_ci_evidence": null,
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "samples_per_cell": 5,
+  "selected_cells": [
+    {
+      "case_id": "create-build-only-functional",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-negative-constraint-injection",
+      "intent": "create",
+      "lane": "executor_unavailable"
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "intent": "fix",
+      "lane": "primary"
+    }
+  ],
+  "runner_sources": [
+    "scripts/eval-goal-verify-blind-v4-export-human.py",
+    "scripts/eval-goal-verify-blind-v4-prepare.py",
+    "scripts/eval-goal-verify-blind-v4-report.py",
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval-goal-verify-v4-readiness.py",
+    "scripts/eval-goal-verify-v4-report.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_blind_v4.py",
+    "scripts/eval_lib/goal_verify_live_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_v4.py",
+    "scripts/eval_lib/goal_verify_repairs_v4.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v4.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "supersedes": "phase6-preflight-v4-20260827-live-07",
+  "superseded_contract": "eval/goal_verify/v0/phase6-preflight-v4-a6-contract.json",
+  "pre_live_amendments": [
+    {
+      "id": "v4-A6",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-06",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-07",
+      "superseded_code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+      "replacement_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "reason": "the first live-06 pair exposed that the host-owned Next.js production-build step denied loopback bind even though Turbopack may require an internal loopback port during build; it also exposed that requiring every baseline to reach completion verification contradicts the frozen v4 rule that honest baseline failures remain in the denominator and are never overridden",
+      "change": "allow loopback only, while retaining the external-network deny, for the host-owned production-build step; require every baseline to bind the task contract, discover its product run, and record either a completion-verification attempt or a discovered nonzero product failure as an honest terminal",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none; honest early baseline failures remain included",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "task_input_changes": "none",
+      "superseded_evidence_policy": "retain live-06 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-07 quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-05bda1cc.json"
+    },
+    {
+      "id": "v4-A7",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-07",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-08",
+      "superseded_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "replacement_code_sha": "pending exact-SHA freeze",
+      "reason": "the first live-07 pair and an isolated workspace-copy diagnostic proved that allowing 127.0.0.1 loopback did not cover the bind used internally by Next.js 16 Turbopack; switching to the official webpack production-build path removed that bind, after which child cleanup required signals that the default-deny profile had not allowed",
+      "change": "use the host-owned direct argv [\"npx\",\"next\",\"build\",\"--webpack\"] before [\"npx\",\"next\",\"start\",\"-p\",\"<port>\"]; deny all build network operations; allow signals only when the target is in the same macOS sandbox so candidate processes cannot signal host processes",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "task_input_changes": "none",
+      "diagnostic_result": "on an isolated copy of the live-07 product snapshot, webpack compiled successfully with bind_denied=false and kill_denied=false; the remaining ENOTCACHED TypeScript dependency failure is retained as a product-snapshot failure",
+      "superseded_evidence_policy": "retain live-07 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-08 quality inference",
+      "exact_sha_ci_evidence": "pending exact-SHA freeze"
+    }
+  ],
+  "comparison": {
+    "baseline": "current_product_evidence",
+    "candidate": "baseline_plus_candidate_evidence",
+    "estimand": "score(union(baseline_evidence,candidate_evidence))-score(baseline_evidence)",
+    "task_execution_count_per_pair": 1,
+    "shared_product_snapshot": true,
+    "baseline_failure_override_allowed": false,
+    "unverified_as_pass_allowed": false
+  },
+  "pairing": {
+    "shared": [
+      "source_task_id",
+      "goal",
+      "initial_or_before_snapshot",
+      "product_run",
+      "product_snapshot_sha256",
+      "baseline_evidence",
+      "model",
+      "seed",
+      "wall_budget",
+      "token_budget",
+      "dependency_bundle",
+      "cache_policy",
+      "a5_execution_goal",
+      "candidate_visible_completion_contract"
+    ],
+    "candidate_execution_target": "product_snapshot",
+    "fix_before_execution_target": "frozen_before_snapshot",
+    "reference_or_after_fallback": "forbidden",
+    "exclusion_rules": [
+      "timeout remains a failure",
+      "dependency failure remains a failure",
+      "schema failure remains a failure",
+      "concretization failure remains a failure",
+      "baseline unavailable remains a failure",
+      "honest early baseline failure remains included",
+      "no denominator, exclusion, threshold, or lane change after the first provider response"
+    ]
+  },
+  "information_boundary": {
+    "candidate_visible": [
+      "goal",
+      "intent",
+      "profile",
+      "lane-appropriate claim contract",
+      "bounded product workspace manifest",
+      "executor capabilities",
+      "safety policy",
+      "frozen fix or investigation evidence registry"
+    ],
+    "candidate_hidden": [
+      "gold adapter ids",
+      "gold argv",
+      "gold expected values",
+      "gold observations",
+      "reference implementation contents",
+      "baseline scores and verdict",
+      "blind variant mapping"
+    ],
+    "gold_use": "scoring_only_after_candidate_execution",
+    "provider_argv_policy": "host_validate_then_execute_as_direct_argv_without_shell",
+    "semantic_repair": "forbidden",
+    "host_normalization_policy": "only the predeclared meaning-preserving fixture_paths default, http route-to-path alias, dom computed_style_property-to-property alias, and uniquely placed interaction actions move; every repair records before/after binding hashes"
+  },
+  "generation": {
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4-a5.prompt.txt",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json",
+    "model": "qwen3.6:27b-coding-nvfp4",
+    "seed_base": 399500,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "regeneration_limit": 1,
+    "regeneration_cost_included": true,
+    "think": false,
+    "keep_alive": "30m",
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json"
+    }
+  },
+  "execution": {
+    "sandbox": "candidate commands and candidate servers use macos_sandbox_exec",
+    "network": "external denied; candidate build has all network denied; candidate servers are loopback-only; host-fixed browser blocks non-same-origin requests",
+    "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
+    "browser_toolchain": "playwright-core copied from the provisioned bundle before product execution and hash-recorded outside candidate workspaces",
+    "shell": false,
+    "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4",
+    "same_snapshot_hash_required": true,
+    "candidate_primary_reference_fallback_max_count": 0,
+    "gold_used_for_execution_max_count": 0,
+    "baseline_observation_copy_max_count": 0,
+    "server_policy": "host-owned direct argv Next.js webpack production build then start; build network is denied, server is loopback-only, signals are limited to same-sandbox targets, no shell chaining, and selectors/read targets remain candidate-owned",
+    "cli_text_comparison": "remove at most one terminal LF or CRLF from both expected and actual for stdout/stderr only"
+  },
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-a4.json",
+  "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+  "scoring": {
+    "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v4-a5.json",
+    "answer_key_use": "post_execution_scoring_only",
+    "variants": [
+      "baseline",
+      "baseline_plus_candidate"
+    ],
+    "deduplication_key": [
+      "claim_id",
+      "observation_semantics",
+      "input_binding",
+      "stage"
+    ],
+    "shadow_verdict": true,
+    "candidate_verdict_inherits_baseline_pass": false
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10,
+    "p95_wall_time_max_increase_pct": 20,
+    "p50_total_tokens_max_increase_pct": 10,
+    "p95_total_tokens_max_increase_pct": 20,
+    "preflight_use": "report_only"
+  },
+  "preflight": {
+    "purpose": "additive measurement instrument readiness; never product GO",
+    "schema_compliance_yield_floor": 0.95,
+    "same_snapshot_rate": 1,
+    "executable_oracle_execution_record_rate": 1,
+    "union_scorer_determinism_rate": 1,
+    "shadow_false_full_max_count": 0,
+    "semantic_review_required": true
+  },
+  "full_experiment": {
+    "cells": 12,
+    "minimum_pairs_per_cell": 30,
+    "minimum_total_pairs": 360,
+    "minimum_distinct_source_tasks_per_cell": 10,
+    "minimum_runs_per_source_task": 3,
+    "cluster_unit": "source_task_id",
+    "cluster_weighting": "equal",
+    "bootstrap": "hierarchical paired percentile",
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39920260826
+  },
+  "semantic_review": {
+    "primary": "source-blind atomic verification item review",
+    "raw_candidate_proposal_only": true,
+    "canonicalized_spec_visible": false,
+    "execution_result_visible": false,
+    "superset_portfolio_review": "secondary_non_blind",
+    "independent_human_required": true,
+    "different_model_families_required": 2,
+    "independent_human_machine_gate": {
+      "reviewer_type": "human",
+      "contract_authoring_involvement": false,
+      "independence_confirmed": true,
+      "isolated_packet_only": true
+    }
+  },
+  "authorization": {
+    "implementation_authorized": true,
+    "live_collection_authorized": true,
+    "approved_at": "2026-08-27",
+    "approved_by": "repository owner (continued execution of the reviewed v4 design)",
+    "scope": "A7 limit-0, bounded smoke, and 40-pair additive preflight live-08 using exact-SHA CI evidence after freeze",
+    "note": "A7 implementation, exact SHA, CI evidence, replacement run id, budgets, exclusions, and information boundary must be frozen before the first live-08 provider response"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "runtime_files_excluded": [
+      ".campaign.lock",
+      ".commandagent",
+      ".commandagent-state",
+      ".anvil",
+      ".goal-verify-baseline"
+    ]
+  },
+  "corpus": "eval/goal_verify/v0/corpus.json",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a5.json",
+  "claim_policy": {
+    "allow_unverifiable_reason": true,
+    "allowed_reasons": [
+      "executor_capability_unavailable",
+      "safe_execution_unavailable",
+      "workspace_binding_unavailable"
+    ],
+    "scoring": "retain claim in denominator as unverified",
+    "passing_credit": false
+  },
+  "baseline": {
+    "mode": "current_product_live",
+    "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a5.json",
+    "run_namespaces": [
+      ".commandagent/runs",
+      ".anvil/runs",
+      ".commandagent-state/runs"
+    ],
+    "completion_verify_result_required": false,
+    "task_contract_bound_required": true,
+    "product_run_discovered_required": true,
+    "honest_terminal_required": true,
+    "honest_terminal_policy": "completion verification attempted or discovered product run exited nonzero",
+    "runtime_state_excluded_from_candidate_snapshot": true
+  }
+}

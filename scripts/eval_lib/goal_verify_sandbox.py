@@ -54,6 +54,7 @@ def _sandbox_profile(
         "(version 1)",
         "(deny default)",
         "(allow process*)",
+        "(allow signal (target same-sandbox))",
     ]
     if restricted_reads:
         rules.append("(allow file-read*)")
@@ -261,7 +262,7 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
     if prepare_argv:
         try:
             prepared = subprocess.run(
-                _sandboxed_command(root, prepare_argv, loopback=True),
+                _sandboxed_command(root, prepare_argv, loopback=False),
                 cwd=cwd,
                 env=_minimal_environment(root),
                 stdin=subprocess.DEVNULL,

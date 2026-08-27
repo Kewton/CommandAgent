@@ -823,9 +823,9 @@ def _server_policy(argv, *, port):
     names = [Path(value).name for value in argv]
     if "next" in names and "dev" in names:
         return (
-            ["npx", "next", "build"],
+            ["npx", "next", "build", "--webpack"],
             ["npx", "next", "start", "-p", str(port)],
-            "next_production_build_start_v1",
+            "next_production_webpack_build_start_v2",
         )
     return [], list(argv), "candidate_direct_server_v1"
 

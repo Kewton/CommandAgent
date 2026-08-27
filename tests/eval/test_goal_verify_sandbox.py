@@ -30,7 +30,7 @@ class GoalVerifySandboxTest(unittest.TestCase):
         ):
             self.assertEqual(_remaining_timeout_ms(1_000_000_000, 1_000), 750)
 
-    def test_web_prepare_uses_loopback_only_sandbox(self):
+    def test_web_prepare_keeps_network_denied(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
             workspace = Path(temporary)
             plan = {
@@ -62,7 +62,15 @@ class GoalVerifySandboxTest(unittest.TestCase):
             ):
                 result = run_macos_sandbox_web_probe(plan)
             self.assertEqual(result["reason"], "server_prepare_failed")
-            self.assertTrue(command.call_args.kwargs["loopback"])
+            self.assertFalse(command.call_args.kwargs["loopback"])
+
+    def test_sandbox_signals_are_limited_to_same_sandbox(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            profile = _sandboxed_command(
+                Path(temporary), ["python3", "-c", "pass"], loopback=False
+            )[2]
+        self.assertIn("(allow signal (target same-sandbox))", profile)
+        self.assertNotIn("(allow signal)\n", profile)
 
     def test_backend_is_fail_closed(self):
         status = sandbox_backend_status()

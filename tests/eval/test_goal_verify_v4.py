@@ -269,7 +269,14 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             manifest={"entries": []},
         )
         self.assertEqual(concrete["classification"], "executable")
-        self.assertEqual(concrete["plan"]["prepare_argv"], ["npx", "next", "build"])
+        self.assertEqual(
+            concrete["plan"]["prepare_argv"],
+            ["npx", "next", "build", "--webpack"],
+        )
+        self.assertEqual(
+            concrete["plan"]["server_policy"],
+            "next_production_webpack_build_start_v2",
+        )
         self.assertEqual(
             concrete["plan"]["server_argv"],
             ["npx", "next", "start", "-p", "4174"],
@@ -906,6 +913,17 @@ class ContractReadinessTest(unittest.TestCase):
             contract["baseline"]["completion_verify_result_required"]
         )
         self.assertTrue(contract["baseline"]["honest_terminal_required"])
+
+    def test_a7_contract_is_design_complete_but_not_frozen_early(self):
+        path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a7-contract.json"
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a7-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        report = readiness_report(root=ROOT, contract_path=path)
+        self.assertIn("contract_not_frozen", report["blockers"])
+        self.assertIn("exact_code_sha_missing", report["blockers"])
+        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertIn("--webpack", contract["pre_live_amendments"][-1]["change"])
+        self.assertIn("same-sandbox", contract["execution"]["server_policy"])
 
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
