@@ -1342,7 +1342,7 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertTrue(contract["authorization"]["implementation_authorized"])
         self.assertTrue(contract["authorization"]["live_collection_authorized"])
 
-    def test_a10_draft_separates_raw_and_canonical_schemas(self):
+    def test_a10_frozen_contract_separates_raw_and_canonical_schemas(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-a10-contract.json")
         previous = load("eval/goal_verify/v0/phase6-preflight-v4-a9-contract.json")
         self.assertEqual(design_errors(root=ROOT, contract=contract), [])
@@ -1354,9 +1354,15 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertTrue(amendment["result_dependent"])
         self.assertFalse(amendment["quality_effect_estimate_used"])
         self.assertEqual(amendment["superseded_run_status"], "never_started")
-        self.assertEqual(contract["status"], "draft")
-        self.assertIsNone(contract["code_sha"])
-        self.assertIsNone(contract["exact_sha_ci_evidence"])
+        self.assertEqual(contract["status"], "frozen")
+        self.assertEqual(
+            contract["code_sha"],
+            "8e73df5701bbc4446c17e7c800c2d08c765c51a6",
+        )
+        self.assertEqual(
+            contract["exact_sha_ci_evidence"],
+            "eval/goal_verify/v0/exact-sha-ci-8e73df57.json",
+        )
         generation = contract["generation"]
         self.assertNotEqual(
             generation["structured_output_schema"], generation["canonical_schema"]
