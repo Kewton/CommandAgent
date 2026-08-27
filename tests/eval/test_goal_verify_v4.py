@@ -552,6 +552,7 @@ class ContractReadinessTest(unittest.TestCase):
 
     def test_v4_readiness_rejects_missing_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        contract.pop("workspace_registry_additions")
         registry = load_v4_workspace_registry(root=ROOT, contract=contract)
         self.assertIn(
             "selected_product_workspace_missing:create-negative-constraint-injection",

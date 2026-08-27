@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
-  "contract_id": "phase6-preflight-v4-20260827-live-04",
+  "contract_id": "phase6-preflight-v4-20260827-live-05",
   "status": "frozen",
-  "code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-96b762d9.json",
+  "code_sha": "fb1b12475ece4a9dd9403c4351ee123afe443fd6",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-fb1b1247.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -31,6 +31,7 @@
     "scripts/eval_lib/goal_verify_v3.py",
     "scripts/eval_lib/goal_verify_v2.py",
     "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v4.py",
     "src/bin/verification_spec_validate.rs"
   ],
   "supersedes": {
@@ -102,6 +103,30 @@
       "schema_content_changes": "none",
       "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
       "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-96b762d9.json"
+    },
+    {
+      "id": "v4-A4",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_selected_cell_transition": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-04",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-05",
+      "superseded_code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
+      "replacement_code_sha": "fb1b12475ece4a9dd9403c4351ee123afe443fd6",
+      "reason": "live-04 completed the first three selected cells, then failed before the fourth cell baseline or provider call because create-negative-constraint-injection had no initial workspace; v3 readiness allowed the executor-unavailable cell to remain workspace-less while v4 additive execution requires a shared product snapshot for every selected cell",
+      "change": "add a hash-frozen empty initial product workspace for the negative cell without changing its unavailable executor status; merge it additively over the immutable v3 registry; require readiness to validate every selected cell intent, product stage declaration, stage directory, and product_run.initial_stage before any provider response",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 15,
+      "superseded_run_completed_proposals": 30,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "executor_status_changes": "none",
+      "superseded_evidence_policy": "retain the 15-pair records, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include them in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-fb1b1247.json"
     }
   ],
   "comparison": {
@@ -194,6 +219,7 @@
     "baseline_observation_copy_max_count": 0
   },
   "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-a4.json",
   "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
   "scoring": {
     "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v3.json",
