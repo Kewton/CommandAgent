@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
   "contract_id": "phase6-preflight-v4-20260827-live-07",
-  "status": "draft_pending_exact_sha_ci",
-  "code_sha": null,
-  "exact_sha_ci_evidence": null,
+  "status": "frozen",
+  "code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-05bda1cc.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -52,7 +52,7 @@
       "superseded_run_id": "phase6-preflight-v4-20260827-live-06",
       "replacement_run_id": "phase6-preflight-v4-20260827-live-07",
       "superseded_code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
-      "replacement_code_sha": "pending exact-SHA freeze",
+      "replacement_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
       "reason": "the first live-06 pair exposed that the host-owned Next.js production-build step denied loopback bind even though Turbopack may require an internal loopback port during build; it also exposed that requiring every baseline to reach completion verification contradicts the frozen v4 rule that honest baseline failures remain in the denominator and are never overridden",
       "change": "allow loopback only, while retaining the external-network deny, for the host-owned production-build step; require every baseline to bind the task contract, discover its product run, and record either a completion-verification attempt or a discovered nonzero product failure as an honest terminal",
       "result_dependent": false,
@@ -66,7 +66,7 @@
       "scoring_changes": "none",
       "task_input_changes": "none",
       "superseded_evidence_policy": "retain live-06 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-07 quality inference",
-      "exact_sha_ci_evidence": "pending exact-SHA freeze"
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-05bda1cc.json"
     }
   ],
   "comparison": {
