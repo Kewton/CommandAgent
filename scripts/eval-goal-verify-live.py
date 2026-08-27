@@ -43,6 +43,11 @@ def main() -> int:
     parser.add_argument("--execution-root", type=Path)
     parser.add_argument("--commandagent-bin", type=Path)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--smoke-from-contract",
+        action="store_true",
+        help="run exactly contract.smoke.pair_ids in its isolated request namespace",
+    )
     args = parser.parse_args()
     paths = {
         name: path if path.is_absolute() else ROOT / path
@@ -79,6 +84,20 @@ def main() -> int:
     }
     if runner in {run_campaign_v3, run_campaign_v4}:
         runner_args["commandagent_bin"] = paths.get("commandagent_bin")
+    if args.smoke_from_contract:
+        if runner is not run_campaign_v4:
+            parser.error("--smoke-from-contract requires a v4 contract")
+        if args.limit is not None:
+            parser.error("--smoke-from-contract cannot be combined with --limit")
+        smoke = contract_value.get("smoke")
+        if not isinstance(smoke, dict):
+            parser.error("contract.smoke is missing")
+        pair_ids = smoke.get("pair_ids")
+        request_namespace = smoke.get("request_namespace")
+        if not isinstance(pair_ids, list) or not isinstance(request_namespace, str):
+            parser.error("contract.smoke pair_ids or request_namespace is invalid")
+        runner_args["pair_ids"] = pair_ids
+        runner_args["request_namespace"] = request_namespace
     summary = runner(**runner_args)
     print(
         f"[done] completed_pairs={summary['completed_pairs']}/{summary['target_pairs']} "

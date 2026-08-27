@@ -8,6 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from eval_lib.goal_verify_next_v4 import (
+    executor_capabilities_match_workspace,
+    next_web_server_policy,
+    validate_next_command_argv,
+)
 from eval_lib.goal_verify_sandbox import run_macos_sandbox, run_macos_sandbox_web_probe
 from eval_lib.goal_verify_v2 import _plan_hash
 
@@ -88,7 +93,12 @@ def candidate_visible_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def concretize_candidate_oracle(
-    *, oracle: dict[str, Any], claim: dict[str, Any], manifest: dict[str, Any]
+    *,
+    oracle: dict[str, Any],
+    claim: dict[str, Any],
+    manifest: dict[str, Any],
+    executor_capabilities: dict[str, Any] | None = None,
+    effective_stage: str | None = None,
 ) -> dict[str, Any]:
     strategy = oracle.get("strategy")
     observation = oracle.get("observation")
@@ -99,17 +109,19 @@ def concretize_candidate_oracle(
         for row in manifest.get("entries", [])
         if row.get("kind") == "file"
     }
-    stage = _claim_stage(claim)
-    if strategy in {"existing_fix_evidence", "existing_investigation_binding"}:
-        # Evidence artifacts are product-run outputs. Their internal binding
-        # carries the before/after/reproduce/diagnosis stage being attested.
-        stage = "product"
+    stage = effective_stage or _effective_stage(claim, strategy)
     if strategy in _COMMANDISH:
         setup = oracle.get("setup")
         argv = setup.get("argv") if isinstance(setup, dict) else None
         reason = _argv_error(argv)
         if reason:
             return _rejected("policy_rejected", reason)
+        if executor_capabilities is not None:
+            classification, reason = validate_next_command_argv(
+                argv, executor_capabilities
+            )
+            if classification not in {"accepted", "not_applicable"}:
+                return _rejected(classification, reason)
         cwd = setup.get("cwd", ".")
         if not _safe_relative(cwd):
             return _rejected("policy_rejected", "cwd_unsafe")
@@ -147,13 +159,19 @@ def concretize_candidate_oracle(
     if strategy in {"existing_fix_evidence", "existing_investigation_binding"}:
         return _concretize_existing_evidence(oracle, claim=claim, stage=stage)
     if strategy == "http":
-        return _concretize_web(oracle, stage=stage, browser=False)
+        return _concretize_web(
+            oracle,
+            stage=stage,
+            browser=False,
+            executor_capabilities=executor_capabilities,
+        )
     if strategy in {"dom", "interaction"}:
         return _concretize_web(
             oracle,
             stage=stage,
             browser=True,
             interaction=strategy == "interaction",
+            executor_capabilities=executor_capabilities,
         )
     return _rejected("executor_unavailable", f"strategy_not_implemented:{strategy}")
 
@@ -277,6 +295,7 @@ def evaluate_candidate_spec_v4(
     runner: CommandRunner = run_macos_sandbox,
     web_runner: WebRunner = run_macos_sandbox_web_probe,
     browser_toolchain: Path | None = None,
+    executor_capabilities: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     claims = {row.get("id"): row for row in spec.get("claims", [])}
     evaluations = []
@@ -296,7 +315,7 @@ def evaluate_candidate_spec_v4(
                 }
             )
             continue
-        stage = _claim_stage(claim)
+        stage = _effective_stage(claim, oracle.get("strategy"))
         workspace = workspaces.get(stage)
         if workspace is None:
             evaluations.append(
@@ -308,6 +327,29 @@ def evaluate_candidate_spec_v4(
                     "executed": False,
                     "result": "unverified",
                     "reason": f"workspace_missing:{stage}",
+                    "gold_used_for_execution": False,
+                }
+            )
+            continue
+        capability_matches = not (
+            stage == "product"
+            and executor_capabilities is not None
+            and not executor_capabilities_match_workspace(
+                workspace, executor_capabilities
+            )
+        )
+        if not capability_matches:
+            evaluations.append(
+                {
+                    "oracle_id": oracle.get("id"),
+                    "claim_id": oracle.get("claim_id"),
+                    "classification": "concretization_failure",
+                    "stage": stage,
+                    "execution_attempt_recorded": False,
+                    "executed": False,
+                    "result": "unverified",
+                    "reason": "executor_capability_workspace_mismatch",
+                    "executor_capability_matches_workspace": False,
                     "gold_used_for_execution": False,
                 }
             )
@@ -328,7 +370,11 @@ def evaluate_candidate_spec_v4(
             )
             continue
         concrete = concretize_candidate_oracle(
-            oracle=oracle, claim=claim, manifest=manifest
+            oracle=oracle,
+            claim=claim,
+            manifest=manifest,
+            executor_capabilities=executor_capabilities,
+            effective_stage=stage,
         )
         base = {
             "oracle_id": oracle.get("id"),
@@ -336,6 +382,7 @@ def evaluate_candidate_spec_v4(
             "classification": concrete["classification"],
             "stage": concrete["stage"],
             "execution_snapshot_sha256": manifest["snapshot_sha256"],
+            "executor_capability_matches_workspace": capability_matches,
             "gold_used_for_execution": False,
         }
         if concrete["classification"] != "executable":
@@ -369,6 +416,10 @@ def evaluate_candidate_spec_v4(
             == frozen_snapshot_sha256.get(row.get("stage"))
             for row in evaluations
             if row.get("classification") == "executable"
+        )
+        and all(
+            row.get("executor_capability_matches_workspace") is not False
+            for row in evaluations
         ),
         "reference_fallback_count": sum(
             row.get("stage") in {"reference", "after"} for row in evaluations
@@ -600,6 +651,14 @@ def _claim_stage(claim):
     return "before" if origin.get("stage") == "before" else "product"
 
 
+def _effective_stage(claim, strategy):
+    if strategy in {"existing_fix_evidence", "existing_investigation_binding"}:
+        # Evidence files are product-run outputs. Their binding retains the
+        # before/after/reproduce/diagnosis provenance being attested.
+        return "product"
+    return _claim_stage(claim)
+
+
 def _argv_error(argv):
     if not isinstance(argv, list) or not argv:
         return "argv_missing"
@@ -626,7 +685,14 @@ def _argv_error(argv):
     return None
 
 
-def _concretize_web(oracle, *, stage, browser, interaction=False):
+def _concretize_web(
+    oracle,
+    *,
+    stage,
+    browser,
+    interaction=False,
+    executor_capabilities=None,
+):
     setup = oracle.get("setup")
     argv = setup.get("argv") if isinstance(setup, dict) else None
     reason = _argv_error(argv)
@@ -659,7 +725,25 @@ def _concretize_web(oracle, *, stage, browser, interaction=False):
     route = input_value.get(route_key)
     if not _safe_route(route):
         return _rejected("policy_rejected", f"{route_key}_unsafe")
-    prepare_argv, server_argv, server_policy = _server_policy(argv, port=port)
+    next_policy = (
+        next_web_server_policy(
+            candidate_argv=argv,
+            port=port,
+            executor_capabilities=executor_capabilities,
+        )
+        if executor_capabilities is not None
+        else None
+    )
+    if next_policy is not None and next_policy["classification"] != "executable":
+        return _rejected(next_policy["classification"], next_policy["reason"])
+    if next_policy is None:
+        prepare_argv, server_argv, server_policy = _server_policy(argv, port=port)
+        next_version = None
+    else:
+        prepare_argv = next_policy["prepare_argv"]
+        server_argv = next_policy["server_argv"]
+        server_policy = next_policy["server_policy"]
+        next_version = next_policy["next_version"]
     plan = {
         "kind": "browser_probe" if browser else "http_probe",
         "prepare_argv": prepare_argv,
@@ -671,6 +755,8 @@ def _concretize_web(oracle, *, stage, browser, interaction=False):
         "timeout_ms": int(oracle.get("timeout_ms", 30_000)),
         "expected": observation.get("expected"),
     }
+    if next_version is not None:
+        plan["next_version"] = next_version
     if browser:
         actions = input_value.get("actions", [])
         if interaction and not actions:
@@ -716,10 +802,15 @@ def _concretize_existing_evidence(oracle, *, claim, stage):
     }.get(source_kind)
     if expected_strategy != oracle.get("strategy"):
         return _rejected("policy_rejected", "evidence_strategy_origin_mismatch")
-    if not isinstance(observation, dict) or observation.get("kind") != "existing_binding":
+    if (
+        not isinstance(observation, dict)
+        or observation.get("kind") != "existing_binding"
+    ):
         return _rejected("concretization_failure", "existing_binding_required")
     artifact_path = observation.get("artifact_path")
-    if artifact_path != origin.get("artifact_path") or not _safe_relative(artifact_path):
+    if artifact_path != origin.get("artifact_path") or not _safe_relative(
+        artifact_path
+    ):
         return _rejected("policy_rejected", "evidence_artifact_binding_mismatch")
     binding = {
         key: origin[key]
@@ -863,7 +954,9 @@ def _execute_existing_evidence_plan(plan, *, workspace):
             "result": "unverified",
             "reason": "evidence_artifact_invalid",
         }
-    matched = any(_binding_matches(row, plan["binding"]) for row in _walk_objects(value))
+    matched = any(
+        _binding_matches(row, plan["binding"]) for row in _walk_objects(value)
+    )
     return {
         "execution_attempt_recorded": True,
         "executed": True,
@@ -889,12 +982,8 @@ def _binding_matches(value, binding):
         value.get("expected" if key == "expected_polarity" else key) == expected
         for key, expected in binding.items()
     )
-    direct_pass = (
-        value.get("result") == "pass"
-        or (
-            value.get("executed") is True
-            and value.get("outcome") == value.get("expected")
-        )
+    direct_pass = value.get("result") == "pass" or (
+        value.get("executed") is True and value.get("outcome") == value.get("expected")
     )
     if direct_binding and direct_pass:
         return True

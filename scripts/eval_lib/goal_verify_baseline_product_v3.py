@@ -19,6 +19,7 @@ def build_product_argv(
     case: dict[str, Any],
     model: str,
     completion_contract_path: Path | None = None,
+    recovery_plan_auto_runs: int | None = None,
 ) -> list[str]:
     argv = [
         str(commandagent_bin.resolve()),
@@ -39,7 +40,15 @@ def build_product_argv(
     ]
     if completion_contract_path is not None:
         argv.extend(["--completion-contract-json", str(completion_contract_path)])
-    argv.extend(["--plan-run", case["goal"]])
+    if recovery_plan_auto_runs is not None:
+        if (
+            not isinstance(recovery_plan_auto_runs, int)
+            or isinstance(recovery_plan_auto_runs, bool)
+            or recovery_plan_auto_runs < 0
+        ):
+            raise ValueError("recovery_plan_auto_runs must be a non-negative integer")
+        argv.extend(["--recovery-plan-auto-runs", str(recovery_plan_auto_runs)])
+    argv.extend(["--plan-run", _baseline_task_input(case)])
     return argv
 
 
@@ -51,6 +60,7 @@ def run_current_product_baseline(
     model: str,
     timeout_sec: int,
     completion_contract: dict[str, Any] | None = None,
+    recovery_plan_auto_runs: int | None = None,
 ) -> dict[str, Any]:
     completion_contract_path = None
     completion_contract_sha256 = None
@@ -74,6 +84,22 @@ def run_current_product_baseline(
         case=case,
         model=model,
         completion_contract_path=completion_contract_path,
+        recovery_plan_auto_runs=recovery_plan_auto_runs,
+    )
+    operational_constraints = case.get("task_contract", {}).get(
+        "operational_constraints"
+    )
+    operational_constraints_sha256 = (
+        hashlib.sha256(
+            json.dumps(
+                operational_constraints,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        if isinstance(operational_constraints, dict)
+        else None
     )
     started = time.monotonic_ns()
     try:
@@ -97,12 +123,13 @@ def run_current_product_baseline(
             "wall_time_ms": (time.monotonic_ns() - started) // 1_000_000,
             "stdout": error.stdout or "",
             "stderr": error.stderr or "",
+            "recovery_plan_auto_runs": recovery_plan_auto_runs,
+            "operational_constraints_bound": operational_constraints is not None,
+            "operational_constraints_sha256": operational_constraints_sha256,
             "completion_contract_bound": completion_contract is not None,
             "completion_contract_sha256": completion_contract_sha256,
             "product_run_dir": str(product_run_dir) if product_run_dir else None,
-            "product_run_namespace": _product_run_namespace(
-                workspace, product_run_dir
-            ),
+            "product_run_namespace": _product_run_namespace(workspace, product_run_dir),
             **completion_verify,
         }
     run_dirs = _product_run_dirs(workspace)
@@ -114,14 +141,33 @@ def run_current_product_baseline(
         "wall_time_ms": (time.monotonic_ns() - started) // 1_000_000,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
+        "recovery_plan_auto_runs": recovery_plan_auto_runs,
+        "operational_constraints_bound": operational_constraints is not None,
+        "operational_constraints_sha256": operational_constraints_sha256,
         "product_run_dir": str(product_run_dir) if product_run_dir else None,
-        "product_run_namespace": (
-            _product_run_namespace(workspace, product_run_dir)
-        ),
+        "product_run_namespace": (_product_run_namespace(workspace, product_run_dir)),
         "completion_contract_bound": completion_contract is not None,
         "completion_contract_sha256": completion_contract_sha256,
         **_completion_verify_status(product_run_dir),
     }
+
+
+def _baseline_task_input(case: dict[str, Any]) -> str:
+    constraints = case.get("task_contract", {}).get("operational_constraints")
+    if not isinstance(constraints, dict):
+        return case["goal"]
+    encoded = json.dumps(
+        constraints,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return (
+        f"{case['goal']}\n\n"
+        "Operational constraints shared with the verification candidate "
+        "(execution constraints, not additional acceptance claims):\n"
+        f"{encoded}"
+    )
 
 
 def _product_run_dirs(workspace: Path) -> list[Path]:
@@ -198,7 +244,9 @@ def extract_product_observations(
             # events carrying an explicit runtime result are observations.
             if event == "declarative_command_check_result":
                 exit_code = row.get("observed_exit_code")
-                executed = isinstance(exit_code, int) and not row.get("timed_out", False)
+                executed = isinstance(exit_code, int) and not row.get(
+                    "timed_out", False
+                )
                 observations.append(
                     {
                         "source": "events.jsonl",
@@ -419,7 +467,9 @@ def _value_matches(observation: dict[str, Any], proposal: dict[str, Any]) -> boo
     return True
 
 
-def _baseline_input_matches(observation: dict[str, Any], binding: dict[str, Any]) -> bool:
+def _baseline_input_matches(
+    observation: dict[str, Any], binding: dict[str, Any]
+) -> bool:
     kind = binding.get("kind")
     if kind in {"command", "fixture_command"}:
         return observation.get("argv") == binding.get("argv")
@@ -427,7 +477,9 @@ def _baseline_input_matches(observation: dict[str, Any], binding: dict[str, Any]
     if not isinstance(raw, dict):
         return False
     if kind == "http":
-        return all(raw.get(key) == binding.get(key) for key in ("method", "port", "path"))
+        return all(
+            raw.get(key) == binding.get(key) for key in ("method", "port", "path")
+        )
     if kind == "dom":
         return all(
             raw.get(key) == expected

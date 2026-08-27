@@ -380,8 +380,9 @@ def _run_baseline(
         case=case,
         model=contract["model"],
         timeout_sec=int(contract["generation"]["request_timeout_sec"]),
-        completion_contract=case.get("task_contract", {}).get(
-            "completion_contract"
+        completion_contract=case.get("task_contract", {}).get("completion_contract"),
+        recovery_plan_auto_runs=contract.get("baseline", {}).get(
+            "recovery_plan_auto_runs"
         ),
     )
     run_path = result.get("product_run_dir")

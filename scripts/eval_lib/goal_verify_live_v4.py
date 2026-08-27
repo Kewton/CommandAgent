@@ -30,6 +30,10 @@ from eval_lib.goal_verify_live_v3 import (
     _run_baseline,
     verify_live_inputs_v3,
 )
+from eval_lib.goal_verify_next_v4 import (
+    candidate_visible_executor_capabilities,
+    detect_executor_capabilities,
+)
 from eval_lib.goal_verify_observation_match_v3 import score_claim_coverage
 from eval_lib.goal_verify_preflight_v4 import readiness_report
 from eval_lib.goal_verify_repairs_v4 import apply_meaning_preserving_repairs
@@ -66,12 +70,21 @@ def run_campaign_v4(
     limit: int | None = None,
     provider=request_ollama,
     baseline_runner=None,
+    pair_ids: list[str] | None = None,
+    request_namespace: str | None = None,
 ) -> dict[str, Any]:
     contract = load_json(contract_path)
+    namespace = _campaign_namespace(
+        contract=contract,
+        pair_ids=pair_ids,
+        request_namespace=request_namespace,
+        limit=limit,
+    )
     configured_corpus = contract.get("corpus")
-    if configured_corpus is not None and corpus_path.resolve() != (
-        root / configured_corpus
-    ).resolve():
+    if (
+        configured_corpus is not None
+        and corpus_path.resolve() != (root / configured_corpus).resolve()
+    ):
         raise ValueError("v4 corpus path differs from contract.corpus")
     expected_schema = (
         root / contract["generation"]["structured_output_schema"]
@@ -94,8 +107,8 @@ def run_campaign_v4(
         commandagent_bin=commandagent,
         validator=validator,
     )
-    if run_dir.name != contract["contract_id"]:
-        raise ValueError("contract_id differs from run directory basename")
+    if run_dir.name != namespace:
+        raise ValueError("request namespace differs from run directory basename")
     resolved_prompt, base_prompt = load_prompt_from_contract(
         root=root, contract=contract, cli_prompt=prompt_path
     )
@@ -122,6 +135,12 @@ def run_campaign_v4(
         )
         for case_id in selected_ids
     ]
+    selected_pair_ids = _select_campaign_pair_ids(
+        selected=selected,
+        samples_per_cell=int(contract["samples_per_cell"]),
+        pair_ids=pair_ids,
+    )
+    selected_pair_set = set(selected_pair_ids)
     shapes = {
         intent: (root / path).read_text(encoding="utf-8")
         for intent, path in contract["generation"]["shape_examples"].items()
@@ -151,10 +170,11 @@ def run_campaign_v4(
             if workspace_additions
             else {}
         ),
-        "target_pairs": len(selected) * int(contract["samples_per_cell"]),
-        "target_proposals": len(selected)
-        * int(contract["samples_per_cell"])
-        * len(LANES),
+        "request_namespace": namespace,
+        "campaign_role": "full" if pair_ids is None else "preregistered_smoke",
+        "selected_pair_ids": selected_pair_ids,
+        "target_pairs": len(selected_pair_ids),
+        "target_proposals": len(selected_pair_ids) * len(LANES),
         "execution_root": str(execution_root.resolve()),
         "commandagent_bin": str(commandagent),
         **live_inputs,
@@ -174,9 +194,11 @@ def run_campaign_v4(
         target = manifest["target_pairs"]
         for source_index, case in enumerate(selected):
             for sample_index in range(1, int(contract["samples_per_cell"]) + 1):
+                pair_id = f"{case['case_id']}--pair-{sample_index:02d}"
+                if pair_id not in selected_pair_set:
+                    continue
                 if limit is not None and completed >= limit:
                     return _summary(run_dir, completed, target, ledger_head)
-                pair_id = f"{case['case_id']}--pair-{sample_index:02d}"
                 relative = (
                     Path("raw") / case["case_id"] / f"pair-{sample_index:02d}.json"
                 )
@@ -185,7 +207,7 @@ def run_campaign_v4(
                 if record_path.exists():
                     record = load_json(record_path)
                 else:
-                    pair_root = execution_root / contract["contract_id"] / pair_id
+                    pair_root = execution_root / namespace / pair_id
                     stage_paths = _prepare_pair_stages(
                         root=root,
                         case=case,
@@ -212,6 +234,9 @@ def run_campaign_v4(
                     )
                     frozen_product = pair_root / "frozen-product"
                     _copy_workspace(product_workspace, frozen_product)
+                    executor_capabilities = detect_executor_capabilities(
+                        frozen_product, profile=case["profile"]
+                    )
                     snapshot_manifests = {
                         "product": workspace_manifest(frozen_product),
                     }
@@ -241,6 +266,8 @@ def run_campaign_v4(
                             browser_toolchain=browser_toolchain,
                             baseline=baseline,
                             pair_root=pair_root,
+                            executor_capabilities=executor_capabilities,
+                            request_namespace=namespace,
                         )
                         for lane in LANES
                     }
@@ -263,6 +290,8 @@ def run_campaign_v4(
                             if browser_toolchain is not None
                             else None
                         ),
+                        "executor_capabilities": executor_capabilities,
+                        "request_namespace": namespace,
                         "baseline": baseline,
                         "lanes": lanes,
                     }
@@ -305,6 +334,8 @@ def _run_lane_v4(
     browser_toolchain,
     baseline,
     pair_root,
+    executor_capabilities,
+    request_namespace,
 ):
     attempts = []
     validation = {"valid": False, "spec": None, "errors": ["not_attempted"]}
@@ -313,7 +344,7 @@ def _run_lane_v4(
         for stage, manifest in snapshot_manifests.items()
     }
     for attempt in (1, 2):
-        request_id = f"{contract['contract_id']}:{pair_id}:{lane}:attempt-{attempt}"
+        request_id = f"{request_namespace}:{pair_id}:{lane}:attempt-{attempt}"
         prompt = _build_prompt_v4(
             lane=lane,
             base_prompt=base_prompt,
@@ -323,6 +354,7 @@ def _run_lane_v4(
             adapters=adapters,
             capabilities=capabilities,
             manifests=visible,
+            executor_capabilities=executor_capabilities,
         )
         response = provider(
             endpoint=contract["endpoint"],
@@ -407,6 +439,7 @@ def _run_lane_v4(
             frozen_before=frozen_before,
             snapshot_manifests=snapshot_manifests,
             browser_toolchain=browser_toolchain,
+            executor_capabilities=executor_capabilities,
         )
         scored = score_candidate_outcomes(
             case_id=case["case_id"],
@@ -437,7 +470,16 @@ def _run_lane_v4(
 
 
 def _build_prompt_v4(
-    *, lane, base_prompt, case, request_id, shape, adapters, capabilities, manifests
+    *,
+    lane,
+    base_prompt,
+    case,
+    request_id,
+    shape,
+    adapters,
+    capabilities,
+    manifests,
+    executor_capabilities=None,
 ):
     prompt = (
         build_conformance_prompt(
@@ -451,6 +493,12 @@ def _build_prompt_v4(
     prefix, payload = prompt.rsplit("INPUT JSON:\n", 1)
     request = json.loads(payload)
     request["workspace_manifests"] = manifests
+    if executor_capabilities is not None:
+        strategies = request.get("executor_capabilities", [])
+        request["executor_capabilities"] = {
+            "strategies": strategies if isinstance(strategies, list) else [],
+            **candidate_visible_executor_capabilities(executor_capabilities),
+        }
     if case.get("task_contract"):
         request["task_contract"] = copy.deepcopy(case["task_contract"])
     for claim in request.get("required_claims", []):
@@ -634,6 +682,7 @@ def _execute_spec_isolated(
     frozen_before,
     snapshot_manifests,
     browser_toolchain,
+    executor_capabilities,
 ):
     evaluations = []
     same_snapshot = True
@@ -655,6 +704,7 @@ def _execute_spec_isolated(
             workspaces=workspaces,
             frozen_snapshot_sha256=frozen,
             browser_toolchain=browser_toolchain,
+            executor_capabilities=executor_capabilities,
         )
         evaluations.extend(result["evaluations"])
         same_snapshot = same_snapshot and result["same_snapshot"]
@@ -725,6 +775,42 @@ def _default_baseline_runner():
     from eval_lib.goal_verify_baseline_product_v3 import run_current_product_baseline
 
     return run_current_product_baseline
+
+
+def _select_campaign_pair_ids(*, selected, samples_per_cell, pair_ids):
+    all_pair_ids = [
+        f"{case['case_id']}--pair-{sample_index:02d}"
+        for case in selected
+        for sample_index in range(1, samples_per_cell + 1)
+    ]
+    if pair_ids is None:
+        return all_pair_ids
+    if not pair_ids or len(pair_ids) != len(set(pair_ids)):
+        raise ValueError("selected pair IDs must be present and unique")
+    if set(pair_ids) - set(all_pair_ids):
+        raise ValueError("selected pair IDs are not in the contract")
+    return list(pair_ids)
+
+
+def _campaign_namespace(*, contract, pair_ids, request_namespace, limit):
+    if pair_ids is None:
+        if request_namespace is not None:
+            raise ValueError("full campaign cannot override the request namespace")
+        return contract["contract_id"]
+    if limit is not None:
+        raise ValueError("preregistered smoke cannot use a plain pair limit")
+    smoke = contract.get("smoke")
+    if not isinstance(smoke, dict):
+        raise TypeError("preregistered smoke contract is missing")
+    expected_pairs = smoke.get("pair_ids")
+    expected_namespace = smoke.get("request_namespace")
+    if pair_ids != expected_pairs:
+        raise ValueError("smoke pair IDs differ from the preregistered exact set")
+    if request_namespace != expected_namespace:
+        raise ValueError("smoke request namespace differs from the preregistered value")
+    if expected_namespace == contract["contract_id"]:
+        raise ValueError("smoke request namespace must differ from the full run")
+    return expected_namespace
 
 
 def _summary(run_dir, completed, target, ledger_head):

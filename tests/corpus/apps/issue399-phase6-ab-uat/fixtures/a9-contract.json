@@ -1,0 +1,17 @@
+{
+  "schema_version": "commandagent.goal_verify.task_contracts.v4_a9",
+  "paired_input": {
+    "shared_semantic_goal": true,
+    "operational_constraints_scored": false
+  },
+  "baseline": {
+    "recovery_plan_auto_runs": 0
+  },
+  "execution": {
+    "next_unknown_version": "safe_execution_unavailable"
+  },
+  "smoke": {
+    "pairs": 9,
+    "evidence_reused_by_live": false
+  }
+}

@@ -20,9 +20,12 @@ from eval_lib.goal_verify_additive_v4 import (
 from eval_lib.goal_verify_baseline_product_v3 import build_product_argv
 from eval_lib.goal_verify_live_v4 import (
     _build_prompt_v4,
+    _campaign_namespace,
+    _select_campaign_pair_ids,
     _validate_proposal_v4,
     run_campaign_v4,
 )
+from eval_lib.goal_verify_next_v4 import detect_executor_capabilities
 from eval_lib.goal_verify_preflight_report_v4 import build_report, semantic_review_gate
 from eval_lib.goal_verify_preflight_v4 import design_errors, readiness_report
 from eval_lib.goal_verify_repairs_v4 import apply_meaning_preserving_repairs
@@ -32,6 +35,7 @@ from eval_lib.goal_verify_task_contracts_v4 import (
     bind_task_contract,
     load_task_contract_registry,
     selected_task_contract_errors,
+    task_contract_registry_errors,
 )
 from eval_lib.goal_verify_workspaces_v4 import (
     load_v4_workspace_registry,
@@ -105,6 +109,58 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             ),
             [],
         )
+
+    def test_a9_task_contract_separates_goal_and_typed_constraints(self):
+        corpus = load("eval/goal_verify/v0/corpus.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
+        )
+        registry = load_task_contract_registry(
+            ROOT / "eval/goal_verify/v0/phase6-task-contracts-v4-a9.json"
+        )
+        bound = bind_task_contract(case, registry)
+        self.assertEqual(bound["source_goal"], case["goal"])
+        self.assertNotIn("--help", bound["goal"])
+        self.assertFalse(bound["task_contract"]["operational_constraints"]["scored"])
+        self.assertEqual(
+            bound["task_contract"]["operational_constraints"]["entry_paths"],
+            ["cli/main.py"],
+        )
+        argv = build_product_argv(
+            commandagent_bin=Path("/tmp/commandagent"),
+            workspace=Path("/tmp/workspace"),
+            case=bound,
+            model="m",
+            recovery_plan_auto_runs=0,
+        )
+        self.assertIn(bound["goal"], argv[-1])
+        self.assertIn('"entry_paths":["cli/main.py"]', argv[-1])
+        self.assertIn("not additional acceptance claims", argv[-1])
+        self.assertEqual(task_contract_registry_errors(registry), [])
+        invalid = json.loads(json.dumps(registry))
+        invalid["cases"][0]["operational_constraints"]["unexpected"] = True
+        self.assertIn(
+            "operational_constraints_unknown:create-build-only-functional:unexpected",
+            task_contract_registry_errors(invalid),
+        )
+        invalid_binding = json.loads(json.dumps(registry))
+        invalid_binding["cases"][2]["completion_contract"]["profile"] = "generic"
+        with self.assertRaisesRegex(ValueError, "profile mismatch"):
+            bind_task_contract(case, invalid_binding)
+
+    def test_a9_baseline_argv_explicitly_disables_recovery_auto_runs(self):
+        argv = build_product_argv(
+            commandagent_bin=Path("/tmp/commandagent"),
+            workspace=Path("/tmp/workspace"),
+            case={"intent": "create", "profile": "generic", "goal": "goal"},
+            model="m",
+            recovery_plan_auto_runs=0,
+        )
+        index = argv.index("--recovery-plan-auto-runs")
+        self.assertEqual(argv[index : index + 2], ["--recovery-plan-auto-runs", "0"])
+        self.assertEqual(argv[-2:], ["--plan-run", "goal"])
 
     def test_concretizer_uses_candidate_argv_without_gold(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -401,6 +457,199 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             )
             result = execute_candidate_plan(concrete["plan"], workspace=root)
             self.assertEqual(result["result"], "pass")
+
+    def test_existing_before_binding_selects_product_workspace_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            product = root / "product"
+            before = root / "before"
+            (product / "evidence").mkdir(parents=True)
+            before.mkdir()
+            (product / "evidence/fix-evidence.json").write_text(
+                json.dumps(
+                    {
+                        "bindings": [
+                            {
+                                "requirement_id": "before_fails",
+                                "stage": "before",
+                                "expected": "failure",
+                                "lineage": "case-before",
+                                "epoch": 1,
+                                "executed": True,
+                                "outcome": "failure",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            product_manifest = workspace_manifest(product)
+            before_manifest = workspace_manifest(before)
+            result = evaluate_candidate_spec_v4(
+                spec={
+                    "claims": [
+                        {
+                            "id": "before",
+                            "origin": {
+                                "source_kind": "fix_requirement",
+                                "artifact_path": "evidence/fix-evidence.json",
+                                "requirement_id": "before_fails",
+                                "stage": "before",
+                                "expected_polarity": "failure",
+                                "lineage": "case-before",
+                                "epoch": 1,
+                            },
+                        }
+                    ],
+                    "oracles": [
+                        {
+                            "id": "before-oracle",
+                            "claim_id": "before",
+                            "strategy": "existing_fix_evidence",
+                            "observation": {
+                                "kind": "existing_binding",
+                                "artifact_path": "evidence/fix-evidence.json",
+                            },
+                        }
+                    ],
+                },
+                workspaces={"product": product, "before": before},
+                frozen_snapshot_sha256={
+                    "product": product_manifest["snapshot_sha256"],
+                    "before": before_manifest["snapshot_sha256"],
+                },
+            )
+            evaluation = result["evaluations"][0]
+            self.assertEqual(evaluation["stage"], "product")
+            self.assertEqual(evaluation["result"], "pass")
+            self.assertEqual(
+                evaluation["execution_snapshot_sha256"],
+                product_manifest["snapshot_sha256"],
+            )
+            self.assertTrue(result["same_snapshot"])
+
+    def test_next_capability_uses_pinned_version_policy(self):
+        expected = {
+            "14.2.35": ["npx", "next", "build"],
+            "16.3.1": ["npx", "next", "build", "--webpack"],
+        }
+        for version, build_argv in expected.items():
+            with (
+                self.subTest(version=version),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                package = root / "node_modules/next/package.json"
+                package.parent.mkdir(parents=True)
+                package.write_text(json.dumps({"version": version}), encoding="utf-8")
+                capabilities = detect_executor_capabilities(root, profile="nextjs")
+                self.assertEqual(capabilities["next"]["safe_build_argv"], build_argv)
+                concrete = concretize_candidate_oracle(
+                    oracle={
+                        "strategy": "dom",
+                        "setup": {
+                            "argv": ["npx", "next", "start", "-p", "4174"],
+                            "cwd": ".",
+                        },
+                        "input": {
+                            "kind": "dom",
+                            "port": 4174,
+                            "route": "/",
+                            "selector": "#count",
+                        },
+                        "observation": {"kind": "dom", "expected": "2"},
+                    },
+                    claim={"origin": {"source_kind": "goal"}},
+                    manifest={"entries": []},
+                    executor_capabilities=capabilities,
+                )
+                self.assertEqual(concrete["classification"], "executable")
+                self.assertEqual(concrete["plan"]["prepare_argv"], build_argv)
+                self.assertEqual(concrete["plan"]["next_version"], version)
+                npm_build = concretize_candidate_oracle(
+                    oracle={
+                        "strategy": "command",
+                        "setup": {"argv": ["npm", "run", "build"], "cwd": "."},
+                        "input": {"kind": "none"},
+                        "observation": {"kind": "exit_code", "expected": 0},
+                    },
+                    claim={"origin": {}},
+                    manifest={"entries": []},
+                    executor_capabilities=capabilities,
+                )
+                self.assertEqual(npm_build["classification"], "policy_rejected")
+                self.assertEqual(npm_build["reason"], "next_build_argv_not_registered")
+
+    def test_unregistered_next_is_unavailable_without_global_flag_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "node_modules/next/package.json"
+            package.parent.mkdir(parents=True)
+            package.write_text(json.dumps({"version": "15.0.0"}), encoding="utf-8")
+            capabilities = detect_executor_capabilities(root, profile="nextjs")
+            unavailable = concretize_candidate_oracle(
+                oracle={
+                    "strategy": "command",
+                    "setup": {"argv": ["npx", "next", "build"], "cwd": "."},
+                    "input": {"kind": "none"},
+                    "observation": {"kind": "exit_code", "expected": 0},
+                },
+                claim={"origin": {}},
+                manifest={"entries": []},
+                executor_capabilities=capabilities,
+            )
+            self.assertEqual(unavailable["classification"], "executor_unavailable")
+            python = concretize_candidate_oracle(
+                oracle={
+                    "strategy": "command",
+                    "setup": {
+                        "argv": ["python3", "cli.py", "--unknown"],
+                        "cwd": ".",
+                    },
+                    "input": {"kind": "none"},
+                    "observation": {"kind": "exit_code", "expected": 2},
+                },
+                claim={"origin": {}},
+                manifest={"entries": []},
+                executor_capabilities=capabilities,
+            )
+            self.assertEqual(python["classification"], "executable")
+
+    def test_next_capability_is_bound_to_the_executed_workspace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "node_modules/next/package.json"
+            package.parent.mkdir(parents=True)
+            package.write_text(json.dumps({"version": "14.2.35"}), encoding="utf-8")
+            capabilities = detect_executor_capabilities(root, profile="nextjs")
+            package.write_text(json.dumps({"version": "16.3.1"}), encoding="utf-8")
+            manifest = workspace_manifest(root)
+            result = evaluate_candidate_spec_v4(
+                spec={
+                    "claims": [{"id": "build", "origin": {}}],
+                    "oracles": [
+                        {
+                            "id": "build-oracle",
+                            "claim_id": "build",
+                            "strategy": "command",
+                            "setup": {
+                                "argv": ["npx", "next", "build"],
+                                "cwd": ".",
+                            },
+                            "input": {"kind": "none"},
+                            "observation": {"kind": "exit_code", "expected": 0},
+                        }
+                    ],
+                },
+                workspaces={"product": root},
+                frozen_snapshot_sha256={"product": manifest["snapshot_sha256"]},
+                executor_capabilities=capabilities,
+            )
+            self.assertFalse(result["same_snapshot"])
+            self.assertEqual(
+                result["evaluations"][0]["reason"],
+                "executor_capability_workspace_mismatch",
+            )
 
     def test_a5_scoring_rejects_a_correct_status_on_the_wrong_port(self):
         adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-a5.json")[
@@ -936,9 +1185,7 @@ class ContractReadinessTest(unittest.TestCase):
             contract["code_sha"],
             "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
         )
-        self.assertFalse(
-            contract["baseline"]["completion_verify_result_required"]
-        )
+        self.assertFalse(contract["baseline"]["completion_verify_result_required"])
         self.assertTrue(contract["baseline"]["honest_terminal_required"])
 
     def test_a7_contract_is_frozen_with_exact_ci_evidence(self):
@@ -971,6 +1218,31 @@ class ContractReadinessTest(unittest.TestCase):
         prompt = (ROOT / contract["generation"]["prompt"]).read_text()
         self.assertIn('["npx","next","build","--webpack"]', prompt)
         self.assertIn("safe_execution_unavailable", prompt)
+
+    def test_a9_draft_preserves_scoring_and_preregisters_smoke(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a9-contract.json")
+        previous = load("eval/goal_verify/v0/phase6-preflight-v4-a8-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        self.assertEqual(
+            contract["pre_live_amendments"][:3], previous["pre_live_amendments"]
+        )
+        amendment = contract["pre_live_amendments"][-1]
+        self.assertTrue(amendment["result_dependent"])
+        self.assertFalse(amendment["quality_effect_estimate_used"])
+        self.assertEqual(contract["scoring"], previous["scoring"])
+        self.assertEqual(
+            contract["baseline"]["recovery_plan_argv"],
+            [
+                "--recovery-plan-auto-runs",
+                "0",
+            ],
+        )
+        self.assertEqual(len(contract["smoke"]["pair_ids"]), 9)
+        self.assertNotEqual(
+            contract["smoke"]["request_namespace"], contract["contract_id"]
+        )
+        self.assertTrue(contract["authorization"]["implementation_authorized"])
+        self.assertTrue(contract["authorization"]["live_collection_authorized"])
 
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
@@ -1101,12 +1373,78 @@ class ContractReadinessTest(unittest.TestCase):
             adapters=adapters,
             capabilities=capabilities,
             manifests={"product": {"snapshot_sha256": "a" * 64, "entries": []}},
+            executor_capabilities={
+                "next": {
+                    "status": "registered",
+                    "next_version": "14.2.35",
+                    "safe_build_argv": ["npx", "next", "build"],
+                    "safe_start_argv_template": [
+                        "npx",
+                        "next",
+                        "start",
+                        "-p",
+                        "<port>",
+                    ],
+                }
+            },
         )
         payload = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
         self.assertEqual(
             payload["workspace_manifests"]["product"]["snapshot_sha256"], "a" * 64
         )
         self.assertNotIn("adapter_id", json.dumps(payload["required_claims"]))
+        self.assertEqual(
+            payload["executor_capabilities"]["next"]["next_version"], "14.2.35"
+        )
+
+    def test_a9_smoke_selector_requires_exact_unique_registered_pairs(self):
+        selected = [{"case_id": "case-a"}, {"case_id": "case-b"}]
+        pair_ids = ["case-a--pair-02", "case-b--pair-01"]
+        self.assertEqual(
+            _select_campaign_pair_ids(
+                selected=selected, samples_per_cell=2, pair_ids=pair_ids
+            ),
+            pair_ids,
+        )
+        with self.assertRaisesRegex(ValueError, "present and unique"):
+            _select_campaign_pair_ids(
+                selected=selected,
+                samples_per_cell=2,
+                pair_ids=["case-a--pair-01", "case-a--pair-01"],
+            )
+        with self.assertRaisesRegex(ValueError, "not in the contract"):
+            _select_campaign_pair_ids(
+                selected=selected,
+                samples_per_cell=2,
+                pair_ids=["case-c--pair-01"],
+            )
+        contract = {
+            "contract_id": "live",
+            "smoke": {"pair_ids": pair_ids, "request_namespace": "smoke"},
+        }
+        self.assertEqual(
+            _campaign_namespace(
+                contract=contract,
+                pair_ids=pair_ids,
+                request_namespace="smoke",
+                limit=None,
+            ),
+            "smoke",
+        )
+        with self.assertRaisesRegex(ValueError, "plain pair limit"):
+            _campaign_namespace(
+                contract=contract,
+                pair_ids=pair_ids,
+                request_namespace="smoke",
+                limit=1,
+            )
+        with self.assertRaisesRegex(ValueError, "exact set"):
+            _campaign_namespace(
+                contract=contract,
+                pair_ids=list(reversed(pair_ids)),
+                request_namespace="smoke",
+                limit=None,
+            )
 
     def test_v4_campaign_records_shared_product_snapshot_and_additive_score(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
