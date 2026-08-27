@@ -1,9 +1,9 @@
 {
   "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
   "contract_id": "phase6-preflight-v4-20260827-live-10",
-  "status": "draft",
-  "code_sha": null,
-  "exact_sha_ci_evidence": null,
+  "status": "frozen",
+  "code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-24bcaf05.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
@@ -161,7 +161,7 @@
       "superseded_run_id": "phase6-preflight-v4-20260827-live-09",
       "replacement_run_id": "phase6-preflight-v4-20260827-live-10",
       "superseded_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
-      "replacement_code_sha": null,
+      "replacement_code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
       "reason": "live-09 exposed (1) a contract-internal inconsistency: the A5 execution_goal mixed non-scored operational constraints and unregistered acceptance requirements into the goal string, so 22 conformance lanes emitted extra claims and failed the exact registered-ID rule; (2) a stage-resolution order defect: concretize_candidate_oracle rewrote existing_fix_evidence stage to product after the before workspace had been chosen, producing stage=product with the before snapshot hash; (3) a Next.js version mismatch: the host-owned --webpack prepare is valid on 16.3.1 but unknown on 14.2.35 product workspaces, and candidate dom/http oracles carried build argv without the server port; (4) closed-vocabulary gaps for minimum_strength and fixture_paths item shape",
       "change": "shared semantic goal plus typed operational_constraints per case (task registry a9); constraints are not independently scored and may only bind oracles for existing registered claim IDs, while the exact registered claim ID rule remains unchanged; effective stage decided once before workspace selection with existing_fix_evidence bound to the product workspace and stage provenance kept inside the binding; version-aware host-owned Next build/start (14.2.35 -> build, 16.3.1 -> build --webpack, unregistered -> safe_execution_unavailable) with next_version and safe argv exposed as candidate-visible executor capabilities; per-oracle port binding retained; prompt states minimum_strength vocabulary, fixture_paths string items, no new claims from constraints, and server-request-only argv for dom/http/interaction; recovery_plan_auto_runs fixed at 0; stratified smoke with both Next versions before live-10",
       "result_dependent": true,
@@ -195,7 +195,7 @@
         "decided_at": "2026-08-27",
         "estimand": "current product default without automatic Recovery Plan execution"
       },
-      "exact_sha_ci_evidence": null
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-24bcaf05.json"
     }
   ],
   "comparison": {

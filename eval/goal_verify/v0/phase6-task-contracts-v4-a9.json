@@ -1,6 +1,6 @@
 {
   "schema_version": "commandagent.goal_verify.task_contracts.v4_a9",
-  "status": "draft",
+  "status": "frozen",
   "supersedes": "eval/goal_verify/v0/phase6-task-contracts-v4-a5.json",
   "policy": {
     "goal": "one shared semantic goal component per case, identical for the current-product baseline and both candidate lanes; equals the corpus goal plus only the binding specifics that registered claims and adapters need",
