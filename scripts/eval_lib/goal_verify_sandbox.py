@@ -254,8 +254,48 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
     server_argv = plan.get("server_argv")
     if not isinstance(server_argv, list) or not server_argv:
         return {"runner_error": "server_argv_invalid", "runtime_ms": 0}
-    server = _sandboxed_command(root, server_argv, loopback=True)
+    prepare_argv = plan.get("prepare_argv", [])
+    if not isinstance(prepare_argv, list):
+        return {"runner_error": "prepare_argv_invalid", "runtime_ms": 0}
     started = time.monotonic_ns()
+    if prepare_argv:
+        try:
+            prepared = subprocess.run(
+                _sandboxed_command(root, prepare_argv, loopback=False),
+                cwd=cwd,
+                env=_minimal_environment(root),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=plan["timeout_ms"] / 1000,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "executed": False,
+                "result": "blocked",
+                "reason": "server_prepare_timeout",
+                "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
+            }
+        except OSError as error:
+            return {
+                "runner_error": f"server_prepare_failed:{type(error).__name__}",
+                "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
+            }
+        if prepared.returncode != 0:
+            return {
+                "executed": True,
+                "result": "fail",
+                "reason": "server_prepare_failed",
+                "exit_code": prepared.returncode,
+                "stdout": prepared.stdout[:MAX_CAPTURE_BYTES].decode(
+                    "utf-8", errors="replace"
+                ),
+                "stderr": prepared.stderr[:MAX_CAPTURE_BYTES].decode(
+                    "utf-8", errors="replace"
+                ),
+                "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
+            }
+    server = _sandboxed_command(root, server_argv, loopback=True)
     try:
         process = subprocess.Popen(
             server,
@@ -272,8 +312,16 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
         }
     try:
         base = f"http://127.0.0.1:{plan['port']}"
+        remaining_ms = _remaining_timeout_ms(started, plan["timeout_ms"])
+        if remaining_ms <= 0:
+            return {
+                "executed": False,
+                "result": "blocked",
+                "reason": "server_prepare_timeout",
+                "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
+            }
         if not _wait_for_loopback(
-            base + plan["ready_path"], plan["timeout_ms"], process
+            base + plan["ready_path"], remaining_ms, process
         ):
             return {
                 "executed": False,
@@ -284,7 +332,12 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
         if plan["kind"] == "http_probe":
             request = urllib.request.Request(base + plan["path"], method=plan["method"])
             try:
-                with urllib.request.urlopen(request, timeout=5) as response:
+                remaining_ms = _remaining_timeout_ms(started, plan["timeout_ms"])
+                if remaining_ms <= 0:
+                    raise subprocess.TimeoutExpired("http_probe", 0)
+                with urllib.request.urlopen(
+                    request, timeout=min(5, remaining_ms / 1000)
+                ) as response:
                     actual: Any = response.status
             except urllib.error.HTTPError as response:
                 actual = response.code
@@ -312,7 +365,10 @@ def run_macos_sandbox_web_probe(plan: dict[str, Any]) -> dict[str, Any]:
                 env=_minimal_environment(root),
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
-                timeout=plan["timeout_ms"] / 1000,
+                timeout=max(
+                    _remaining_timeout_ms(started, plan["timeout_ms"]), 1
+                )
+                / 1000,
                 check=False,
             )
             if completed.returncode != 0:
@@ -389,3 +445,8 @@ def _wait_for_loopback(url: str, timeout_ms: int, process: subprocess.Popen) -> 
         except (OSError, urllib.error.URLError):
             time.sleep(0.1)
     return False
+
+
+def _remaining_timeout_ms(started_ns: int, timeout_ms: int) -> int:
+    elapsed_ms = (time.monotonic_ns() - started_ns) // 1_000_000
+    return max(int(timeout_ms) - int(elapsed_ms), 0)

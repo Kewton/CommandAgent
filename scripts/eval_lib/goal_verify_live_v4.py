@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import jsonschema
+
 from eval_lib.goal_verify_additive_v4 import (
     candidate_visible_manifest,
     combine_evaluations,
@@ -30,6 +32,12 @@ from eval_lib.goal_verify_live_v3 import (
 )
 from eval_lib.goal_verify_observation_match_v3 import score_claim_coverage
 from eval_lib.goal_verify_preflight_v4 import readiness_report
+from eval_lib.goal_verify_repairs_v4 import apply_meaning_preserving_repairs
+from eval_lib.goal_verify_task_contracts_v4 import (
+    bind_existing_evidence_registry,
+    bind_task_contract,
+    load_task_contract_registry,
+)
 from eval_lib.goal_verify_v2 import normalize_v2_proposal
 from eval_lib.goal_verify_v3 import (
     LANES,
@@ -60,6 +68,11 @@ def run_campaign_v4(
     baseline_runner=None,
 ) -> dict[str, Any]:
     contract = load_json(contract_path)
+    configured_corpus = contract.get("corpus")
+    if configured_corpus is not None and corpus_path.resolve() != (
+        root / configured_corpus
+    ).resolve():
+        raise ValueError("v4 corpus path differs from contract.corpus")
     expected_schema = (
         root / contract["generation"]["structured_output_schema"]
     ).resolve()
@@ -95,7 +108,20 @@ def run_campaign_v4(
     )
     selected_ids = [row["case_id"] for row in contract["selected_cells"]]
     corpus_by_case = {row["case_id"]: row for row in corpus["cases"]}
-    selected = [corpus_by_case[case_id] for case_id in selected_ids]
+    task_contract_path = contract.get("task_contract_registry")
+    task_contracts = (
+        load_task_contract_registry(root / task_contract_path)
+        if task_contract_path
+        else None
+    )
+    selected = [
+        (
+            bind_task_contract(corpus_by_case[case_id], task_contracts)
+            if task_contracts is not None
+            else corpus_by_case[case_id]
+        )
+        for case_id in selected_ids
+    ]
     shapes = {
         intent: (root / path).read_text(encoding="utf-8")
         for intent, path in contract["generation"]["shape_examples"].items()
@@ -107,6 +133,11 @@ def run_campaign_v4(
         "contract_sha256": sha256_file(contract_path),
         "code_sha": contract["code_sha"],
         "corpus_sha256": sha256_file(corpus_path),
+        **(
+            {"task_contract_registry_sha256": sha256_file(root / task_contract_path)}
+            if task_contract_path
+            else {}
+        ),
         "schema_sha256": sha256_file(schema_path),
         "prompt_file_sha256": sha256_file(resolved_prompt),
         "answer_key_sha256": sha256_file(root / contract["scoring"]["answer_key"]),
@@ -176,6 +207,9 @@ def run_campaign_v4(
                         commandagent_bin=commandagent,
                         baseline_runner=baseline_runner or _default_baseline_runner(),
                     )
+                    candidate_case = bind_existing_evidence_registry(
+                        case, product_workspace
+                    )
                     frozen_product = pair_root / "frozen-product"
                     _copy_workspace(product_workspace, frozen_product)
                     snapshot_manifests = {
@@ -193,7 +227,7 @@ def run_campaign_v4(
                             schema=schema,
                             validator=validator,
                             provider=provider,
-                            case=case,
+                            case=candidate_case,
                             pair_id=pair_id,
                             pair_index=pair_index,
                             lane=lane,
@@ -215,9 +249,13 @@ def run_campaign_v4(
                         "pair_id": pair_id,
                         "source_case_id": case["case_id"],
                         "goal": case["goal"],
+                        "source_goal": case.get("source_goal", case["goal"]),
                         "intent": case["intent"],
                         "profile": case["profile"],
                         "required_claims": copy.deepcopy(case["required_claims"]),
+                        "existing_evidence_registry": copy.deepcopy(
+                            candidate_case.get("existing_evidence_registry", [])
+                        ),
                         "record_path": reference,
                         "snapshot_manifests": snapshot_manifests,
                         "browser_toolchain_sha256": (
@@ -301,16 +339,27 @@ def _run_lane_v4(
             think=bool(contract["generation"]["think"]),
         )
         normalized = None
+        allow_unverifiable = (
+            contract.get("claim_policy", {}).get("allow_unverifiable_reason") is True
+        )
         if response.get("status") == "completed":
             raw = response["response"].get("response", "")
             try:
                 normalized = (
                     normalize_v2_proposal(
-                        raw, case=case, model=contract["model"], request_id=request_id
+                        raw,
+                        case=case,
+                        model=contract["model"],
+                        request_id=request_id,
+                        allow_unverifiable_claims=allow_unverifiable,
                     )
                     if lane == "contract_conformance"
                     else canonicalize_held_out_proposal(
-                        raw, case=case, model=contract["model"], request_id=request_id
+                        raw,
+                        case=case,
+                        model=contract["model"],
+                        request_id=request_id,
+                        allow_unverifiable_claims=allow_unverifiable,
                     )
                 )
                 validation = _validate_proposal_v4(
@@ -318,6 +367,7 @@ def _run_lane_v4(
                     goal=case["goal"],
                     intent=case["intent"],
                     normalized_raw=normalized,
+                    proposal_schema=schema if allow_unverifiable else None,
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as error:
                 validation = {
@@ -401,6 +451,8 @@ def _build_prompt_v4(
     prefix, payload = prompt.rsplit("INPUT JSON:\n", 1)
     request = json.loads(payload)
     request["workspace_manifests"] = manifests
+    if case.get("task_contract"):
+        request["task_contract"] = copy.deepcopy(case["task_contract"])
     for claim in request.get("required_claims", []):
         for observation in claim.get("expected_observations", []):
             observation.pop("adapter_id", None)
@@ -412,12 +464,73 @@ def _build_prompt_v4(
     )
 
 
-def _validate_proposal_v4(*, validator, goal, intent, normalized_raw):
+def _validate_proposal_v4(
+    *, validator, goal, intent, normalized_raw, proposal_schema=None
+):
     """Validate the v0 core in Rust and preserve v4-only browser bindings."""
     proposal = json.loads(normalized_raw)
+    before = _validate_proposal_core_v4(
+        validator=validator,
+        goal=goal,
+        intent=intent,
+        proposal=proposal,
+        proposal_schema=proposal_schema,
+    )
+    repaired, host_repairs = apply_meaning_preserving_repairs(proposal)
+    validation = (
+        _validate_proposal_core_v4(
+            validator=validator,
+            goal=goal,
+            intent=intent,
+            proposal=repaired,
+            proposal_schema=proposal_schema,
+        )
+        if host_repairs
+        else before
+    )
+    return {
+        **validation,
+        "valid_before_host_repairs": before.get("valid", False),
+        "errors_before_host_repairs": before.get("errors", []),
+        "host_repairs": host_repairs,
+    }
+
+
+def _validate_proposal_core_v4(
+    *, validator, goal, intent, proposal, proposal_schema=None
+):
+    if proposal_schema is not None:
+        schema_errors = sorted(
+            jsonschema.Draft202012Validator(proposal_schema).iter_errors(proposal),
+            key=lambda error: (
+                tuple(str(part) for part in error.absolute_path),
+                error.message,
+            ),
+        )
+        if schema_errors:
+            return {
+                "valid": False,
+                "spec": None,
+                "errors": [
+                    "schema_invalid:"
+                    + "/".join(str(part) for part in error.absolute_path)
+                    + f":{error.message}"
+                    for error in schema_errors
+                ],
+            }
     extensions = {}
     extension_errors = []
     stripped = copy.deepcopy(proposal)
+    unverifiable_claims = [
+        claim for claim in stripped.get("claims", []) if not claim.get("oracle_ids")
+    ]
+    if unverifiable_claims:
+        unverifiable_ids = {claim.get("id") for claim in unverifiable_claims}
+        stripped["claims"] = [
+            claim
+            for claim in stripped.get("claims", [])
+            if claim.get("id") not in unverifiable_ids
+        ]
     for oracle in stripped.get("oracles", []):
         input_value = oracle.get("input")
         if not isinstance(input_value, dict) or input_value.get("kind") != "dom":
@@ -433,12 +546,21 @@ def _validate_proposal_v4(*, validator, goal, intent, normalized_raw):
         }
         extensions[oracle.get("id")] = extension
         extension_errors.extend(_v4_browser_extension_errors(oracle, extension))
-    validation = validate_proposal(
-        validator=validator,
-        goal=goal,
-        intent=intent,
-        normalized_raw=json.dumps(stripped, ensure_ascii=False, sort_keys=True),
-    )
+    if stripped.get("claims"):
+        validation = validate_proposal(
+            validator=validator,
+            goal=goal,
+            intent=intent,
+            normalized_raw=json.dumps(stripped, ensure_ascii=False, sort_keys=True),
+        )
+    elif proposal_schema is not None and unverifiable_claims:
+        validation = {"valid": True, "spec": copy.deepcopy(proposal), "errors": []}
+    else:
+        validation = {
+            "valid": False,
+            "spec": None,
+            "errors": ["every_claim_requires_an_oracle"],
+        }
     if extension_errors:
         return {
             "valid": False,
@@ -447,6 +569,15 @@ def _validate_proposal_v4(*, validator, goal, intent, normalized_raw):
         }
     if not validation.get("valid"):
         return validation
+    if stripped.get("claims") and unverifiable_claims:
+        validation["spec"]["claims"] = copy.deepcopy(proposal["claims"])
+    validation["unverifiable_claims"] = [
+        {
+            "claim_id": claim["id"],
+            "reason": claim["unverifiable_reason"],
+        }
+        for claim in unverifiable_claims
+    ]
     for oracle in validation["spec"].get("oracles", []):
         oracle["input"].update(extensions.get(oracle.get("id"), {}))
     return validation
@@ -575,9 +706,11 @@ def _copy_workspace(source, destination):
         symlinks=True,
         ignore=shutil.ignore_patterns(
             ".anvil",
+            ".commandagent",
             ".commandagent-state",
             ".commandagent-eval-home",
             ".commandagent-eval-tmp",
+            ".goal-verify-baseline",
             ".env",
             ".env.*",
             ".npmrc",

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_baseline_product_v3 import (
+    _product_run_dirs,
     extract_product_observations,
     score_baseline_observations,
 )
@@ -121,6 +122,26 @@ class PromptAndCanonicalizationTest(unittest.TestCase):
             value["claims"][0]["origin"]["end_byte"],
             len(case["goal"].encode("utf-8")),
         )
+
+    def test_held_out_honest_unknown_remains_unverified_in_denominator(self):
+        case = self.case("create-negative-constraint-injection")
+        proposal = json.loads(
+            (ROOT / "tests/fixtures/verification_spec_v0/create.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        proposal["claims"][0]["unverifiable_reason"] = "executor_capability_unavailable"
+        proposal["oracles"] = []
+        normalized = canonicalize_held_out_proposal(
+            json.dumps(proposal),
+            case=case,
+            model="m",
+            request_id="r",
+            allow_unverifiable_claims=True,
+        )
+        value = json.loads(normalized)
+        self.assertEqual(value["claims"][0]["oracle_ids"], [])
+        self.assertEqual(value["oracles"], [])
 
     def test_held_out_fix_origin_is_intent_compatible_and_deterministic(self):
         case = self.case("fix-reproduced-after-regression")
@@ -414,7 +435,7 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def replay(argv, cwd):
+            def replay(argv, cwd, timeout_ms):
                 return {"exit_code": 1, "stdout": "5\n", "stderr": ""}
 
             first = extract_product_observations(run, replay=replay)
@@ -422,6 +443,36 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertFalse(first[0]["passed"])
             self.assertEqual(first[0]["reason"], "baseline_observation_inconsistent")
+
+    def test_baseline_discovers_commandagent_run_and_completion_contract_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            run = workspace / ".commandagent/runs/run-1"
+            run.mkdir(parents=True)
+            (run / "events.jsonl").write_text(
+                json.dumps({"event": "completion_verify", "ok": True}) + "\n",
+                encoding="utf-8",
+            )
+
+            def replay(argv, cwd, timeout_ms):
+                self.assertEqual(argv, ["python3", "cli/main.py", "2", "3"])
+                self.assertEqual(cwd, workspace)
+                self.assertEqual(timeout_ms, 30_000)
+                return {"exit_code": 0, "stdout": "5\n", "stderr": ""}
+
+            self.assertEqual(_product_run_dirs(workspace), [run])
+            observations = extract_product_observations(
+                run,
+                replay=replay,
+                replay_cwd=workspace,
+                completion_contract={
+                    "verify_commands": ["python3 cli/main.py 2 3"]
+                },
+            )
+            stdout = [row for row in observations if row["kind"] == "stdout"]
+            self.assertEqual(len(stdout), 1)
+            self.assertEqual(stdout[0]["actual"], "5\n")
+            self.assertTrue(stdout[0]["passed"])
 
     def test_baseline_parser_does_not_treat_normalization_as_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -459,6 +510,30 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
         )
         self.assertTrue(rows[0]["observation_match"])
         self.assertNotIn("baseline_claim_id", rows[0])
+
+    def test_a5_baseline_scoring_requires_the_registered_input_binding(self):
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-a5.json")[
+            "adapters"
+        ]
+        observation = {
+            "strategy": "stdout",
+            "kind": "stdout",
+            "actual": "5\n",
+            "stdout": "5\n",
+            "argv": ["python3", "wrong.py", "2", "3"],
+            "executed": True,
+            "passed": True,
+            "strength": "runtime",
+        }
+        rows = score_baseline_observations(
+            [observation], adapters, case_id="create-cli-known-multiple-inputs"
+        )
+        self.assertFalse(rows[0]["observation_match"])
+        observation["argv"] = ["python3", "cli/main.py", "2", "3"]
+        rows = score_baseline_observations(
+            [observation], adapters, case_id="create-cli-known-multiple-inputs"
+        )
+        self.assertTrue(rows[0]["observation_match"])
 
     def test_blind_hidden_lane_removes_execution_and_mapping_is_separate(self):
         records = []

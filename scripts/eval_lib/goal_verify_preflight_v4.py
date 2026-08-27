@@ -6,6 +6,10 @@ from typing import Any
 
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_sandbox import sandbox_backend_status
+from eval_lib.goal_verify_task_contracts_v4 import (
+    load_task_contract_registry,
+    selected_task_contract_errors,
+)
 from eval_lib.goal_verify_workspaces_v3 import (
     validate_provisioning,
     validate_workspace_registry,
@@ -60,6 +64,9 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
     )
     if not schema.is_file():
         errors.append("structured_output_schema_missing")
+    answer_key_path = root / contract.get("scoring", {}).get("answer_key", "")
+    if not answer_key_path.is_file():
+        errors.append("answer_key_missing")
     if not prompt.is_file():
         errors.append("prompt_missing")
     else:
@@ -73,6 +80,64 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
         ):
             if marker not in text:
                 errors.append(f"prompt_rule_missing:{marker}")
+    task_registry = contract.get("task_contract_registry")
+    corpus_path = contract.get("corpus")
+    if task_registry or corpus_path:
+        if not task_registry:
+            errors.append("task_contract_registry_missing")
+        if not corpus_path:
+            errors.append("contract_corpus_missing")
+        if task_registry and corpus_path:
+            try:
+                registry = load_task_contract_registry(root / task_registry)
+                corpus = load_json(root / corpus_path)
+            except (OSError, TypeError, ValueError) as error:
+                errors.append(f"task_contract_registry_invalid:{error}")
+            else:
+                errors.extend(
+                    selected_task_contract_errors(
+                        corpus=corpus, contract=contract, registry=registry
+                    )
+                )
+                try:
+                    answer_key = load_json(answer_key_path)
+                except (OSError, TypeError, ValueError) as error:
+                    errors.append(f"answer_key_invalid:{error}")
+                else:
+                    adapter_rows = answer_key.get("adapters", [])
+                    adapter_ids = [
+                        row.get("adapter_id")
+                        for row in adapter_rows
+                        if isinstance(row, dict)
+                    ]
+                    if len(adapter_ids) != len(adapter_rows) or len(
+                        set(adapter_ids)
+                    ) != len(adapter_ids):
+                        errors.append("answer_key_adapter_ids_invalid")
+                    selected_ids = {
+                        row.get("case_id") for row in contract.get("selected_cells", [])
+                    }
+                    expected_claims = {
+                        (case["case_id"], claim["id"])
+                        for case in corpus.get("cases", [])
+                        if case.get("case_id") in selected_ids
+                        for claim in case.get("required_claims", [])
+                    }
+                    actual_claims = {
+                        (row.get("case_id"), row.get("claim_id"))
+                        for row in adapter_rows
+                        if row.get("case_id") in selected_ids
+                    }
+                    if actual_claims != expected_claims:
+                        errors.append("answer_key_claim_set_mismatch")
+    claim_policy = contract.get("claim_policy")
+    if claim_policy is not None and (
+        claim_policy.get("allow_unverifiable_reason") is not True
+        or claim_policy.get("passing_credit") is not False
+        or claim_policy.get("scoring")
+        != "retain claim in denominator as unverified"
+    ):
+        errors.append("unverifiable_claim_policy_invalid")
     budget = load_json(root / contract["resource_budget_config"])
     expected = budget["resource_budget_registration"]["values"]
     actual = {

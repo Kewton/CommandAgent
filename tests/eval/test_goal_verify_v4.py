@@ -17,14 +17,22 @@ from eval_lib.goal_verify_additive_v4 import (
     score_candidate_outcomes,
     workspace_manifest,
 )
+from eval_lib.goal_verify_baseline_product_v3 import build_product_argv
 from eval_lib.goal_verify_live_v4 import (
     _build_prompt_v4,
     _validate_proposal_v4,
     run_campaign_v4,
 )
-from eval_lib.goal_verify_preflight_report_v4 import build_report
+from eval_lib.goal_verify_preflight_report_v4 import build_report, semantic_review_gate
 from eval_lib.goal_verify_preflight_v4 import design_errors, readiness_report
+from eval_lib.goal_verify_repairs_v4 import apply_meaning_preserving_repairs
 from eval_lib.goal_verify_sandbox import _sandbox_profile, sandbox_backend_status
+from eval_lib.goal_verify_task_contracts_v4 import (
+    bind_existing_evidence_registry,
+    bind_task_contract,
+    load_task_contract_registry,
+    selected_task_contract_errors,
+)
 from eval_lib.goal_verify_workspaces_v4 import (
     load_v4_workspace_registry,
     selected_product_workspace_errors,
@@ -53,12 +61,50 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             (root / "app.py").write_text("print('ok')\n", encoding="utf-8")
             (root / ".anvil").mkdir()
             (root / ".anvil/events.jsonl").write_text("secret", encoding="utf-8")
+            (root / ".goal-verify-baseline").mkdir()
+            (root / ".goal-verify-baseline/completion-contract.json").write_text(
+                "private baseline input", encoding="utf-8"
+            )
             first = workspace_manifest(root)
             second = workspace_manifest(root)
             self.assertEqual(first, second)
             self.assertEqual([row["path"] for row in first["entries"]], ["app.py"])
             visible = candidate_visible_manifest(first)
             self.assertNotIn("secret", json.dumps(visible))
+            self.assertNotIn("completion-contract", json.dumps(visible))
+
+    def test_a5_task_contract_is_bound_to_both_product_and_candidate_input(self):
+        corpus = load("eval/goal_verify/v0/corpus.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
+        )
+        registry = load_task_contract_registry(
+            ROOT / "eval/goal_verify/v0/phase6-task-contracts-v4-a5.json"
+        )
+        bound = bind_task_contract(case, registry)
+        self.assertIn("cli/main.py", bound["goal"])
+        self.assertEqual(
+            bound["task_contract"]["completion_contract"]["verify_commands"][0],
+            "python3 cli/main.py 2 3",
+        )
+        argv = build_product_argv(
+            commandagent_bin=Path("/tmp/commandagent"),
+            workspace=Path("/tmp/workspace"),
+            case=bound,
+            model="m",
+            completion_contract_path=Path("/tmp/completion-contract.json"),
+        )
+        self.assertIn("--completion-contract-json", argv)
+        self.assertEqual(argv[-1], bound["goal"])
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
+        self.assertEqual(
+            selected_task_contract_errors(
+                corpus=corpus, contract=contract, registry=registry
+            ),
+            [],
+        )
 
     def test_concretizer_uses_candidate_argv_without_gold(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -202,6 +248,201 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             self.assertEqual(captured[0]["source"], "host_validated_candidate_web_v4")
             self.assertTrue(Path(captured[0]["server_argv"][0]).is_absolute())
             self.assertFalse(captured[0]["raw_provider_argv_used"])
+
+    def test_next_web_plan_uses_host_owned_build_and_start_argv(self):
+        concrete = concretize_candidate_oracle(
+            oracle={
+                "strategy": "dom",
+                "setup": {
+                    "argv": ["npx", "next", "dev", "-p", "4174"],
+                    "cwd": ".",
+                },
+                "input": {
+                    "kind": "dom",
+                    "port": 4174,
+                    "route": "/play",
+                    "selector": "#count",
+                },
+                "observation": {"kind": "dom", "expected": "2"},
+            },
+            claim={"origin": {"source_kind": "goal"}},
+            manifest={"entries": []},
+        )
+        self.assertEqual(concrete["classification"], "executable")
+        self.assertEqual(concrete["plan"]["prepare_argv"], ["npx", "next", "build"])
+        self.assertEqual(
+            concrete["plan"]["server_argv"],
+            ["npx", "next", "start", "-p", "4174"],
+        )
+        self.assertNotIn("&&", json.dumps(concrete["plan"]))
+
+    def test_cli_text_comparison_removes_only_one_terminal_newline(self):
+        def runner(_plan):
+            return {
+                "exit_code": 0,
+                "stdout": "5\n",
+                "stderr": "",
+                "timed_out": False,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = execute_candidate_plan(
+                {
+                    "kind": "command",
+                    "argv": ["python3", "app.py"],
+                    "cwd": ".",
+                    "timeout_ms": 1000,
+                    "observation": {"kind": "stdout", "expected": "5"},
+                },
+                workspace=Path(temporary),
+                runner=runner,
+            )
+            self.assertEqual(result["result"], "pass")
+            self.assertEqual(
+                result["comparison_normalization"],
+                "cli_text_single_terminal_newline_v1",
+            )
+
+            def extra_newline(_plan):
+                return {**runner(_plan), "stdout": "5\n\n"}
+
+            mismatch = execute_candidate_plan(
+                {
+                    "kind": "command",
+                    "argv": ["python3", "app.py"],
+                    "cwd": ".",
+                    "timeout_ms": 1000,
+                    "observation": {"kind": "stdout", "expected": "5"},
+                },
+                workspace=Path(temporary),
+                runner=extra_newline,
+            )
+            self.assertEqual(mismatch["result"], "fail")
+
+    def test_existing_fix_evidence_uses_bound_artifact_without_gold(self):
+        claim = {
+            "origin": {
+                "source_kind": "fix_requirement",
+                "artifact_path": "evidence/fix-evidence.json",
+                "requirement_id": "after_passes",
+                "stage": "after",
+                "expected_polarity": "success",
+                "lineage": "case-a",
+                "epoch": 1,
+            }
+        }
+        oracle = {
+            "strategy": "existing_fix_evidence",
+            "observation": {
+                "kind": "existing_binding",
+                "artifact_path": "evidence/fix-evidence.json",
+            },
+        }
+        concrete = concretize_candidate_oracle(
+            oracle=oracle, claim=claim, manifest={"entries": []}
+        )
+        self.assertEqual(concrete["classification"], "executable")
+        self.assertEqual(concrete["stage"], "product")
+        self.assertFalse(concrete["gold_used_for_concretization"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "evidence").mkdir()
+            (root / "evidence/fix-evidence.json").write_text(
+                json.dumps(
+                    {
+                        "bindings": [
+                            {
+                                "requirement_id": "after_passes",
+                                "stage": "after",
+                                "expected": "success",
+                                "lineage": "case-a",
+                                "epoch": 1,
+                                "executed": True,
+                                "outcome": "success",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = execute_candidate_plan(concrete["plan"], workspace=root)
+            self.assertEqual(result["result"], "pass")
+
+    def test_a5_scoring_rejects_a_correct_status_on_the_wrong_port(self):
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-a5.json")[
+            "adapters"
+        ]
+        oracle = {
+            "id": "http-1",
+            "claim_id": "port-path",
+            "strategy": "http",
+            "expected_polarity": "success",
+            "input": {
+                "kind": "http",
+                "method": "GET",
+                "port": 3000,
+                "path": "/play",
+            },
+            "observation": {"kind": "http_status", "expected": 200},
+        }
+        outcome = {
+            "executed": True,
+            "result": "pass",
+            "actual": 200,
+            "observed_strength": "runtime",
+        }
+        wrong = score_candidate_outcomes(
+            case_id="create-ui-copy-style-port-path",
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[outcome],
+            adapters=adapters,
+        )
+        self.assertIsNone(wrong[0]["adapter_id"])
+        oracle["input"]["port"] = 4173
+        correct = score_candidate_outcomes(
+            case_id="create-ui-copy-style-port-path",
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[outcome],
+            adapters=adapters,
+        )
+        self.assertEqual(correct[0]["adapter_id"], "port-path")
+
+    def test_a5_registry_binds_dynamic_product_evidence_without_outcome_leak(self):
+        corpus = load("eval/goal_verify/v0/corpus.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "fix-reproduced-after-regression"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            evidence = workspace / "evidence"
+            evidence.mkdir()
+            (evidence / "fix-run-after.json").write_text(
+                json.dumps(
+                    {
+                        "requirement_id": "after_passes",
+                        "stage": "after",
+                        "expected": "success",
+                        "lineage": "reproducer:abc",
+                        "epoch": 2,
+                        "executed": True,
+                        "outcome": "success",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bound = bind_existing_evidence_registry(case, workspace)
+        row = next(
+            item
+            for item in bound["existing_evidence_registry"]
+            if item["claim_id"] == "before-after"
+        )
+        self.assertEqual(row["artifact_path"], "evidence/fix-run-after.json")
+        self.assertEqual(row["stage"], "after")
+        self.assertNotIn("outcome", row)
 
     def test_candidate_sandbox_denies_sibling_file_read(self):
         if not sandbox_backend_status()["available"]:
@@ -432,6 +673,71 @@ class UnionAndVerdictTest(unittest.TestCase):
 
 
 class ContractReadinessTest(unittest.TestCase):
+    def test_v4_host_repairs_are_conditional_and_record_binding_hashes(self):
+        proposal = load("tests/fixtures/verification_spec_v0/create.json")
+        oracle = proposal["oracles"][0]
+        oracle["strategy"] = "interaction"
+        oracle["setup"].pop("fixture_paths")
+        oracle["input"] = {
+            "kind": "dom",
+            "route": "/",
+            "selector": "#count",
+            "port": 4174,
+            "computed_style_property": "color",
+        }
+        oracle["observation"] = {
+            "kind": "interaction",
+            "expected": "2",
+            "actions": [{"kind": "click", "selector": "#add", "repeat": 2}],
+        }
+        repaired, rows = apply_meaning_preserving_repairs(proposal)
+        repaired_oracle = repaired["oracles"][0]
+        self.assertEqual(repaired_oracle["setup"]["fixture_paths"], [])
+        self.assertEqual(repaired_oracle["input"]["property"], "color")
+        self.assertEqual(repaired_oracle["input"]["actions"][0]["repeat"], 2)
+        self.assertNotIn("actions", repaired_oracle["observation"])
+        self.assertEqual(len(rows), 1)
+        self.assertNotEqual(
+            rows[0]["before_binding_sha256"], rows[0]["after_binding_sha256"]
+        )
+        self.assertTrue(rows[0]["semantic_equivalence"])
+
+    def test_v4_host_repairs_reject_ambiguous_or_fixture_defaults(self):
+        proposal = load("tests/fixtures/verification_spec_v0/fix.json")
+        oracle = proposal["oracles"][0]
+        oracle["setup"].pop("fixture_paths")
+        oracle["observation"]["actions"] = []
+        repaired, rows = apply_meaning_preserving_repairs(proposal)
+        self.assertNotIn("fixture_paths", repaired["oracles"][0]["setup"])
+        self.assertIn("actions", repaired["oracles"][0]["observation"])
+        self.assertEqual(rows, [])
+
+    def test_v4_validator_reports_yield_before_and_after_host_repairs(self):
+        proposal = load("tests/fixtures/verification_spec_v0/create.json")
+        proposal["oracles"][0]["setup"].pop("fixture_paths")
+
+        def validator(**kwargs):
+            spec = json.loads(kwargs["normalized_raw"])
+            valid = "fixture_paths" in spec["oracles"][0]["setup"]
+            return {
+                "valid": valid,
+                "spec": spec if valid else None,
+                "errors": [] if valid else ["schema_invalid:missing fixture_paths"],
+            }
+
+        with mock.patch(
+            "eval_lib.goal_verify_live_v4.validate_proposal", side_effect=validator
+        ):
+            result = _validate_proposal_v4(
+                validator=Path("validator"),
+                goal=proposal["goal"],
+                intent=proposal["intent"],
+                normalized_raw=json.dumps(proposal),
+            )
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["valid_before_host_repairs"])
+        self.assertEqual(len(result["host_repairs"]), 1)
+
     def test_v4_browser_schema_is_additive_and_separate_from_production_v0(self):
         base = load("eval/goal_verify/v0/verification-spec.schema.json")
         extended = load(
@@ -443,6 +749,42 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertNotIn("port", base_dom["properties"])
         self.assertIn("port", extended_dom["required"])
         self.assertIn("actions", extended_dom["properties"])
+
+    def test_a5_schema_and_validator_accept_only_explicit_honest_unknown(self):
+        schema = load(
+            "eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json"
+        )
+        proposal = load("tests/fixtures/verification_spec_v0/create.json")
+        proposal["claims"][0]["oracle_ids"] = []
+        proposal["claims"][0]["unverifiable_reason"] = "executor_capability_unavailable"
+        proposal["oracles"] = []
+        result = _validate_proposal_v4(
+            validator=Path("unused-for-all-unverifiable"),
+            goal=proposal["goal"],
+            intent=proposal["intent"],
+            normalized_raw=json.dumps(proposal),
+            proposal_schema=schema,
+        )
+        self.assertTrue(result["valid"])
+        self.assertEqual(
+            result["unverifiable_claims"],
+            [
+                {
+                    "claim_id": proposal["claims"][0]["id"],
+                    "reason": "executor_capability_unavailable",
+                }
+            ],
+        )
+        proposal["claims"][0]["unverifiable_reason"] = "made_up_reason"
+        rejected = _validate_proposal_v4(
+            validator=Path("unused-for-all-unverifiable"),
+            goal=proposal["goal"],
+            intent=proposal["intent"],
+            normalized_raw=json.dumps(proposal),
+            proposal_schema=schema,
+        )
+        self.assertFalse(rejected["valid"])
+        self.assertTrue(rejected["errors"][0].startswith("schema_invalid:"))
 
     def test_v4_validator_preserves_browser_extension_outside_production_type(self):
         proposal = load("tests/fixtures/verification_spec_v0/create.json")
@@ -530,6 +872,19 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertNotIn("exact_code_sha_missing", report["blockers"])
         self.assertNotIn("exact_sha_ci_evidence_missing", report["blockers"])
         self.assertNotIn("live_collection_not_authorized", report["blockers"])
+
+    def test_a5_contract_is_design_complete_but_not_frozen_early(self):
+        path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json"
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        report = readiness_report(root=ROOT, contract_path=path)
+        self.assertIn("contract_not_frozen", report["blockers"])
+        self.assertIn("exact_code_sha_missing", report["blockers"])
+        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        self.assertEqual(
+            contract["claim_policy"]["scoring"],
+            "retain claim in denominator as unverified",
+        )
 
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
@@ -817,6 +1172,8 @@ class ContractReadinessTest(unittest.TestCase):
             contract=contract, records=[record], semantic_review_complete=True
         )
         self.assertTrue(report["ready_for_full_experiment_design"])
+        self.assertEqual(report["counts"]["schema_valid_before_host_repairs"], 1)
+        self.assertEqual(report["counts"]["host_repaired_lanes"], 0)
         record["lanes"]["held_out_synthesis"]["execution"][
             "reference_fallback_count"
         ] = 1
@@ -824,6 +1181,76 @@ class ContractReadinessTest(unittest.TestCase):
             contract=contract, records=[record], semantic_review_complete=True
         )
         self.assertFalse(blocked["checks"]["reference_fallback_zero"])
+
+    def test_a5_report_requires_bound_discovered_baseline_attempt(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")
+        contract["selected_cells"] = [{"case_id": "x"}]
+        contract["samples_per_cell"] = 1
+        record = {
+            "baseline": {
+                "completion_contract_bound": True,
+                "product_run_dir": "/run/1",
+                "completion_verify_attempt_recorded": True,
+                "observations": [],
+            },
+            "snapshot_manifests": {"product": {"snapshot_sha256": "a" * 64}},
+            "lanes": {
+                "held_out_synthesis": {
+                    "validation": {
+                        "valid": True,
+                        "unverifiable_claims": [
+                            {
+                                "claim_id": "c",
+                                "reason": "executor_capability_unavailable",
+                            }
+                        ],
+                    },
+                    "execution": {
+                        "same_snapshot": True,
+                        "reference_fallback_count": 0,
+                        "gold_used_for_execution_count": 0,
+                        "evaluations": [],
+                    },
+                    "additive_comparison": {
+                        "baseline_failure_overridden": False,
+                        "shadow_verdict": "unverified",
+                        "combined_score": {"claims": [{"status": "unverified"}]},
+                        "paired_delta": {
+                            "required_claim_recall": 0.0,
+                            "strong_binding": 0.0,
+                            "unverified_rate": 0.0,
+                        },
+                    },
+                }
+            },
+        }
+        report = build_report(
+            contract=contract, records=[record], semantic_review_complete=True
+        )
+        self.assertTrue(report["ready_for_full_experiment_design"])
+        self.assertEqual(report["counts"]["explicit_unverifiable_claims"], 1)
+        record["baseline"]["completion_verify_attempt_recorded"] = False
+        blocked = build_report(
+            contract=contract, records=[record], semantic_review_complete=True
+        )
+        self.assertFalse(blocked["checks"]["baseline_completion_verify_attempted"])
+
+    def test_preflight_semantic_gate_cannot_be_set_by_boolean_only(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a5-contract.json")
+        self.assertFalse(semantic_review_gate(contract=contract, blind_report=None))
+        report = {
+            "semantic_review_complete": True,
+            "checks": {"human_review_complete": True},
+            "human_review": {
+                "valid": True,
+                "reviewer_type": "human",
+                "contract_authoring_involvement": False,
+                "independence_confirmed": True,
+            },
+        }
+        self.assertTrue(semantic_review_gate(contract=contract, blind_report=report))
+        report["human_review"]["reviewer_type"] = "model"
+        self.assertFalse(semantic_review_gate(contract=contract, blind_report=report))
 
 
 if __name__ == "__main__":

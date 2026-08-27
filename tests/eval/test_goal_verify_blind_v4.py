@@ -1,0 +1,209 @@
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from eval_lib.goal_verify_blind_v4 import (
+    AXES,
+    build_blind_report,
+    canonical_sha256,
+    human_sample,
+    independent_human_template,
+    prepare_semantic_items,
+)
+
+
+def record(pair_id="case-a--pair-01", case_id="case-a"):
+    raw = """{
+      "generation":{"provider":"secret","model":"secret","request_id":"secret"},
+      "claims":[{"id":"c1","normalized_requirement":"does it","oracle_ids":["o1"]}],
+      "oracles":[{"id":"o1","claim_id":"c1","strategy":"command"}]
+    }"""
+    lane = {
+        "attempts": [
+            {"response": {"status": "completed", "response": {"response": raw}}}
+        ]
+    }
+    return {
+        "pair_id": pair_id,
+        "source_case_id": case_id,
+        "goal": "do it",
+        "intent": "create",
+        "profile": "cli",
+        "required_claims": [{"id": "required", "min_strength": "runtime"}],
+        "lanes": {"contract_conformance": lane, "held_out_synthesis": lane},
+    }
+
+
+class BlindV4Test(unittest.TestCase):
+    def test_items_keep_raw_semantics_and_hide_source_and_provider(self):
+        items, mapping = prepare_semantic_items(
+            records=[record()], contract_sha256="a" * 64
+        )
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["raw_claim"]["normalized_requirement"], "does it")
+        self.assertNotIn("source_lane", items[0])
+        self.assertNotIn("pair_id", items[0])
+        self.assertNotIn("generation", str(items))
+        self.assertEqual({row["source_lane"] for row in mapping.values()}, {
+            "contract_conformance",
+            "held_out_synthesis",
+        })
+
+    def test_item_order_and_ids_are_deterministic(self):
+        first = prepare_semantic_items(records=[record()], contract_sha256="a" * 64)
+        second = prepare_semantic_items(records=[record()], contract_sha256="a" * 64)
+        self.assertEqual(first, second)
+
+    def test_human_sample_covers_cases_and_has_ten_items(self):
+        records = []
+        for index in range(1, 9):
+            records.append(record(f"case-{index}--pair-01", f"case-{index}"))
+        items, mapping = prepare_semantic_items(
+            records=records, contract_sha256="b" * 64
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        self.assertEqual(len(sample), 10)
+        covered = {mapping[item_id]["source_case_id"] for item_id in sample}
+        self.assertEqual(len(covered), 8)
+
+    def test_report_accepts_nested_and_flat_review_payloads(self):
+        items, mapping = prepare_semantic_items(
+            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            contract_sha256="c" * 64,
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        sampled_items = [
+            next(item for item in items if item["item_id"] == item_id)
+            for item_id in sample
+        ]
+        rows = [review_row(item["item_id"]) for item in items]
+        first = model_review(items, rows, "family-a", nested=True)
+        first["reviewer"]["provider"] = "openai-codex-agent"
+        first["invocation_script_sha256"] = "not_applicable_agent_review"
+        second = model_review(items, rows, "family-b", nested=False)
+        human = {
+            "reviewer_id": "fable",
+            "reviewer_type": "human",
+            "contract_authoring_involvement": False,
+            "independence_confirmed": True,
+            "items_sha256": canonical_sha256(items),
+            "human_items_sha256": canonical_sha256(sampled_items),
+            "item_ids": sample,
+            "reviews": [review_row(item_id) for item_id in sample],
+        }
+        report = build_blind_report(
+            items=items,
+            model_documents=[first, second],
+            human_document=human,
+            human_items=sampled_items,
+        )
+        self.assertTrue(report["semantic_review_complete"])
+        self.assertEqual(report["agreement"]["cohen_kappa"], 1.0)
+
+    def test_report_keeps_blank_human_review_incomplete(self):
+        items, mapping = prepare_semantic_items(
+            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            contract_sha256="d" * 64,
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        sampled_items = [
+            next(item for item in items if item["item_id"] == item_id)
+            for item_id in sample
+        ]
+        rows = [review_row(item["item_id"]) for item in items]
+        human_rows = [review_row(item_id) for item_id in sample]
+        for row in human_rows:
+            row["verdict"] = ""
+            row["rationale"] = ""
+        report = build_blind_report(
+            items=items,
+            model_documents=[
+                model_review(items, rows, "family-a", nested=True),
+                model_review(items, rows, "family-b", nested=False),
+            ],
+            human_document={
+                "reviewer_id": "fable",
+                "reviewer_type": "human",
+                "contract_authoring_involvement": False,
+                "independence_confirmed": True,
+                "items_sha256": canonical_sha256(items),
+                "human_items_sha256": canonical_sha256(sampled_items),
+                "item_ids": sample,
+                "reviews": human_rows,
+            },
+            human_items=sampled_items,
+        )
+        self.assertFalse(report["semantic_review_complete"])
+        self.assertIn("invalid_verdict", report["human_review"]["errors"][0])
+
+    def test_non_human_or_contract_author_is_not_an_independent_human(self):
+        items, mapping = prepare_semantic_items(
+            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            contract_sha256="e" * 64,
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        sampled_items = [
+            next(item for item in items if item["item_id"] == item_id)
+            for item_id in sample
+        ]
+        human = independent_human_template(
+            items_sha256=canonical_sha256(items), human_items=sampled_items
+        )
+        human.update(
+            {
+                "reviewer_id": "fable",
+                "reviewer_type": "model",
+                "contract_authoring_involvement": True,
+                "independence_confirmed": True,
+                "reviews": [review_row(item_id) for item_id in sample],
+            }
+        )
+        rows = [review_row(item["item_id"]) for item in items]
+        report = build_blind_report(
+            items=items,
+            model_documents=[
+                model_review(items, rows, "family-a", nested=True),
+                model_review(items, rows, "family-b", nested=False),
+            ],
+            human_document=human,
+            human_items=sampled_items,
+        )
+        self.assertFalse(report["semantic_review_complete"])
+        self.assertIn("reviewer_type_must_be_human", report["human_review"]["errors"])
+        self.assertIn(
+            "contract_authoring_involvement_must_be_false",
+            report["human_review"]["errors"],
+        )
+
+
+def review_row(item_id):
+    return {
+        "item_id": item_id,
+        "verdict": "acceptable",
+        "axes": {axis: True for axis in AXES},
+        "reason_codes": [],
+        "rationale": "The visible claim and oracle form a complete semantic check.",
+    }
+
+
+def model_review(items, rows, family, *, nested):
+    parsed = {"reviews": rows} if nested else rows
+    return {
+        "items_sha256": canonical_sha256(items),
+        "reviewer": {
+            "provider": "test",
+            "model_id_or_version": family + "-model",
+            "model_family": family,
+            "invoked_at": "2026-08-27T00:00:00+09:00",
+            "independent": True,
+        },
+        "parsed_reviews": parsed,
+        "invocation_script_sha256": "a" * 64,
+    }
+
+
+if __name__ == "__main__":
+    unittest.main()

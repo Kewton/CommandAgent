@@ -12,6 +12,7 @@ from eval_lib.goal_verify_v2 import (
     INPUT_KINDS,
     OBSERVATION_KINDS,
     STRATEGIES,
+    UNVERIFIABLE_REASONS,
     _binding_hash,
     _evidence_registry,
     _oracle_id,
@@ -208,7 +209,12 @@ def _held_out_origin(
 
 
 def canonicalize_held_out_proposal(
-    raw: str, *, case: dict[str, Any], model: str, request_id: str
+    raw: str,
+    *,
+    case: dict[str, Any],
+    model: str,
+    request_id: str,
+    allow_unverifiable_claims: bool = False,
 ) -> str:
     value = json.loads(raw)
     if not isinstance(value, dict):
@@ -267,8 +273,14 @@ def canonicalize_held_out_proposal(
         }
         by_id[claim_id]["oracle_ids"].append(oracle["id"])
         ordered.append(oracle)
-    if any(not claim["oracle_ids"] for claim in canonical["claims"]):
-        raise ValueError("every held-out claim must have at least one oracle")
+    for claim in canonical["claims"]:
+        reason = claim.get("unverifiable_reason")
+        if claim["oracle_ids"] and reason is not None:
+            raise ValueError("a claim with an oracle cannot be marked unverifiable")
+        if claim["oracle_ids"]:
+            continue
+        if not allow_unverifiable_claims or reason not in UNVERIFIABLE_REASONS:
+            raise ValueError("every held-out claim must have at least one oracle")
     canonical["goal"] = case["goal"]
     canonical["intent"] = case["intent"]
     canonical["profile"] = case["profile"]

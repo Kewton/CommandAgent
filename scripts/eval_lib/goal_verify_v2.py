@@ -40,6 +40,11 @@ STRATEGIES = (
     "existing_fix_evidence",
     "existing_investigation_binding",
 )
+UNVERIFIABLE_REASONS = (
+    "executor_capability_unavailable",
+    "safe_execution_unavailable",
+    "workspace_binding_unavailable",
+)
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -51,6 +56,7 @@ def _canonical_json(value: Any) -> bytes:
 
 
 def _evidence_registry(case: dict[str, Any]) -> list[dict[str, Any]]:
+    override = case.get("existing_evidence_registry")
     if case["intent"] == "create":
         return []
     registry = []
@@ -102,7 +108,14 @@ def _evidence_registry(case: dict[str, Any]) -> list[dict[str, Any]]:
                     "epoch": 1,
                 }
             )
-    return registry
+    if not isinstance(override, list):
+        return registry
+    override_by_claim = {
+        row.get("claim_id"): copy.deepcopy(row)
+        for row in override
+        if isinstance(row, dict)
+    }
+    return [override_by_claim.get(row["claim_id"], row) for row in registry]
 
 
 def build_v2_prompt(
@@ -181,7 +194,9 @@ def _binding_hash(oracle: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(semantic_binding)).hexdigest()
 
 
-def canonicalize_v2_proposal(raw: str, *, case: dict[str, Any]) -> dict[str, Any]:
+def canonicalize_v2_proposal(
+    raw: str, *, case: dict[str, Any], allow_unverifiable_claims: bool = False
+) -> dict[str, Any]:
     """Replace provider-owned deterministic fields without repairing semantic choices."""
     value = json.loads(raw)
     if not isinstance(value, dict):
@@ -217,8 +232,14 @@ def canonicalize_v2_proposal(raw: str, *, case: dict[str, Any]) -> dict[str, Any
         ):
             raise ValueError("oracle must reference a registered claim ID")
         oracles_by_claim[oracle["claim_id"]].append(oracle)
-    if any(not rows for rows in oracles_by_claim.values()):
-        raise ValueError("every required claim must have at least one oracle")
+    for claim_id, rows in oracles_by_claim.items():
+        reason = claims_by_id[claim_id].get("unverifiable_reason")
+        if rows and reason is not None:
+            raise ValueError("a claim with an oracle cannot be marked unverifiable")
+        if rows:
+            continue
+        if not allow_unverifiable_claims or reason not in UNVERIFIABLE_REASONS:
+            raise ValueError("every required claim must have at least one oracle")
 
     ordered_oracles: list[dict[str, Any]] = []
     for claim_id in required_ids:
@@ -248,9 +269,16 @@ def canonicalize_v2_proposal(raw: str, *, case: dict[str, Any]) -> dict[str, Any
 
 
 def normalize_v2_proposal(
-    raw: str, *, case: dict[str, Any], model: str, request_id: str
+    raw: str,
+    *,
+    case: dict[str, Any],
+    model: str,
+    request_id: str,
+    allow_unverifiable_claims: bool = False,
 ) -> str:
-    value = canonicalize_v2_proposal(raw, case=case)
+    value = canonicalize_v2_proposal(
+        raw, case=case, allow_unverifiable_claims=allow_unverifiable_claims
+    )
     value["generation"] = {
         "provider": "ollama-local",
         "model": model,

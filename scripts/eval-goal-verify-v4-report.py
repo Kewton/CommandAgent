@@ -9,7 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from eval_lib.goal_verify_preflight_report_v4 import build_report, load_records
+from eval_lib.goal_verify_preflight_report_v4 import (
+    build_report,
+    load_records,
+    semantic_review_gate,
+)
 
 
 def main() -> int:
@@ -21,16 +25,41 @@ def main() -> int:
         default=Path("eval/goal_verify/v0/phase6-preflight-v4-contract.json"),
     )
     parser.add_argument("--semantic-review-complete", action="store_true")
+    parser.add_argument(
+        "--semantic-review-report",
+        type=Path,
+        help="Validated blind review report (defaults inside the run directory)",
+    )
     args = parser.parse_args()
     run_dir = args.run_dir if args.run_dir.is_absolute() else ROOT / args.run_dir
     contract_path = (
         args.contract if args.contract.is_absolute() else ROOT / args.contract
     )
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    blind_path = args.semantic_review_report or (
+        run_dir / "blind-review-v4/blind-review-report-v4.json"
+    )
+    if not blind_path.is_absolute():
+        blind_path = ROOT / blind_path
+    blind_report = (
+        json.loads(blind_path.read_text(encoding="utf-8"))
+        if blind_path.is_file()
+        else None
+    )
+    semantic_complete = semantic_review_gate(
+        contract=contract, blind_report=blind_report
+    )
+    if (
+        args.semantic_review_complete
+        and not semantic_complete
+        and contract.get("semantic_review", {}).get("independent_human_required")
+        is not True
+    ):
+        semantic_complete = True
     report = build_report(
         contract=contract,
         records=load_records(run_dir),
-        semantic_review_complete=args.semantic_review_complete,
+        semantic_review_complete=semantic_complete,
     )
     output = run_dir / "preflight-report-v4.json"
     output.write_text(

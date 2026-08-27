@@ -104,6 +104,19 @@ class GoalVerifyV2Test(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly the registered"):
             canonicalize_v2_proposal(json.dumps(proposal), case=case)
 
+    def test_host_preserves_explicit_honest_unknown_only_when_enabled(self):
+        case = self.corpus["cases"][0]
+        proposal = self._single_claim_proposal(case)
+        proposal["claims"][0]["unverifiable_reason"] = "executor_capability_unavailable"
+        proposal["oracles"] = []
+        with self.assertRaisesRegex(ValueError, "at least one oracle"):
+            canonicalize_v2_proposal(json.dumps(proposal), case=case)
+        canonical = canonicalize_v2_proposal(
+            json.dumps(proposal), case=case, allow_unverifiable_claims=True
+        )
+        self.assertEqual(canonical["claims"][0]["oracle_ids"], [])
+        self.assertEqual(canonical["oracles"], [])
+
     def test_execution_boundary_never_runs_raw_provider_argv(self):
         command = classify_oracle_execution(
             {"id": "o1", "strategy": "command", "setup": {"argv": ["cargo"]}}

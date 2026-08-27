@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import shlex
 import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-Replay = Callable[[list[str], Path], dict[str, Any]]
+Replay = Callable[[list[str], Path, int], dict[str, Any]]
 
 
 def build_product_argv(
@@ -16,8 +18,9 @@ def build_product_argv(
     workspace: Path,
     case: dict[str, Any],
     model: str,
+    completion_contract_path: Path | None = None,
 ) -> list[str]:
-    return [
+    argv = [
         str(commandagent_bin.resolve()),
         "--cwd",
         str(workspace.resolve()),
@@ -33,9 +36,11 @@ def build_product_argv(
         "ollama",
         "--model",
         model,
-        "--plan-run",
-        case["goal"],
     ]
+    if completion_contract_path is not None:
+        argv.extend(["--completion-contract-json", str(completion_contract_path)])
+    argv.extend(["--plan-run", case["goal"]])
+    return argv
 
 
 def run_current_product_baseline(
@@ -45,12 +50,30 @@ def run_current_product_baseline(
     case: dict[str, Any],
     model: str,
     timeout_sec: int,
+    completion_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    completion_contract_path = None
+    completion_contract_sha256 = None
+    if completion_contract is not None:
+        contract_text = json.dumps(
+            completion_contract,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        contract_dir = workspace / ".goal-verify-baseline"
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        completion_contract_path = contract_dir / "completion-contract.json"
+        completion_contract_path.write_text(contract_text + "\n", encoding="utf-8")
+        completion_contract_sha256 = hashlib.sha256(
+            contract_text.encode("utf-8")
+        ).hexdigest()
     argv = build_product_argv(
         commandagent_bin=commandagent_bin,
         workspace=workspace,
         case=case,
         model=model,
+        completion_contract_path=completion_contract_path,
     )
     started = time.monotonic_ns()
     try:
@@ -64,6 +87,9 @@ def run_current_product_baseline(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        run_dirs = _product_run_dirs(workspace)
+        product_run_dir = run_dirs[-1] if run_dirs else None
+        completion_verify = _completion_verify_status(product_run_dir)
         return {
             "status": "baseline_unavailable",
             "reason": "timeout",
@@ -71,16 +97,16 @@ def run_current_product_baseline(
             "wall_time_ms": (time.monotonic_ns() - started) // 1_000_000,
             "stdout": error.stdout or "",
             "stderr": error.stderr or "",
+            "completion_contract_bound": completion_contract is not None,
+            "completion_contract_sha256": completion_contract_sha256,
+            "product_run_dir": str(product_run_dir) if product_run_dir else None,
+            "product_run_namespace": _product_run_namespace(
+                workspace, product_run_dir
+            ),
+            **completion_verify,
         }
-    runs_root = workspace / ".anvil" / "runs"
-    run_dirs = (
-        sorted(
-            (path for path in runs_root.iterdir() if path.is_dir()),
-            key=lambda path: path.stat().st_mtime_ns,
-        )
-        if runs_root.is_dir()
-        else []
-    )
+    run_dirs = _product_run_dirs(workspace)
+    product_run_dir = run_dirs[-1] if run_dirs else None
     return {
         "status": "completed" if completed.returncode == 0 else "failed",
         "returncode": completed.returncode,
@@ -88,7 +114,52 @@ def run_current_product_baseline(
         "wall_time_ms": (time.monotonic_ns() - started) // 1_000_000,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
-        "product_run_dir": str(run_dirs[-1]) if run_dirs else None,
+        "product_run_dir": str(product_run_dir) if product_run_dir else None,
+        "product_run_namespace": (
+            _product_run_namespace(workspace, product_run_dir)
+        ),
+        "completion_contract_bound": completion_contract is not None,
+        "completion_contract_sha256": completion_contract_sha256,
+        **_completion_verify_status(product_run_dir),
+    }
+
+
+def _product_run_dirs(workspace: Path) -> list[Path]:
+    roots = [
+        workspace / ".commandagent" / "runs",
+        workspace / ".anvil" / "runs",
+        workspace / ".commandagent-state" / "runs",
+    ]
+    return sorted(
+        (
+            path
+            for root in roots
+            if root.is_dir()
+            for path in root.iterdir()
+            if path.is_dir()
+        ),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+
+
+def _product_run_namespace(workspace: Path, run_dir: Path | None) -> str | None:
+    if run_dir is None:
+        return None
+    return str(run_dir.parent.parent.relative_to(workspace))
+
+
+def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
+    if run_dir is None:
+        return {
+            "completion_verify_attempt_recorded": False,
+            "completion_verify_passed": False,
+        }
+    events_path = run_dir / "events.jsonl"
+    events = _json_rows(events_path) if events_path.is_file() else []
+    attempts = [row for row in events if row.get("event") == "completion_verify"]
+    return {
+        "completion_verify_attempt_recorded": bool(attempts),
+        "completion_verify_passed": any(row.get("ok") is True for row in attempts),
     }
 
 
@@ -109,12 +180,18 @@ def _json_rows(path: Path) -> list[dict[str, Any]]:
 
 
 def extract_product_observations(
-    run_dir: Path, *, replay: Replay | None = None, replay_cwd: Path | None = None
+    run_dir: Path,
+    *,
+    replay: Replay | None = None,
+    replay_cwd: Path | None = None,
+    completion_contract: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
     events_path = run_dir / "events.jsonl"
+    events = []
     if events_path.is_file():
-        for row in _json_rows(events_path):
+        events = _json_rows(events_path)
+        for row in events:
             event = row.get("event", row.get("type"))
             # Normalization/substitution telemetry proves how a command was
             # rewritten, not that the rewritten command was executed.  Only
@@ -158,7 +235,7 @@ def extract_product_observations(
                 and isinstance(argv, list)
                 and isinstance(exit_code, int)
             ):
-                replayed = replay(argv, replay_cwd or run_dir)
+                replayed = replay(argv, replay_cwd or run_dir, 30_000)
                 observation["replay"] = replayed
                 if replayed.get("runner_error"):
                     observation["passed"] = False
@@ -170,12 +247,95 @@ def extract_product_observations(
                     observation["stdout"] = replayed.get("stdout")
                     observation["stderr"] = replayed.get("stderr")
             observations.append(observation)
-    evidence_dir = run_dir / "evidence"
-    if evidence_dir.is_dir():
+    observations.extend(
+        _completion_contract_observations(
+            events=events,
+            completion_contract=completion_contract,
+            replay=replay,
+            replay_cwd=replay_cwd or run_dir,
+        )
+    )
+    evidence_dirs = [run_dir / "evidence"]
+    if replay_cwd is not None:
+        evidence_dirs.append(replay_cwd / "evidence")
+    seen_evidence = set()
+    for evidence_dir in evidence_dirs:
+        if not evidence_dir.is_dir():
+            continue
         for path in sorted(evidence_dir.glob("*.json")):
+            resolved = path.resolve()
+            if resolved in seen_evidence:
+                continue
+            seen_evidence.add(resolved)
             family = path.stem
             for row in _json_rows(path):
                 observations.append(_evidence_observation(family, row, path))
+    return observations
+
+
+def _completion_contract_observations(
+    *,
+    events: list[dict[str, Any]],
+    completion_contract: dict[str, Any] | None,
+    replay: Replay | None,
+    replay_cwd: Path,
+) -> list[dict[str, Any]]:
+    commands = (
+        completion_contract.get("verify_commands", [])
+        if isinstance(completion_contract, dict)
+        else []
+    )
+    completed = any(
+        row.get("event") == "completion_verify" and row.get("ok") is True
+        for row in events
+    )
+    if not completed or not isinstance(commands, list):
+        return []
+    observations = []
+    for command in commands:
+        if not isinstance(command, str):
+            continue
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            continue
+        if not argv or any(token in {"&&", "||", ";", "|"} for token in argv):
+            continue
+        replayed = replay(argv, replay_cwd, 30_000) if replay is not None else {}
+        replay_ok = not replayed.get("runner_error") and not replayed.get("timed_out")
+        replay_ok = replay_ok and replayed.get("exit_code", 0) == 0
+        base = {
+            "source": "events.jsonl",
+            "event": "completion_verify",
+            "argv": argv,
+            "executed": True,
+            "passed": replay_ok,
+            "strength": "runtime",
+        }
+        observations.append(
+            {
+                **base,
+                "strategy": "command",
+                "kind": "exit_code",
+                "actual": replayed.get("exit_code", 0),
+                "replay": replayed,
+                **({"reason": "baseline_replay_error"} if not replay_ok else {}),
+            }
+        )
+        if replay_ok:
+            for kind in ("stdout", "stderr"):
+                value = replayed.get(kind)
+                if isinstance(value, str) and value:
+                    observations.append(
+                        {
+                            **base,
+                            "strategy": kind,
+                            "kind": kind,
+                            "actual": value,
+                            kind: value,
+                            "replay": replayed,
+                        }
+                    )
     return observations
 
 
@@ -238,6 +398,15 @@ def score_baseline_observations(
 
 
 def _value_matches(observation: dict[str, Any], proposal: dict[str, Any]) -> bool:
+    binding = proposal.get("input_binding")
+    if (
+        isinstance(binding, dict)
+        and isinstance(binding.get("strategies"), list)
+        and observation.get("strategy") not in binding["strategies"]
+    ):
+        binding = None
+    if isinstance(binding, dict) and not _baseline_input_matches(observation, binding):
+        return False
     if "expected_values" in proposal:
         values = {str(item) for item in proposal["expected_values"]}
         return (
@@ -248,3 +417,21 @@ def _value_matches(observation: dict[str, Any], proposal: dict[str, Any]) -> boo
         text = json.dumps(observation, ensure_ascii=False, sort_keys=True)
         return all(item in text for item in proposal["expected_contains"])
     return True
+
+
+def _baseline_input_matches(observation: dict[str, Any], binding: dict[str, Any]) -> bool:
+    kind = binding.get("kind")
+    if kind in {"command", "fixture_command"}:
+        return observation.get("argv") == binding.get("argv")
+    raw = observation.get("raw")
+    if not isinstance(raw, dict):
+        return False
+    if kind == "http":
+        return all(raw.get(key) == binding.get(key) for key in ("method", "port", "path"))
+    if kind == "dom":
+        return all(
+            raw.get(key) == expected
+            for key, expected in binding.items()
+            if key not in {"kind", "strategies"}
+        )
+    return False

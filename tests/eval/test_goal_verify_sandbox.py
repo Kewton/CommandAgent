@@ -2,11 +2,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_sandbox import (
+    _remaining_timeout_ms,
     run_macos_sandbox,
     sandbox_backend_status,
 )
@@ -17,6 +19,13 @@ from eval_lib.goal_verify_v2 import (
 
 
 class GoalVerifySandboxTest(unittest.TestCase):
+    def test_web_prepare_and_probe_share_one_timeout_budget(self):
+        with mock.patch(
+            "eval_lib.goal_verify_sandbox.time.monotonic_ns",
+            return_value=1_250_000_000,
+        ):
+            self.assertEqual(_remaining_timeout_ms(1_000_000_000, 1_000), 750)
+
     def test_backend_is_fail_closed(self):
         status = sandbox_backend_status()
         self.assertEqual(status["fallback"], "fail_closed")

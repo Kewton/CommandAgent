@@ -1,0 +1,860 @@
+{
+  "schema_version": "commandagent.goal_verify.oracle_adapters.v3",
+  "status": "frozen",
+  "contract_id": "phase6-preflight-v4-20260827-live-06",
+  "drafted_at": "2026-08-26",
+  "rules": {
+    "provider_argv": "ignored",
+    "candidate_mapping": "claim ID plus preregistered strategy, polarity, observation kind, and optional expected-value constraint",
+    "missing_adapter_match": "count_as_concretization_failure",
+    "extra_candidate_oracle": "report_separately",
+    "snapshot_result": "contract-integration evidence only; never product task-success evidence",
+    "shell": false,
+    "network": "denied",
+    "writes": "isolated_workspace_only",
+    "executors": "real workspace executors only for primary cells; snapshot lookups retired",
+    "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+    "proposal_blocks": "identical to phase6-command-adapters-v2.json (answer-key matching semantics unchanged)"
+  },
+  "adapters": [
+    {
+      "adapter_id": "counter-two-clicks",
+      "case_id": "create-build-only-functional",
+      "claim_id": "counter-two-clicks",
+      "proposal": {
+        "strategies": [
+          "interaction"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "interaction"
+        ],
+        "input_binding": {
+          "kind": "dom",
+          "strategies": [
+            "interaction"
+          ],
+          "route": "/",
+          "selector": "#count",
+          "actions": [
+            {
+              "kind": "click",
+              "selector": "#increment",
+              "repeat": 2
+            }
+          ]
+        }
+      },
+      "executor": {
+        "kind": "playwright_script",
+        "browser_executable": ".goal-verify-tools/chromium/headless_shell",
+        "browser_sha256": "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21",
+        "workspace": "create-build-only-functional",
+        "stage": "reference",
+        "server": {
+          "argv": [
+            "npm",
+            "run",
+            "start",
+            "--",
+            "-p",
+            "4174"
+          ],
+          "port": 4174,
+          "ready_path": "/",
+          "loopback_only": true
+        },
+        "script": [
+          {
+            "goto": "/"
+          },
+          {
+            "click": "#increment"
+          },
+          {
+            "click": "#increment"
+          },
+          {
+            "read_text": "#count"
+          }
+        ],
+        "observation": {
+          "kind": "interaction",
+          "expected": "2"
+        },
+        "timeout_ms": 60000,
+        "observed_strength": "runtime",
+        "executor_status": "existing (hash-bound browser process boundary; host-fixed script and loopback-only request interception)"
+      }
+    },
+    {
+      "adapter_id": "ui-copy-text",
+      "case_id": "create-ui-copy-style-port-path",
+      "claim_id": "ui-copy-style",
+      "proposal": {
+        "strategies": [
+          "dom"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "dom"
+        ],
+        "expected_values": [
+          "開始"
+        ],
+        "input_binding": {
+          "kind": "dom",
+          "strategies": [
+            "dom"
+          ],
+          "route": "/play",
+          "selector": "h1",
+          "port": 4173
+        }
+      },
+      "executor": {
+        "kind": "playwright_script",
+        "browser_executable": ".goal-verify-tools/chromium/headless_shell",
+        "browser_sha256": "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21",
+        "workspace": "create-ui-copy-style-port-path",
+        "stage": "reference",
+        "server": {
+          "argv": [
+            "npm",
+            "run",
+            "start",
+            "--",
+            "-p",
+            "4173"
+          ],
+          "port": 4173,
+          "ready_path": "/play",
+          "loopback_only": true
+        },
+        "script": [
+          {
+            "goto": "/play"
+          },
+          {
+            "read_text": "h1"
+          },
+          {
+            "computed_style": [
+              "body",
+              "background-color"
+            ]
+          }
+        ],
+        "observation": {
+          "kind": "dom",
+          "checks": [
+            {
+              "selector": "h1",
+              "text": "開始"
+            },
+            {
+              "selector": "body",
+              "computed": "background-color",
+              "expected_any": [
+                "blue",
+                "rgb(0, 0, 255)"
+              ]
+            }
+          ]
+        },
+        "timeout_ms": 60000,
+        "observed_strength": "runtime",
+        "executor_status": "existing (hash-bound browser process boundary; host-fixed script and loopback-only request interception)"
+      }
+    },
+    {
+      "adapter_id": "ui-style-background",
+      "case_id": "create-ui-copy-style-port-path",
+      "claim_id": "ui-copy-style",
+      "proposal": {
+        "strategies": [
+          "dom"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "dom"
+        ],
+        "expected_values": [
+          "blue",
+          "rgb(0, 0, 255)"
+        ],
+        "input_binding": {
+          "kind": "dom",
+          "strategies": [
+            "dom"
+          ],
+          "route": "/play",
+          "selector": "body",
+          "property": "background-color",
+          "port": 4173
+        }
+      },
+      "executor": {
+        "kind": "playwright_script",
+        "browser_executable": ".goal-verify-tools/chromium/headless_shell",
+        "browser_sha256": "4f6a03129fd8b304568f4c86b64826a5506f680143b7e12980b3ea62054b7e21",
+        "workspace": "create-ui-copy-style-port-path",
+        "stage": "reference",
+        "server": {
+          "argv": [
+            "npm",
+            "run",
+            "start",
+            "--",
+            "-p",
+            "4173"
+          ],
+          "port": 4173,
+          "ready_path": "/play",
+          "loopback_only": true
+        },
+        "script": [
+          {
+            "goto": "/play"
+          },
+          {
+            "read_text": "h1"
+          },
+          {
+            "computed_style": [
+              "body",
+              "background-color"
+            ]
+          }
+        ],
+        "observation": {
+          "kind": "dom",
+          "checks": [
+            {
+              "selector": "h1",
+              "text": "開始"
+            },
+            {
+              "selector": "body",
+              "computed": "background-color",
+              "expected_any": [
+                "blue",
+                "rgb(0, 0, 255)"
+              ]
+            }
+          ]
+        },
+        "timeout_ms": 60000,
+        "observed_strength": "runtime",
+        "executor_status": "existing (hash-bound browser process boundary; host-fixed script and loopback-only request interception)"
+      }
+    },
+    {
+      "adapter_id": "port-path",
+      "case_id": "create-ui-copy-style-port-path",
+      "claim_id": "port-path",
+      "proposal": {
+        "strategies": [
+          "http"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "http_status"
+        ],
+        "input_binding": {
+          "kind": "http",
+          "strategies": [
+            "http"
+          ],
+          "method": "GET",
+          "port": 4173,
+          "path": "/play"
+        }
+      },
+      "executor": {
+        "kind": "http_get",
+        "workspace": "create-ui-copy-style-port-path",
+        "stage": "reference",
+        "server": {
+          "argv": [
+            "npm",
+            "run",
+            "start",
+            "--",
+            "-p",
+            "4173"
+          ],
+          "port": 4173,
+          "ready_path": "/play",
+          "loopback_only": true
+        },
+        "url": "http://127.0.0.1:4173/play",
+        "observation": {
+          "kind": "http_status",
+          "expected": 200
+        },
+        "timeout_ms": 30000,
+        "observed_strength": "runtime",
+        "executor_status": "existing (fetch probe boundary)"
+      }
+    },
+    {
+      "adapter_id": "cli-known-values-2-3",
+      "case_id": "create-cli-known-multiple-inputs",
+      "claim_id": "cli-known-values",
+      "proposal": {
+        "strategies": [
+          "command",
+          "stdout"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "stdout"
+        ],
+        "expected_values": [
+          "5",
+          "5\n"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout"
+          ],
+          "argv": [
+            "python3",
+            "cli/main.py",
+            "2",
+            "3"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "sandbox_command",
+        "workspace": "create-cli-known-multiple-inputs",
+        "stage": "reference",
+        "argv": [
+          "python3",
+          "cli/main.py",
+          "2",
+          "3"
+        ],
+        "cwd": ".",
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "stdout",
+          "expected": "5\n"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "cli-known-values-neg1-1",
+      "case_id": "create-cli-known-multiple-inputs",
+      "claim_id": "cli-known-values",
+      "proposal": {
+        "strategies": [
+          "command",
+          "stdout"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "stdout"
+        ],
+        "expected_values": [
+          "0",
+          "0\n"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout"
+          ],
+          "argv": [
+            "python3",
+            "cli/main.py",
+            "-1",
+            "1"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "sandbox_command",
+        "workspace": "create-cli-known-multiple-inputs",
+        "stage": "reference",
+        "argv": [
+          "python3",
+          "cli/main.py",
+          "-1",
+          "1"
+        ],
+        "cwd": ".",
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "stdout",
+          "expected": "0\n"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "no-network",
+      "case_id": "create-negative-constraint-injection",
+      "claim_id": "no-network",
+      "proposal": {
+        "strategies": [
+          "command",
+          "file"
+        ],
+        "polarities": [
+          "absent"
+        ],
+        "observation_kinds": [
+          "stdout",
+          "file"
+        ]
+      },
+      "executor": {
+        "kind": "unavailable",
+        "reason": "no schema mapping and no executor; executor_unavailable lane",
+        "executor_status": "unavailable"
+      }
+    },
+    {
+      "adapter_id": "before-after-before",
+      "case_id": "fix-reproduced-after-regression",
+      "claim_id": "before-after",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "exit_code",
+          "command"
+        ],
+        "polarities": [
+          "failure"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout",
+            "stderr",
+            "exit_code"
+          ],
+          "argv": [
+            "python3",
+            "cli.py",
+            "7"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "stage_command",
+        "workspace": "fix-reproduced-after-regression",
+        "stage": "before",
+        "argv": [
+          "python3",
+          "cli.py",
+          "7"
+        ],
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 2
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "before-after-after",
+      "case_id": "fix-reproduced-after-regression",
+      "claim_id": "before-after",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "exit_code",
+          "command"
+        ],
+        "polarities": [
+          "success"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout",
+            "stderr",
+            "exit_code"
+          ],
+          "argv": [
+            "python3",
+            "cli.py",
+            "7"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "stage_command",
+        "workspace": "fix-reproduced-after-regression",
+        "stage": "after",
+        "argv": [
+          "python3",
+          "cli.py",
+          "7"
+        ],
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "regressions",
+      "case_id": "fix-reproduced-after-regression",
+      "claim_id": "regressions",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "command"
+        ],
+        "polarities": [
+          "success"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code",
+          "stdout"
+        ]
+      },
+      "executor": {
+        "kind": "regression_set",
+        "workspace": "fix-reproduced-after-regression",
+        "stage": "after",
+        "registered": [
+          {
+            "id": "pytest-tests",
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ]
+          },
+          {
+            "id": "contract-check",
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ]
+          }
+        ],
+        "timeout_ms": 60000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0,
+          "rule": "every registered id executed and exit 0; a shrunk set never matches"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "exact-reproducer",
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "claim_id": "exact-reproducer",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "fixture",
+          "command"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "file",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "fixture_command",
+          "strategies": [
+            "command",
+            "fixture"
+          ],
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/a.json"
+          ],
+          "path": "fixture/a.json",
+          "sha256": "5805c796d17a1ca4cf3af60df2c6f1c8a8b01573b15a61aea6941abce3cf295d"
+        }
+      },
+      "executor": {
+        "kind": "fixture_hash_command",
+        "workspace": "fix-baseline-not-reproduced-substitution",
+        "stage": "before",
+        "argv": [
+          "python3",
+          "app.py",
+          "fixture/a.json"
+        ],
+        "registered_fixture": {
+          "path": "fixture/a.json",
+          "sha256": "5805c796d17a1ca4cf3af60df2c6f1c8a8b01573b15a61aea6941abce3cf295d"
+        },
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 1,
+          "rule": "exit 1 on before stage with the executed fixture sha256 equal to the registered one; fixture/b.json never matches"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "after-executed",
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "claim_id": "after-executed",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "command"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout",
+            "stderr",
+            "exit_code"
+          ],
+          "argv": [
+            "python3",
+            "repro.py"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "stage_command",
+        "workspace": "fix-after-not-run-regression-shrunk",
+        "stage": "after",
+        "argv": [
+          "python3",
+          "repro.py"
+        ],
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing (v3 after-stage executor)"
+      }
+    },
+    {
+      "adapter_id": "full-regression-set",
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "claim_id": "full-regression-set",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "command"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "stdout",
+          "exit_code"
+        ]
+      },
+      "executor": {
+        "kind": "regression_set",
+        "workspace": "fix-after-not-run-regression-shrunk",
+        "stage": "after",
+        "registered": [
+          {
+            "id": "pytest-tests",
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ]
+          },
+          {
+            "id": "contract-check",
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ]
+          }
+        ],
+        "timeout_ms": 60000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0,
+          "rule": "every registered id executed and exit 0"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "bug-reproducer-dependency",
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "claim_id": "bug-reproducer",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "command"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout",
+            "stderr",
+            "exit_code"
+          ],
+          "argv": [
+            "python3",
+            "-c",
+            "import repro_dep"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "sandbox_command",
+        "workspace": "fix-existing-tests-only-dependency-missing",
+        "stage": "after",
+        "argv": [
+          "python3",
+          "-c",
+          "import repro_dep"
+        ],
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0,
+          "note": "the frozen workspace cannot satisfy this; expected honest outcome is unverified"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    },
+    {
+      "adapter_id": "bug-reproducer-executed",
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "claim_id": "bug-reproducer",
+      "proposal": {
+        "strategies": [
+          "existing_fix_evidence",
+          "command"
+        ],
+        "polarities": [
+          "success",
+          "present"
+        ],
+        "observation_kinds": [
+          "existing_binding",
+          "exit_code"
+        ],
+        "input_binding": {
+          "kind": "command",
+          "strategies": [
+            "command",
+            "stdout",
+            "stderr",
+            "exit_code"
+          ],
+          "argv": [
+            "python3",
+            "repro.py"
+          ],
+          "cwd": "."
+        }
+      },
+      "executor": {
+        "kind": "stage_command",
+        "workspace": "fix-existing-tests-only-dependency-missing",
+        "stage": "after",
+        "argv": [
+          "python3",
+          "repro.py"
+        ],
+        "timeout_ms": 5000,
+        "observation": {
+          "kind": "exit_code",
+          "expected": 0,
+          "note": "dependency_blocked (ModuleNotFoundError) is recorded as blocked, never as pass"
+        },
+        "observed_strength": "runtime",
+        "executor_status": "existing"
+      }
+    }
+  ]
+}

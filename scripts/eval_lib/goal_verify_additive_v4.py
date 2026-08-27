@@ -16,7 +16,9 @@ WebRunner = Callable[[dict[str, Any]], dict[str, Any]]
 
 _IGNORED_PARTS = {
     ".anvil",
+    ".commandagent",
     ".commandagent-state",
+    ".goal-verify-baseline",
     ".commandagent-eval-home",
     ".commandagent-eval-tmp",
     ".git",
@@ -98,6 +100,10 @@ def concretize_candidate_oracle(
         if row.get("kind") == "file"
     }
     stage = _claim_stage(claim)
+    if strategy in {"existing_fix_evidence", "existing_investigation_binding"}:
+        # Evidence artifacts are product-run outputs. Their internal binding
+        # carries the before/after/reproduce/diagnosis stage being attested.
+        stage = "product"
     if strategy in _COMMANDISH:
         setup = oracle.get("setup")
         argv = setup.get("argv") if isinstance(setup, dict) else None
@@ -138,6 +144,8 @@ def concretize_candidate_oracle(
             },
             "gold_used_for_concretization": False,
         }
+    if strategy in {"existing_fix_evidence", "existing_investigation_binding"}:
+        return _concretize_existing_evidence(oracle, claim=claim, stage=stage)
     if strategy == "http":
         return _concretize_web(oracle, stage=stage, browser=False)
     if strategy in {"dom", "interaction"}:
@@ -178,6 +186,8 @@ def execute_candidate_plan(
             "actual": actual,
             "observed_strength": "deterministic" if passed else None,
         }
+    if plan["kind"] == "existing_evidence_probe":
+        return _execute_existing_evidence_plan(plan, workspace=root)
     if plan["kind"] in {"http_probe", "browser_probe"}:
         outcome = _execute_web_plan(
             plan,
@@ -236,7 +246,9 @@ def execute_candidate_plan(
     observation = plan["observation"]
     actual = _observed_value(observation, outcome, root)
     expected = observation.get("expected", observation.get("exists"))
-    passed = actual == expected
+    passed, normalization = _observation_values_match(
+        observation=observation, actual=actual, expected=expected
+    )
     return {
         **outcome,
         "execution_attempt_recorded": True,
@@ -244,6 +256,7 @@ def execute_candidate_plan(
         "result": "pass" if passed else "fail",
         "reason": "observation_match" if passed else "observation_mismatch",
         "actual": actual,
+        "comparison_normalization": normalization,
         "observed_strength": "runtime" if passed else None,
     }
 
@@ -434,6 +447,7 @@ def score_candidate_outcomes(
             and oracle.get("expected_polarity") in adapter["proposal"]["polarities"]
             and oracle.get("observation", {}).get("kind")
             in adapter["proposal"]["observation_kinds"]
+            and _oracle_input_matches_adapter(oracle, adapter)
         ]
         matching_expectation = [
             adapter
@@ -491,6 +505,49 @@ def _oracle_expected_matches_adapter(
         text = json.dumps(observation, ensure_ascii=False, sort_keys=True)
         return all(fragment in text for fragment in proposal["expected_contains"])
     return True
+
+
+def _oracle_input_matches_adapter(
+    oracle: dict[str, Any], adapter: dict[str, Any]
+) -> bool:
+    binding = adapter.get("proposal", {}).get("input_binding")
+    if not isinstance(binding, dict):
+        return True
+    applies_to = binding.get("strategies")
+    if isinstance(applies_to, list) and oracle.get("strategy") not in applies_to:
+        return True
+    kind = binding.get("kind")
+    input_value = oracle.get("input", {})
+    setup = oracle.get("setup", {})
+    if kind == "command":
+        return setup.get("argv") == binding.get("argv") and setup.get(
+            "cwd", "."
+        ) == binding.get("cwd", ".")
+    if kind == "fixture_command":
+        return (
+            setup.get("argv") == binding.get("argv")
+            and input_value.get("kind") == "fixture"
+            and input_value.get("path") == binding.get("path")
+            and input_value.get("sha256") == binding.get("sha256")
+        )
+    if kind == "http":
+        return input_value.get("kind") == "http" and all(
+            input_value.get(key) == binding.get(key)
+            for key in ("method", "port", "path")
+        )
+    if kind == "dom":
+        if input_value.get("kind") != "dom":
+            return False
+        for key in ("route", "selector", "property"):
+            if key in binding and input_value.get(key) != binding[key]:
+                return False
+        if "port" in binding and input_value.get("port") != binding["port"]:
+            return False
+        return not (
+            "actions" in binding
+            and input_value.get("actions", []) != binding["actions"]
+        )
+    return False
 
 
 def _score(case, adapters, evaluations):
@@ -594,9 +651,12 @@ def _concretize_web(oracle, *, stage, browser, interaction=False):
     route = input_value.get(route_key)
     if not _safe_route(route):
         return _rejected("policy_rejected", f"{route_key}_unsafe")
+    prepare_argv, server_argv, server_policy = _server_policy(argv, port=port)
     plan = {
         "kind": "browser_probe" if browser else "http_probe",
-        "server_argv": list(argv),
+        "prepare_argv": prepare_argv,
+        "server_argv": server_argv,
+        "server_policy": server_policy,
         "cwd": cwd,
         "port": port,
         "ready_path": route,
@@ -638,6 +698,46 @@ def _concretize_web(oracle, *, stage, browser, interaction=False):
     }
 
 
+def _concretize_existing_evidence(oracle, *, claim, stage):
+    origin = claim.get("origin")
+    observation = oracle.get("observation")
+    source_kind = origin.get("source_kind") if isinstance(origin, dict) else None
+    expected_strategy = {
+        "fix_requirement": "existing_fix_evidence",
+        "investigation_requirement": "existing_investigation_binding",
+    }.get(source_kind)
+    if expected_strategy != oracle.get("strategy"):
+        return _rejected("policy_rejected", "evidence_strategy_origin_mismatch")
+    if not isinstance(observation, dict) or observation.get("kind") != "existing_binding":
+        return _rejected("concretization_failure", "existing_binding_required")
+    artifact_path = observation.get("artifact_path")
+    if artifact_path != origin.get("artifact_path") or not _safe_relative(artifact_path):
+        return _rejected("policy_rejected", "evidence_artifact_binding_mismatch")
+    binding = {
+        key: origin[key]
+        for key in (
+            "requirement_id",
+            "stage",
+            "expected_polarity",
+            "lineage",
+            "binding_id",
+            "epoch",
+        )
+        if key in origin
+    }
+    return {
+        "classification": "executable",
+        "reason": None,
+        "stage": stage,
+        "plan": {
+            "kind": "existing_evidence_probe",
+            "artifact_path": artifact_path,
+            "binding": binding,
+        },
+        "gold_used_for_concretization": False,
+    }
+
+
 def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
     root = workspace.resolve()
     cwd = (root / plan["cwd"]).resolve()
@@ -665,6 +765,17 @@ def _execute_web_plan(plan, *, workspace, runner, browser_toolchain):
         "raw_provider_argv_used": False,
         "server_argv": [resolved, *plan["server_argv"][1:]],
     }
+    prepare_argv = plan.get("prepare_argv")
+    if prepare_argv:
+        prepare_executable = _resolve_executable(prepare_argv[0])
+        if prepare_executable is None:
+            return {
+                "execution_attempt_recorded": False,
+                "executed": False,
+                "result": "oracle_error",
+                "reason": "prepare_executable_unavailable",
+            }
+        host_plan["prepare_argv"] = [prepare_executable, *prepare_argv[1:]]
     if plan["kind"] == "browser_probe":
         browser = (root / plan["browser_executable"]).resolve()
         if not browser.is_file() or _sha256_file(browser) != plan["browser_sha256"]:
@@ -706,6 +817,123 @@ def _safe_route(value):
         and "://" not in value
         and "\x00" not in value
     )
+
+
+def _server_policy(argv, *, port):
+    names = [Path(value).name for value in argv]
+    if "next" in names and "dev" in names:
+        return (
+            ["npx", "next", "build"],
+            ["npx", "next", "start", "-p", str(port)],
+            "next_production_build_start_v1",
+        )
+    return [], list(argv), "candidate_direct_server_v1"
+
+
+def _execute_existing_evidence_plan(plan, *, workspace):
+    artifact = (workspace / plan["artifact_path"]).resolve()
+    if not artifact.is_relative_to(workspace):
+        return {
+            "execution_attempt_recorded": False,
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "evidence_path_escape",
+        }
+    if not artifact.is_file():
+        return {
+            "execution_attempt_recorded": True,
+            "executed": False,
+            "result": "unverified",
+            "reason": "evidence_artifact_missing",
+        }
+    try:
+        value = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "execution_attempt_recorded": True,
+            "executed": False,
+            "result": "unverified",
+            "reason": "evidence_artifact_invalid",
+        }
+    matched = any(_binding_matches(row, plan["binding"]) for row in _walk_objects(value))
+    return {
+        "execution_attempt_recorded": True,
+        "executed": True,
+        "result": "pass" if matched else "fail",
+        "reason": "evidence_binding_match" if matched else "evidence_binding_mismatch",
+        "actual": matched,
+        "observed_strength": "runtime" if matched else None,
+    }
+
+
+def _walk_objects(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_objects(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_objects(child)
+
+
+def _binding_matches(value, binding):
+    direct_binding = all(
+        value.get("expected" if key == "expected_polarity" else key) == expected
+        for key, expected in binding.items()
+    )
+    direct_pass = (
+        value.get("result") == "pass"
+        or (
+            value.get("executed") is True
+            and value.get("outcome") == value.get("expected")
+        )
+    )
+    if direct_binding and direct_pass:
+        return True
+    requirement_id = binding.get("requirement_id")
+    adjudication = value.get("adjudication")
+    statuses = (
+        adjudication.get("requirement_statuses", {})
+        if isinstance(adjudication, dict)
+        else {}
+    )
+    if statuses.get(requirement_id) != "passed":
+        return False
+    evidence = value.get("evidence", {})
+    if not isinstance(evidence, dict):
+        return False
+    if requirement_id == "no_regression":
+        regressions = evidence.get("regressions", [])
+        return bool(regressions) and all(
+            isinstance(row, dict)
+            and row.get("executed") is True
+            and row.get("outcome") == row.get("expected")
+            for row in regressions
+        )
+    return True
+
+
+def _observation_values_match(*, observation, actual, expected):
+    if observation.get("kind") not in {"stdout", "stderr"}:
+        return actual == expected, None
+    if not isinstance(actual, str) or not isinstance(expected, str):
+        return actual == expected, None
+    normalized_actual = _remove_one_terminal_newline(actual)
+    normalized_expected = _remove_one_terminal_newline(expected)
+    return (
+        normalized_actual == normalized_expected,
+        "cli_text_single_terminal_newline_v1"
+        if normalized_actual != actual or normalized_expected != expected
+        else None,
+    )
+
+
+def _remove_one_terminal_newline(value):
+    if value.endswith("\r\n"):
+        return value[:-2]
+    if value.endswith("\n"):
+        return value[:-1]
+    return value
 
 
 def _safe_dom_actions(actions):

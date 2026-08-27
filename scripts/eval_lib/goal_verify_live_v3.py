@@ -380,11 +380,19 @@ def _run_baseline(
         case=case,
         model=contract["model"],
         timeout_sec=int(contract["generation"]["request_timeout_sec"]),
+        completion_contract=case.get("task_contract", {}).get(
+            "completion_contract"
+        ),
     )
     run_path = result.get("product_run_dir")
     observations = (
         extract_product_observations(
-            Path(run_path), replay=run_command, replay_cwd=workspace
+            Path(run_path),
+            replay=run_command,
+            replay_cwd=workspace,
+            completion_contract=case.get("task_contract", {}).get(
+                "completion_contract"
+            ),
         )
         if run_path
         else []
