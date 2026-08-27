@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
+
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_sandbox import sandbox_backend_status
 from eval_lib.goal_verify_task_contracts_v4 import (
@@ -58,12 +60,107 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
         errors.append("full_experiment_sample_size_changed")
     if full.get("bootstrap_samples") != 2000:
         errors.append("bootstrap_count_changed")
-    prompt = root / contract.get("generation", {}).get("prompt", "")
-    schema = root / contract.get("generation", {}).get(
-        "structured_output_schema", ""
-    )
+    generation = contract.get("generation", {})
+    prompt = root / generation.get("prompt", "")
+    schema = root / generation.get("structured_output_schema", "")
     if not schema.is_file():
         errors.append("structured_output_schema_missing")
+    canonical_schema_value = generation.get("canonical_schema")
+    if canonical_schema_value is not None:
+        canonical_schema = root / canonical_schema_value
+        if canonical_schema.resolve() == schema.resolve():
+            errors.append("raw_canonical_schema_not_separated")
+        if not canonical_schema.is_file():
+            errors.append("canonical_schema_missing")
+        else:
+            try:
+                canonical_schema_value_json = load_json(canonical_schema)
+                jsonschema.Draft202012Validator.check_schema(
+                    canonical_schema_value_json
+                )
+            except (OSError, TypeError, ValueError, jsonschema.SchemaError) as error:
+                errors.append(f"canonical_schema_invalid:{error}")
+        if schema.is_file():
+            try:
+                raw_schema = load_json(schema)
+            except (OSError, TypeError, ValueError) as error:
+                errors.append(f"raw_schema_invalid:{error}")
+            else:
+                try:
+                    jsonschema.Draft202012Validator.check_schema(raw_schema)
+                except jsonschema.SchemaError as error:
+                    errors.append(f"raw_schema_invalid:{error.message}")
+                expected_root_fields = {
+                    "schema_version",
+                    "prompt_version",
+                    "goal",
+                    "intent",
+                    "profile",
+                    "claims",
+                    "oracles",
+                }
+                if (
+                    set(raw_schema.get("required", [])) != expected_root_fields
+                    or set(raw_schema.get("properties", {})) != expected_root_fields
+                    or raw_schema.get("additionalProperties") is not False
+                ):
+                    errors.append("raw_root_fields_not_fixed")
+                claim = raw_schema.get("$defs", {}).get("claim", {})
+                oracle = raw_schema.get("$defs", {}).get("oracle", {})
+                if any(
+                    name in raw_schema.get("$defs", {})
+                    for name in (
+                        "goalOrigin",
+                        "fixOrigin",
+                        "investigationOrigin",
+                        "lineage",
+                    )
+                ):
+                    errors.append("raw_schema_contains_host_owned_definitions")
+                if (
+                    claim.get("required") != ["id", "normalized_requirement", "kind"]
+                    or claim.get("additionalProperties") is not False
+                ):
+                    errors.append("raw_claim_semantic_fields_not_fixed")
+                if any(
+                    field in claim.get("properties", {})
+                    for field in ("origin", "required", "oracle_ids")
+                ):
+                    errors.append("raw_claim_contains_host_owned_fields")
+                if any(
+                    field in oracle.get("properties", {})
+                    for field in (
+                        "id",
+                        "observed_strength",
+                        "lifecycle",
+                        "result",
+                        "lineage",
+                    )
+                ):
+                    errors.append("raw_oracle_contains_host_owned_fields")
+                if (
+                    oracle.get("required")
+                    != [
+                        "claim_id",
+                        "strategy",
+                        "expected_polarity",
+                        "minimum_strength",
+                        "setup",
+                        "input",
+                        "observation",
+                        "timeout_ms",
+                    ]
+                    or oracle.get("additionalProperties") is not False
+                ):
+                    errors.append("raw_oracle_semantic_fields_not_fixed")
+                for intent, shape_path in generation.get("shape_examples", {}).items():
+                    try:
+                        shape = load_json(root / shape_path)
+                    except (OSError, TypeError, ValueError) as error:
+                        errors.append(f"raw_shape_invalid:{intent}:{error}")
+                        continue
+                    if not jsonschema.Draft202012Validator(raw_schema).is_valid(shape):
+                        errors.append(f"raw_shape_schema_invalid:{intent}")
     answer_key_path = root / contract.get("scoring", {}).get("answer_key", "")
     if not answer_key_path.is_file():
         errors.append("answer_key_missing")
@@ -80,6 +177,15 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
         ):
             if marker not in text:
                 errors.append(f"prompt_rule_missing:{marker}")
+        if canonical_schema_value is not None:
+            for marker in (
+                "RAW PROPOSAL CONTRACT",
+                "claim.id",
+                "normalized_requirement",
+                "Do not emit `origin`",
+            ):
+                if marker not in text:
+                    errors.append(f"raw_prompt_rule_missing:{marker}")
     task_registry = contract.get("task_contract_registry")
     corpus_path = contract.get("corpus")
     if task_registry or corpus_path:
@@ -134,8 +240,7 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
     if claim_policy is not None and (
         claim_policy.get("allow_unverifiable_reason") is not True
         or claim_policy.get("passing_credit") is not False
-        or claim_policy.get("scoring")
-        != "retain claim in denominator as unverified"
+        or claim_policy.get("scoring") != "retain claim in denominator as unverified"
     ):
         errors.append("unverifiable_claim_policy_invalid")
     budget = load_json(root / contract["resource_budget_config"])
@@ -180,9 +285,7 @@ def readiness_report(
         blockers.extend(
             validate_provisioning(
                 workspace_registry,
-                execution_root / "provisioned"
-                if execution_root is not None
-                else None,
+                execution_root / "provisioned" if execution_root is not None else None,
             )
         )
     sandbox = sandbox_backend_status()

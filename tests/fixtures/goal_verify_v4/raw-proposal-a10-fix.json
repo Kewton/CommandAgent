@@ -1,0 +1,49 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Fix the CLI and retain its regression coverage.",
+  "intent": "fix",
+  "profile": "cli",
+  "claims": [
+    {
+      "id": "before-after",
+      "normalized_requirement": "The reproduced failure passes after the fix.",
+      "kind": "behavior"
+    },
+    {
+      "id": "regressions",
+      "normalized_requirement": "The frozen regression set still passes.",
+      "kind": "regression"
+    }
+  ],
+  "oracles": [
+    {
+      "claim_id": "before-after",
+      "strategy": "command",
+      "expected_polarity": "success",
+      "minimum_strength": "runtime",
+      "setup": {
+        "argv": ["python3", "fixture/reproducer.py"],
+        "cwd": ".",
+        "fixture_paths": []
+      },
+      "input": {"kind": "none"},
+      "observation": {"kind": "exit_code", "expected": 0},
+      "timeout_ms": 30000
+    },
+    {
+      "claim_id": "regressions",
+      "strategy": "command",
+      "expected_polarity": "success",
+      "minimum_strength": "runtime",
+      "setup": {
+        "argv": ["python3", "-m", "unittest"],
+        "cwd": ".",
+        "fixture_paths": []
+      },
+      "input": {"kind": "none"},
+      "observation": {"kind": "exit_code", "expected": 0},
+      "timeout_ms": 30000
+    }
+  ]
+}

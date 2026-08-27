@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commandagent.verification_spec.raw_preflight_v4_a10",
+  "title": "CommandAgent raw verification proposal for Phase 6 v4 A10",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "prompt_version",
+    "goal",
+    "intent",
+    "profile",
+    "claims",
+    "oracles"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "commandagent.verification_spec.v0"
+    },
+    "prompt_version": {
+      "const": "commandagent.verification_spec.prompt.v0"
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "intent": {
+      "enum": [
+        "create",
+        "fix",
+        "investigate"
+      ]
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    },
+    "oracles": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/oracle"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "safePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "normalized_requirement",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "normalized_requirement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "kind": {
+          "enum": [
+            "behavior",
+            "state",
+            "negative_condition",
+            "regression",
+            "reproducer_observation",
+            "diagnosis_binding"
+          ]
+        },
+        "unverifiable_reason": {
+          "enum": [
+            "executor_capability_unavailable",
+            "safe_execution_unavailable",
+            "workspace_binding_unavailable"
+          ]
+        }
+      }
+    },
+    "polarity": {
+      "enum": [
+        "success",
+        "failure",
+        "present",
+        "absent"
+      ]
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "strategy",
+        "expected_polarity",
+        "minimum_strength",
+        "setup",
+        "input",
+        "observation",
+        "timeout_ms"
+      ],
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/id"
+        },
+        "strategy": {
+          "enum": [
+            "command",
+            "fixture",
+            "exit_code",
+            "stdout",
+            "stderr",
+            "file",
+            "http",
+            "dom",
+            "interaction",
+            "existing_fix_evidence",
+            "existing_investigation_binding"
+          ]
+        },
+        "expected_polarity": {
+          "$ref": "#/$defs/polarity"
+        },
+        "minimum_strength": {
+          "enum": [
+            "weak",
+            "deterministic",
+            "runtime"
+          ]
+        },
+        "setup": {
+          "$ref": "#/$defs/setup"
+        },
+        "input": {
+          "$ref": "#/$defs/input"
+        },
+        "observation": {
+          "$ref": "#/$defs/observation"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000
+        }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argv",
+        "cwd",
+        "fixture_paths"
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "cwd": {
+          "$ref": "#/$defs/safePath"
+        },
+        "fixture_paths": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/safePath"
+          }
+        }
+      }
+    },
+    "input": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "none"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fixture"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "sha256": {
+              "$ref": "#/$defs/hash"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "method",
+            "port",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "http"
+            },
+            "method": {
+              "enum": [
+                "GET",
+                "HEAD"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "route",
+            "selector",
+            "port"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dom"
+            },
+            "route": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "actions": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "selector"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "click"
+                  },
+                  "selector": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "repeat": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  }
+                }
+              }
+            },
+            "property": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "expected"
+          ],
+          "properties": {
+            "kind": {
+              "const": "exit_code"
+            },
+            "expected": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "expected"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "stdout",
+                "stderr",
+                "dom",
+                "interaction"
+              ]
+            },
+            "expected": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path",
+            "exists"
+          ],
+          "properties": {
+            "kind": {
+              "const": "file"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "exists": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "expected"
+          ],
+          "properties": {
+            "kind": {
+              "const": "http_status"
+            },
+            "expected": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "artifact_path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "existing_binding"
+            },
+            "artifact_path": {
+              "$ref": "#/$defs/safePath"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

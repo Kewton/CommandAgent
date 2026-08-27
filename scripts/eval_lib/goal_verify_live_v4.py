@@ -114,6 +114,10 @@ def run_campaign_v4(
     )
     corpus = load_json(corpus_path)
     schema = load_json(schema_path)
+    canonical_schema_path = contract["generation"].get("canonical_schema")
+    canonical_schema = (
+        load_json(root / canonical_schema_path) if canonical_schema_path else schema
+    )
     adapters = load_json(root / contract["scoring"]["answer_key"])["adapters"]
     capabilities = load_json(root / contract["capability_registry"])
     workspaces = workspace_by_case(
@@ -158,6 +162,11 @@ def run_campaign_v4(
             else {}
         ),
         "schema_sha256": sha256_file(schema_path),
+        **(
+            {"canonical_schema_sha256": sha256_file(root / canonical_schema_path)}
+            if canonical_schema_path
+            else {}
+        ),
         "prompt_file_sha256": sha256_file(resolved_prompt),
         "answer_key_sha256": sha256_file(root / contract["scoring"]["answer_key"]),
         "workspace_registry_sha256": sha256_file(root / contract["workspace_registry"]),
@@ -258,6 +267,8 @@ def run_campaign_v4(
                             lane=lane,
                             base_prompt=base_prompt,
                             shape=shapes[case["intent"]],
+                            raw_schema=schema if canonical_schema_path else None,
+                            canonical_schema=canonical_schema,
                             adapters=adapters,
                             capabilities=capabilities,
                             frozen_product=frozen_product,
@@ -326,6 +337,8 @@ def _run_lane_v4(
     lane,
     base_prompt,
     shape,
+    raw_schema,
+    canonical_schema,
     adapters,
     capabilities,
     frozen_product,
@@ -371,42 +384,60 @@ def _run_lane_v4(
             think=bool(contract["generation"]["think"]),
         )
         normalized = None
+        raw_schema_validation = {
+            "applied": raw_schema is not None,
+            "valid": None,
+            "errors": [],
+        }
         allow_unverifiable = (
             contract.get("claim_policy", {}).get("allow_unverifiable_reason") is True
         )
         if response.get("status") == "completed":
             raw = response["response"].get("response", "")
-            try:
-                normalized = (
-                    normalize_v2_proposal(
-                        raw,
-                        case=case,
-                        model=contract["model"],
-                        request_id=request_id,
-                        allow_unverifiable_claims=allow_unverifiable,
-                    )
-                    if lane == "contract_conformance"
-                    else canonicalize_held_out_proposal(
-                        raw,
-                        case=case,
-                        model=contract["model"],
-                        request_id=request_id,
-                        allow_unverifiable_claims=allow_unverifiable,
-                    )
+            if raw_schema is not None:
+                raw_schema_validation = _validate_raw_proposal(
+                    raw=raw, schema=raw_schema
                 )
-                validation = _validate_proposal_v4(
-                    validator=validator,
-                    goal=case["goal"],
-                    intent=case["intent"],
-                    normalized_raw=normalized,
-                    proposal_schema=schema if allow_unverifiable else None,
-                )
-            except (TypeError, ValueError, json.JSONDecodeError) as error:
+            if raw_schema_validation.get("valid") is False:
                 validation = {
                     "valid": False,
                     "spec": None,
-                    "errors": [f"proposal_parse_failed:{error}"],
+                    "errors": raw_schema_validation["errors"],
                 }
+            else:
+                try:
+                    normalized = (
+                        normalize_v2_proposal(
+                            raw,
+                            case=case,
+                            model=contract["model"],
+                            request_id=request_id,
+                            allow_unverifiable_claims=allow_unverifiable,
+                        )
+                        if lane == "contract_conformance"
+                        else canonicalize_held_out_proposal(
+                            raw,
+                            case=case,
+                            model=contract["model"],
+                            request_id=request_id,
+                            allow_unverifiable_claims=allow_unverifiable,
+                        )
+                    )
+                    validation = _validate_proposal_v4(
+                        validator=validator,
+                        goal=case["goal"],
+                        intent=case["intent"],
+                        normalized_raw=normalized,
+                        proposal_schema=(
+                            canonical_schema if allow_unverifiable else None
+                        ),
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError) as error:
+                    validation = {
+                        "valid": False,
+                        "spec": None,
+                        "errors": [f"proposal_parse_failed:{error}"],
+                    }
         else:
             validation = {
                 "valid": False,
@@ -417,6 +448,7 @@ def _run_lane_v4(
             {
                 "attempt": attempt,
                 "response": response,
+                "raw_schema_validation": raw_schema_validation,
                 "normalized_proposal": normalized,
                 "validation": copy.deepcopy(validation),
             }
@@ -466,6 +498,34 @@ def _run_lane_v4(
         "execution": execution,
         "candidate_coverage": coverage,
         "additive_comparison": additive,
+    }
+
+
+def _validate_raw_proposal(*, raw: str, schema: dict[str, Any]) -> dict[str, Any]:
+    try:
+        proposal = json.loads(raw)
+    except json.JSONDecodeError as error:
+        return {
+            "applied": True,
+            "valid": False,
+            "errors": [f"raw_schema_invalid:$:invalid JSON:{error.msg}"],
+        }
+    schema_errors = sorted(
+        jsonschema.Draft202012Validator(schema).iter_errors(proposal),
+        key=lambda error: (
+            tuple(str(part) for part in error.absolute_path),
+            error.message,
+        ),
+    )
+    return {
+        "applied": True,
+        "valid": not schema_errors,
+        "errors": [
+            "raw_schema_invalid:"
+            + ("/".join(str(part) for part in error.absolute_path) or "$")
+            + f":{error.message}"
+            for error in schema_errors
+        ],
     }
 
 

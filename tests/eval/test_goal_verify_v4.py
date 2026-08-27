@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from eval_lib.goal_verify_live_v4 import (
     _campaign_namespace,
     _select_campaign_pair_ids,
     _validate_proposal_v4,
+    _validate_raw_proposal,
     run_campaign_v4,
 )
 from eval_lib.goal_verify_next_v4 import detect_executor_capabilities
@@ -37,6 +39,8 @@ from eval_lib.goal_verify_task_contracts_v4 import (
     selected_task_contract_errors,
     task_contract_registry_errors,
 )
+from eval_lib.goal_verify_v2 import normalize_v2_proposal
+from eval_lib.goal_verify_v3 import canonicalize_held_out_proposal
 from eval_lib.goal_verify_workspaces_v4 import (
     load_v4_workspace_registry,
     selected_product_workspace_errors,
@@ -821,6 +825,100 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
                 drift["evaluations"][0]["reason"], "snapshot_hash_mismatch:product"
             )
 
+    def test_a10_raw_schema_requires_semantics_and_rejects_host_owned_fields(self):
+        schema = load(
+            "eval/goal_verify/v0/verification-spec-raw-preflight-v4-a10.schema.json"
+        )
+        proposal = load("tests/fixtures/goal_verify_v4/raw-proposal-a10-create.json")
+        valid = _validate_raw_proposal(raw=json.dumps(proposal), schema=schema)
+        self.assertTrue(valid["valid"], valid)
+
+        incomplete = json.loads(json.dumps(proposal))
+        incomplete["claims"][0] = {"oracle_ids": ["hello-output"]}
+        rejected = _validate_raw_proposal(raw=json.dumps(incomplete), schema=schema)
+        self.assertFalse(rejected["valid"])
+        self.assertTrue(
+            any("'id' is a required property" in error for error in rejected["errors"]),
+            rejected,
+        )
+
+        host_fields = json.loads(json.dumps(proposal))
+        host_fields["claims"][0]["origin"] = {
+            "source_kind": "goal",
+            "start_byte": 0,
+            "end_byte": 1,
+        }
+        host_fields["oracles"][0]["lifecycle"] = "proposed"
+        rejected = _validate_raw_proposal(raw=json.dumps(host_fields), schema=schema)
+        self.assertFalse(rejected["valid"])
+        self.assertTrue(
+            any("Additional properties" in error for error in rejected["errors"]),
+            rejected,
+        )
+
+    def test_a10_canonicalizers_inject_only_host_owned_fields(self):
+        proposal = load("tests/fixtures/goal_verify_v4/raw-proposal-a10-create.json")
+        raw = json.dumps(proposal, ensure_ascii=False)
+        case = {
+            "case_id": "raw-a10-create",
+            "goal": proposal["goal"],
+            "intent": "create",
+            "profile": proposal["profile"],
+            "required_claims": [{"id": "hello-output"}],
+        }
+        canonical_raw = normalize_v2_proposal(
+            raw,
+            case=case,
+            model="test-model",
+            request_id="a10-conformance",
+        )
+        canonical = json.loads(canonical_raw)
+        claim = canonical["claims"][0]
+        oracle = canonical["oracles"][0]
+        self.assertEqual(claim["id"], "hello-output")
+        self.assertEqual(claim["normalized_requirement"], "The CLI prints hello.")
+        self.assertEqual(claim["kind"], "behavior")
+        self.assertEqual(claim["origin"]["source_kind"], "goal")
+        self.assertTrue(claim["required"])
+        self.assertEqual(claim["oracle_ids"], [oracle["id"]])
+        self.assertEqual(oracle["claim_id"], "hello-output")
+        self.assertEqual(oracle["lifecycle"], "proposed")
+        self.assertEqual(oracle["result"], "unverified")
+        self.assertEqual(
+            canonical["generation"]["raw_response_sha256"],
+            hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        )
+        canonical_schema = load(
+            "eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json"
+        )
+        self.assertTrue(
+            _validate_raw_proposal(raw=canonical_raw, schema=canonical_schema)["valid"]
+        )
+
+        held_out_raw = canonicalize_held_out_proposal(
+            raw,
+            case=case,
+            model="test-model",
+            request_id="a10-held-out",
+        )
+        held_out = json.loads(held_out_raw)
+        self.assertTrue(held_out["claims"][0]["id"].startswith("held-"))
+        self.assertEqual(
+            held_out["claims"][0]["oracle_ids"],
+            [held_out["oracles"][0]["id"]],
+        )
+
+        extra = json.loads(json.dumps(proposal))
+        extra["claims"][0]["id"] = "extra-claim"
+        extra["oracles"][0]["claim_id"] = "extra-claim"
+        with self.assertRaisesRegex(ValueError, "exactly the registered"):
+            normalize_v2_proposal(
+                json.dumps(extra),
+                case=case,
+                model="test-model",
+                request_id="a10-extra",
+            )
+
 
 class UnionAndVerdictTest(unittest.TestCase):
     @classmethod
@@ -1244,6 +1342,41 @@ class ContractReadinessTest(unittest.TestCase):
         self.assertTrue(contract["authorization"]["implementation_authorized"])
         self.assertTrue(contract["authorization"]["live_collection_authorized"])
 
+    def test_a10_draft_separates_raw_and_canonical_schemas(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a10-contract.json")
+        previous = load("eval/goal_verify/v0/phase6-preflight-v4-a9-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        self.assertEqual(
+            contract["pre_live_amendments"][:4], previous["pre_live_amendments"]
+        )
+        amendment = contract["pre_live_amendments"][-1]
+        self.assertEqual(amendment["id"], "v4-A10")
+        self.assertTrue(amendment["result_dependent"])
+        self.assertFalse(amendment["quality_effect_estimate_used"])
+        self.assertEqual(amendment["superseded_run_status"], "never_started")
+        self.assertEqual(contract["status"], "draft")
+        self.assertIsNone(contract["code_sha"])
+        self.assertIsNone(contract["exact_sha_ci_evidence"])
+        generation = contract["generation"]
+        self.assertNotEqual(
+            generation["structured_output_schema"], generation["canonical_schema"]
+        )
+        self.assertEqual(contract["scoring"], previous["scoring"])
+        self.assertEqual(contract["preflight"], previous["preflight"])
+        self.assertEqual(contract["full_experiment"], previous["full_experiment"])
+        self.assertEqual(
+            contract["task_contract_registry"], previous["task_contract_registry"]
+        )
+        self.assertEqual(contract["smoke"]["pair_ids"], previous["smoke"]["pair_ids"])
+        self.assertNotEqual(
+            contract["smoke"]["request_namespace"],
+            previous["smoke"]["request_namespace"],
+        )
+        prompt = (ROOT / generation["prompt"]).read_text(encoding="utf-8")
+        self.assertIn("RAW PROPOSAL CONTRACT", prompt)
+        self.assertIn("oracle_ids` is never a", prompt)
+        self.assertIn("Missing `id`, `normalized_requirement`, or `kind`", prompt)
+
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")
         contract["workspace_registry_additions"] = (
@@ -1555,6 +1688,130 @@ class ContractReadinessTest(unittest.TestCase):
                 "combined_score",
                 record["lanes"]["contract_conformance"]["additive_comparison"],
             )
+
+    def test_a10_campaign_validates_raw_before_host_canonicalization(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a10-contract.json")
+        contract["selected_cells"] = [
+            row
+            for row in contract["selected_cells"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
+        ]
+        contract["samples_per_cell"] = 1
+        corpus = load("eval/goal_verify/v0/corpus.json")
+        source_case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "create-cli-known-multiple-inputs"
+        )
+        task_registry = load_task_contract_registry(
+            ROOT / contract["task_contract_registry"]
+        )
+        case = bind_task_contract(source_case, task_registry)
+        proposal = load("tests/fixtures/goal_verify_v4/raw-proposal-a10-create.json")
+        proposal["goal"] = case["goal"]
+        proposal["profile"] = case["profile"]
+        proposal["claims"][0]["id"] = case["required_claims"][0]["id"]
+        proposal["oracles"][0]["claim_id"] = case["required_claims"][0]["id"]
+        raw = json.dumps(proposal)
+        baseline_calls = []
+        provider_schemas = []
+
+        def provider(**kwargs):
+            provider_schemas.append(kwargs["schema"])
+            return {
+                "status": "completed",
+                "response": {"response": raw, "prompt_eval_count": 1, "eval_count": 2},
+            }
+
+        def baseline_runner(**kwargs):
+            baseline_calls.append(kwargs)
+            return {"status": "completed", "product_run_dir": None, "wall_time_ms": 1}
+
+        def validation(**kwargs):
+            return {
+                "valid": True,
+                "spec": json.loads(kwargs["normalized_raw"]),
+                "errors": [],
+            }
+
+        fake_execution = {
+            "evaluations": [
+                {
+                    "oracle_id": "o1",
+                    "claim_id": case["required_claims"][0]["id"],
+                    "classification": "executable",
+                    "stage": "product",
+                    "executed": True,
+                    "result": "pass",
+                    "actual": "5\n",
+                    "observed_strength": "runtime",
+                    "gold_used_for_execution": False,
+                }
+            ],
+            "same_snapshot": True,
+            "reference_fallback_count": 0,
+            "gold_used_for_execution_count": 0,
+        }
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            temporary_root = Path(temporary)
+            contract_path = temporary_root / "contract.json"
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            run_dir = temporary_root / contract["contract_id"]
+            with (
+                mock.patch(
+                    "eval_lib.goal_verify_live_v4.readiness_report",
+                    return_value={"ready": True, "blockers": []},
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_live_v4.verify_live_inputs_v3",
+                    return_value={"commandagent_binary_sha256": "a" * 64},
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_live_v4.validate_proposal",
+                    side_effect=validation,
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_live_v4.evaluate_candidate_spec_v4",
+                    return_value=fake_execution,
+                ),
+            ):
+                summary = run_campaign_v4(
+                    root=ROOT,
+                    corpus_path=ROOT / "eval/goal_verify/v0/corpus.json",
+                    contract_path=contract_path,
+                    schema_path=ROOT
+                    / contract["generation"]["structured_output_schema"],
+                    prompt_path=None,
+                    validator=ROOT / "target/release/verification_spec_validate",
+                    run_dir=run_dir,
+                    execution_root=temporary_root / "execution",
+                    provider=provider,
+                    baseline_runner=baseline_runner,
+                )
+            record = json.loads(
+                (
+                    run_dir / "raw/create-cli-known-multiple-inputs/pair-01.json"
+                ).read_text(encoding="utf-8")
+            )
+            manifest = json.loads(
+                (run_dir / "campaign-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(summary["completed_pairs"], 1)
+            self.assertEqual(len(baseline_calls), 1)
+            self.assertEqual(len(provider_schemas), 2)
+            self.assertNotIn("generation", provider_schemas[0]["properties"])
+            self.assertIn("canonical_schema_sha256", manifest)
+            for lane in ("contract_conformance", "held_out_synthesis"):
+                attempt = record["lanes"][lane]["attempts"][0]
+                self.assertEqual(
+                    attempt["raw_schema_validation"],
+                    {"applied": True, "valid": True, "errors": []},
+                )
+                canonical = json.loads(attempt["normalized_proposal"])
+                self.assertIn("origin", canonical["claims"][0])
+                self.assertIn("oracle_ids", canonical["claims"][0])
+                self.assertIn("generation", canonical)
+                self.assertNotIn("origin", proposal["claims"][0])
 
     def test_v4_report_gates_reference_fallback_and_false_full(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")

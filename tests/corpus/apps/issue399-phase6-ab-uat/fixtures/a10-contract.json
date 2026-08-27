@@ -1,0 +1,21 @@
+{
+  "schema_version": "commandagent.goal_verify.task_contracts.v4_a10",
+  "proposal_boundary": {
+    "raw_and_canonical_separated": true,
+    "raw_semantics_required_before_canonicalization": true,
+    "host_owned_fields_rejected_in_raw": true,
+    "semantic_repair_allowed": false
+  },
+  "canonicalization": {
+    "origin_and_utf8_range_host_owned": true,
+    "claim_oracle_linkage_host_owned": true,
+    "generation_provenance_host_owned": true
+  },
+  "compatibility": {
+    "legacy_v4_contract_path_preserved": true
+  },
+  "smoke": {
+    "pairs": 9,
+    "evidence_reused_by_live": false
+  }
+}
