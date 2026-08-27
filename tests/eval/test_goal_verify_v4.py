@@ -283,6 +283,33 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
         )
         self.assertNotIn("&&", json.dumps(concrete["plan"]))
 
+    def test_command_sandbox_block_is_unverified_not_product_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            outcome = execute_candidate_plan(
+                {
+                    "kind": "command",
+                    "argv": ["npm", "run", "build"],
+                    "cwd": ".",
+                    "timeout_ms": 1000,
+                    "observation": {"kind": "exit_code", "expected": 0},
+                },
+                workspace=workspace,
+                runner=lambda _plan: {
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": "sandbox denied",
+                    "sandbox_blocked": "next_turbopack_network_bind_denied",
+                },
+            )
+        self.assertTrue(outcome["execution_attempt_recorded"])
+        self.assertFalse(outcome["executed"])
+        self.assertEqual(outcome["result"], "blocked")
+        self.assertEqual(
+            outcome["reason"],
+            "safe_execution_unavailable:next_turbopack_network_bind_denied",
+        )
+
     def test_cli_text_comparison_removes_only_one_terminal_newline(self):
         def runner(_plan):
             return {
@@ -928,6 +955,18 @@ class ContractReadinessTest(unittest.TestCase):
         )
         self.assertIn("--webpack", contract["pre_live_amendments"][-1]["change"])
         self.assertIn("same-sandbox", contract["execution"]["server_policy"])
+
+    def test_a8_contract_is_design_complete_but_not_frozen_early(self):
+        path = ROOT / "eval/goal_verify/v0/phase6-preflight-v4-a8-contract.json"
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a8-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+        report = readiness_report(root=ROOT, contract_path=path)
+        self.assertIn("contract_not_frozen", report["blockers"])
+        self.assertIn("exact_code_sha_missing", report["blockers"])
+        self.assertIn("exact_sha_ci_evidence_missing", report["blockers"])
+        prompt = (ROOT / contract["generation"]["prompt"]).read_text()
+        self.assertIn('["npx","next","build","--webpack"]', prompt)
+        self.assertIn("safe_execution_unavailable", prompt)
 
     def test_v4_a4_addition_supplies_every_selected_product_workspace(self):
         contract = load("eval/goal_verify/v0/phase6-preflight-v4-contract.json")

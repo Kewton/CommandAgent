@@ -191,7 +191,7 @@ def run_macos_sandbox(plan: dict[str, Any]) -> dict[str, Any]:
         len(completed.stdout) > MAX_CAPTURE_BYTES
         or len(completed.stderr) > MAX_CAPTURE_BYTES
     )
-    return {
+    result = {
         "exit_code": completed.returncode,
         "stdout": stdout.decode("utf-8", errors="replace"),
         "stderr": stderr.decode("utf-8", errors="replace"),
@@ -199,6 +199,21 @@ def run_macos_sandbox(plan: dict[str, Any]) -> dict[str, Any]:
         "output_truncated": truncated,
         "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
     }
+    if _next_turbopack_sandbox_denial(result["stderr"]):
+        result["sandbox_blocked"] = "next_turbopack_network_bind_denied"
+    return result
+
+
+def _next_turbopack_sandbox_denial(stderr: str) -> bool:
+    return all(
+        marker in stderr
+        for marker in (
+            "TurbopackInternalError",
+            "creating new process",
+            "binding to a port",
+            "Operation not permitted",
+        )
+    )
 
 
 _BROWSER_SCRIPT = """

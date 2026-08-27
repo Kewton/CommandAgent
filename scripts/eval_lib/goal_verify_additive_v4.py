@@ -227,6 +227,14 @@ def execute_candidate_plan(
     }
     command_plan["plan_sha256"] = _plan_hash(command_plan)
     outcome = runner(command_plan)
+    if outcome.get("sandbox_blocked"):
+        return {
+            **outcome,
+            "execution_attempt_recorded": True,
+            "executed": False,
+            "result": "blocked",
+            "reason": f"safe_execution_unavailable:{outcome['sandbox_blocked']}",
+        }
     if outcome.get("runner_error"):
         return {
             **outcome,

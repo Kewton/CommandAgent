@@ -72,6 +72,40 @@ class GoalVerifySandboxTest(unittest.TestCase):
         self.assertIn("(allow signal (target same-sandbox))", profile)
         self.assertNotIn("(allow signal)\n", profile)
 
+    def test_turbopack_bind_denial_is_reported_as_sandbox_blocked(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+            workspace = Path(temporary)
+            oracle = {"id": "build", "strategy": "exit_code", "timeout_ms": 1000}
+            adapter = {
+                "oracle_id": "build",
+                "argv": ["npm", "run", "build"],
+                "observation": {"kind": "exit_code", "expected": 0},
+            }
+            plan = concretize_registered_command(
+                oracle=oracle, adapter=adapter, workspace_root=workspace
+            )
+            stderr = (
+                b"TurbopackInternalError creating new process "
+                b"binding to a port Operation not permitted"
+            )
+            with (
+                mock.patch(
+                    "eval_lib.goal_verify_sandbox.sandbox_backend_status",
+                    return_value={"available": True},
+                ),
+                mock.patch(
+                    "eval_lib.goal_verify_sandbox.subprocess.run",
+                    return_value=mock.Mock(
+                        returncode=1, stdout=b"", stderr=stderr
+                    ),
+                ),
+            ):
+                outcome = run_macos_sandbox(plan)
+            self.assertEqual(
+                outcome["sandbox_blocked"],
+                "next_turbopack_network_bind_denied",
+            )
+
     def test_backend_is_fail_closed(self):
         status = sandbox_backend_status()
         self.assertEqual(status["fallback"], "fail_closed")
