@@ -40,21 +40,20 @@ def prepare_semantic_items(
                 raise TypeError(
                     f"raw claims/oracles are not lists:{record['pair_id']}:{lane_name}"
                 )
-            claimed_oracle_ids = set()
+            claimed_oracle_indexes = set()
             for index, claim in enumerate(claims, 1):
                 if not isinstance(claim, dict):
                     raise TypeError(
                         f"raw claim is not an object:{record['pair_id']}:{lane_name}"
                     )
                 claim_id = claim.get("id")
-                linked = [
-                    oracle
-                    for oracle in oracles
+                linked_indexes = [
+                    oracle_index
+                    for oracle_index, oracle in enumerate(oracles)
                     if isinstance(oracle, dict) and oracle.get("claim_id") == claim_id
                 ]
-                claimed_oracle_ids.update(
-                    oracle.get("id") for oracle in linked if oracle.get("id") is not None
-                )
+                linked = [oracles[oracle_index] for oracle_index in linked_indexes]
+                claimed_oracle_indexes.update(linked_indexes)
                 _append_item(
                     items=items,
                     mapping=mapping,
@@ -64,15 +63,16 @@ def prepare_semantic_items(
                     source_index=index,
                     raw_claim=claim,
                     raw_oracles=linked,
+                    source_oracle_indexes=linked_indexes,
                     group_kind="claim_group",
                 )
             orphan_index = len(claims)
-            for oracle in oracles:
+            for oracle_index, oracle in enumerate(oracles):
                 if not isinstance(oracle, dict):
                     raise TypeError(
                         f"raw oracle is not an object:{record['pair_id']}:{lane_name}"
                     )
-                if oracle.get("id") in claimed_oracle_ids:
+                if oracle_index in claimed_oracle_indexes:
                     continue
                 orphan_index += 1
                 _append_item(
@@ -84,6 +84,7 @@ def prepare_semantic_items(
                     source_index=orphan_index,
                     raw_claim=None,
                     raw_oracles=[oracle],
+                    source_oracle_indexes=[oracle_index],
                     group_kind="orphan_oracle",
                 )
             if not claims and not oracles:
@@ -96,6 +97,7 @@ def prepare_semantic_items(
                     source_index=1,
                     raw_claim=None,
                     raw_oracles=[],
+                    source_oracle_indexes=[],
                     group_kind="empty_proposal",
                 )
     rng.shuffle(items)
@@ -315,7 +317,7 @@ def validate_human_review(
 
 
 def _review_rows(document: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = document.get("parsed_reviews", [])
+    rows = document.get("parsed_reviews", document.get("reviews", []))
     if isinstance(rows, dict):
         rows = rows.get("reviews", [])
     return rows if isinstance(rows, list) else []
@@ -421,6 +423,7 @@ def _append_item(
     source_index: int,
     raw_claim: dict[str, Any] | None,
     raw_oracles: list[dict[str, Any]],
+    source_oracle_indexes: list[int],
     group_kind: str,
 ) -> None:
     source = f"{contract_sha256}:{record['pair_id']}:{lane_name}:{source_index}"
@@ -444,5 +447,6 @@ def _append_item(
         "source_case_id": record["source_case_id"],
         "source_lane": lane_name,
         "source_index": source_index,
+        "source_oracle_indexes": source_oracle_indexes,
         "group_kind": group_kind,
     }

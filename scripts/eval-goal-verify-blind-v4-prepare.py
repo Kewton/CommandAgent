@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import hashlib
 import json
 import sys
@@ -46,6 +47,20 @@ def main() -> int:
     items, mapping = prepare_semantic_items(
         records=records, contract_sha256=contract_sha
     )
+    group_counts = collections.Counter(item["group_kind"] for item in items)
+    oracle_references = [
+        (row["pair_id"], row["source_lane"], oracle_index)
+        for row in mapping.values()
+        for oracle_index in row["source_oracle_indexes"]
+    ]
+    duplicate_oracle_references = len(oracle_references) - len(
+        set(oracle_references)
+    )
+    if duplicate_oracle_references:
+        raise ValueError(
+            "semantic items contain duplicate source oracle references:"
+            f"{duplicate_oracle_references}"
+        )
     output = run_dir / "blind-review-v4"
     sample_ids = human_sample(items=items, mapping=mapping)
     write_json(output / "items-semantic-hidden.json", items)
@@ -100,6 +115,10 @@ def main() -> int:
             "record_count": len(records),
             "proposal_count": sum(len(record["lanes"]) for record in records),
             "item_count": len(items),
+            "item_group_counts": dict(sorted(group_counts.items())),
+            "oracle_reference_count": len(oracle_references),
+            "unique_oracle_reference_count": len(set(oracle_references)),
+            "duplicate_oracle_reference_count": duplicate_oracle_references,
             "items_sha256": canonical_sha256(items),
             "human_sample_count": len(sample_ids),
             "human_items_sha256": canonical_sha256(human_items),

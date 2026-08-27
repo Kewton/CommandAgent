@@ -12,6 +12,7 @@ from eval_lib.goal_verify_blind_v4 import (
     human_sample,
     independent_human_template,
     prepare_semantic_items,
+    validate_model_review,
 )
 
 
@@ -37,6 +38,17 @@ def record(pair_id="case-a--pair-01", case_id="case-a"):
     }
 
 
+def record_with_raw(raw, pair_id="case-a--pair-01", case_id="case-a"):
+    lane = {
+        "attempts": [
+            {"response": {"status": "completed", "response": {"response": raw}}}
+        ]
+    }
+    value = record(pair_id, case_id)
+    value["lanes"] = {"contract_conformance": lane, "held_out_synthesis": lane}
+    return value
+
+
 class BlindV4Test(unittest.TestCase):
     def test_items_keep_raw_semantics_and_hide_source_and_provider(self):
         items, mapping = prepare_semantic_items(
@@ -56,6 +68,45 @@ class BlindV4Test(unittest.TestCase):
         first = prepare_semantic_items(records=[record()], contract_sha256="a" * 64)
         second = prepare_semantic_items(records=[record()], contract_sha256="a" * 64)
         self.assertEqual(first, second)
+
+    def test_raw_oracle_without_host_id_is_not_duplicated_as_orphan(self):
+        raw = """{
+          "claims":[{"id":"c1","normalized_requirement":"does it"}],
+          "oracles":[{"claim_id":"c1","strategy":"command"}]
+        }"""
+        items, mapping = prepare_semantic_items(
+            records=[record_with_raw(raw)], contract_sha256="1" * 64
+        )
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(item["group_kind"] == "claim_group" for item in items))
+        self.assertTrue(all(len(item["raw_oracles"]) == 1 for item in items))
+        self.assertTrue(
+            all(row["source_oracle_indexes"] == [0] for row in mapping.values())
+        )
+
+    def test_only_unmatched_raw_oracle_is_an_orphan(self):
+        raw = """{
+          "claims":[{"id":"c1","normalized_requirement":"does it"}],
+          "oracles":[{"claim_id":"missing","strategy":"command"}]
+        }"""
+        items, mapping = prepare_semantic_items(
+            records=[record_with_raw(raw)], contract_sha256="2" * 64
+        )
+        self.assertEqual(len(items), 4)
+        self.assertEqual(
+            sum(item["group_kind"] == "claim_group" for item in items), 2
+        )
+        self.assertEqual(
+            sum(item["group_kind"] == "orphan_oracle" for item in items), 2
+        )
+        orphan_mapping = [
+            mapping[item["item_id"]]
+            for item in items
+            if item["group_kind"] == "orphan_oracle"
+        ]
+        self.assertTrue(
+            all(row["source_oracle_indexes"] == [0] for row in orphan_mapping)
+        )
 
     def test_human_sample_covers_cases_and_has_ten_items(self):
         records = []
@@ -102,6 +153,30 @@ class BlindV4Test(unittest.TestCase):
         )
         self.assertTrue(report["semantic_review_complete"])
         self.assertEqual(report["agreement"]["cohen_kappa"], 1.0)
+
+    def test_model_review_accepts_prepare_template_reviews_key(self):
+        items, _ = prepare_semantic_items(
+            records=[record()], contract_sha256="3" * 64
+        )
+        document = {
+            "items_sha256": canonical_sha256(items),
+            "reviewer": {
+                "provider": "test",
+                "model_id_or_version": "family-a-model",
+                "model_family": "family-a",
+                "invoked_at": "2026-08-28T00:00:00+09:00",
+                "independent": True,
+            },
+            "reviews": [review_row(item["item_id"]) for item in items],
+            "invocation_script_sha256": "a" * 64,
+        }
+        validated = validate_model_review(
+            document=document,
+            expected_item_ids=[item["item_id"] for item in items],
+            items_sha256=canonical_sha256(items),
+        )
+        self.assertTrue(validated["valid"])
+        self.assertEqual(validated["review_count"], len(items))
 
     def test_report_keeps_blank_human_review_incomplete(self):
         items, mapping = prepare_semantic_items(
