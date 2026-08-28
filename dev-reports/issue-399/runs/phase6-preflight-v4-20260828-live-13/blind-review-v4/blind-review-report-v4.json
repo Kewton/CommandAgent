@@ -1,0 +1,142 @@
+{
+  "agreement": {
+    "axis_exact_rates": {
+      "executable_from_visible_information": 0.8431372549019608,
+      "false_positive_or_overconstraint_risk_acceptable": 0.23529411764705882,
+      "input_observation_expected_specific": 0.8169934640522876,
+      "requirement_clear": 0.8954248366013072,
+      "semantic_duplication_absent": 1.0
+    },
+    "cohen_kappa": 0.07653537427664735,
+    "model_ids": [
+      "gemma4:26b",
+      "gpt-5.6-luna"
+    ],
+    "verdict_exact_count": 56,
+    "verdict_exact_rate": 0.3660130718954248
+  },
+  "calibration_review": {
+    "authorization_id": "issue-399-a12-fable-review",
+    "authorization_scope": "A12 live-13 source-blind calibration sample of exactly 10 items",
+    "authorized_at": "2026-08-28",
+    "authorized_by": "repository owner",
+    "contract_authoring_involvement": true,
+    "document_sha256": "ff7b92f0f99780b6cc494e11dd1649823c98ad3ba9404bd38c6550185fc82c58",
+    "errors": [],
+    "forbidden_materials_not_accessed": true,
+    "independence_confirmed": null,
+    "invoked_at": "2026-08-28T07:07:24Z",
+    "model_family": "claude",
+    "model_id_or_version": "claude-fable-5",
+    "provider": "anthropic",
+    "review_count": 10,
+    "reviewer_id": "fable",
+    "reviewer_output_independence_confirmed": true,
+    "reviewer_type": "ai",
+    "source_blind_confirmed": true,
+    "user_authorized": true,
+    "valid": true,
+    "verdict_counts": {
+      "acceptable": 4,
+      "needs_revision": 5,
+      "unusable": 1
+    }
+  },
+  "checks": {
+    "all_items_have_stable_ids": true,
+    "all_model_reviews_valid": true,
+    "at_least_two_model_reviews": true,
+    "calibration_review_complete": true,
+    "distinct_model_families": true,
+    "human_items_match_master": true,
+    "human_review_complete": false,
+    "human_sample_is_ten": true
+  },
+  "distinct_model_families": [
+    "gemma4",
+    "gpt-5.6"
+  ],
+  "human_review": {
+    "authorization_id": "issue-399-a12-fable-review",
+    "authorization_scope": "A12 live-13 source-blind calibration sample of exactly 10 items",
+    "authorized_at": "2026-08-28",
+    "authorized_by": "repository owner",
+    "contract_authoring_involvement": true,
+    "document_sha256": "ff7b92f0f99780b6cc494e11dd1649823c98ad3ba9404bd38c6550185fc82c58",
+    "errors": [],
+    "forbidden_materials_not_accessed": true,
+    "independence_confirmed": null,
+    "invoked_at": "2026-08-28T07:07:24Z",
+    "model_family": "claude",
+    "model_id_or_version": "claude-fable-5",
+    "provider": "anthropic",
+    "review_count": 10,
+    "reviewer_id": "fable",
+    "reviewer_output_independence_confirmed": true,
+    "reviewer_type": "ai",
+    "source_blind_confirmed": true,
+    "user_authorized": true,
+    "valid": true,
+    "verdict_counts": {
+      "acceptable": 4,
+      "needs_revision": 5,
+      "unusable": 1
+    }
+  },
+  "item_count": 153,
+  "items_sha256": "3d2017b84ca8f87f6a50a117efe937ea666a0e12d6490b10d878f0b917d0ccd4",
+  "model_reviews": [
+    {
+      "axis_pass_counts": {
+        "executable_from_visible_information": 145,
+        "false_positive_or_overconstraint_risk_acceptable": 137,
+        "input_observation_expected_specific": 137,
+        "requirement_clear": 137,
+        "semantic_duplication_absent": 153
+      },
+      "document_sha256": "9f83b90e599a239216a7aef959f69d895a7870e6274db1591d75aa8a2b90f4d9",
+      "errors": [],
+      "independent": true,
+      "invocation_script_sha256": "de45cf2018d275d66442422326c0f3b29ae48eb76885cf190e9ee02614d56691",
+      "invocation_script_sha256_history": [],
+      "invoked_at": "2026-08-28T15:34:25.552970+09:00",
+      "model_family": "gemma4",
+      "model_id_or_version": "gemma4:26b",
+      "provider": "ollama",
+      "review_count": 153,
+      "valid": true,
+      "verdict_counts": {
+        "acceptable": 91,
+        "needs_revision": 46,
+        "unusable": 16
+      }
+    },
+    {
+      "axis_pass_counts": {
+        "executable_from_visible_information": 125,
+        "false_positive_or_overconstraint_risk_acceptable": 20,
+        "input_observation_expected_specific": 121,
+        "requirement_clear": 153,
+        "semantic_duplication_absent": 153
+      },
+      "document_sha256": "86d09342d870fe2295db19ededed5ba423945980b2b70dc6d68ba21be406f488",
+      "errors": [],
+      "independent": true,
+      "invocation_script_sha256": "not_applicable_agent_review",
+      "invocation_script_sha256_history": [],
+      "invoked_at": "2026-08-28T15:34:36+09:00",
+      "model_family": "gpt-5.6",
+      "model_id_or_version": "gpt-5.6-luna",
+      "provider": "openai-codex-agent",
+      "review_count": 153,
+      "valid": true,
+      "verdict_counts": {
+        "acceptable": 20,
+        "needs_revision": 113,
+        "unusable": 20
+      }
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.semantic_blind_report.v4",
+  "semantic_review_complete": true
+}

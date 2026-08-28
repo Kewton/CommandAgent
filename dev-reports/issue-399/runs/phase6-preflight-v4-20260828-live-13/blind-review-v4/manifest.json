@@ -1,0 +1,36 @@
+{
+  "baseline_atomic_items": 0,
+  "baseline_atomic_items_reason": "the predeclared semantic review unit is a raw candidate claim-oracle group; baseline execution observations are outside this source-blind review boundary",
+  "calibration_reviewer_policy_sha256": "c67014c28c80129e9b4857b6f07869d8fc895b138612ac5436941d6118ee0bc4",
+  "campaign_manifest_sha256": "1460f030efb8641cd773b7b59ff64d206895eb12ebd2844ec50a9499425305ce",
+  "contract_sha256": "06eea9a925627be27be7f86c2ebd74b86f5783b276d3317b77f79e3827055ea6",
+  "duplicate_oracle_reference_count": 0,
+  "hidden": [
+    "pair_id",
+    "source_case_id",
+    "source_lane",
+    "provider",
+    "model",
+    "request_id",
+    "execution results",
+    "canonicalized spec",
+    "machine score"
+  ],
+  "human_items_sha256": "5e500aef795e37597904f6483a6c57d144f07ea384f886836204d5b86fb62266",
+  "human_sample_count": 10,
+  "item_count": 153,
+  "item_group_counts": {
+    "claim_group": 153
+  },
+  "items_sha256": "3d2017b84ca8f87f6a50a117efe937ea666a0e12d6490b10d878f0b917d0ccd4",
+  "oracle_reference_count": 177,
+  "preparation_module_sha256": "160f94b8ef1cff9214a27317eb42a12f870b13e8ea1b6440a0d24be0936b9f5d",
+  "preparation_script_sha256": "cbe7f2ea8c766952cd76ac3a059f4655907046be98ce6056cd80fe9fc5aefad5",
+  "proposal_count": 80,
+  "record_count": 40,
+  "record_ledger_head_sha256": "d823f15a0086e0d5b042963870e9a060204f0be11e33fdc76fa32664ad6920b7",
+  "schema_version": "commandagent.goal_verify.semantic_blind_manifest.v4",
+  "secret_mapping": "secret/mapping.json",
+  "source_boundary": "raw candidate claim-oracle groups only",
+  "unique_oracle_reference_count": 177
+}

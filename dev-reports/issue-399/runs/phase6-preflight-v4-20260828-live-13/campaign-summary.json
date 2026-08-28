@@ -1,0 +1,9 @@
+{
+  "complete": true,
+  "completed_pairs": 40,
+  "completed_proposals": 80,
+  "record_ledger_entries": 40,
+  "record_ledger_head_sha256": "d823f15a0086e0d5b042963870e9a060204f0be11e33fdc76fa32664ad6920b7",
+  "target_pairs": 40,
+  "target_proposals": 80
+}

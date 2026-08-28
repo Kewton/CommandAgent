@@ -1,0 +1,2313 @@
+{
+  "items_sha256": "3d2017b84ca8f87f6a50a117efe937ea666a0e12d6490b10d878f0b917d0ccd4",
+  "reviewer": {
+    "independent": true,
+    "invoked_at": "2026-08-28T15:34:36+09:00",
+    "model_family": "gpt-5.6",
+    "model_id_or_version": "gpt-5.6-luna",
+    "provider": "openai-codex-agent"
+  },
+  "invocation_script_sha256": "not_applicable_agent_review",
+  "reviews": [
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0307b0c89fb527f4e4b3",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-671b8ce4c0b128089fba",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-ff6c26374e56e2778f91",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-05592ddc39997f06966e",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9b5a4895419625c46c0b",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4e5859f7994020bb1f01",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9bbce936d1806b0cf852",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-b4ead810e556b14f1e89",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-084844edca17735f44cd",
+      "rationale": "The claim and DOM checks cover the heading, computed body color, /play route, and port 4173.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-2dabea5174cc334867ff",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-23f9f348722d84fed4fe",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-737acbc25a9d9ee92735",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-219475c1876312bb3009",
+      "rationale": "Existing-test evidence alone cannot establish the required reproducer outcome.",
+      "reason_codes": [
+        "missing_reproducer",
+        "false_positive_risk"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-13bf4c09810d48bb0843",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-005645743e17d2d3a32d",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f9a4443ccf313f3a0bdd",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c952ce8cd355132227c2",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4e96ef7e784cb6f081e9",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-43f8aadcba74bbefcb9f",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d95b3cb45148e139d4aa",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-8febd3bbc2820b228a5f",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-686b89413c71ecbdc2b3",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-a6e37b30fcd9fdf6b44a",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-66570f5581eac041331b",
+      "rationale": "Separate executable stdout checks cover both required input/output cases.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-64bd816db5826b8dbbca",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1e68dbd404727c1d3e93",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-ff976b655843efe80bc9",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-7bf18f3a6f13eea9ad39",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-79d8edb7f4cf21a06dce",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-2b137d691071bff3eff4",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-2de42f38b1f34ffa0f0b",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1efbf90a7559bb509ae6",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-8b7b8a053326145de142",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-20d5e5529675c7db4bbb",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9d988aa9e48e1f024404",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-6dc8d30a357751b9455a",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1148479c11cf2446ee97",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d292dd76d206754fdbe0",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-a7341bebd220266f1710",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-99f5807259e04b1bb17a",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-b0316718c0fc1dcfa17b",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-410f6c700adbd709c43b",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-db881123f3f947bf0297",
+      "rationale": "Existing-test evidence alone cannot establish the required reproducer outcome.",
+      "reason_codes": [
+        "missing_reproducer",
+        "false_positive_risk"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-85e144074f424db0a3a4",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d8bf06a52d529693df60",
+      "rationale": "The oracle inspects HTML text rather than measuring outbound network requests.",
+      "reason_codes": [
+        "irrelevant_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9ef45b2a1e1f117170c1",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-fa43c8c2208156aa644e",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-5143d58a2a682bf0a15a",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-35e9117368c19bb4e8ee",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-34bab680de97990f3027",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-fce70337102e6482c9f5",
+      "rationale": "The oracle inspects HTML text rather than measuring outbound network requests.",
+      "reason_codes": [
+        "irrelevant_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4c4fc88ec11bdf3d6898",
+      "rationale": "The claim and DOM checks cover the heading, computed body color, /play route, and port 4173.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4233cc21af314cc12ca2",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d740e8fdfa4ad22d0095",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-06ffa31e394f6ccb58d2",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-237232f899b8f7b9ae85",
+      "rationale": "Separate executable stdout checks cover both required input/output cases.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-8ec40dbab01b345c77f9",
+      "rationale": "The oracle inspects HTML text rather than measuring outbound network requests.",
+      "reason_codes": [
+        "irrelevant_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c5fb233c9b2682185a5f",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-30e28a84c2c9f88cba93",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4a602c8af0db3ed0c9a7",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f928c4919418490ce574",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0a7aa24f6bfc31f2037c",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-2f29c6dcdc5545013659",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-da3238112aa4c1e3f2c1",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-342e8747a6d7449f83de",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d455c0e059804a960c40",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-3ad59affc0b60fd13844",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-b8c7b3d6f788a9cd0a8d",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d4b0c9d0e935625fb30e",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-531543ac5042538e72be",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0f3f10583f1ea815cc5c",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-eff37b94676233b60619",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f5d28978fcf3275d20d1",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-617ec7ad21edc4d3e89d",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f8d112dc1af616dedd9d",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9264e337676d1db8dbbb",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-049c46f816dabeb02133",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-671a494d96df49c2e8de",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-df7d9b8aceb265ae9ad8",
+      "rationale": "The claim and DOM checks cover the heading, computed body color, /play route, and port 4173.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-eeea3c65e1bca76251fe",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-363acbc9b12c010d893b",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-04d1c777db0eb8a1daed",
+      "rationale": "Existing-test evidence alone cannot establish the required reproducer outcome.",
+      "reason_codes": [
+        "missing_reproducer",
+        "false_positive_risk"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-cdd389d9df1900ceeea8",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-59157ea6f6118984525a",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c43b79f41a560aa13ab3",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4bc49497bcbcde8cf6a3",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-e6036055be1af1f39958",
+      "rationale": "The claim and DOM checks cover the heading, computed body color, /play route, and port 4173.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f73698583f11ad0cf7d7",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-e434bd6bb18ff254e8f8",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c619a3e1e2919e64686d",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-791f6532d25ece644847",
+      "rationale": "Existing-test evidence alone cannot establish the required reproducer outcome.",
+      "reason_codes": [
+        "missing_reproducer",
+        "false_positive_risk"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-380326f01fd717a3eab7",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d1fe86b13a420bdba4df",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-5419010ce3c743bb2f81",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f587cde97013470b706f",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1d07359b03dcbc9af5de",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-ec4167c408521893187c",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-96e9457a983989ac21b4",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-7979529b123bfe5809b0",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-955f7514b4f5e0ba21ce",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-267a33f8ee66ee05a5a1",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9e22445f1a8438dc0e27",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-8aa80397a3650d5411a1",
+      "rationale": "The oracle inspects HTML text rather than measuring outbound network requests.",
+      "reason_codes": [
+        "irrelevant_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-9c800a51df04250800f3",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-22dad20ae70110dd5ef8",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-a76fc2620e595eb373a8",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-411f45f9b1890d440a42",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-17ab328e73d45c561881",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-e718a9906d0067ee397e",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0e18e9dfd2194b1688f2",
+      "rationale": "The claim and DOM checks cover the heading, computed body color, /play route, and port 4173.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-75c29a6a103b95266f59",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-5ce21890ffc52adb4a2a",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f35fad2481ff4aa5979b",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-4d98bff73fe03431e833",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-b2c618a2562dc17c3197",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-64b911b91e2808872a32",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-3a4921c7ee00f70f9be4",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-3343261ae40e8b09c6a6",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-088dd1f3cc635a36f239",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-18c15ffa2e4bceda45c1",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-e2a454dee3831327c76c",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-71fd981d8bcbb7b2601f",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-fb546bff2b7154ec0d74",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-5d4db9130f3d9f9ef08d",
+      "rationale": "The oracle inspects HTML text rather than measuring outbound network requests.",
+      "reason_codes": [
+        "irrelevant_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-7b1e6a362e177c50ae6e",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f7b7eae5e18941218fb6",
+      "rationale": "Separate executable stdout checks cover both required input/output cases.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-ff7eca525ef65dbfe348",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-61b02de6ec37bfe7727a",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c21b64002e5c34bced90",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f0d791eacad3df062242",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-dfabb7528d31d712833d",
+      "rationale": "The reproducer claim has no oracle to verify it.",
+      "reason_codes": [
+        "missing_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1c44393b10870066181d",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-6d5b1c6c375a98d680cf",
+      "rationale": "The claim and interaction oracle specify two clicks on #increment and an observed #count value of 2.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c899e071c18e84adf376",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-a988f5efb0a7914b6e21",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-f8c29ef9fe1345198d03",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-2833edea9a2ad7549de3",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-6878f4e197984937a080",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-819f0e2a22e3f1b85652",
+      "rationale": "Separate executable stdout checks cover both required input/output cases.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-a70eb3ef62e8eec013d8",
+      "rationale": "The proposal checks an artifact or HTML structure but does not directly verify absence of outbound requests.",
+      "reason_codes": [
+        "network_condition_unverified"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-bbe29b02539eff949bc7",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-619f0b629b370f511e75",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d6fcf6581e7948f0ddd0",
+      "rationale": "Separate executable stdout checks cover both required input/output cases.",
+      "reason_codes": [
+        "complete_coverage"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-fbc1cd7e9c75fba8a447",
+      "rationale": "The proposal checks only one side of the exact fixture before-and-after requirement.",
+      "reason_codes": [
+        "incomplete_before_after"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-779e24bf5992d68f0c59",
+      "rationale": "The proposal verifies only part of the required heading, style, route, and port behavior.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-460fdbc8dceda5cda02d",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": false,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": false,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-02dbedfc1ad6801c00ec",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-03e1b516c5292b3e42ab",
+      "rationale": "Existing-test evidence alone cannot establish the required reproducer outcome.",
+      "reason_codes": [
+        "missing_reproducer",
+        "false_positive_risk"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0306ae4f1aa32b5a7604",
+      "rationale": "The proposal covers only a subset of the required before-after reproducer and two regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-b8a534e620c0f541313f",
+      "rationale": "Only one of the two required input/output cases is covered.",
+      "reason_codes": [
+        "missing_input_case"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-c5e531c5974102e03095",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-d7d75241b146ddc2a001",
+      "rationale": "The proposal checks build or initial state but not the required two-click transition.",
+      "reason_codes": [
+        "missing_behavior_check"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-be8afe0a1c1c912e6d7c",
+      "rationale": "The proposal omits at least one of the post-fix reproducer or two frozen regression checks.",
+      "reason_codes": [
+        "missing_required_check"
+      ],
+      "verdict": "needs_revision"
+    }
+  ]
+}

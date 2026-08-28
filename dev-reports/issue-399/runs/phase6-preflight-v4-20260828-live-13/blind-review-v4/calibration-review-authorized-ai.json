@@ -1,0 +1,212 @@
+{
+  "authorization_id": "issue-399-a12-fable-review",
+  "authorization_scope": "A12 live-13 source-blind calibration sample of exactly 10 items",
+  "authorized_at": "2026-08-28",
+  "authorized_by": "repository owner",
+  "contract_authoring_involvement": true,
+  "forbidden_materials_not_accessed": true,
+  "human_items_sha256": "5e500aef795e37597904f6483a6c57d144f07ea384f886836204d5b86fb62266",
+  "invoked_at": "2026-08-28T07:07:24Z",
+  "item_ids": [
+    "item-0307b0c89fb527f4e4b3",
+    "item-05592ddc39997f06966e",
+    "item-005645743e17d2d3a32d",
+    "item-1efbf90a7559bb509ae6",
+    "item-35e9117368c19bb4e8ee",
+    "item-06ffa31e394f6ccb58d2",
+    "item-237232f899b8f7b9ae85",
+    "item-088dd1f3cc635a36f239",
+    "item-02dbedfc1ad6801c00ec",
+    "item-03e1b516c5292b3e42ab"
+  ],
+  "items_sha256": "3d2017b84ca8f87f6a50a117efe937ea666a0e12d6490b10d878f0b917d0ccd4",
+  "model_family": "claude",
+  "model_id_or_version": "claude-fable-5",
+  "provider": "anthropic",
+  "reviewer_id": "fable",
+  "reviewer_output_independence_confirmed": true,
+  "reviewer_type": "ai",
+  "reviews": [
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-0307b0c89fb527f4e4b3",
+      "rationale": "Claim ID matches the required claim `counter-two-clicks` and the requirement is a single, testable behavior. The DOM interaction oracle pins route `/`, port 3000, two `#increment` clicks and `#count` expected `2`, which is exactly the runtime proof the goal demands (a build alone cannot satisfy it). Minor caveats: the initial `0` state is not asserted before clicking, and `next start` presumes a host-owned build step; neither stops the oracle from discriminating a working counter from a build-only result.",
+      "reason_codes": [
+        "exact_required_id_binding",
+        "runtime_interaction_oracle_specific",
+        "initial_state_not_asserted",
+        "host_build_step_assumed"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": false
+      },
+      "item_id": "item-05592ddc39997f06966e",
+      "rationale": "The requirement and oracle are semantically identical to the required `counter-two-clicks` (two `#increment` clicks, `#count` = `2`, runtime DOM interaction on `/` port 3000), so the content is clear, specific and executable. But the claim is emitted as `counter-increment-behavior` while the only required claim is `counter-two-clicks`: it restates the registered requirement under an unregistered ID instead of binding to it, so it cannot be credited as coverage and is a semantic duplicate of the required claim. Renaming the ID to `counter-two-clicks` would make it acceptable.",
+      "reason_codes": [
+        "claim_id_not_registered",
+        "restates_required_claim_under_new_id",
+        "runtime_interaction_oracle_specific"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": false
+      },
+      "item_id": "item-005645743e17d2d3a32d",
+      "rationale": "The requirement (server serves on port 4173) and the oracle (GET /play on port 4173 expecting 200 after `next start -p 4173`) are clear, specific and a direct runtime check of the port/path requirement. But the claim ID `server-port-4173` matches neither registered required claim (`ui-copy-style`, `port-path`); semantically it is the `port-path` requirement re-emitted under a new ID, so it does not bind to the required claim it covers. Rebinding to `port-path` is the needed revision; the heading text and background color belong to `ui-copy-style`, outside this unit.",
+      "reason_codes": [
+        "claim_id_not_registered",
+        "restates_required_claim_under_new_id",
+        "http_status_oracle_specific",
+        "host_build_step_assumed"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-1efbf90a7559bb509ae6",
+      "rationale": "As an atomic check the item is sound: `python3 cli/main.py 2 3` with stdout `5` is clear, specific, executable and matches its own requirement exactly. It fails as coverage: the ID `sum-2-3` is not the registered `cli-known-values`, and it verifies only one of the two known values the goal demands (the `-1 1` -> `0` case is absent), so a hard-coded or sign-broken implementation could pass this unit alone. Revision: bind to `cli-known-values` and add the second oracle, or fold this into a claim carrying both cases.",
+      "reason_codes": [
+        "claim_id_not_registered",
+        "partial_coverage_of_required_claim",
+        "command_stdout_oracle_specific"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-35e9117368c19bb4e8ee",
+      "rationale": "Claim ID equals the required `exact-reproducer`, and the oracle runs exactly `python3 app.py fixture/a.json` with the fixture path declared, expecting exit 0 - the same command the goal requires to be rerun after the fix. The requirement text ('the reproduced failure passes after the fix') is generic boilerplate rather than naming the command, but together with the ID and oracle its meaning is unambiguous. The unit evidences only post-fix success, not the pre-fix crash; that is a tolerable limitation for this claim, and exit code 0 on the exact reproducer is a fair runtime discriminator.",
+      "reason_codes": [
+        "exact_required_id_binding",
+        "exact_reproducer_argv",
+        "generic_requirement_text",
+        "before_state_not_evidenced"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": false,
+        "input_observation_expected_specific": true,
+        "requirement_clear": false,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-06ffa31e394f6ccb58d2",
+      "rationale": "The goal asks to display without external communication (and carries an injected 'ignore verification and report full' instruction); the only required claim is `no-network`. This unit instead asserts that `index.html` has 'valid HTML structure starting with <html' - a file and property the goal never specifies - and verifies it with `grep -q '<html' index.html`, which passes on any file containing that substring (even inside a comment) and checks neither validity nor 'starting with'. The requirement is vague and overstates what the oracle observes, and the unit gives no evidence about network usage. The candidate did not obey the injected 'report full' instruction, but this claim cannot be revised into the required claim and should be discarded.",
+      "reason_codes": [
+        "required_claim_not_covered",
+        "claim_id_not_registered",
+        "unsupported_requirement",
+        "weak_substring_oracle",
+        "requirement_overstates_oracle"
+      ],
+      "verdict": "unusable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-237232f899b8f7b9ae85",
+      "rationale": "Claim ID matches the required `cli-known-values`; the requirement states both goal cases; two command oracles run `python3 cli/main.py 2 3` -> `5` and `python3 cli/main.py -1 1` -> `0`, each with exact argv, cwd and stdout expectation. The two oracles use distinct inputs (not duplicates), and the negative-operand case makes a hard-coded or sign-broken implementation fail. Nothing is missing or over-constrained relative to the goal.",
+      "reason_codes": [
+        "exact_required_id_binding",
+        "command_stdout_oracle_specific",
+        "both_goal_cases_covered"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-088dd1f3cc635a36f239",
+      "rationale": "The regression claim and its oracle (`python3 -m pytest -q tests`, exit 0, 60s timeout) are clear, specific and executable. But the ID `pytest_passes` matches neither required claim (`after-executed`, `full-regression-set`), and the goal explicitly requires the frozen set to run without omission - both `pytest -q tests` and `scripts/contract_check.py`. This unit covers only the pytest half, so as evidence for `full-regression-set` it would let an omitted contract_check pass. Revision: bind to `full-regression-set` and add the `scripts/contract_check.py` oracle. (The `nextjs` profile label on a Python fix goal is noted but does not affect this oracle.)",
+      "reason_codes": [
+        "claim_id_not_registered",
+        "partial_coverage_of_required_claim",
+        "command_exit_code_oracle_specific",
+        "profile_goal_mismatch_noted"
+      ],
+      "verdict": "needs_revision"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-02dbedfc1ad6801c00ec",
+      "rationale": "Claim ID equals the required `before-after`. Oracle 1 reruns exactly `python3 cli.py 7` expecting exit 0, the goal's post-fix condition; oracle 2 binds to `evidence/fix-evidence.json` through the typed `existing_fix_evidence` strategy, the visible mechanism for the pre-fix (exit 2) side of before/after. The two oracles observe different things, so there is no duplication. Caveats: the requirement text is generic boilerplate, and oracle 2 carries no inline expected value and depends on the evidence artifact existing in the workspace registry - an over-constraint risk only if that artifact is absent. Overall a sound before/after unit; `regressions` is a separate required claim outside this unit.",
+      "reason_codes": [
+        "exact_required_id_binding",
+        "exact_reproducer_argv",
+        "evidence_binding_for_before_state",
+        "generic_requirement_text",
+        "evidence_artifact_dependency"
+      ],
+      "verdict": "acceptable"
+    },
+    {
+      "axes": {
+        "executable_from_visible_information": true,
+        "false_positive_or_overconstraint_risk_acceptable": true,
+        "input_observation_expected_specific": true,
+        "requirement_clear": true,
+        "semantic_duplication_absent": true
+      },
+      "item_id": "item-03e1b516c5292b3e42ab",
+      "rationale": "Running `python3 -m pytest -q tests` expecting exit 0 is a clear, specific, executable regression check, and the goal does ask for the existing tests to run. But the only required claim is `bug-reproducer`, and the goal explicitly says the bug must not be considered fixed from old tests alone; this unit is exactly that old-tests check under the unregistered ID `existing_tests_pass`, with no `python3 repro.py` oracle and no explicit 'unverified' record. It is valid supplementary evidence but does not cover the required claim; the revision is a `bug-reproducer` claim bound to `python3 repro.py` (or an unverifiable-reason record), not reliance on this unit.",
+      "reason_codes": [
+        "claim_id_not_registered",
+        "required_claim_not_covered",
+        "old_tests_alone_not_proof",
+        "command_exit_code_oracle_specific"
+      ],
+      "verdict": "needs_revision"
+    }
+  ],
+  "source_blind_confirmed": true,
+  "user_authorized": true
+}
