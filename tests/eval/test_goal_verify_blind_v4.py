@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_blind_v4 import (
     AXES,
+    authorized_ai_reviewer_template,
     build_blind_report,
     canonical_sha256,
     human_sample,
@@ -59,10 +60,13 @@ class BlindV4Test(unittest.TestCase):
         self.assertNotIn("source_lane", items[0])
         self.assertNotIn("pair_id", items[0])
         self.assertNotIn("generation", str(items))
-        self.assertEqual({row["source_lane"] for row in mapping.values()}, {
-            "contract_conformance",
-            "held_out_synthesis",
-        })
+        self.assertEqual(
+            {row["source_lane"] for row in mapping.values()},
+            {
+                "contract_conformance",
+                "held_out_synthesis",
+            },
+        )
 
     def test_item_order_and_ids_are_deterministic(self):
         first = prepare_semantic_items(records=[record()], contract_sha256="a" * 64)
@@ -93,9 +97,7 @@ class BlindV4Test(unittest.TestCase):
             records=[record_with_raw(raw)], contract_sha256="2" * 64
         )
         self.assertEqual(len(items), 4)
-        self.assertEqual(
-            sum(item["group_kind"] == "claim_group" for item in items), 2
-        )
+        self.assertEqual(sum(item["group_kind"] == "claim_group" for item in items), 2)
         self.assertEqual(
             sum(item["group_kind"] == "orphan_oracle" for item in items), 2
         )
@@ -122,7 +124,9 @@ class BlindV4Test(unittest.TestCase):
 
     def test_report_accepts_nested_and_flat_review_payloads(self):
         items, mapping = prepare_semantic_items(
-            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            records=[
+                record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)
+            ],
             contract_sha256="c" * 64,
         )
         sample = human_sample(items=items, mapping=mapping)
@@ -155,9 +159,7 @@ class BlindV4Test(unittest.TestCase):
         self.assertEqual(report["agreement"]["cohen_kappa"], 1.0)
 
     def test_model_review_accepts_prepare_template_reviews_key(self):
-        items, _ = prepare_semantic_items(
-            records=[record()], contract_sha256="3" * 64
-        )
+        items, _ = prepare_semantic_items(records=[record()], contract_sha256="3" * 64)
         document = {
             "items_sha256": canonical_sha256(items),
             "reviewer": {
@@ -180,7 +182,9 @@ class BlindV4Test(unittest.TestCase):
 
     def test_report_keeps_blank_human_review_incomplete(self):
         items, mapping = prepare_semantic_items(
-            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            records=[
+                record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)
+            ],
             contract_sha256="d" * 64,
         )
         sample = human_sample(items=items, mapping=mapping)
@@ -216,7 +220,9 @@ class BlindV4Test(unittest.TestCase):
 
     def test_non_human_or_contract_author_is_not_an_independent_human(self):
         items, mapping = prepare_semantic_items(
-            records=[record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)],
+            records=[
+                record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)
+            ],
             contract_sha256="e" * 64,
         )
         sample = human_sample(items=items, mapping=mapping)
@@ -253,6 +259,99 @@ class BlindV4Test(unittest.TestCase):
             report["human_review"]["errors"],
         )
 
+    def test_user_authorized_ai_can_complete_calibration_review(self):
+        items, mapping = prepare_semantic_items(
+            records=[
+                record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)
+            ],
+            contract_sha256="f" * 64,
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        sampled_items = [
+            next(item for item in items if item["item_id"] == item_id)
+            for item_id in sample
+        ]
+        policy = authorized_ai_policy()
+        calibration = authorized_ai_reviewer_template(
+            items_sha256=canonical_sha256(items),
+            human_items=sampled_items,
+            reviewer_policy=policy,
+        )
+        calibration.update(
+            {
+                "source_blind_confirmed": True,
+                "forbidden_materials_not_accessed": True,
+                "reviewer_output_independence_confirmed": True,
+                "invoked_at": "2026-08-28T12:00:00+09:00",
+                "reviews": [review_row(item_id) for item_id in sample],
+            }
+        )
+        rows = [review_row(item["item_id"]) for item in items]
+        report = build_blind_report(
+            items=items,
+            model_documents=[
+                model_review(items, rows, "family-a", nested=True),
+                model_review(items, rows, "family-b", nested=False),
+            ],
+            human_document=calibration,
+            human_items=sampled_items,
+            reviewer_policy=policy,
+        )
+        self.assertTrue(report["semantic_review_complete"])
+        self.assertTrue(report["checks"]["calibration_review_complete"])
+        self.assertFalse(report["checks"]["human_review_complete"])
+        self.assertEqual(report["calibration_review"]["reviewer_type"], "ai")
+        self.assertTrue(report["calibration_review"]["contract_authoring_involvement"])
+
+    def test_authorized_ai_must_match_frozen_identity_and_boundary(self):
+        items, mapping = prepare_semantic_items(
+            records=[
+                record(f"case-{index}--pair-01", f"case-{index}") for index in range(8)
+            ],
+            contract_sha256="9" * 64,
+        )
+        sample = human_sample(items=items, mapping=mapping)
+        sampled_items = [
+            next(item for item in items if item["item_id"] == item_id)
+            for item_id in sample
+        ]
+        policy = authorized_ai_policy()
+        calibration = authorized_ai_reviewer_template(
+            items_sha256=canonical_sha256(items),
+            human_items=sampled_items,
+            reviewer_policy=policy,
+        )
+        calibration.update(
+            {
+                "model_id_or_version": "different-model",
+                "source_blind_confirmed": False,
+                "forbidden_materials_not_accessed": True,
+                "reviewer_output_independence_confirmed": True,
+                "invoked_at": "2026-08-28T12:00:00+09:00",
+                "reviews": [review_row(item_id) for item_id in sample],
+            }
+        )
+        rows = [review_row(item["item_id"]) for item in items]
+        report = build_blind_report(
+            items=items,
+            model_documents=[
+                model_review(items, rows, "family-a", nested=True),
+                model_review(items, rows, "family-b", nested=False),
+            ],
+            human_document=calibration,
+            human_items=sampled_items,
+            reviewer_policy=policy,
+        )
+        self.assertFalse(report["semantic_review_complete"])
+        self.assertIn(
+            "authorized_ai_model_id_or_version_mismatch",
+            report["calibration_review"]["errors"],
+        )
+        self.assertIn(
+            "authorized_ai_source_blind_not_confirmed",
+            report["calibration_review"]["errors"],
+        )
+
 
 def review_row(item_id):
     return {
@@ -277,6 +376,23 @@ def model_review(items, rows, family, *, nested):
         },
         "parsed_reviews": parsed,
         "invocation_script_sha256": "a" * 64,
+    }
+
+
+def authorized_ai_policy():
+    return {
+        "allowed_reviewer_types": ["human", "ai"],
+        "authorized_ai_reviewer": {
+            "authorization_id": "issue-399-a12-fable-review",
+            "authorization_scope": "A12 source-blind calibration sample only",
+            "authorized_at": "2026-08-28",
+            "authorized_by": "repository owner",
+            "reviewer_id": "fable",
+            "provider": "anthropic",
+            "model_family": "claude",
+            "model_id_or_version": "claude-fable-5",
+            "contract_authoring_involvement": True,
+        },
     }
 
 

@@ -1995,6 +1995,38 @@ class ContractReadinessTest(unittest.TestCase):
         report["human_review"]["reviewer_type"] = "model"
         self.assertFalse(semantic_review_gate(contract=contract, blind_report=report))
 
+    def test_preflight_semantic_gate_accepts_only_contract_authorized_ai(self):
+        contract = load("eval/goal_verify/v0/phase6-preflight-v4-a12-contract.json")
+        authorization = contract["semantic_review"]["calibration_reviewer_policy"][
+            "authorized_ai_reviewer"
+        ]
+        calibration = {
+            **authorization,
+            "valid": True,
+            "reviewer_type": "ai",
+            "user_authorized": True,
+            "source_blind_confirmed": True,
+            "forbidden_materials_not_accessed": True,
+            "reviewer_output_independence_confirmed": True,
+        }
+        report = {
+            "semantic_review_complete": True,
+            "checks": {
+                "all_items_have_stable_ids": True,
+                "all_model_reviews_valid": True,
+                "at_least_two_model_reviews": True,
+                "distinct_model_families": True,
+                "human_sample_is_ten": True,
+                "human_items_match_master": True,
+                "human_review_complete": False,
+                "calibration_review_complete": True,
+            },
+            "calibration_review": calibration,
+        }
+        self.assertTrue(semantic_review_gate(contract=contract, blind_report=report))
+        calibration["authorization_id"] = "different-authorization"
+        self.assertFalse(semantic_review_gate(contract=contract, blind_report=report))
+
 
 if __name__ == "__main__":
     unittest.main()

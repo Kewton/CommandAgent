@@ -18,11 +18,29 @@ def semantic_review_gate(
     if not isinstance(blind_report, dict):
         return False
     checks = blind_report.get("checks")
-    if not isinstance(checks, dict) or not checks or not all(checks.values()):
+    if not isinstance(checks, dict) or not checks:
         return False
     if blind_report.get("semantic_review_complete") is not True:
         return False
-    if contract.get("semantic_review", {}).get("independent_human_required") is not True:
+    semantic_contract = contract.get("semantic_review", {})
+    if semantic_contract.get("calibration_reviewer_required") is True:
+        required_checks = {
+            key: value
+            for key, value in checks.items()
+            if key != "human_review_complete"
+        }
+        if not required_checks or not all(required_checks.values()):
+            return False
+        calibration = blind_report.get(
+            "calibration_review", blind_report.get("human_review")
+        )
+        return _calibration_reviewer_matches_contract(
+            semantic_contract=semantic_contract,
+            calibration=calibration,
+        )
+    if not all(checks.values()):
+        return False
+    if semantic_contract.get("independent_human_required") is not True:
         return True
     human = blind_report.get("human_review")
     return (
@@ -31,6 +49,53 @@ def semantic_review_gate(
         and human.get("reviewer_type") == "human"
         and human.get("contract_authoring_involvement") is False
         and human.get("independence_confirmed") is True
+    )
+
+
+def _calibration_reviewer_matches_contract(
+    *, semantic_contract: dict[str, Any], calibration: Any
+) -> bool:
+    if not isinstance(calibration, dict) or calibration.get("valid") is not True:
+        return False
+    reviewer_type = calibration.get("reviewer_type")
+    if reviewer_type == "human":
+        return (
+            calibration.get("contract_authoring_involvement") is False
+            and calibration.get("independence_confirmed") is True
+        )
+    if reviewer_type != "ai":
+        return False
+    policy = semantic_contract.get("calibration_reviewer_policy")
+    if not isinstance(policy, dict) or "ai" not in policy.get(
+        "allowed_reviewer_types", []
+    ):
+        return False
+    authorization = policy.get("authorized_ai_reviewer")
+    if not isinstance(authorization, dict):
+        return False
+    exact_fields = (
+        "reviewer_id",
+        "provider",
+        "model_family",
+        "model_id_or_version",
+        "contract_authoring_involvement",
+        "authorization_id",
+        "authorization_scope",
+        "authorized_at",
+        "authorized_by",
+    )
+    if any(
+        calibration.get(field) != authorization.get(field) for field in exact_fields
+    ):
+        return False
+    return all(
+        calibration.get(field) is True
+        for field in (
+            "user_authorized",
+            "source_blind_confirmed",
+            "forbidden_materials_not_accessed",
+            "reviewer_output_independence_confirmed",
+        )
     )
 
 
@@ -63,9 +128,7 @@ def build_report(
         is True
     ]
     host_repaired = [
-        lane
-        for lane in lanes
-        if lane.get("validation", {}).get("host_repairs")
+        lane for lane in lanes if lane.get("validation", {}).get("host_repairs")
     ]
     evaluations = [
         row
@@ -148,7 +211,9 @@ def build_report(
         "baseline_run_discovered": not baseline_run_required
         or all(bool(row.get("product_run_dir")) for row in baselines),
         "baseline_completion_verify_attempted": not baseline_completion_required
-        or all(row.get("completion_verify_attempt_recorded") is True for row in baselines),
+        or all(
+            row.get("completion_verify_attempt_recorded") is True for row in baselines
+        ),
         "baseline_honest_terminal_recorded": not baseline_terminal_required
         or all(_baseline_honest_terminal(row) for row in baselines),
     }

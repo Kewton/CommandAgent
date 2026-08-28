@@ -54,6 +54,8 @@ def main() -> int:
         and not semantic_complete
         and contract.get("semantic_review", {}).get("independent_human_required")
         is not True
+        and contract.get("semantic_review", {}).get("calibration_reviewer_required")
+        is not True
     ):
         semantic_complete = True
     report = build_report(

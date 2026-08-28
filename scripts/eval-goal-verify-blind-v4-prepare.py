@@ -29,7 +29,9 @@ def write_json(path: Path, value) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare Phase 6 v4 raw semantic review")
+    parser = argparse.ArgumentParser(
+        description="Prepare Phase 6 v4 raw semantic review"
+    )
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument(
         "--contract",
@@ -38,8 +40,14 @@ def main() -> int:
     )
     args = parser.parse_args()
     run_dir = args.run_dir if args.run_dir.is_absolute() else ROOT / args.run_dir
-    contract_path = args.contract if args.contract.is_absolute() else ROOT / args.contract
+    contract_path = (
+        args.contract if args.contract.is_absolute() else ROOT / args.contract
+    )
     contract_sha = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    reviewer_policy = contract.get("semantic_review", {}).get(
+        "calibration_reviewer_policy"
+    )
     records = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted((run_dir / "raw").glob("**/pair-*.json"))
@@ -53,9 +61,7 @@ def main() -> int:
         for row in mapping.values()
         for oracle_index in row["source_oracle_indexes"]
     ]
-    duplicate_oracle_references = len(oracle_references) - len(
-        set(oracle_references)
-    )
+    duplicate_oracle_references = len(oracle_references) - len(set(oracle_references))
     if duplicate_oracle_references:
         raise ValueError(
             "semantic items contain duplicate source oracle references:"
@@ -122,6 +128,11 @@ def main() -> int:
             "items_sha256": canonical_sha256(items),
             "human_sample_count": len(sample_ids),
             "human_items_sha256": canonical_sha256(human_items),
+            "calibration_reviewer_policy_sha256": (
+                canonical_sha256(reviewer_policy)
+                if isinstance(reviewer_policy, dict)
+                else None
+            ),
             "preparation_script_sha256": hashlib.sha256(
                 Path(__file__).read_bytes()
             ).hexdigest(),

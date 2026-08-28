@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -18,7 +19,17 @@ def main() -> int:
     parser.add_argument(
         "--human-review",
         type=Path,
-        help="Independent human review JSON (defaults inside blind-review-v4)",
+        help="Legacy alias for --calibration-review",
+    )
+    parser.add_argument(
+        "--calibration-review",
+        type=Path,
+        help="Authorized calibration review JSON",
+    )
+    parser.add_argument(
+        "--contract",
+        type=Path,
+        help="Contract containing semantic_review.calibration_reviewer_policy",
     )
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
@@ -33,7 +44,36 @@ def main() -> int:
         raise ValueError("human item hash differs from preparation manifest")
     if human_items["items_sha256"] != manifest["items_sha256"]:
         raise ValueError("human item packet is not bound to the full item set")
-    human_path = args.human_review or review_dir / "human-review-independent.json"
+    if args.human_review and args.calibration_review:
+        raise ValueError("use only one review input option")
+    reviewer_policy = None
+    if args.contract:
+        contract_path = (
+            args.contract if args.contract.is_absolute() else ROOT / args.contract
+        )
+        if hashlib.sha256(contract_path.read_bytes()).hexdigest() != manifest.get(
+            "contract_sha256"
+        ):
+            raise ValueError("review contract differs from preparation manifest")
+        contract = _read_json(contract_path)
+        reviewer_policy = contract.get("semantic_review", {}).get(
+            "calibration_reviewer_policy"
+        )
+        policy_sha256 = manifest.get("calibration_reviewer_policy_sha256")
+        if isinstance(reviewer_policy, dict):
+            if canonical_sha256(reviewer_policy) != policy_sha256:
+                raise ValueError("reviewer policy differs from preparation manifest")
+        elif policy_sha256 is not None:
+            raise ValueError("reviewer policy differs from preparation manifest")
+    default_name = (
+        "calibration-review-authorized-ai.json"
+        if isinstance(reviewer_policy, dict)
+        and "ai" in reviewer_policy.get("allowed_reviewer_types", [])
+        else "human-review-independent.json"
+    )
+    human_path = (
+        args.calibration_review or args.human_review or review_dir / default_name
+    )
     if not human_path.is_absolute():
         human_path = ROOT / human_path
     human = _read_json(human_path)
@@ -45,6 +85,7 @@ def main() -> int:
         model_documents=model_documents,
         human_document=human,
         human_items=human_items["items"],
+        reviewer_policy=reviewer_policy,
     )
     output = review_dir / "blind-review-report-v4.json"
     output.write_text(

@@ -140,6 +140,54 @@ def independent_human_template(
     }
 
 
+def authorized_ai_reviewer_template(
+    *,
+    items_sha256: str,
+    human_items: list[dict[str, Any]],
+    reviewer_policy: dict[str, Any],
+) -> dict[str, Any]:
+    authorization = reviewer_policy.get("authorized_ai_reviewer")
+    if not isinstance(authorization, dict):
+        raise TypeError("reviewer policy has no authorized AI reviewer")
+    required = (
+        "authorization_id",
+        "authorization_scope",
+        "authorized_at",
+        "authorized_by",
+        "reviewer_id",
+        "provider",
+        "model_family",
+        "model_id_or_version",
+        "contract_authoring_involvement",
+    )
+    missing = [field for field in required if field not in authorization]
+    if missing:
+        raise ValueError(f"authorized AI reviewer policy is incomplete:{missing}")
+    return {
+        "items_sha256": items_sha256,
+        "human_items_sha256": canonical_sha256(human_items),
+        "reviewer_id": authorization["reviewer_id"],
+        "reviewer_type": "ai",
+        "provider": authorization["provider"],
+        "model_family": authorization["model_family"],
+        "model_id_or_version": authorization["model_id_or_version"],
+        "contract_authoring_involvement": authorization[
+            "contract_authoring_involvement"
+        ],
+        "user_authorized": True,
+        "authorization_id": authorization["authorization_id"],
+        "authorization_scope": authorization["authorization_scope"],
+        "authorized_at": authorization["authorized_at"],
+        "authorized_by": authorization["authorized_by"],
+        "source_blind_confirmed": False,
+        "forbidden_materials_not_accessed": False,
+        "reviewer_output_independence_confirmed": False,
+        "invoked_at": "",
+        "item_ids": [item["item_id"] for item in human_items],
+        "reviews": [blank_review_row(item["item_id"]) for item in human_items],
+    }
+
+
 def blank_review_row(item_id: str) -> dict[str, Any]:
     return {
         "item_id": item_id,
@@ -156,6 +204,7 @@ def build_blind_report(
     model_documents: list[dict[str, Any]],
     human_document: dict[str, Any],
     human_items: list[dict[str, Any]],
+    reviewer_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     item_ids = [item["item_id"] for item in items]
     items_sha256 = canonical_sha256(items)
@@ -181,12 +230,14 @@ def build_blind_report(
         expected_item_ids=expected_human_ids,
         items_sha256=items_sha256,
         human_items_sha256=canonical_sha256(human_items),
+        reviewer_policy=reviewer_policy,
     )
     agreement = _model_agreement(valid_models, item_ids)
     public_models = [
         {key: value for key, value in model.items() if key != "reviews"}
         for model in models
     ]
+    calibration_review_complete = human["valid"]
     checks = {
         "all_items_have_stable_ids": len(item_ids) == len(set(item_ids)),
         "all_model_reviews_valid": len(valid_models) == len(models),
@@ -194,7 +245,13 @@ def build_blind_report(
         "distinct_model_families": len(families) >= 2,
         "human_sample_is_ten": len(expected_human_ids) == 10,
         "human_items_match_master": human_items_match_master,
-        "human_review_complete": human["valid"],
+        "human_review_complete": (
+            calibration_review_complete and human["reviewer_type"] == "human"
+        ),
+        "calibration_review_complete": calibration_review_complete,
+    }
+    semantic_checks = {
+        key: value for key, value in checks.items() if key != "human_review_complete"
     }
     return {
         "schema_version": "commandagent.goal_verify.semantic_blind_report.v4",
@@ -203,9 +260,10 @@ def build_blind_report(
         "model_reviews": public_models,
         "distinct_model_families": families,
         "human_review": human,
+        "calibration_review": human,
         "agreement": agreement,
         "checks": checks,
-        "semantic_review_complete": all(checks.values()),
+        "semantic_review_complete": all(semantic_checks.values()),
     }
 
 
@@ -276,6 +334,7 @@ def validate_human_review(
     expected_item_ids: list[str],
     items_sha256: str,
     human_items_sha256: str,
+    reviewer_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors = []
     if document.get("items_sha256") != items_sha256:
@@ -284,12 +343,33 @@ def validate_human_review(
         errors.append("human_items_sha256_mismatch")
     if not isinstance(document.get("reviewer_id"), str) or not document["reviewer_id"]:
         errors.append("reviewer_id_missing")
-    if document.get("reviewer_type") != "human":
-        errors.append("reviewer_type_must_be_human")
-    if document.get("contract_authoring_involvement") is not False:
-        errors.append("contract_authoring_involvement_must_be_false")
-    if document.get("independence_confirmed") is not True:
-        errors.append("reviewer_independence_not_confirmed")
+    reviewer_type = document.get("reviewer_type")
+    allowed_types = (
+        reviewer_policy.get("allowed_reviewer_types", ["human"])
+        if isinstance(reviewer_policy, dict)
+        else ["human"]
+    )
+    if reviewer_type not in allowed_types:
+        if allowed_types == ["human"]:
+            errors.append("reviewer_type_must_be_human")
+            if document.get("contract_authoring_involvement") is not False:
+                errors.append("contract_authoring_involvement_must_be_false")
+            if document.get("independence_confirmed") is not True:
+                errors.append("reviewer_independence_not_confirmed")
+        else:
+            errors.append("reviewer_type_not_allowed")
+    elif reviewer_type == "human":
+        if document.get("contract_authoring_involvement") is not False:
+            errors.append("contract_authoring_involvement_must_be_false")
+        if document.get("independence_confirmed") is not True:
+            errors.append("reviewer_independence_not_confirmed")
+    elif reviewer_type == "ai":
+        errors.extend(
+            _authorized_ai_reviewer_errors(
+                document=document,
+                reviewer_policy=reviewer_policy,
+            )
+        )
     if document.get("item_ids") != expected_item_ids:
         errors.append("human_sample_ids_mismatch")
     rows = document.get("reviews", [])
@@ -304,16 +384,68 @@ def validate_human_review(
     return {
         "reviewer_id": document.get("reviewer_id"),
         "reviewer_type": document.get("reviewer_type"),
+        "provider": document.get("provider"),
+        "model_family": document.get("model_family"),
+        "model_id_or_version": document.get("model_id_or_version"),
         "contract_authoring_involvement": document.get(
             "contract_authoring_involvement"
         ),
         "independence_confirmed": document.get("independence_confirmed"),
+        "user_authorized": document.get("user_authorized"),
+        "authorization_id": document.get("authorization_id"),
+        "authorization_scope": document.get("authorization_scope"),
+        "authorized_at": document.get("authorized_at"),
+        "authorized_by": document.get("authorized_by"),
+        "source_blind_confirmed": document.get("source_blind_confirmed"),
+        "forbidden_materials_not_accessed": document.get(
+            "forbidden_materials_not_accessed"
+        ),
+        "reviewer_output_independence_confirmed": document.get(
+            "reviewer_output_independence_confirmed"
+        ),
+        "invoked_at": document.get("invoked_at"),
         "document_sha256": canonical_sha256(document),
         "review_count": len(rows),
         "verdict_counts": counts,
         "valid": not errors,
         "errors": errors,
     }
+
+
+def _authorized_ai_reviewer_errors(
+    *, document: dict[str, Any], reviewer_policy: dict[str, Any] | None
+) -> list[str]:
+    if not isinstance(reviewer_policy, dict):
+        return ["authorized_ai_reviewer_policy_missing"]
+    authorization = reviewer_policy.get("authorized_ai_reviewer")
+    if not isinstance(authorization, dict):
+        return ["authorized_ai_reviewer_policy_missing"]
+    errors = []
+    expected_fields = (
+        "reviewer_id",
+        "provider",
+        "model_family",
+        "model_id_or_version",
+        "contract_authoring_involvement",
+        "authorization_id",
+        "authorization_scope",
+        "authorized_at",
+        "authorized_by",
+    )
+    for field in expected_fields:
+        if document.get(field) != authorization.get(field):
+            errors.append(f"authorized_ai_{field}_mismatch")
+    if document.get("user_authorized") is not True:
+        errors.append("authorized_ai_user_authorization_missing")
+    if document.get("source_blind_confirmed") is not True:
+        errors.append("authorized_ai_source_blind_not_confirmed")
+    if document.get("forbidden_materials_not_accessed") is not True:
+        errors.append("authorized_ai_forbidden_materials_boundary_not_confirmed")
+    if document.get("reviewer_output_independence_confirmed") is not True:
+        errors.append("authorized_ai_output_independence_not_confirmed")
+    if not isinstance(document.get("invoked_at"), str) or not document["invoked_at"]:
+        errors.append("authorized_ai_invoked_at_missing")
+    return errors
 
 
 def _review_rows(document: dict[str, Any]) -> list[dict[str, Any]]:
@@ -366,7 +498,9 @@ def _model_agreement(
         return None
     left = {row["item_id"]: row for row in valid_models[0]["reviews"]}
     right = {row["item_id"]: row for row in valid_models[1]["reviews"]}
-    exact = sum(left[item_id]["verdict"] == right[item_id]["verdict"] for item_id in item_ids)
+    exact = sum(
+        left[item_id]["verdict"] == right[item_id]["verdict"] for item_id in item_ids
+    )
     observed = exact / len(item_ids) if item_ids else 0.0
     left_rates = {
         verdict: sum(left[item_id]["verdict"] == verdict for item_id in item_ids)
