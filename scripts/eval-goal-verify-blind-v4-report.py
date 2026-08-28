@@ -47,6 +47,7 @@ def main() -> int:
     if args.human_review and args.calibration_review:
         raise ValueError("use only one review input option")
     reviewer_policy = None
+    semantic_review = None
     if args.contract:
         contract_path = (
             args.contract if args.contract.is_absolute() else ROOT / args.contract
@@ -56,9 +57,8 @@ def main() -> int:
         ):
             raise ValueError("review contract differs from preparation manifest")
         contract = _read_json(contract_path)
-        reviewer_policy = contract.get("semantic_review", {}).get(
-            "calibration_reviewer_policy"
-        )
+        semantic_review = contract.get("semantic_review", {})
+        reviewer_policy = semantic_review.get("calibration_reviewer_policy")
         policy_sha256 = manifest.get("calibration_reviewer_policy_sha256")
         if isinstance(reviewer_policy, dict):
             if canonical_sha256(reviewer_policy) != policy_sha256:
@@ -86,6 +86,7 @@ def main() -> int:
         human_document=human,
         human_items=human_items["items"],
         reviewer_policy=reviewer_policy,
+        review_contract=semantic_review,
     )
     output = review_dir / "blind-review-report-v4.json"
     output.write_text(

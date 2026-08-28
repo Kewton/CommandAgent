@@ -39,6 +39,8 @@ def main() -> int:
     if contract_sha256 != manifest.get("contract_sha256"):
         raise ValueError("reviewer packet contract differs from preparation manifest")
     policy = contract.get("semantic_review", {}).get("calibration_reviewer_policy")
+    sample_spec = contract.get("semantic_review", {}).get("main_sample")
+    expected_count = sample_spec.get("size") if isinstance(sample_spec, dict) else 10
     if not isinstance(policy, dict) or "ai" not in policy.get(
         "allowed_reviewer_types", []
     ):
@@ -52,8 +54,10 @@ def main() -> int:
         raise ValueError("reviewer packet does not match the full blind item set")
     if canonical_sha256(items) != manifest.get("human_items_sha256"):
         raise ValueError("reviewer packet item hash differs from the blind manifest")
-    if len(items) != 10:
-        raise ValueError("isolated calibration packet must contain exactly 10 items")
+    if len(items) != expected_count:
+        raise ValueError(
+            f"isolated calibration packet must contain exactly {expected_count} items"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     item_path = output_dir / "calibration-items-semantic-hidden.json"
@@ -66,7 +70,9 @@ def main() -> int:
         reviewer_policy=policy,
     )
     _write_json(template_path, template)
-    instructions_path.write_text(_instructions(template), encoding="utf-8")
+    instructions_path.write_text(
+        _instructions(template, item_count=expected_count), encoding="utf-8"
+    )
     files = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in (item_path, template_path, instructions_path)
@@ -98,7 +104,7 @@ def main() -> int:
     return 0
 
 
-def _instructions(template: dict) -> str:
+def _instructions(template: dict, *, item_count: int) -> str:
     return f"""# User-authorized source-blind AI calibration review
 
 The repository owner explicitly authorized this AI reviewer for the frozen contract:
@@ -119,7 +125,7 @@ Copy `calibration-review-authorized-ai-template.json` to
 `calibration-review-authorized-ai.json`. Do not alter authorization metadata, hashes,
 item IDs, or item order. Set `source_blind_confirmed`,
 `forbidden_materials_not_accessed`, and `reviewer_output_independence_confirmed` to true
-only if accurate, set a non-empty ISO-8601 `invoked_at`, and complete all 10 reviews.
+only if accurate, set a non-empty ISO-8601 `invoked_at`, and complete all {item_count} reviews.
 Every review requires one verdict (`acceptable`, `needs_revision`, or `unusable`), all
 five boolean axes, a reason-code array, and a non-empty rationale. Return only the
 completed JSON document.

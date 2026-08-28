@@ -45,9 +45,8 @@ def main() -> int:
     )
     contract_sha = hashlib.sha256(contract_path.read_bytes()).hexdigest()
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
-    reviewer_policy = contract.get("semantic_review", {}).get(
-        "calibration_reviewer_policy"
-    )
+    semantic_review = contract.get("semantic_review", {})
+    reviewer_policy = semantic_review.get("calibration_reviewer_policy")
     records = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted((run_dir / "raw").glob("**/pair-*.json"))
@@ -68,7 +67,11 @@ def main() -> int:
             f"{duplicate_oracle_references}"
         )
     output = run_dir / "blind-review-v4"
-    sample_ids = human_sample(items=items, mapping=mapping)
+    sample_ids = human_sample(
+        items=items,
+        mapping=mapping,
+        sample_spec=semantic_review.get("main_sample"),
+    )
     write_json(output / "items-semantic-hidden.json", items)
     write_json(output / "secret" / "mapping.json", mapping)
     human_items = [

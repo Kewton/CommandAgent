@@ -15,6 +15,7 @@ def validate_cluster_design(
 ) -> list[str]:
     errors = []
     grouped: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    cluster_cells: dict[str, set[str]] = defaultdict(set)
     seen_pairs = set()
     for index, row in enumerate(rows):
         cell_id = row.get("cell_id")
@@ -29,6 +30,13 @@ def validate_cluster_design(
             errors.append(f"duplicate pair_id: {pair_id}")
         seen_pairs.add(pair_id)
         grouped[cell_id][cluster_id] += 1
+        cluster_cells[cluster_id].add(cell_id)
+    for cluster_id, cell_ids in sorted(cluster_cells.items()):
+        if len(cell_ids) > 1:
+            errors.append(
+                f"source_task_id spans cells: {cluster_id}:"
+                + ",".join(sorted(cell_ids))
+            )
     for cell_id, clusters in sorted(grouped.items()):
         if len(clusters) < minimum_clusters_per_cell:
             errors.append(

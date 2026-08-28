@@ -32,6 +32,16 @@ class GoalVerifyStatsV2Test(unittest.TestCase):
         self.assertTrue(any("duplicate pair_id" in error for error in errors))
         self.assertTrue(any("requires 3" in error for error in errors))
 
+    def test_cluster_design_rejects_task_id_shared_across_cells(self):
+        rows = [
+            {"cell_id": "cell-01", "source_task_id": "task-a", "pair_id": "a-1"},
+            {"cell_id": "cell-02", "source_task_id": "task-a", "pair_id": "a-2"},
+        ]
+        errors = validate_cluster_design(
+            rows, minimum_clusters_per_cell=1, minimum_pairs_per_cluster=1
+        )
+        self.assertIn("source_task_id spans cells: task-a:cell-01,cell-02", errors)
+
     def test_cluster_bootstrap_is_deterministic_and_cluster_weighted(self):
         rows = [
             {"source_task_id": "task-a", "delta": 1.0},

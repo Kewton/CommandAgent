@@ -1,0 +1,25 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_main_contract_fixture.v4",
+  "design": {
+    "cells": 12,
+    "source_tasks_per_cell": 10,
+    "runs_per_source_task": 3,
+    "total_pairs": 360,
+    "pseudoreplication_allowed": false
+  },
+  "analysis": {
+    "cluster_unit": "source_task_id",
+    "task_clusters_weighted_equally": true,
+    "bootstrap": "hierarchical cluster paired percentile",
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "same_script_replay_required": true
+  },
+  "review": {
+    "source_blind_items": 36,
+    "items_per_cell": 3,
+    "model_evidence_admissible": false,
+    "authorized_ai_reviewer_allowed": true
+  },
+  "recovery_plan_auto_runs": 0
+}

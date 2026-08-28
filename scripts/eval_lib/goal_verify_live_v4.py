@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,11 @@ from eval_lib.goal_verify_live_v3 import (
     _run_baseline,
     verify_live_inputs_v3,
 )
+from eval_lib.goal_verify_main_design_v4 import (
+    cluster_metadata,
+    product_stage,
+    workspace_case_id,
+)
 from eval_lib.goal_verify_next_v4 import (
     candidate_visible_executor_capabilities,
     detect_executor_capabilities,
@@ -54,6 +60,42 @@ from eval_lib.goal_verify_v3 import (
 )
 from eval_lib.goal_verify_workspaces_v3 import workspace_by_case
 from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
+
+
+def _cluster_manifest(
+    *,
+    selected: list[dict[str, Any]],
+    samples_per_task: int,
+    selected_pair_ids: list[str],
+) -> dict[str, Any]:
+    if not any("source_task_id" in case or "cell_id" in case for case in selected):
+        return {}
+    population_tasks: set[str] = set()
+    population_cells: set[str] = set()
+    selected_tasks: set[str] = set()
+    selected_cells: set[str] = set()
+    selected_pair_set = set(selected_pair_ids)
+    for case in selected:
+        metadata = cluster_metadata(case)
+        population_tasks.add(metadata["source_task_id"])
+        population_cells.add(metadata["cell_id"])
+        for sample_index in range(1, samples_per_task + 1):
+            pair_id = f"{case['case_id']}--pair-{sample_index:02d}"
+            if pair_id in selected_pair_set:
+                selected_tasks.add(metadata["source_task_id"])
+                selected_cells.add(metadata["cell_id"])
+    return {
+        "cluster_design": {
+            "cluster_unit": "source_task_id",
+            "population_cell_count": len(population_cells),
+            "population_source_task_count": len(population_tasks),
+            "runs_per_source_task": samples_per_task,
+            "population_pair_count": len(population_tasks) * samples_per_task,
+            "selected_cell_count": len(selected_cells),
+            "selected_source_task_count": len(selected_tasks),
+            "selected_pair_count": len(selected_pair_ids),
+        }
+    }
 
 
 def run_campaign_v4(
@@ -184,6 +226,11 @@ def run_campaign_v4(
         "selected_pair_ids": selected_pair_ids,
         "target_pairs": len(selected_pair_ids),
         "target_proposals": len(selected_pair_ids) * len(LANES),
+        **_cluster_manifest(
+            selected=selected,
+            samples_per_task=int(contract["samples_per_cell"]),
+            selected_pair_ids=selected_pair_ids,
+        ),
         "execution_root": str(execution_root.resolve()),
         "commandagent_bin": str(commandagent),
         **live_inputs,
@@ -220,7 +267,7 @@ def run_campaign_v4(
                     stage_paths = _prepare_pair_stages(
                         root=root,
                         case=case,
-                        workspace=workspaces.get(case["case_id"]),
+                        workspace=workspaces.get(workspace_case_id(case)),
                         destination=pair_root,
                     )
                     product_workspace = _product_workspace(case, stage_paths)
@@ -286,6 +333,11 @@ def run_campaign_v4(
                         "schema_version": "commandagent.goal_verify.phase6_live_record.v4",
                         "pair_id": pair_id,
                         "source_case_id": case["case_id"],
+                        **(
+                            cluster_metadata(case)
+                            if "cell_id" in case or "source_task_id" in case
+                            else {}
+                        ),
                         "goal": case["goal"],
                         "source_goal": case.get("source_goal", case["goal"]),
                         "intent": case["intent"],
@@ -350,6 +402,7 @@ def _run_lane_v4(
     executor_capabilities,
     request_namespace,
 ):
+    started_ns = time.monotonic_ns()
     attempts = []
     validation = {"valid": False, "spec": None, "errors": ["not_attempted"]}
     visible = {
@@ -498,6 +551,48 @@ def _run_lane_v4(
         "execution": execution,
         "candidate_coverage": coverage,
         "additive_comparison": additive,
+        "resource_usage": _candidate_resource_usage(
+            attempts=attempts,
+            wall_time_ns=time.monotonic_ns() - started_ns,
+        ),
+    }
+
+
+def _candidate_resource_usage(
+    *, attempts: list[dict[str, Any]], wall_time_ns: int
+) -> dict[str, Any]:
+    input_tokens = 0
+    output_tokens = 0
+    token_measurement_complete = True
+    for attempt in attempts:
+        response = attempt.get("response", {}).get("response")
+        if not isinstance(response, dict):
+            token_measurement_complete = False
+            continue
+        prompt_eval_count = response.get("prompt_eval_count")
+        eval_count = response.get("eval_count")
+        if not (
+            isinstance(prompt_eval_count, int)
+            and not isinstance(prompt_eval_count, bool)
+            and prompt_eval_count >= 0
+            and isinstance(eval_count, int)
+            and not isinstance(eval_count, bool)
+            and eval_count >= 0
+        ):
+            token_measurement_complete = False
+            continue
+        input_tokens += prompt_eval_count
+        output_tokens += eval_count
+    return {
+        "scope": "candidate generation, canonicalization, validation, oracle execution, and scoring",
+        "wall_time_ms": wall_time_ns / 1_000_000.0,
+        "input_tokens": input_tokens if token_measurement_complete else None,
+        "output_tokens": output_tokens if token_measurement_complete else None,
+        "total_tokens": (
+            input_tokens + output_tokens if token_measurement_complete else None
+        ),
+        "attempt_count": len(attempts),
+        "token_measurement_complete": token_measurement_complete,
     }
 
 
@@ -779,7 +874,7 @@ def _execute_spec_isolated(
 
 
 def _product_workspace(case, stage_paths):
-    desired = "initial" if case["intent"] == "create" else "before"
+    desired = product_stage(case)
     path = stage_paths.get((case["case_id"], desired))
     if path is None:
         raise ValueError(f"product workspace missing:{case['case_id']}:{desired}")

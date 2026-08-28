@@ -6,6 +6,7 @@ from typing import Any
 
 import jsonschema
 
+from eval_lib.goal_verify_main_design_v4 import main_design_errors
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_sandbox import sandbox_backend_status
 from eval_lib.goal_verify_task_contracts_v4 import (
@@ -252,6 +253,20 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
     }
     if actual != expected:
         errors.append("resource_budget_mismatch")
+    if contract.get("main_analysis") is not None:
+        try:
+            corpus = load_json(root / contract["corpus"])
+            matrix = load_json(root / "eval/goal_verify/v0/phase6-matrix.json")
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            errors.append(f"main_design_inputs_invalid:{error}")
+        else:
+            errors.extend(
+                main_design_errors(
+                    corpus=corpus,
+                    contract=contract,
+                    matrix=matrix,
+                )
+            )
     return errors
 
 

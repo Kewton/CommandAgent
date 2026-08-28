@@ -38,8 +38,11 @@ def main() -> int:
         raise ValueError("human packet does not match the full blind item set")
     if canonical_sha256(human_items) != manifest.get("human_items_sha256"):
         raise ValueError("human packet item hash differs from the blind manifest")
-    if len(human_items) != 10:
-        raise ValueError("isolated human packet must contain exactly 10 items")
+    expected_count = manifest.get("human_sample_count", 10)
+    if len(human_items) != expected_count:
+        raise ValueError(
+            f"isolated human packet must contain exactly {expected_count} items"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     item_path = output_dir / "human-items-semantic-hidden.json"
@@ -52,7 +55,9 @@ def main() -> int:
             items_sha256=manifest["items_sha256"], human_items=human_items
         ),
     )
-    instructions_path.write_text(_instructions(), encoding="utf-8")
+    instructions_path.write_text(
+        _instructions(item_count=expected_count), encoding="utf-8"
+    )
     files = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in (item_path, template_path, instructions_path)
@@ -80,8 +85,8 @@ def main() -> int:
     return 0
 
 
-def _instructions() -> str:
-    return """# Independent source-blind human review
+def _instructions(*, item_count: int) -> str:
+    return f"""# Independent source-blind human review
 
 Review only `human-items-semantic-hidden.json`. Do not request or inspect the source run,
 model reviews, execution results, canonicalized output, preflight report, raw records, or
@@ -90,7 +95,7 @@ prior reviewer output.
 Copy `human-review-independent-template.json` to `human-review-independent.json`. Set a
 non-empty reviewer ID, keep `reviewer_type` as `human`, set
 `contract_authoring_involvement` to `false` only if accurate, and confirm independence.
-For all 10 items, set the verdict, all five boolean axes, reason codes, and a non-empty
+For all {item_count} items, set the verdict, all five boolean axes, reason codes, and a non-empty
 rationale. Return only the completed JSON document.
 """
 

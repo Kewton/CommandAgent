@@ -130,6 +130,7 @@ def run_current_product_baseline(
             "completion_contract_sha256": completion_contract_sha256,
             "product_run_dir": str(product_run_dir) if product_run_dir else None,
             "product_run_namespace": _product_run_namespace(workspace, product_run_dir),
+            "resource_usage": _product_resource_usage(product_run_dir),
             **completion_verify,
         }
     run_dirs = _product_run_dirs(workspace)
@@ -146,6 +147,7 @@ def run_current_product_baseline(
         "operational_constraints_sha256": operational_constraints_sha256,
         "product_run_dir": str(product_run_dir) if product_run_dir else None,
         "product_run_namespace": (_product_run_namespace(workspace, product_run_dir)),
+        "resource_usage": _product_resource_usage(product_run_dir),
         "completion_contract_bound": completion_contract is not None,
         "completion_contract_sha256": completion_contract_sha256,
         **_completion_verify_status(product_run_dir),
@@ -206,6 +208,42 @@ def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
     return {
         "completion_verify_attempt_recorded": bool(attempts),
         "completion_verify_passed": any(row.get("ok") is True for row in attempts),
+    }
+
+
+def _product_resource_usage(run_dir: Path | None) -> dict[str, int | None]:
+    empty: dict[str, int | None] = {
+        "wall_time_ms": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+    if run_dir is None:
+        return empty
+    events_path = run_dir / "events.jsonl"
+    if not events_path.is_file():
+        return empty
+    profiles = [
+        row.get("profile")
+        for row in _json_rows(events_path)
+        if row.get("event") == "time_profile" and isinstance(row.get("profile"), dict)
+    ]
+    if not profiles:
+        return empty
+    profile = profiles[-1]
+    input_tokens = profile.get("prompt_eval_count")
+    output_tokens = profile.get("eval_count")
+    wall_time_ms = profile.get("total_ms")
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in (input_tokens, output_tokens, wall_time_ms)
+    ):
+        return empty
+    return {
+        "wall_time_ms": wall_time_ms,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
     }
 
 
@@ -399,7 +437,9 @@ def _evidence_observation(
         strategy, strength = "http", "runtime"
     elif family.startswith(("cli-probe", "python-cli-behavior", "cli-case-binding")):
         strategy, strength = "command", "runtime"
-    elif family.startswith(("fix-", "investigation-binding")):
+    elif family.startswith("investigation-binding"):
+        strategy, strength = "existing_investigation_binding", "runtime"
+    elif family.startswith("fix-"):
         strategy, strength = "existing_fix_evidence", "runtime"
     elif kind == "file":
         strategy, strength = "file", "deterministic"

@@ -105,8 +105,17 @@ def prepare_semantic_items(
 
 
 def human_sample(
-    *, items: list[dict[str, Any]], mapping: dict[str, dict[str, Any]]
+    *,
+    items: list[dict[str, Any]],
+    mapping: dict[str, dict[str, Any]],
+    sample_spec: dict[str, Any] | None = None,
 ) -> list[str]:
+    if sample_spec is not None:
+        return _stratified_main_sample(
+            items=items,
+            mapping=mapping,
+            sample_spec=sample_spec,
+        )
     by_case: dict[str, list[str]] = {}
     for item in items:
         item_id = item["item_id"]
@@ -121,6 +130,53 @@ def human_sample(
             break
     if len(selected) != 10:
         raise ValueError(f"human sample requires 10 items, found {len(selected)}")
+    order = {item["item_id"]: index for index, item in enumerate(items)}
+    return sorted(selected, key=order.__getitem__)
+
+
+def _stratified_main_sample(
+    *,
+    items: list[dict[str, Any]],
+    mapping: dict[str, dict[str, Any]],
+    sample_spec: dict[str, Any],
+) -> list[str]:
+    sample_size = sample_spec.get("size")
+    per_cell = sample_spec.get("items_per_cell")
+    source_lane = sample_spec.get("source_lane")
+    if (
+        not isinstance(sample_size, int)
+        or isinstance(sample_size, bool)
+        or sample_size < 1
+        or not isinstance(per_cell, int)
+        or isinstance(per_cell, bool)
+        or per_cell < 1
+        or not isinstance(source_lane, str)
+        or not source_lane
+    ):
+        raise ValueError("main semantic review sample spec is invalid")
+    by_cell_task: dict[str, dict[str, list[str]]] = {}
+    for item in items:
+        item_id = item["item_id"]
+        source = mapping[item_id]
+        if source.get("source_lane") != source_lane:
+            continue
+        cell_id = source.get("cell_id")
+        task_id = source.get("source_task_id")
+        if not isinstance(cell_id, str) or not isinstance(task_id, str):
+            raise TypeError(f"main semantic item lacks cluster metadata:{item_id}")
+        by_cell_task.setdefault(cell_id, {}).setdefault(task_id, []).append(item_id)
+    selected = []
+    for cell_id, tasks in sorted(by_cell_task.items()):
+        task_selections = [min(item_ids) for _, item_ids in sorted(tasks.items())]
+        if len(task_selections) < per_cell:
+            raise ValueError(
+                f"main semantic sample lacks tasks:{cell_id}:{len(task_selections)}"
+            )
+        selected.extend(sorted(task_selections)[:per_cell])
+    if len(selected) != sample_size:
+        raise ValueError(
+            f"main semantic sample requires {sample_size} items, found {len(selected)}"
+        )
     order = {item["item_id"]: index for index, item in enumerate(items)}
     return sorted(selected, key=order.__getitem__)
 
@@ -205,13 +261,22 @@ def build_blind_report(
     human_document: dict[str, Any],
     human_items: list[dict[str, Any]],
     reviewer_policy: dict[str, Any] | None = None,
+    review_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     item_ids = [item["item_id"] for item in items]
     items_sha256 = canonical_sha256(items)
     expected_human_ids = [item["item_id"] for item in human_items]
     master_by_id = {item["item_id"]: item for item in items}
+    sample_spec = (
+        review_contract.get("main_sample")
+        if isinstance(review_contract, dict)
+        else None
+    )
+    expected_sample_size = (
+        sample_spec.get("size") if isinstance(sample_spec, dict) else 10
+    )
     human_items_match_master = (
-        len(human_items) == 10
+        len(human_items) == expected_sample_size
         and len(expected_human_ids) == len(set(expected_human_ids))
         and all(master_by_id.get(item["item_id"]) == item for item in human_items)
     )
@@ -238,12 +303,19 @@ def build_blind_report(
         for model in models
     ]
     calibration_review_complete = human["valid"]
+    model_reviews_required = not (
+        isinstance(review_contract, dict)
+        and review_contract.get("model_reviews_required") is False
+    )
     checks = {
         "all_items_have_stable_ids": len(item_ids) == len(set(item_ids)),
         "all_model_reviews_valid": len(valid_models) == len(models),
-        "at_least_two_model_reviews": len(valid_models) >= 2,
-        "distinct_model_families": len(families) >= 2,
-        "human_sample_is_ten": len(expected_human_ids) == 10,
+        "at_least_two_model_reviews": not model_reviews_required
+        or len(valid_models) >= 2,
+        "distinct_model_families": not model_reviews_required or len(families) >= 2,
+        "human_sample_is_ten": sample_spec is not None or len(expected_human_ids) == 10,
+        "human_sample_size_matches_contract": len(expected_human_ids)
+        == expected_sample_size,
         "human_items_match_master": human_items_match_master,
         "human_review_complete": (
             calibration_review_complete and human["reviewer_type"] == "human"
@@ -257,6 +329,8 @@ def build_blind_report(
         "schema_version": "commandagent.goal_verify.semantic_blind_report.v4",
         "items_sha256": items_sha256,
         "item_count": len(items),
+        "review_sample_size": expected_sample_size,
+        "model_reviews_required": model_reviews_required,
         "model_reviews": public_models,
         "distinct_model_families": families,
         "human_review": human,
@@ -378,9 +452,12 @@ def validate_human_review(
         errors.append("reviews_not_array")
     errors.extend(_review_row_errors(rows, expected_item_ids))
     counts = {verdict: 0 for verdict in VERDICTS}
+    axis_pass_counts = {axis: 0 for axis in AXES}
     if not errors:
         for row in rows:
             counts[row["verdict"]] += 1
+            for axis in AXES:
+                axis_pass_counts[axis] += int(row["axes"][axis])
     return {
         "reviewer_id": document.get("reviewer_id"),
         "reviewer_type": document.get("reviewer_type"),
@@ -407,6 +484,7 @@ def validate_human_review(
         "document_sha256": canonical_sha256(document),
         "review_count": len(rows),
         "verdict_counts": counts,
+        "axis_pass_counts": axis_pass_counts,
         "valid": not errors,
         "errors": errors,
     }
@@ -534,16 +612,23 @@ def _model_agreement(
 def _raw_proposal(lane: dict[str, Any]) -> dict[str, Any]:
     attempts = lane.get("attempts", [])
     if not attempts:
-        raise ValueError("candidate lane has no attempts")
+        return {}
     response = attempts[-1].get("response", {})
     if response.get("status") != "completed":
-        raise ValueError("candidate final attempt did not complete")
+        return {}
     raw = response.get("response", {}).get("response")
     if not isinstance(raw, str):
-        raise TypeError("candidate final response is not text")
-    proposal = json.loads(raw)
+        return {}
+    try:
+        proposal = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
     if not isinstance(proposal, dict):
-        raise TypeError("candidate raw proposal is not an object")
+        return {}
+    if not isinstance(proposal.get("claims", []), list) or not isinstance(
+        proposal.get("oracles", []), list
+    ):
+        return {}
     return proposal
 
 
@@ -579,6 +664,8 @@ def _append_item(
     mapping[item_id] = {
         "pair_id": record["pair_id"],
         "source_case_id": record["source_case_id"],
+        "cell_id": record.get("cell_id"),
+        "source_task_id": record.get("source_task_id"),
         "source_lane": lane_name,
         "source_index": source_index,
         "source_oracle_indexes": source_oracle_indexes,
