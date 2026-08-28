@@ -46,7 +46,7 @@
     "passing_credit": false,
     "scoring": "retain claim in denominator as unverified"
   },
-  "code_sha": "",
+  "code_sha": "4b46342c3848bc49d3675d5aad15e3422d54fae1",
   "comparison": {
     "baseline": "current_product_evidence",
     "baseline_failure_override_allowed": false,
@@ -59,7 +59,7 @@
   "contract_id": "phase6-main-v4-20260828-live-01",
   "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4b46342c.json",
   "execution": {
     "baseline_observation_copy_max_count": 0,
     "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
@@ -1532,7 +1532,7 @@
     "request_namespace": "phase6-main-v4-20260828-smoke-01",
     "run_id": "phase6-main-v4-20260828-smoke-01"
   },
-  "status": "draft",
+  "status": "frozen",
   "superseded_contract": "eval/goal_verify/v0/phase6-preflight-v4-a12-contract.json",
   "supersedes": "phase6-preflight-v4-20260828-live-13",
   "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-main.json",

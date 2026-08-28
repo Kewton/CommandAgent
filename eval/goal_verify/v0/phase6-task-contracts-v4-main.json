@@ -7929,7 +7929,7 @@
     "operational_constraints": "typed, shared, candidate-visible, and not independently scored; candidates must not derive new claims from them, but may use them to bind oracles for already-provided required claim IDs; the conformance lane's exact registered claim ID set is unchanged"
   },
   "schema_version": "commandagent.goal_verify.task_contracts.v4_a9",
-  "status": "draft",
+  "status": "frozen",
   "supersedes": "eval/goal_verify/v0/phase6-task-contracts-v4-a9.json",
   "validation": {
     "completion_contract": "must be an object whose required_paths are safe relative paths and whose verify_commands remain consistent with the semantic goal and registered claims",

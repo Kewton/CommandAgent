@@ -7,7 +7,7 @@
   "drafted_at": "2026-08-28",
   "resolved_schema_version": "commandagent.goal_verify.real_workspaces.v4",
   "schema_version": "commandagent.goal_verify.real_workspace_additions.v4_main",
-  "status": "draft",
+  "status": "frozen",
   "workspaces": [
     {
       "candidate_oracle_execution_stage": "initial",
@@ -61,7 +61,7 @@
       "stages": {
         "before": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "before/lib.py",
         "before/repro.py",
@@ -101,7 +101,7 @@
       "stages": {
         "before": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "before/app.py",
         "before/fixture/control.json",
@@ -142,7 +142,7 @@
       "stages": {
         "before": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "before/lib.py",
         "before/repro.py",
@@ -182,7 +182,7 @@
       "stages": {
         "initial": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "initial/data/cause-01.json",
         "initial/data/cause-02.json",
@@ -229,7 +229,7 @@
       "stages": {
         "initial": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "initial/fixtures/repro-01.json",
         "initial/fixtures/repro-02.json",
@@ -276,7 +276,7 @@
       "stages": {
         "initial": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "initial/src/module-01.py",
         "initial/src/module-02.py",
@@ -323,7 +323,7 @@
       "stages": {
         "initial": "frozen shared template; task-specific binding is selected by the source task contract"
       },
-      "status": "draft",
+      "status": "frozen",
       "tracked_files": [
         "initial/logs/timeout-01.log",
         "initial/logs/timeout-02.log",

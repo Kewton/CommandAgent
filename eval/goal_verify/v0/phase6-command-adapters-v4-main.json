@@ -9225,5 +9225,5 @@
     "task_binding": "each adapter is bound to one source_task_id through its case_id and task-specific input"
   },
   "schema_version": "commandagent.goal_verify.oracle_adapters.v4_main",
-  "status": "draft"
+  "status": "frozen"
 }
