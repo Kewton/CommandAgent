@@ -15,6 +15,8 @@ def build_recovery_report(
     oracle_source_violations = []
     resource_missing = []
     manifest_policy_violations = []
+    execution_action_violations = []
+    executed_recovery_pairs = []
     transitions = []
     deltas: dict[str, list[int]] = {
         "wall_time_ms": [],
@@ -31,6 +33,13 @@ def build_recovery_report(
         _check_oracle_source(initial, pair_id, oracle_source_violations)
         _check_resources(initial_result, pair_id, "initial_only", resource_missing)
         _check_manifest_policy(initial, pair_id, manifest_policy_violations)
+        _check_execution_action(
+            initial_result,
+            contract=contract,
+            pair_id=pair_id,
+            arm="initial_only",
+            errors=execution_action_violations,
+        )
         recovery = record.get("recovery_one", {})
         runtime_eligible = (
             record.get("eligibility", {}).get("runtime", {}).get("run_recovery_one_arm")
@@ -54,6 +63,8 @@ def build_recovery_report(
             and not isinstance(executed_recovery_runs, bool)
             and 0 <= executed_recovery_runs <= 1
         )
+        if executed_recovery_runs == 1:
+            executed_recovery_pairs.append(pair_id)
         if initial.get("input_manifest", {}).get("snapshot_sha256") != recovery.get(
             "input_manifest", {}
         ).get("snapshot_sha256"):
@@ -61,6 +72,13 @@ def build_recovery_report(
         _check_oracle_source(recovery, pair_id, oracle_source_violations)
         _check_resources(recovery_result, pair_id, "recovery_one", resource_missing)
         _check_manifest_policy(recovery, pair_id, manifest_policy_violations)
+        _check_execution_action(
+            recovery_result,
+            contract=contract,
+            pair_id=pair_id,
+            arm="recovery_one",
+            errors=execution_action_violations,
+        )
         comparison = record.get("comparison")
         if not isinstance(comparison, dict):
             ineligible_recovery_violations.append(f"comparison_missing:{pair_id}")
@@ -70,6 +88,11 @@ def build_recovery_report(
             value = comparison.get("resource_delta", {}).get(field)
             if isinstance(value, int) and not isinstance(value, bool):
                 values.append(value)
+    paired_execution_action = contract.get("paired_run_contract", {}).get(
+        "execution_action", "plan_run"
+    )
+    smoke = contract.get("smoke", {})
+    minimum_executed = smoke.get("minimum_executed_recovery_pairs", 0)
     checks = {
         "target_pairs_complete": len(records) == expected,
         "initial_arm_configured_zero": bool(configured_zero) and all(configured_zero),
@@ -80,6 +103,16 @@ def build_recovery_report(
         "frozen_external_oracle_post_execution": not oracle_source_violations,
         "resource_measurement_complete": not resource_missing,
         "candidate_manifest_policy_applied": not manifest_policy_violations,
+        "execution_action_matches_contract": not execution_action_violations,
+        "recovery_capable_execution_action": (
+            smoke.get("require_recovery_capable_execution_action") is not True
+            or paired_execution_action == "ultra_plan_run"
+        ),
+        "minimum_executed_recovery_pairs_observed": (
+            isinstance(minimum_executed, int)
+            and not isinstance(minimum_executed, bool)
+            and len(executed_recovery_pairs) >= minimum_executed
+        ),
     }
     return {
         "schema_version": "commandagent.goal_verify.recovery_report.v4_a14",
@@ -112,6 +145,9 @@ def build_recovery_report(
             "oracle_source_violations": oracle_source_violations,
             "resource_missing": resource_missing,
             "manifest_policy_violations": manifest_policy_violations,
+            "execution_action_violations": execution_action_violations,
+            "paired_execution_action": paired_execution_action,
+            "executed_recovery_pair_ids": executed_recovery_pairs,
         },
     }
 
@@ -143,3 +179,27 @@ def _check_manifest_policy(
         "commandagent.goal_verify.candidate_manifest.source_config_v1"
     ):
         errors.append(str(pair_id))
+
+
+def _check_execution_action(
+    result: dict[str, Any],
+    *,
+    contract: dict[str, Any],
+    pair_id: Any,
+    arm: str,
+    errors: list[str],
+) -> None:
+    action = contract.get("paired_run_contract", {}).get("execution_action", "plan_run")
+    expected = {
+        "plan_run": "--plan-run",
+        "ultra_plan_run": "--ultra-plan-run",
+    }.get(action)
+    argv = result.get("argv")
+    action_flags = {"--plan-run", "--ultra-plan-run"}
+    observed = (
+        [argument for argument in argv if argument in action_flags]
+        if isinstance(argv, list)
+        else []
+    )
+    if expected is None or observed != [expected]:
+        errors.append(f"{pair_id}:{arm}:{observed}")

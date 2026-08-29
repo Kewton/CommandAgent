@@ -20,6 +20,7 @@ def build_product_argv(
     model: str,
     completion_contract_path: Path | None = None,
     recovery_plan_auto_runs: int | None = None,
+    execution_action: str = "plan_run",
 ) -> list[str]:
     argv = [
         str(commandagent_bin.resolve()),
@@ -48,7 +49,13 @@ def build_product_argv(
         ):
             raise ValueError("recovery_plan_auto_runs must be a non-negative integer")
         argv.extend(["--recovery-plan-auto-runs", str(recovery_plan_auto_runs)])
-    argv.extend(["--plan-run", _baseline_task_input(case)])
+    action_flag = {
+        "plan_run": "--plan-run",
+        "ultra_plan_run": "--ultra-plan-run",
+    }.get(execution_action)
+    if action_flag is None:
+        raise ValueError(f"unsupported execution_action: {execution_action}")
+    argv.extend([action_flag, _baseline_task_input(case)])
     return argv
 
 
@@ -61,6 +68,7 @@ def run_current_product_baseline(
     timeout_sec: int,
     completion_contract: dict[str, Any] | None = None,
     recovery_plan_auto_runs: int | None = None,
+    execution_action: str = "plan_run",
 ) -> dict[str, Any]:
     completion_contract_path = None
     completion_contract_sha256 = None
@@ -85,6 +93,7 @@ def run_current_product_baseline(
         model=model,
         completion_contract_path=completion_contract_path,
         recovery_plan_auto_runs=recovery_plan_auto_runs,
+        execution_action=execution_action,
     )
     operational_constraints = case.get("task_contract", {}).get(
         "operational_constraints"

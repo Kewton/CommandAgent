@@ -57,6 +57,9 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         errors.append("maximum_recovery_runs_must_be_one")
     if paired.get("arm_order") != ["initial_only", "recovery_one"]:
         errors.append("paired_arm_order_invalid")
+    execution_action = paired.get("execution_action", "plan_run")
+    if execution_action not in {"plan_run", "ultra_plan_run"}:
+        errors.append("paired_execution_action_invalid")
     eligibility = contract.get("recovery_eligibility", {})
     if eligibility.get("free_form_stderr_used_for_classification") is not False:
         errors.append("free_form_stderr_classification_must_be_false")
@@ -80,6 +83,23 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         errors.append("smoke_pair_count_mismatch")
     if smoke.get("effect_claim_allowed") is not False:
         errors.append("smoke_effect_claim_must_be_false")
+    minimum_executed = smoke.get("minimum_executed_recovery_pairs", 0)
+    if (
+        not isinstance(minimum_executed, int)
+        or isinstance(minimum_executed, bool)
+        or minimum_executed < 0
+    ):
+        errors.append("smoke_minimum_executed_recovery_pairs_invalid")
+    elif (
+        isinstance(smoke.get("expected_pair_count"), int)
+        and minimum_executed > smoke["expected_pair_count"]
+    ):
+        errors.append("smoke_minimum_executed_recovery_pairs_exceeds_total")
+    if (
+        smoke.get("require_recovery_capable_execution_action") is True
+        and execution_action != "ultra_plan_run"
+    ):
+        errors.append("smoke_execution_action_not_recovery_capable")
     integrity = contract.get("integrity", {})
     if integrity.get("exclusive_run_lock") != ".campaign.lock":
         errors.append("exclusive_run_lock_invalid")

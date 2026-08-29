@@ -14,7 +14,7 @@ from eval_lib.generate_goal_verify_main_v4_a13 import (
     _build_contract as build_a13_contract,
 )
 from eval_lib.generate_goal_verify_main_v4_a13 import _build_tasks as build_a13_tasks
-from eval_lib.generate_goal_verify_recovery_v4_a14 import (
+from eval_lib.generate_goal_verify_recovery_v4_a14_a1 import (
     _build_contract as build_a14_recovery_contract,
 )
 from eval_lib.goal_verify_baseline_product_v3 import (
@@ -228,6 +228,17 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         one_index = one.index("--recovery-plan-auto-runs")
         self.assertEqual(zero[zero_index : zero_index + 2], [zero[zero_index], "0"])
         self.assertEqual(one[one_index : one_index + 2], [one[one_index], "1"])
+        self.assertIn("--plan-run", zero)
+
+        ultra = build_product_argv(
+            **common,
+            recovery_plan_auto_runs=1,
+            execution_action="ultra_plan_run",
+        )
+        self.assertIn("--ultra-plan-run", ultra)
+        self.assertNotIn("--plan-run", ultra)
+        with self.assertRaisesRegex(ValueError, "unsupported execution_action"):
+            build_product_argv(**common, execution_action="unknown")
 
     def test_a14_case_eligibility_excludes_missing_dependency_and_oracle(self):
         tasks = load("eval/goal_verify/v0/phase6-task-contracts-v4-a13-main.json")
@@ -472,6 +483,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(paired["initial_only"]["recovery_plan_auto_runs"], 0)
         self.assertEqual(paired["recovery_one"]["recovery_plan_auto_runs"], 1)
         self.assertEqual(paired["maximum_recovery_runs"], 1)
+        self.assertEqual(paired["execution_action"], "ultra_plan_run")
         self.assertFalse(
             contract["recovery_eligibility"]["free_form_stderr_used_for_classification"]
         )
@@ -481,6 +493,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "dependency_or_provisioning",
         )
         self.assertFalse(contract["smoke"]["effect_claim_allowed"])
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 1)
         self.assertEqual(
             contract["execution_root_policy"]["required_root"],
             "/Volumes/SSD_NX/tmp/commandagent_trial",
@@ -490,6 +503,12 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         invalid["paired_run_contract"]["recovery_one"]["recovery_plan_auto_runs"] = 2
         self.assertIn(
             "recovery_one_runs_must_be_one", recovery_contract_errors(invalid)
+        )
+        wrong_action = copy.deepcopy(contract)
+        wrong_action["paired_run_contract"]["execution_action"] = "plan_run"
+        self.assertIn(
+            "smoke_execution_action_not_recovery_capable",
+            recovery_contract_errors(wrong_action),
         )
 
     def test_a14_pair_runs_explicit_zero_then_one_and_scores_external_oracle(self):
@@ -518,7 +537,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
 
         def baseline_runner(**kwargs):
             configured_runs = kwargs["recovery_plan_auto_runs"]
-            configured.append(configured_runs)
+            configured.append((configured_runs, kwargs["execution_action"]))
             output = kwargs["workspace"] / "cli/main.py"
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(
@@ -584,7 +603,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 oracle_executor=oracle_executor,
             )
 
-        self.assertEqual(configured, [0, 1])
+        self.assertEqual(
+            configured,
+            [(0, "ultra_plan_run"), (1, "ultra_plan_run")],
+        )
         self.assertEqual(record["comparison"]["quality_transition"], "improved")
         self.assertEqual(
             record["initial_only"]["input_manifest"]["snapshot_sha256"],
@@ -688,6 +710,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "initial_only": {
                     "input_manifest": {"snapshot_sha256": "a"},
                     "result": {
+                        "argv": ["commandagent", "--ultra-plan-run", "goal"],
                         "recovery_plan_attempts": {
                             "configured_recovery_runs": 0,
                             "executed_recovery_runs": 0,
@@ -701,6 +724,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "status": "completed",
                     "input_manifest": {"snapshot_sha256": "a"},
                     "result": {
+                        "argv": ["commandagent", "--ultra-plan-run", "goal"],
                         "recovery_plan_attempts": {
                             "configured_recovery_runs": 1,
                             "executed_recovery_runs": 1,
@@ -729,6 +753,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "eligibility": {"runtime": {"run_recovery_one_arm": False}},
                 "initial_only": {
                     "result": {
+                        "argv": ["commandagent", "--ultra-plan-run", "goal"],
                         "recovery_plan_attempts": {
                             "configured_recovery_runs": 0,
                             "executed_recovery_runs": 0,
@@ -749,6 +774,23 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertFalse(report["effect_claim_allowed"])
         self.assertEqual(report["counts"]["attributed_improved"], 1)
         self.assertEqual(report["median_resource_delta"]["wall_time_ms"], 50)
+
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "executed_recovery_runs"
+        ] = 0
+        no_live_recovery = build_recovery_report(records=records, contract=contract)
+        self.assertFalse(no_live_recovery["instrument_ready"])
+        self.assertFalse(
+            no_live_recovery["checks"]["minimum_executed_recovery_pairs_observed"]
+        )
+
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "executed_recovery_runs"
+        ] = 1
+        records[0]["recovery_one"]["result"]["argv"][1] = "--plan-run"
+        wrong_action = build_recovery_report(records=records, contract=contract)
+        self.assertFalse(wrong_action["instrument_ready"])
+        self.assertFalse(wrong_action["checks"]["execution_action_matches_contract"])
 
     def test_candidate_resource_usage_covers_full_lane_wall_and_all_attempt_tokens(
         self,

@@ -55,6 +55,9 @@ def run_recovery_pair(
     baseline_runner=run_current_product_baseline,
     oracle_executor=None,
 ) -> dict[str, Any]:
+    execution_action = contract["paired_run_contract"].get(
+        "execution_action", "plan_run"
+    )
     preregistered = classify_case_recovery_eligibility(
         task_contract=task_contract, adapters=adapters
     )
@@ -78,6 +81,7 @@ def run_recovery_pair(
         timeout_sec=int(contract["product_timeout_sec"]),
         completion_contract=case.get("task_contract", {}).get("completion_contract"),
         recovery_plan_auto_runs=0,
+        execution_action=execution_action,
     )
     initial_output_full = workspace_manifest(initial_workspace)
     initial_output_artifact = candidate_visible_manifest(initial_output_full)
@@ -136,6 +140,7 @@ def run_recovery_pair(
         timeout_sec=int(contract["product_timeout_sec"]),
         completion_contract=case.get("task_contract", {}).get("completion_contract"),
         recovery_plan_auto_runs=1,
+        execution_action=execution_action,
     )
     recovery_output_full = workspace_manifest(recovery_workspace)
     recovery_output_artifact = candidate_visible_manifest(recovery_output_full)
