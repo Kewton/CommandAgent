@@ -1,0 +1,906 @@
+{
+  "case_id": "phase6-main-c07-task-01",
+  "comparison": {
+    "artifact_delta_between_arms": {
+      "added": [],
+      "after_snapshot_sha256": "4d61bd80a2c874867cf2d513c47cda850dacb5a8720c73d157e82ec5bf5775e0",
+      "before_snapshot_sha256": "2f252896a5ca1188fa72c343c5b5c03ece378905fc0e4ac4b0ae61a706ead955",
+      "change_count": 1,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "control_snapshot_matches_boundary": true,
+    "effect_attribution_ready": true,
+    "executed_recovery_runs": 1,
+    "existing_artifact_harmed": true,
+    "initial_oracle_status": "pass",
+    "initial_regression_status": "not_applicable",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "pass",
+        "internal": "failed_recoverable"
+      },
+      "treatment": {
+        "external": "fail",
+        "internal": "failed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "final-success--phase6-cell-07-source-task-01",
+        "forbidden-substitution-absent--phase6-cell-07-source-task-01"
+      ],
+      "precondition_adapter_ids": [
+        "exact-reproducer--phase6-cell-07-source-task-01"
+      ],
+      "valid": true
+    },
+    "precondition_oracle_status": "pass",
+    "quality_transition": "harmed",
+    "raw_oracle_transition": "harmed",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 1,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "recovery_oracle_status": "fail",
+    "recovery_regression_status": "not_applicable",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 92062,
+      "output_tokens": 8929,
+      "total_tokens": 100991,
+      "wall_time_ms": 269188
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available",
+      "run_recovery_one_arm": true,
+      "runtime_source": "shared_recovery_boundary"
+    }
+  },
+  "initial_only": {
+    "boundary_snapshot_sha256": "aadd009717c2c97af6c41301e50d9f6a3489a5ae48f2a72f15810a4e9da9711b",
+    "boundary_workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace",
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "final-success--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 32,
+            "stderr": "",
+            "stdout": "1\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "forbidden-substitution-absent--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "file_content",
+          "is_regression": false,
+          "outcome": {
+            "actual_present": false,
+            "executed": true,
+            "path": "app.py",
+            "pattern_sha256": "9d3e56ab2f70675fa81c2ea6cd69ca86676ea60d90d7ece6d971ad98505794d5",
+            "polarity": "absent",
+            "reason": "predicate_match",
+            "result": "pass"
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "host_capability_attachments": [],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "observed_snapshot_sha256": "aadd009717c2c97af6c41301e50d9f6a3489a5ae48f2a72f15810a4e9da9711b",
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "2f252896a5ca1188fa72c343c5b5c03ece378905fc0e4ac4b0ae61a706ead955",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-adjudication.json",
+          "sha256": "a826950448faee275e95294b1476da35f0bec53269ccd2e758da366390035217",
+          "size": 1953
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json",
+          "sha256": "08997f473caf4859607636a48afba646f9988b6c2bd1dd4826971630da02a5e0",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2f252896a5ca1188fa72c343c5b5c03ece378905fc0e4ac4b0ae61a706ead955"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-adjudication.json",
+          "sha256": "a826950448faee275e95294b1476da35f0bec53269ccd2e758da366390035217",
+          "size": 1953
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json",
+          "sha256": "08997f473caf4859607636a48afba646f9988b6c2bd1dd4826971630da02a5e0",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2f252896a5ca1188fa72c343c5b5c03ece378905fc0e4ac4b0ae61a706ead955"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "recovery_boundary": {
+        "file_count": 14,
+        "initial_provider_usage": {
+          "input_tokens": 44122,
+          "output_tokens": 4841,
+          "total_tokens": 48963,
+          "wall_time_ms": 178292
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 92062,
+          "output_tokens": 8929,
+          "total_tokens": 100991,
+          "wall_time_ms": 269188
+        },
+        "snapshot_sha256": "aadd009717c2c97af6c41301e50d9f6a3489a5ae48f2a72f15810a4e9da9711b",
+        "status": "captured",
+        "total_bytes": 3851,
+        "workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace"
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed_recoverable",
+            "stop_reason": "recovery_started"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "shared_recovery_boundary"
+      },
+      "resource_usage": {
+        "input_tokens": 44122,
+        "output_tokens": 4841,
+        "total_tokens": 48963,
+        "wall_time_ms": 178292
+      },
+      "status": "captured_pre_recovery_control",
+      "terminal_status": {
+        "event": "recovery_plan_auto_run_start",
+        "ok": false,
+        "recorded": true,
+        "recovery_handoff_kind": "phase_execute_error",
+        "status": "failed_recoverable"
+      }
+    },
+    "status": "captured_pre_recovery_control"
+  },
+  "intent": "fix",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "final-success--phase6-cell-07-source-task-01",
+      "forbidden-substitution-absent--phase6-cell-07-source-task-01"
+    ],
+    "precondition_adapter_ids": [
+      "exact-reproducer--phase6-cell-07-source-task-01"
+    ],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c07-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "generic",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-a3-smoke-01/raw/phase6-main-c07-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 1,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "final-success--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 1,
+            "executed": true,
+            "exit_code": 1,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_mismatch",
+            "result": "fail",
+            "runtime_ms": 33,
+            "stderr": "Traceback (most recent call last):\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/app.py\", line 14, in <module>\n    raise SystemExit(main(sys.argv))\n                     ^^^^^^^^^^^^^^\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/app.py\", line 10, in main\n    print(sum(item[\"amount\"] for item in payload[\"items\"]))\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/app.py\", line 10, in <genexpr>\n    print(sum(item[\"amount\"] for item in payload[\"items\"]))\n              ~~~~^^^^^^^^^^\nKeyError: 'amount'\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "forbidden-substitution-absent--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "file_content",
+          "is_regression": false,
+          "outcome": {
+            "actual_present": false,
+            "executed": true,
+            "path": "app.py",
+            "pattern_sha256": "9d3e56ab2f70675fa81c2ea6cd69ca86676ea60d90d7ece6d971ad98505794d5",
+            "polarity": "absent",
+            "reason": "predicate_match",
+            "result": "pass"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 1,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-adjudication.json",
+        "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json"
+      ],
+      "after_snapshot_sha256": "4d61bd80a2c874867cf2d513c47cda850dacb5a8720c73d157e82ec5bf5775e0",
+      "before_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "change_count": 3,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "4d61bd80a2c874867cf2d513c47cda850dacb5a8720c73d157e82ec5bf5775e0",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "4a1abb2e71e07ee46a03c51c40f1eb101074efe651ff4c1feb1f65a9918b0d86",
+          "size": 329
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-adjudication.json",
+          "sha256": "a826950448faee275e95294b1476da35f0bec53269ccd2e758da366390035217",
+          "size": 1953
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json",
+          "sha256": "08997f473caf4859607636a48afba646f9988b6c2bd1dd4826971630da02a5e0",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4d61bd80a2c874867cf2d513c47cda850dacb5a8720c73d157e82ec5bf5775e0"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "4a1abb2e71e07ee46a03c51c40f1eb101074efe651ff4c1feb1f65a9918b0d86",
+          "size": 329
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-adjudication.json",
+          "sha256": "a826950448faee275e95294b1476da35f0bec53269ccd2e758da366390035217",
+          "size": 1953
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json",
+          "sha256": "08997f473caf4859607636a48afba646f9988b6c2bd1dd4826971630da02a5e0",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4d61bd80a2c874867cf2d513c47cda850dacb5a8720c73d157e82ec5bf5775e0"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "d467945389646c1f067c716b35f1780f4740694646b0c66bfd6b0cad05e41e60",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "de762e9589438fcb4dd0ee019b88076450dfc5d39d6d4b601a254fb21d6ae37d",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent/runs/01a04e19-579a-7012-9ab2-9163e403b2d6",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": 14,
+        "initial_provider_usage": {
+          "input_tokens": 44122,
+          "output_tokens": 4841,
+          "total_tokens": 48963,
+          "wall_time_ms": 178292
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 92062,
+          "output_tokens": 8929,
+          "total_tokens": 100991,
+          "wall_time_ms": 269188
+        },
+        "snapshot_sha256": "aadd009717c2c97af6c41301e50d9f6a3489a5ae48f2a72f15810a4e9da9711b",
+        "status": "captured",
+        "total_bytes": 3851,
+        "workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace"
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed_recoverable",
+            "stop_reason": "recovery_started"
+          },
+          {
+            "attempt_index": 1,
+            "kind": "recovery",
+            "recovery_handoff_kind": "phase_execute_error",
+            "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-verify-regressions-01a04e1c-12f9-7012-85b3-bdcff4e807de.yaml",
+            "status": "failed",
+            "stop_reason": "limit_reached"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 1,
+        "terminal_stop_reason": "limit_reached"
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 136184,
+        "output_tokens": 13770,
+        "total_tokens": 149954,
+        "wall_time_ms": 447480
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: phase verify-recovery failed: step reproduce-crash failed verification after bounded repair: pass; failure_kind=repair_unreachable; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .commandagent/repairs/repair-reproduce-crash-01a04e20-a3c7-77f1-9ac0-6101af1198e4.md - Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-reproduce-crash-01a04e20-a3c7-77f1-9ac0-611d98b8e2e6.yaml Commands: -\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87a167b0fa32.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87b6613a1d63.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87a167b0fa32.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87b6613a1d63.yaml\n",
+      "stdout": "### Plan\n- Goal: Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-boun...\n- Profile: generic\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: Reproduce t...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: Reproduce the P...\n3. ○ repair - Apply the focused repair for the reproduced failure in: Reproduce the Python crash with exactly ...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: Reproduce the Python cras...\n── Phase 1/4: reproduce-before ──\n→ planning steps for phase 1/4 reproduce-before (qwen3.6, up to 600s)\n✓ step plan ready (5s)\n#### Phase: reproduce-before\n1. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n→ planning steps for phase 2/4 isolate-cause (qwen3.6, up to 600s)\n✓ step plan ready (9s)\n#### Phase: isolate-cause\n1. ○ [inspect] Read app.py to identify the logic at line 11 that triggers the KeyError for 'amount'. (verify 0)\n2. ○ [inspect] Read fixture/task-01.json to understand the data structure and identify why the 'amount' key is ... (verify 0)\n3. ○ [inspect] Run python3 app.py fixture/task-01.json to observe the exact traceback and confirm the failure m... (verify 0)\n→ step inspect-app-py [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n✓ Read ok\n→ step inspect-fixture [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read fixture/task-01.json\n✓ Read ok\n→ step reproduce-crash [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (10s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (13s)\n↻ plan quality retry 2: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n↻ plan quality retry 3: code task lacks test, build, smoke, or compile verification\n#### Phase: repair\n1. ○ [inspect] Read app.py to understand the current logic causing the KeyError on 'amount' at line 11, and rea... (verify 0)\n2. ○ [implement] Fix app.py to handle missing 'amount' keys gracefully. Based on the error, the code likely assum... (verify 0)\n3. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-crash-context [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read app.py\n→ Read fixture/task-01.json\n✓ Read ok\n✓ Read ok\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Edit app.py\n✓ Edit ok\n→ step verify-reproducer [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n✓ verify repair (intermediate_invariant)\n✓ Phase 3/4: repair\n── Phase 4/4: verify-regressions ──\n→ planning steps for phase 4/4 verify-regressions (qwen3.6, up to 600s)\n✓ step plan ready (7s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 4/4 verify-regressions (qwen3.6, up to 600s)\n✓ step plan ready (9s)\n#### Phase: verify-regressions\n1. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n2. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 2)\nplan normalized: shell_control_split\n→ step verify-reproducer-success [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n→ step verify-no-substitution [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (24s)\n→ Bash grep -q 'fixture/control.json' app.py; echo \"grep exit: $?\"\n✓ Bash ok\n✗ verify command failed: grep -q 'fixture/control.json' app.py outcome: CommandFailed status: exit status: 1 ...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (21s)\n→ Read app.py\n✓ Read ok\n↻ repair 1/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (24s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n↻ repair 2/2: implementation\n✗ Phase 4/4: verify-regressions step verify-no-substitution failed verification after bounded repair: command fa...\n✗ final acceptance failed\n── Phase 1/3: inspect-current-state ──\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (9s)\n#### Phase: inspect-current-state\n1. ○ [inspect] Read the contents of app.py to understand the current implementation and identify potential cras... (verify 0)\n2. ○ [inspect] Read the contents of fixture/task-01.json to understand the input data structure that causes the... (verify 0)\n3. ○ [inspect] Check the evidence directory for any existing crash logs or stack traces that might indicate the... (verify 0)\n→ step inspect-app-py [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n✓ Read ok\n→ step inspect-fixture [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Read fixture/task-01.json\n✓ Read ok\n→ step inspect-evidence [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Glob evidence/**/*\n→ Glob **/*.log\n→ Glob **/*.txt\n✓ Glob ok\n✓ Glob ok\n✓ Glob ok\n→ planning steps (qwen3.6, up to 600s)\n✓ verify inspect-current-state (intermediate_invariant)\n✓ Phase 1/3: inspect-current-state\n── Phase 2/3: repair-verify-regressions ──\n✓ step plan ready (15s)\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (0s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (17s)\n#### Phase: repair-verify-regressions\n1. ○ [inspect] Read the current content of app.py and fixture/task-01.json to understand the crash context and ... (verify 0)\n2. ○ [implement] Update app.py to handle the input from fixture/task-01.json correctly without crashing. Ensure i... (verify 0)\n3. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n4. ○ [verify] Check that app.py has valid Python syntax. (verify 1)\n5. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-app-state [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n→ Read fixture/task-01.json\n✓ Read ok\n✓ Read ok\n→ step implement-fix-app [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (17s)\n→ Bash cd /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-mai...\n✓ Bash ok\n→ step verify-no-substitution [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (12s)\n→ Read app.py\n✓ Read ok\n✗ verify command failed: grep -q 'fixture/control.json' app.py outcome: CommandFailed status: exit status: 1 ...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (38s)\n→ Read app.py\n✓ Read ok\n↻ repair 1/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (25s)\n→ Write app.py\n✓ Write ok\n↻ repair 2/2: unknown\n→ step verify-syntax [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 -c \"import ast; ast.parse(open('app.py').read())\"\n✓ Bash ok\n→ step verify-execution [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n→ planning steps (qwen3.6, up to 600s)\n✓ verify repair-verify-regressions (intermediate_invariant)\n✓ Phase 2/3: repair-verify-regressions\n── Phase 3/3: verify-recovery ──\n✓ step plan ready (12s)\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (0s)\n#### Phase: verify-recovery\n1. ○ [inspect] Inspect the current workspace structure, app.py content, and fixture/task-01.json to understand ... (verify 0)\n2. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n3. ○ [implement] Fix app.py to handle the input from fixture/task-01.json correctly without crashing. Ensure stdl... (verify 0)\n4. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-workspace [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Read app.py\n→ Read fixture/task-01.json\n→ Glob **/*\n✓ Read ok\n✓ Read ok\n✓ Glob ok\n→ step reproduce-crash [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (12s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n✗ verify expected command to fail but it passed\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (22s)\n→ Read app.py\n✓ Read ok\n↻ repair 1/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (20s)\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (13s)\n→ Write app.py\n✓ Write ok\n↻ repair 2/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read evidence/fix-01a04e19-57d2-7653-949b-06db8c7dc1d7-before.json\n✓ Read ok\n↻ repair 2/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (39s)\n→ Write app.py\n✓ Write ok\n↻ repair 2/2: unknown\n✗ Phase 3/3: verify-recovery step reproduce-crash failed verification after bounded repair: pass; failure_kin...\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "repair_unreachable",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87b6613a1d63.yaml",
+        "status": "failed",
+        "stop_reason": "phase verify-recovery failed: step reproduce-crash failed verification after bounded repair: pass; failure_kind=repair_unreachable; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .commandagent/repairs/repair-reproduce-crash-01a04e20-a3c7-77f1-9ac0-6101af1198e4.md - Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-reproduce-crash-01a04e20-a3c7-77f1-9ac0-611d98b8e2e6.yaml Commands: -\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87a167b0fa32.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87b6613a1d63.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87a167b0fa32.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04e20-a3e1-73b1-9423-87b6613a1d63.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 478558
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c07-task-01"
+}

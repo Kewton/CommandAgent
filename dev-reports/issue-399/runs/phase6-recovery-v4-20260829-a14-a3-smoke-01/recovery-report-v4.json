@@ -1,0 +1,62 @@
+{
+  "checks": {
+    "candidate_manifest_policy_applied": true,
+    "execution_action_matches_contract": true,
+    "final_success_oracle_semantics_validated": true,
+    "fix_before_and_after_polarity_distinct": true,
+    "frozen_external_oracle_post_execution": true,
+    "ineligible_recovery_not_executed": true,
+    "initial_arm_configured_zero": true,
+    "initial_success_pair_not_attributed": true,
+    "internal_external_outcome_matrix_recorded": true,
+    "maximum_one_recovery_executed": true,
+    "minimum_executed_recovery_pairs_observed": true,
+    "paired_input_snapshot_match": true,
+    "pre_recovery_failure_handoff_recorded": true,
+    "pre_recovery_snapshot_matches_control": true,
+    "recovery_arm_configured_one_or_preregistered_not_run": true,
+    "recovery_attribution_requires_shared_initial_history": true,
+    "recovery_capable_execution_action": true,
+    "recovery_changed_paths_recorded": true,
+    "resource_measurement_complete": true,
+    "target_pairs_complete": true
+  },
+  "contract_id": "phase6-recovery-v4-20260829-a14-a3-live-01",
+  "counts": {
+    "attributed_harmed": 1,
+    "attributed_improved": 0,
+    "initial_attempt_divergence": 0,
+    "no_recovery_executed": 1,
+    "no_recovery_needed": 1,
+    "unchanged_fail": 1,
+    "unchanged_pass": 0,
+    "unusable": 0
+  },
+  "diagnostics": {
+    "executed_recovery_pair_ids": [
+      "phase6-main-c04-task-01--pair-01",
+      "phase6-main-c07-task-01--pair-01"
+    ],
+    "execution_action_violations": [],
+    "ineligible_recovery_violations": [],
+    "initial_success_attribution_violations": [],
+    "manifest_policy_violations": [],
+    "oracle_source_violations": [],
+    "paired_execution_action": "ultra_plan_run",
+    "resource_missing": [],
+    "snapshot_mismatches": []
+  },
+  "effect_attribution_ready": true,
+  "effect_claim_allowed": false,
+  "inference_role": "instrument diagnostic only",
+  "instrument_ready": true,
+  "median_resource_delta": {
+    "input_tokens": 46031.0,
+    "output_tokens": 4464.5,
+    "total_tokens": 50495.5,
+    "wall_time_ms": 134594.0
+  },
+  "record_count": 4,
+  "run_id": "phase6-recovery-v4-20260829-a14-a3-smoke-01",
+  "schema_version": "commandagent.goal_verify.recovery_report.v4_a14"
+}

@@ -1,0 +1,462 @@
+{
+  "case_id": "phase6-main-c01-task-01",
+  "comparison": {
+    "control_snapshot_matches_boundary": false,
+    "effect_attribution_ready": false,
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "pass",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "pass",
+        "internal": "completed"
+      },
+      "treatment": {
+        "external": "not_applicable",
+        "internal": "not_executed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "cli-known-values-2-3--phase6-cell-01-source-task-01",
+        "cli-known-values-neg1-1--phase6-cell-01-source-task-01"
+      ],
+      "precondition_adapter_ids": [],
+      "valid": true
+    },
+    "quality_transition": "no_recovery_needed",
+    "raw_oracle_transition": "unchanged_pass",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "recovery_oracle_status": "pass",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_ms": 0
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "initial_success",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "paired_recovery_one_arm_runs_but_should_execute_zero_recoveries",
+      "run_recovery_one_arm": true,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "cli-known-values-2-3--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "5\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 29,
+            "stderr": "",
+            "stdout": "5\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "cli-known-values-neg1-1--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "0\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 29,
+            "stderr": "",
+            "stdout": "0\n",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f"
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b7fc9ffd173c2a77c758f1eb87711f39b37a80ed59937cf5e3652915dc506e9e",
+          "size": 335
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b7fc9ffd173c2a77c758f1eb87711f39b37a80ed59937cf5e3652915dc506e9e",
+          "size": 335
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"entry_paths\":[\"cli/main.py\"],\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "succeeded",
+            "stop_reason": "initial_success"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "no_recovery_boundary_reached"
+      },
+      "resource_usage": {
+        "input_tokens": 31083,
+        "output_tokens": 3494,
+        "total_tokens": 34577,
+        "wall_time_ms": 116516
+      },
+      "status": "completed",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "",
+        "next_action": "none",
+        "ok": true,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": null,
+        "status": "completed",
+        "stop_reason": "completed",
+        "structured_blockers": []
+      }
+    },
+    "status": "same_run_no_recovery_boundary"
+  },
+  "intent": "create",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "cli-known-values-2-3--phase6-cell-01-source-task-01",
+      "cli-known-values-neg1-1--phase6-cell-01-source-task-01"
+    ],
+    "precondition_adapter_ids": [],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c01-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "cli",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-a3-smoke-01/raw/phase6-main-c01-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "cli-known-values-2-3--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "5\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 29,
+            "stderr": "",
+            "stdout": "5\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "cli-known-values-neg1-1--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "0\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 29,
+            "stderr": "",
+            "stdout": "0\n",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "cli/main.py"
+      ],
+      "after_snapshot_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641",
+      "before_snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f",
+      "change_count": 1,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b7fc9ffd173c2a77c758f1eb87711f39b37a80ed59937cf5e3652915dc506e9e",
+          "size": 335
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b7fc9ffd173c2a77c758f1eb87711f39b37a80ed59937cf5e3652915dc506e9e",
+          "size": 335
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "162f77dfea702f6ffc71f548418f9eb8dfe0a45084a63eff9bc1350f409bf641"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"entry_paths\":[\"cli/main.py\"],\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "042aa3368becf881ebf0c114295a3379f56f1bf5c612bf17590c187e33d6e3e5",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": true,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "121292d53285548f3f7d484430ea83779d21c90c68c26f51241ae276432b86c6",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a3-smoke-01/phase6-main-c01-task-01--pair-01--shared-run/initial/.commandagent/runs/01a04e0c-ab4e-79d1-bfe9-66dabdb323cc",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "succeeded",
+            "stop_reason": "initial_success"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "initial_success"
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 31083,
+        "output_tokens": 3494,
+        "total_tokens": 34577,
+        "wall_time_ms": 116516
+      },
+      "returncode": 0,
+      "status": "completed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nEstimated duration from similar runs: average 10.5 min (3 samples; formal Window B band).\n",
+      "stdout": "→ planning the overall plan (qwen3.6, up to 600s)\n✓ overall plan ready (9s)\n### Plan\n- Goal: Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.  Operational constraints shared wit...\n- Profile: cli\n- Port: not specified\n- UltraPlan accepted: 2 phases; first: create-cli-script\n- Phase list:\n1. ○ create-cli-script - Create cli/main.py using only Python 3 stdlib. The script should read two positional arguments f...\n2. ○ verify-cli-output - Verify cli/main.py by running it with arguments '2 3' and expecting output '5', and with argumen...\n── Phase 1/2: create-cli-script ──\n→ planning steps for phase 1/2 create-cli-script (qwen3.6, up to 600s)\n✓ step plan ready (16s)\n#### Phase: create-cli-script\n1. ○ [setup] Create the cli directory if it does not exist. (verify 1)\n2. ○ [implement] Create cli/main.py. The script must import sys, check that exactly two arguments are provided af... (verify 1)\n3. ○ [verify] Run cli/main.py with arguments 2 and 3 and check that the output is 5. (verify 1)\n4. ○ [verify] Run cli/main.py with arguments -1 and 1 and check that the output is 0. (verify 1)\n5. ○ [verify] Run cli/main.py with invalid input abc to ensure it handles errors gracefully without crashing. (verify 1)\n→ step create-cli-directory [setup]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Bash mkdir -p cli\n✓ Bash ok\n→ step implement-main-script [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (8s)\n→ Write cli/main.py\n✓ Write ok\n→ step verify-positive-sum [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 cli/main.py 2 3\n✓ Bash ok\n→ step verify-zero-sum [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 cli/main.py -1 1\n✓ Bash ok\n→ step verify-error-handling [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 cli/main.py abc 1\n✓ Bash ok\n→ planning steps for phase 1/2 create-cli-script (qwen3.6, up to 600s)\n✓ verify create-cli-script (intermediate_invariant)\n✓ Phase 1/2: create-cli-script\n── Phase 2/2: verify-cli-output ──\n✓ step plan ready (16s)\n→ planning steps for phase 2/2 verify-cli-output (qwen3.6, up to 600s)\n✓ step plan ready (0s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 2/2 verify-cli-output (qwen3.6, up to 600s)\n✓ step plan ready (20s)\n↻ plan quality retry 2: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 2/2 verify-cli-output (qwen3.6, up to 600s)\n✓ step plan ready (20s)\n↻ plan quality retry 3: code task lacks test, build, smoke, or compile verification\n#### Phase: verify-cli-output\n1. ○ [setup] Ensure the cli directory exists to host the main.py script. (verify 0)\n2. ○ [implement] Create cli/main.py that reads two integer arguments from sys.argv, sums them, and prints the res... (verify 0)\n3. ○ [verify] Run cli/main.py with arguments 2 3 and assert output is 5. (verify 1)\n4. ○ [verify] Run cli/main.py with arguments -1 1 and assert output is 0. (verify 1)\n5. ○ [verify] Parse cli/main.py AST to ensure no non-stdlib imports are used. (verify 1)\n→ step setup-cli-directory [setup]\n→ step implement-cli-script [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Read cli/main.py\n✓ Read ok\n→ step verify-sum-positive [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Bash python3 -c \"import subprocess, sys; r=subprocess.run([sys.executable, 'cli/main.py', '2', '3'], ...\n✓ Bash ok\n→ step verify-sum-negative [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 -c \"import subprocess, sys; r=subprocess.run([sys.executable, 'cli/main.py', '-1', '1'],...\n✓ Bash ok\n→ step verify-stdlib-only [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (7s)\n→ Bash python3 -c \"import ast, sys; tree=ast.parse(open('cli/main.py').read()); imports=[n.names[0].nam...\n✓ Bash ok\n✓ verify verify-cli-output (intermediate_invariant)\n✓ verify verify-cli-output (final_acceptance)\n✓ Phase 2/2: verify-cli-output\n✗ final acceptance full_success\n✓ ultra plan complete 2 phases\nultra-plan-run complete: 2 phases\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "",
+        "next_action": "none",
+        "ok": true,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": null,
+        "status": "completed",
+        "stop_reason": "completed",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 134351
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c01-task-01"
+}
