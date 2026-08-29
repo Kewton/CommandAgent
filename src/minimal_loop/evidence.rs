@@ -88,6 +88,7 @@ enum EvidenceKind {
     LivePreviewEvidence,
     NextJsRouteEvidence,
     RequestedContent,
+    InvestigationBinding,
 }
 
 const GENERIC_INTERACTIVE_CONTRACT_CAPABILITY: &str = "generic_interactive_contract";
@@ -120,6 +121,7 @@ impl EvidenceKind {
             Self::LivePreviewEvidence => "live_preview_evidence",
             Self::NextJsRouteEvidence => "nextjs_route_evidence",
             Self::RequestedContent => "requested_content_evidence",
+            Self::InvestigationBinding => "investigation_binding",
         }
     }
 }
@@ -1003,6 +1005,8 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
     }
 
     let workspace = collect_workspace_evidence(root);
+    let investigation_acceptance =
+        crate::minimal_loop::investigation_acceptance::evaluate_workspace(root);
     let browser_state_dimension_scan_text =
         browser_interaction_state_dimension_scan_text(root, browser_evidence_dirs);
     let artifact_obligations = artifact_obligation_evidence_with_hints_and_scan_text(
@@ -1212,6 +1216,20 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
                     &mut evidence_tiers,
                 );
             }
+            "investigation_binding" => {
+                record_bool_evidence_tier(
+                    evidence,
+                    investigation_acceptance.fully_bound,
+                    &mut missing_evidence,
+                    &mut evidence_tiers,
+                );
+                if !investigation_acceptance.fully_bound {
+                    diagnostics.push(format!(
+                        "investigation_binding:{}",
+                        investigation_acceptance.reason
+                    ));
+                }
+            }
             unknown => {
                 missing_evidence.push(format!("unsupported_required_evidence:{unknown}"));
                 evidence_tiers.insert(
@@ -1254,6 +1272,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         &artifact_obligations,
         &workspace,
         generic_interactive_contract,
+        investigation_acceptance.fully_bound,
     );
     let capability_evidence_bindings = capability_evidence_bindings(
         required_capabilities,
@@ -1533,6 +1552,11 @@ fn obligation_repair_targets(
                     "README.md".to_string(),
                     "missing acceptance evidence obligation; add task-specific acceptance notes",
                 ),
+                "investigation" => (
+                    "investigation",
+                    "output/diagnosis.md".to_string(),
+                    "missing investigation obligation; execute and bind the diagnosis to investigation evidence",
+                ),
                 _ => return None,
             };
             Some(ObligationRepairTarget {
@@ -1716,6 +1740,7 @@ fn evidence_kinds_for_capability(capability: &str) -> Vec<EvidenceKind> {
             EvidenceKind::LivePreviewEvidence,
         ],
         "nextjs_route" | "route" => vec![EvidenceKind::NextJsRouteEvidence],
+        "investigation_binding" => vec![EvidenceKind::InvestigationBinding],
         _ => Vec::new(),
     }
 }
@@ -2696,6 +2721,7 @@ fn missing_required_obligations(
     artifact_obligations: &[ArtifactObligationEvidence],
     workspace: &WorkspaceEvidence,
     generic_interactive_contract: bool,
+    investigation_fully_bound: bool,
 ) -> Vec<String> {
     let mut missing = Vec::new();
     for obligation in normalize_obligation_roles(required_obligations) {
@@ -2704,6 +2730,7 @@ fn missing_required_obligations(
             artifact_obligations,
             workspace,
             generic_interactive_contract,
+            investigation_fully_bound,
         ) {
             missing.push(obligation);
         }
@@ -2718,7 +2745,12 @@ fn normalize_obligation_roles(required_obligations: &[String]) -> Vec<String> {
         let normalized = obligation.trim().to_ascii_lowercase().replace('-', "_");
         if matches!(
             normalized.as_str(),
-            "setup" | "scaffold" | "implementation" | "verification" | "acceptance_evidence"
+            "setup"
+                | "scaffold"
+                | "implementation"
+                | "verification"
+                | "acceptance_evidence"
+                | "investigation"
         ) && seen.insert(normalized.clone())
         {
             out.push(normalized);
@@ -2732,6 +2764,7 @@ fn obligation_role_satisfied(
     artifact_obligations: &[ArtifactObligationEvidence],
     workspace: &WorkspaceEvidence,
     generic_interactive_contract: bool,
+    investigation_fully_bound: bool,
 ) -> bool {
     match role {
         "setup" => workspace.package_json.is_some() || workspace.cargo_toml,
@@ -2762,6 +2795,7 @@ fn obligation_role_satisfied(
                     .iter()
                     .any(|obligation| obligation.role == "acceptance_evidence")
         }
+        "investigation" => investigation_fully_bound,
         _ => false,
     }
 }
@@ -4927,6 +4961,87 @@ export default function Page() {
         assert_eq!(
             report.obligation_repair_targets[0].target_path,
             "src/app/page.tsx"
+        );
+    }
+
+    #[test]
+    fn investigation_obligation_rejects_a_diagnosis_without_bound_runtime_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(dir.path().join("output/diagnosis.md"), "diagnosis\n").unwrap();
+
+        let report = verify_runtime_acceptance(
+            dir.path(),
+            &[],
+            &[],
+            &["investigation_binding".to_string()],
+            &["investigation_binding".to_string()],
+            &["investigation".to_string()],
+            &[],
+        );
+
+        assert!(!report.passed, "{report:?}");
+        assert!(
+            report
+                .missing_evidence
+                .contains(&"investigation_binding".to_string()),
+            "{report:?}"
+        );
+        assert!(
+            report
+                .missing_obligations
+                .contains(&"investigation".to_string()),
+            "{report:?}"
+        );
+        assert_eq!(
+            report.obligation_repair_targets[0].target_path,
+            "output/diagnosis.md"
+        );
+    }
+
+    #[test]
+    fn investigation_obligation_accepts_only_full_existing_adjudication() {
+        use crate::planner::adjudication::contract::ProbeOutcome;
+        use crate::planner::adjudication::investigate::{
+            DiagnosisClaim, DiagnosisClaimKind, InvestigationBindingEvidence,
+            InvestigationRunEvidence, write_investigation_evidence,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(
+            dir.path().join("output/diagnosis.md"),
+            "Bound to src/main.rs:1.\n",
+        )
+        .unwrap();
+        let run = InvestigationRunEvidence::new("python3 repro.py", 1, ProbeOutcome::Failure);
+        let binding = InvestigationBindingEvidence::new(vec![DiagnosisClaim {
+            kind: DiagnosisClaimKind::FileLine,
+            value: "src/main.rs:1".to_string(),
+            subject_path: Some("src/main.rs".to_string()),
+            line: Some(1),
+            matched: true,
+            nearest: None,
+        }]);
+        write_investigation_evidence(dir.path(), &run, &binding).unwrap();
+
+        let report = verify_runtime_acceptance(
+            dir.path(),
+            &[],
+            &[],
+            &["investigation_binding".to_string()],
+            &["investigation_binding".to_string()],
+            &["investigation".to_string()],
+            &[],
+        );
+
+        assert!(report.passed, "{report:?}");
+        assert_eq!(
+            report
+                .evidence_tiers
+                .get("investigation_binding")
+                .map(String::as_str),
+            Some("strong")
         );
     }
 

@@ -46,6 +46,7 @@ from eval_lib.goal_verify_repairs_v4 import apply_meaning_preserving_repairs
 from eval_lib.goal_verify_task_contracts_v4 import (
     bind_existing_evidence_registry,
     bind_task_contract,
+    candidate_visible_task_contract,
     load_task_contract_registry,
 )
 from eval_lib.goal_verify_v2 import normalize_v2_proposal
@@ -403,7 +404,17 @@ def _run_lane_v4(
     request_namespace,
 ):
     started_ns = time.monotonic_ns()
+    phase_timings_ns = {
+        "prompt_assembly": 0,
+        "provider_request": 0,
+        "raw_schema_validation": 0,
+        "canonicalization": 0,
+        "proposal_validation": 0,
+        "oracle_execution": 0,
+        "scoring": 0,
+    }
     attempts = []
+    candidate_execution_policy = None
     validation = {"valid": False, "spec": None, "errors": ["not_attempted"]}
     visible = {
         stage: candidate_visible_manifest(manifest)
@@ -411,6 +422,7 @@ def _run_lane_v4(
     }
     for attempt in (1, 2):
         request_id = f"{request_namespace}:{pair_id}:{lane}:attempt-{attempt}"
+        phase_started_ns = time.monotonic_ns()
         prompt = _build_prompt_v4(
             lane=lane,
             base_prompt=base_prompt,
@@ -422,6 +434,9 @@ def _run_lane_v4(
             manifests=visible,
             executor_capabilities=executor_capabilities,
         )
+        candidate_execution_policy = _candidate_visible_execution_policy(prompt)
+        phase_timings_ns["prompt_assembly"] += time.monotonic_ns() - phase_started_ns
+        phase_started_ns = time.monotonic_ns()
         response = provider(
             endpoint=contract["endpoint"],
             model=contract["model"],
@@ -436,6 +451,7 @@ def _run_lane_v4(
             keep_alive=str(contract["generation"]["keep_alive"]),
             think=bool(contract["generation"]["think"]),
         )
+        phase_timings_ns["provider_request"] += time.monotonic_ns() - phase_started_ns
         normalized = None
         raw_schema_validation = {
             "applied": raw_schema is not None,
@@ -448,8 +464,12 @@ def _run_lane_v4(
         if response.get("status") == "completed":
             raw = response["response"].get("response", "")
             if raw_schema is not None:
+                phase_started_ns = time.monotonic_ns()
                 raw_schema_validation = _validate_raw_proposal(
                     raw=raw, schema=raw_schema
+                )
+                phase_timings_ns["raw_schema_validation"] += (
+                    time.monotonic_ns() - phase_started_ns
                 )
             if raw_schema_validation.get("valid") is False:
                 validation = {
@@ -459,6 +479,7 @@ def _run_lane_v4(
                 }
             else:
                 try:
+                    phase_started_ns = time.monotonic_ns()
                     normalized = (
                         normalize_v2_proposal(
                             raw,
@@ -476,6 +497,10 @@ def _run_lane_v4(
                             allow_unverifiable_claims=allow_unverifiable,
                         )
                     )
+                    phase_timings_ns["canonicalization"] += (
+                        time.monotonic_ns() - phase_started_ns
+                    )
+                    phase_started_ns = time.monotonic_ns()
                     validation = _validate_proposal_v4(
                         validator=validator,
                         goal=case["goal"],
@@ -484,6 +509,9 @@ def _run_lane_v4(
                         proposal_schema=(
                             canonical_schema if allow_unverifiable else None
                         ),
+                    )
+                    phase_timings_ns["proposal_validation"] += (
+                        time.monotonic_ns() - phase_started_ns
                     )
                 except (TypeError, ValueError, json.JSONDecodeError) as error:
                     validation = {
@@ -517,6 +545,7 @@ def _run_lane_v4(
     coverage = None
     additive = None
     if validation.get("valid"):
+        phase_started_ns = time.monotonic_ns()
         raw_execution = _execute_spec_isolated(
             spec=validation["spec"],
             lane_root=pair_root / "candidate-workspaces" / lane,
@@ -525,13 +554,17 @@ def _run_lane_v4(
             snapshot_manifests=snapshot_manifests,
             browser_toolchain=browser_toolchain,
             executor_capabilities=executor_capabilities,
+            candidate_execution_policy=candidate_execution_policy,
         )
+        phase_timings_ns["oracle_execution"] += time.monotonic_ns() - phase_started_ns
+        phase_started_ns = time.monotonic_ns()
         scored = score_candidate_outcomes(
             case_id=case["case_id"],
             lane=lane,
             oracles=validation["spec"]["oracles"],
             outcomes=raw_execution["evaluations"],
             adapters=adapters,
+            case=case,
         )
         execution = {**raw_execution, "evaluations": scored}
         coverage = score_claim_coverage(
@@ -544,6 +577,7 @@ def _run_lane_v4(
             candidate_evaluations=scored,
             baseline_status=baseline.get("status", "baseline_unavailable"),
         )
+        phase_timings_ns["scoring"] += time.monotonic_ns() - phase_started_ns
     return {
         "attempts": attempts,
         "regenerated": len(attempts) == 2,
@@ -554,12 +588,16 @@ def _run_lane_v4(
         "resource_usage": _candidate_resource_usage(
             attempts=attempts,
             wall_time_ns=time.monotonic_ns() - started_ns,
+            phase_timings_ns=phase_timings_ns,
         ),
     }
 
 
 def _candidate_resource_usage(
-    *, attempts: list[dict[str, Any]], wall_time_ns: int
+    *,
+    attempts: list[dict[str, Any]],
+    wall_time_ns: int,
+    phase_timings_ns: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     input_tokens = 0
     output_tokens = 0
@@ -583,9 +621,16 @@ def _candidate_resource_usage(
             continue
         input_tokens += prompt_eval_count
         output_tokens += eval_count
+    phase_timings_ns = phase_timings_ns or {}
+    phase_timings_ms = {
+        phase: duration_ns / 1_000_000.0
+        for phase, duration_ns in sorted(phase_timings_ns.items())
+    }
+    measured_phase_ms = sum(phase_timings_ms.values())
+    wall_time_ms = wall_time_ns / 1_000_000.0
     return {
         "scope": "candidate generation, canonicalization, validation, oracle execution, and scoring",
-        "wall_time_ms": wall_time_ns / 1_000_000.0,
+        "wall_time_ms": wall_time_ms,
         "input_tokens": input_tokens if token_measurement_complete else None,
         "output_tokens": output_tokens if token_measurement_complete else None,
         "total_tokens": (
@@ -593,6 +638,8 @@ def _candidate_resource_usage(
         ),
         "attempt_count": len(attempts),
         "token_measurement_complete": token_measurement_complete,
+        "phase_timings_ms": phase_timings_ms,
+        "phase_timing_residual_ms": max(0.0, wall_time_ms - measured_phase_ms),
     }
 
 
@@ -655,7 +702,9 @@ def _build_prompt_v4(
             **candidate_visible_executor_capabilities(executor_capabilities),
         }
     if case.get("task_contract"):
-        request["task_contract"] = copy.deepcopy(case["task_contract"])
+        request["task_contract"] = candidate_visible_task_contract(
+            case["task_contract"]
+        )
     for claim in request.get("required_claims", []):
         for observation in claim.get("expected_observations", []):
             observation.pop("adapter_id", None)
@@ -665,6 +714,70 @@ def _build_prompt_v4(
         + json.dumps(request, ensure_ascii=False, sort_keys=True)
         + "\n"
     )
+
+
+def _candidate_visible_execution_policy(prompt: str) -> dict[str, Any]:
+    payload = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
+    lane = payload.get("lane")
+    if lane == "contract_conformance":
+        claim_strategies = {}
+        claim_observations = {}
+        for claim in payload.get("required_claims", []):
+            expected = claim.get("expected_observations", [])
+            strategies = {
+                strategy
+                for observation in expected
+                for strategy in observation.get("strategies", [])
+                if isinstance(strategy, str)
+            }
+            claim_strategies[claim.get("id")] = sorted(strategies)
+            claim_observations[claim.get("id")] = [
+                {
+                    "strategies": sorted(
+                        strategy
+                        for strategy in observation.get("strategies", [])
+                        if isinstance(strategy, str)
+                    ),
+                    "polarities": sorted(
+                        polarity
+                        for polarity in observation.get("polarities", [])
+                        if isinstance(polarity, str)
+                    ),
+                    "observation_kinds": sorted(
+                        kind
+                        for kind in observation.get("observation_kinds", [])
+                        if isinstance(kind, str)
+                    ),
+                }
+                for observation in expected
+            ]
+        return {
+            "source": "candidate_visible_prompt",
+            "semantic_policy_sha256": payload.get("semantic_policy_sha256")
+            or next(
+                (
+                    claim.get("semantic_policy_sha256")
+                    for claim in payload.get("required_claims", [])
+                    if claim.get("semantic_policy_sha256")
+                ),
+                None,
+            ),
+            "claim_strategies": claim_strategies,
+            "claim_observations": claim_observations,
+        }
+    capabilities = payload.get("executor_capabilities", {})
+    strategies = (
+        capabilities.get("strategies", [])
+        if isinstance(capabilities, dict)
+        else capabilities
+    )
+    return {
+        "source": "candidate_visible_prompt",
+        "semantic_policy_sha256": payload.get("semantic_policy_sha256"),
+        "strategies": sorted(
+            strategy for strategy in strategies if isinstance(strategy, str)
+        ),
+    }
 
 
 def _validate_proposal_v4(
@@ -838,12 +951,45 @@ def _execute_spec_isolated(
     snapshot_manifests,
     browser_toolchain,
     executor_capabilities,
+    candidate_execution_policy,
 ):
     evaluations = []
     same_snapshot = True
     fallback_count = 0
     gold_count = 0
     for index, oracle in enumerate(spec["oracles"], 1):
+        allowed = candidate_execution_policy.get("strategies")
+        claim_strategies = candidate_execution_policy.get("claim_strategies")
+        claim_observations = candidate_execution_policy.get("claim_observations")
+        if isinstance(claim_strategies, dict):
+            allowed = claim_strategies.get(oracle.get("claim_id"), [])
+        admissible = oracle.get("strategy") in (allowed or [])
+        if isinstance(claim_observations, dict):
+            admissible = any(
+                oracle.get("strategy") in row["strategies"]
+                and oracle.get("expected_polarity") in row["polarities"]
+                and oracle.get("observation", {}).get("kind")
+                in row["observation_kinds"]
+                for row in claim_observations.get(oracle.get("claim_id"), [])
+            )
+        if not admissible:
+            evaluations.append(
+                {
+                    "oracle_id": oracle.get("id"),
+                    "claim_id": oracle.get("claim_id"),
+                    "classification": "semantic_rejected",
+                    "execution_attempt_recorded": False,
+                    "executed": False,
+                    "result": "unverified",
+                    "reason": "semantic_capability_unavailable",
+                    "semantic_policy_sha256": candidate_execution_policy.get(
+                        "semantic_policy_sha256"
+                    ),
+                    "execution_policy_source": candidate_execution_policy.get("source"),
+                    "gold_used_for_execution": False,
+                }
+            )
+            continue
         oracle_root = lane_root / f"oracle-{index:03d}"
         product = oracle_root / "product"
         _copy_workspace(frozen_product, product)
@@ -870,6 +1016,10 @@ def _execute_spec_isolated(
         "same_snapshot": same_snapshot,
         "reference_fallback_count": fallback_count,
         "gold_used_for_execution_count": gold_count,
+        "semantic_policy_sha256": candidate_execution_policy.get(
+            "semantic_policy_sha256"
+        ),
+        "execution_policy_source": candidate_execution_policy.get("source"),
     }
 
 

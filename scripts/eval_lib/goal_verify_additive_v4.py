@@ -14,6 +14,11 @@ from eval_lib.goal_verify_next_v4 import (
     validate_next_command_argv,
 )
 from eval_lib.goal_verify_sandbox import run_macos_sandbox, run_macos_sandbox_web_probe
+from eval_lib.goal_verify_semantic_policy_v4 import (
+    adapter_executor_available,
+    adapter_semantic_admissibility,
+    semantic_policy_sha256,
+)
 from eval_lib.goal_verify_v2 import _plan_hash
 
 CommandRunner = Callable[[dict[str, Any]], dict[str, Any]]
@@ -491,13 +496,20 @@ def score_candidate_outcomes(
     oracles: list[dict[str, Any]],
     outcomes: list[dict[str, Any]],
     adapters: list[dict[str, Any]],
+    case: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    claims = {
+        claim.get("id"): claim
+        for claim in (case or {}).get("required_claims", [])
+        if isinstance(claim, dict)
+    }
     rows = []
     for oracle, outcome in zip(oracles, outcomes, strict=True):
-        matches = [
+        structural_matches = [
             adapter
             for adapter in adapters
             if adapter["case_id"] == case_id
+            and adapter_executor_available(adapter)
             and (
                 lane != "contract_conformance"
                 or adapter["claim_id"] == oracle.get("claim_id")
@@ -507,6 +519,18 @@ def score_candidate_outcomes(
             and oracle.get("observation", {}).get("kind")
             in adapter["proposal"]["observation_kinds"]
             and _oracle_input_matches_adapter(oracle, adapter)
+        ]
+        matches = [
+            adapter
+            for adapter in structural_matches
+            if adapter_semantic_admissibility(
+                adapter,
+                claims.get(
+                    oracle.get("claim_id")
+                    if lane == "contract_conformance"
+                    else adapter.get("claim_id")
+                ),
+            )[0]
         ]
         matching_expectation = [
             adapter
@@ -521,6 +545,20 @@ def score_candidate_outcomes(
             else None
         )
         observation_match = bool(adapter) and _outcome_matches_adapter(outcome, adapter)
+        semantic_admissible = adapter is not None
+        if semantic_admissible:
+            semantic_reason = None
+        elif structural_matches:
+            semantic_reason = adapter_semantic_admissibility(
+                structural_matches[0],
+                claims.get(
+                    oracle.get("claim_id")
+                    if lane == "contract_conformance"
+                    else structural_matches[0].get("claim_id")
+                ),
+            )[1]
+        else:
+            semantic_reason = "semantic_adapter_missing"
         rows.append(
             {
                 **outcome,
@@ -531,6 +569,9 @@ def score_candidate_outcomes(
                 "observed_strength": outcome.get("observed_strength")
                 if observation_match
                 else None,
+                "semantic_admissible": semantic_admissible,
+                "semantic_admissibility_reason": semantic_reason,
+                "semantic_policy_sha256": semantic_policy_sha256(),
                 "gold_used_for_execution": False,
                 "gold_used_for_scoring": True,
             }

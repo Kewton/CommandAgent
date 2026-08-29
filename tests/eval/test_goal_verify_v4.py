@@ -22,6 +22,8 @@ from eval_lib.goal_verify_baseline_product_v3 import build_product_argv
 from eval_lib.goal_verify_live_v4 import (
     _build_prompt_v4,
     _campaign_namespace,
+    _candidate_visible_execution_policy,
+    _execute_spec_isolated,
     _select_campaign_pair_ids,
     _validate_proposal_v4,
     _validate_raw_proposal,
@@ -35,12 +37,16 @@ from eval_lib.goal_verify_sandbox import _sandbox_profile, sandbox_backend_statu
 from eval_lib.goal_verify_task_contracts_v4 import (
     bind_existing_evidence_registry,
     bind_task_contract,
+    candidate_visible_task_contract,
     load_task_contract_registry,
     selected_task_contract_errors,
     task_contract_registry_errors,
 )
 from eval_lib.goal_verify_v2 import normalize_v2_proposal
-from eval_lib.goal_verify_v3 import canonicalize_held_out_proposal
+from eval_lib.goal_verify_v3 import (
+    build_conformance_prompt,
+    canonicalize_held_out_proposal,
+)
 from eval_lib.goal_verify_workspaces_v4 import (
     load_v4_workspace_registry,
     selected_product_workspace_errors,
@@ -165,6 +171,42 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
         index = argv.index("--recovery-plan-auto-runs")
         self.assertEqual(argv[index : index + 2], ["--recovery-plan-auto-runs", "0"])
         self.assertEqual(argv[-2:], ["--plan-run", "goal"])
+
+    def test_a13_candidate_task_contract_excludes_scoring_metadata(self):
+        task_contract = {
+            "schema_version": "v",
+            "completion_contract": {
+                "goal": "duplicated goal",
+                "profile": "generic",
+                "required_paths": ["app.py"],
+                "verify_commands": ["python3 app.py"],
+                "deterministic_oracles": ["answer-key-like"],
+                "evidence_hint_tokens": ["secret-hint"],
+                "required_evidence": ["scoring-only"],
+            },
+            "completion_contract_goal_source": "shared_semantic_goal",
+            "offline_dependencies": ["python3-stdlib"],
+            "operational_constraints": {"network": "denied", "scored": False},
+            "registered_claims": ["registered-id"],
+            "source_goal_sha256": "a" * 64,
+        }
+
+        visible = candidate_visible_task_contract(task_contract)
+        encoded = json.dumps(visible, sort_keys=True)
+
+        self.assertEqual(
+            visible["completion_contract"]["verify_commands"], ["python3 app.py"]
+        )
+        self.assertEqual(visible["operational_constraints"]["network"], "denied")
+        for hidden in (
+            "registered-id",
+            "source_goal_sha256",
+            "duplicated goal",
+            "answer-key-like",
+            "secret-hint",
+            "scoring-only",
+        ):
+            self.assertNotIn(hidden, encoded)
 
     def test_concretizer_uses_candidate_argv_without_gold(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -695,6 +737,262 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             adapters=adapters,
         )
         self.assertEqual(correct[0]["adapter_id"], "port-path")
+
+    def test_a13_unavailable_adapter_is_not_credited_by_scoring(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c02-task-01"
+        )
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-main.json")[
+            "adapters"
+        ]
+        oracle = {
+            "id": "network-source-proxy",
+            "claim_id": "no-network",
+            "strategy": "command",
+            "expected_polarity": "absent",
+            "input": {"kind": "none"},
+            "observation": {"kind": "stdout", "expected": "0"},
+        }
+
+        rows = score_candidate_outcomes(
+            case_id=case["case_id"],
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[
+                {
+                    "executed": True,
+                    "result": "pass",
+                    "actual": "0",
+                    "observed_strength": "runtime",
+                }
+            ],
+            adapters=adapters,
+        )
+
+        self.assertIsNone(rows[0]["adapter_id"])
+        self.assertFalse(rows[0]["observation_match"])
+        self.assertIsNone(rows[0]["observed_strength"])
+
+    def test_a13_unavailable_adapter_is_not_prompted_as_an_expected_observation(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c02-task-01"
+        )
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-main.json")[
+            "adapters"
+        ]
+        prompt = build_conformance_prompt(
+            "base",
+            case,
+            "a13-unavailable",
+            "{}",
+            adapters=adapters,
+        )
+        request = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
+        claim = request["required_claims"][0]
+
+        self.assertEqual(claim["executor_status"], "unavailable")
+        self.assertEqual(claim["expected_observations"], [])
+        self.assertRegex(claim["semantic_policy_sha256"], r"^[0-9a-f]{64}$")
+        policy = _candidate_visible_execution_policy(prompt)
+        self.assertEqual(policy["claim_strategies"]["no-network"], [])
+
+    def test_a13_candidate_visible_policy_rejects_before_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = _execute_spec_isolated(
+                spec={
+                    "claims": [{"id": "no-network"}],
+                    "oracles": [
+                        {
+                            "id": "network-source-proxy",
+                            "claim_id": "no-network",
+                            "strategy": "command",
+                        }
+                    ],
+                },
+                lane_root=root / "lane",
+                frozen_product=root / "product-does-not-need-to-exist",
+                frozen_before=None,
+                snapshot_manifests={},
+                browser_toolchain=None,
+                executor_capabilities={},
+                candidate_execution_policy={
+                    "source": "candidate_visible_prompt",
+                    "semantic_policy_sha256": "a" * 64,
+                    "claim_strategies": {"no-network": []},
+                },
+            )
+        evaluation = result["evaluations"][0]
+        self.assertEqual(evaluation["classification"], "semantic_rejected")
+        self.assertFalse(evaluation["execution_attempt_recorded"])
+        self.assertEqual(evaluation["result"], "unverified")
+        self.assertFalse(evaluation["gold_used_for_execution"])
+
+    def test_a13_generic_investigation_binding_is_semantically_unavailable(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c09-task-01"
+        )
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-main.json")[
+            "adapters"
+        ]
+        oracle = {
+            "id": "generic-diagnosis-binding",
+            "claim_id": "causal-intervention",
+            "strategy": "existing_investigation_binding",
+            "expected_polarity": "success",
+            "input": {"kind": "none"},
+            "observation": {"kind": "existing_binding"},
+        }
+
+        rows = score_candidate_outcomes(
+            case_id=case["case_id"],
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[
+                {
+                    "executed": True,
+                    "result": "pass",
+                    "actual": True,
+                    "observed_strength": "runtime",
+                }
+            ],
+            adapters=adapters,
+            case=case,
+        )
+
+        self.assertIsNone(rows[0]["adapter_id"])
+        self.assertFalse(rows[0]["semantic_admissible"])
+        self.assertEqual(
+            rows[0]["semantic_admissibility_reason"],
+            "semantic_capability_unavailable",
+        )
+        self.assertFalse(rows[0]["observation_match"])
+        self.assertIsNone(rows[0]["observed_strength"])
+        self.assertRegex(rows[0]["semantic_policy_sha256"], r"^[0-9a-f]{64}$")
+
+        prompt = build_conformance_prompt(
+            "base",
+            case,
+            "a13-investigation",
+            "{}",
+            adapters=adapters,
+        )
+        request = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
+        self.assertEqual(
+            request["required_claims"][0]["executor_status"], "unavailable"
+        )
+        self.assertEqual(request["required_claims"][0]["expected_observations"], [])
+
+    def test_a13_explicit_investigation_semantic_capability_can_be_credited(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c09-task-01"
+        )
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-main.json")[
+            "adapters"
+        ]
+        adapter = next(
+            row
+            for row in adapters
+            if row["case_id"] == case["case_id"]
+            and row["claim_id"] == "causal-intervention"
+        )
+        adapter = json.loads(json.dumps(adapter))
+        adapter["executor"]["supported_oracle_kinds"] = ["controlled_experiment"]
+        oracle = {
+            "id": "specific-causal-binding",
+            "claim_id": "causal-intervention",
+            "strategy": "existing_investigation_binding",
+            "expected_polarity": "success",
+            "input": {"kind": "none"},
+            "observation": {"kind": "existing_binding"},
+        }
+
+        rows = score_candidate_outcomes(
+            case_id=case["case_id"],
+            lane="contract_conformance",
+            oracles=[oracle],
+            outcomes=[
+                {
+                    "executed": True,
+                    "result": "pass",
+                    "actual": True,
+                    "observed_strength": "runtime",
+                }
+            ],
+            adapters=[adapter],
+            case=case,
+        )
+
+        self.assertEqual(rows[0]["adapter_id"], adapter["adapter_id"])
+        self.assertTrue(rows[0]["semantic_admissible"])
+        self.assertTrue(rows[0]["observation_match"])
+        self.assertEqual(rows[0]["observed_strength"], "runtime")
+
+        held_out_oracle = json.loads(json.dumps(oracle))
+        held_out_oracle["claim_id"] = "held-temporary-claim"
+        held_out_rows = score_candidate_outcomes(
+            case_id=case["case_id"],
+            lane="held_out_synthesis",
+            oracles=[held_out_oracle],
+            outcomes=[
+                {
+                    "executed": True,
+                    "result": "pass",
+                    "actual": True,
+                    "observed_strength": "runtime",
+                }
+            ],
+            adapters=[adapter],
+            case=case,
+        )
+        self.assertEqual(held_out_rows[0]["adapter_id"], adapter["adapter_id"])
+        self.assertTrue(held_out_rows[0]["semantic_admissible"])
+
+    def test_a13_task_binding_uses_shared_semantic_goal_for_completion(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        case = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c04-task-01"
+        )
+        registry = load_task_contract_registry(
+            ROOT / "eval/goal_verify/v0/phase6-task-contracts-v4-main.json"
+        )
+
+        bound = bind_task_contract(case, registry)
+        completion = bound["task_contract"]["completion_contract"]
+
+        self.assertEqual(completion["goal"], case["goal"])
+        self.assertIn("/play-01", completion["goal"])
+        self.assertIn("4201", completion["goal"])
+        self.assertNotIn("4173", completion["goal"])
+        self.assertEqual(
+            bound["task_contract"]["completion_contract_goal_source"],
+            "shared_semantic_goal",
+        )
+
+    def test_a13_contract_binds_semantic_policy_and_phase_timing(self):
+        contract = load("eval/goal_verify/v0/phase6-main-v4-a13-contract.json")
+        self.assertEqual(design_errors(root=ROOT, contract=contract), [])
+
+        invalid = json.loads(json.dumps(contract))
+        invalid["semantic_oracle_policy"]["sha256"] = "0" * 64
+        self.assertIn(
+            "semantic_policy_hash_mismatch",
+            design_errors(root=ROOT, contract=invalid),
+        )
 
     def test_a5_registry_binds_dynamic_product_evidence_without_outcome_leak(self):
         corpus = load("eval/goal_verify/v0/corpus.json")

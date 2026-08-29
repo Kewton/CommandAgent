@@ -2,11 +2,13 @@ case_id = "test0718_d3b_investigation_intent"
 source = "D-3b investigation contract conformance fixtures"
 required_paths = []
 verify_commands = []
-required_capabilities = []
-required_evidence = []
-required_obligations = []
+required_capabilities = ["investigation_binding"]
+required_evidence = ["investigation_binding"]
+required_obligations = ["investigation"]
 deferred_verify_requirements = []
 evidence_hint_tokens = ["reproducer_fails", "diagnosis_bound", "investigation_plan_synthesized"]
+acceptance_passed = false
+primary_reason = "missing_required_evidence:investigation_binding"
 
 [route_closure]
 include = []
@@ -16,7 +18,7 @@ exclude = []
 contains = []
 
 [diagnostics]
-contains = []
+contains = ["investigation_binding:diagnosis_not_written"]
 
 [compile]
 expect = "not_checked"

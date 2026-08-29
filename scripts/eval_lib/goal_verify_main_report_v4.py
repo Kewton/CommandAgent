@@ -4,6 +4,7 @@ import math
 from collections import defaultdict
 from typing import Any
 
+from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnostics
 from eval_lib.goal_verify_stats_v2 import (
     cluster_paired_bootstrap_interval,
     validate_cluster_design,
@@ -162,6 +163,7 @@ def build_main_smoke_report(
             baseline.get("recovery_plan_auto_runs") == 0 for baseline in baselines
         ),
         "resource_measurement_complete": resource_report["measurement_complete"],
+        **_a13_instrument_checks(contract=contract, records=records),
     }
     return {
         "schema_version": "commandagent.goal_verify.phase6_main_smoke_report.v4",
@@ -276,6 +278,7 @@ def build_main_report(
         "semantic_review_complete": semantic_review_complete,
         "semantic_review_safety": isinstance(semantic_review_evaluation, dict)
         and semantic_review_evaluation.get("pass") is True,
+        **_a13_instrument_checks(contract=contract, records=records),
     }
     return {
         "schema_version": "commandagent.goal_verify.phase6_main_report.v4",
@@ -349,6 +352,10 @@ def _lane_report(
         else {}
     )
     resources = _resource_report(rows, resource_budgets)
+    resources["diagnostics"] = build_resource_diagnostics(
+        records=records,
+        lane_name=lane_name,
+    )
     return {
         "pair_count": len(rows),
         "schema_valid_count": valid,
@@ -514,6 +521,63 @@ def _all_additive(records, predicate) -> bool:
         if isinstance(lane.get("additive_comparison"), dict)
     ]
     return bool(additive) and all(predicate(row) for row in additive)
+
+
+def _a13_instrument_checks(
+    *, contract: dict[str, Any], records: list[dict[str, Any]]
+) -> dict[str, bool]:
+    policy = contract.get("semantic_oracle_policy")
+    if not isinstance(policy, dict):
+        return {}
+    expected_sha = policy.get("sha256")
+    lanes = [lane for record in records for lane in record.get("lanes", {}).values()]
+    valid_lanes = [
+        lane for lane in lanes if lane.get("validation", {}).get("valid") is True
+    ]
+    evaluations = [
+        evaluation
+        for lane in valid_lanes
+        for evaluation in lane.get("execution", {}).get("evaluations", [])
+    ]
+    expected_phases = {
+        "prompt_assembly",
+        "provider_request",
+        "raw_schema_validation",
+        "canonicalization",
+        "proposal_validation",
+        "oracle_execution",
+        "scoring",
+    }
+    return {
+        "semantic_policy_bound": bool(valid_lanes)
+        and all(
+            lane.get("execution", {}).get("semantic_policy_sha256") == expected_sha
+            and lane.get("execution", {}).get("execution_policy_source")
+            == "candidate_visible_prompt"
+            for lane in valid_lanes
+        ),
+        "semantic_policy_scoring_bound": all(
+            evaluation.get("semantic_policy_sha256") == expected_sha
+            for evaluation in evaluations
+        ),
+        "semantic_rejected_not_executed": all(
+            evaluation.get("executed") is not True
+            and evaluation.get("execution_attempt_recorded") is False
+            and evaluation.get("result") == "unverified"
+            for evaluation in evaluations
+            if evaluation.get("classification") == "semantic_rejected"
+        ),
+        "candidate_phase_timing_complete": bool(lanes)
+        and all(
+            set(lane.get("resource_usage", {}).get("phase_timings_ms", {}))
+            == expected_phases
+            and isinstance(
+                lane.get("resource_usage", {}).get("phase_timing_residual_ms"),
+                (int, float),
+            )
+            for lane in lanes
+        ),
+    }
 
 
 def _ci_lower_at_least(interval: dict[str, Any], threshold: float) -> bool:

@@ -1650,7 +1650,12 @@ fn normalize_obligation_roles(values: Vec<String>) -> anyhow::Result<Vec<String>
         }
         if !matches!(
             normalized.as_str(),
-            "setup" | "scaffold" | "implementation" | "verification" | "acceptance_evidence"
+            "setup"
+                | "scaffold"
+                | "implementation"
+                | "verification"
+                | "acceptance_evidence"
+                | "investigation"
         ) {
             bail!("unsupported completion obligation role: {value}");
         }
@@ -2659,6 +2664,7 @@ export class SpaceInvadersEngine {\n\
             required_obligations: vec![
                 " implementation ".to_string(),
                 "acceptance-evidence".to_string(),
+                "investigation".to_string(),
                 "implementation".to_string(),
             ],
             deferred_verify_requirements: Vec::new(),
@@ -2668,7 +2674,7 @@ export class SpaceInvadersEngine {\n\
         .unwrap();
         assert_eq!(
             contract.required_obligations,
-            vec!["implementation", "acceptance_evidence"]
+            vec!["implementation", "acceptance_evidence", "investigation"]
         );
         let err = CompletionContract {
             required_paths: Vec::new(),

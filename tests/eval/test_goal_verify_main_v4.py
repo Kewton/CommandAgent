@@ -7,6 +7,13 @@ import unittest
 from pathlib import Path
 
 from eval_lib.generate_goal_verify_main_v4 import _tracked_files
+from eval_lib.generate_goal_verify_main_v4_a13 import (
+    _build_adapters as build_a13_adapters,
+)
+from eval_lib.generate_goal_verify_main_v4_a13 import (
+    _build_contract as build_a13_contract,
+)
+from eval_lib.generate_goal_verify_main_v4_a13 import _build_tasks as build_a13_tasks
 from eval_lib.goal_verify_baseline_product_v3 import _product_resource_usage
 from eval_lib.goal_verify_blind_v4 import (
     build_blind_report,
@@ -16,10 +23,12 @@ from eval_lib.goal_verify_blind_v4 import (
 from eval_lib.goal_verify_live_v4 import _candidate_resource_usage, _cluster_manifest
 from eval_lib.goal_verify_main_design_v4 import main_design_errors
 from eval_lib.goal_verify_main_report_v4 import (
+    _a13_instrument_checks,
     build_main_report,
     build_main_smoke_report,
     evaluate_main_semantic_review,
 )
+from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnostics
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -77,10 +86,19 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 {"response": {"response": {"prompt_eval_count": 20, "eval_count": 3}}},
             ],
             wall_time_ns=9_500_000,
+            phase_timings_ns={
+                "prompt_assembly": 500_000,
+                "provider_request": 8_000_000,
+            },
         )
         self.assertEqual(usage["wall_time_ms"], 9.5)
         self.assertEqual(usage["total_tokens"], 35)
         self.assertTrue(usage["token_measurement_complete"])
+        self.assertEqual(
+            usage["phase_timings_ms"],
+            {"prompt_assembly": 0.5, "provider_request": 8.0},
+        )
+        self.assertEqual(usage["phase_timing_residual_ms"], 1.0)
 
     def test_generated_main_design_is_12_by_10_by_3(self):
         corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
@@ -92,6 +110,92 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(len(corpus["cases"]), 120)
         self.assertEqual(len(contract["selected_cells"]), 120)
         self.assertEqual(contract["samples_per_cell"], 3)
+
+    def test_a13_draft_preserves_thresholds_and_fails_closed(self):
+        base = load("eval/goal_verify/v0/phase6-main-v4-contract.json")
+        contract = build_a13_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        self.assertEqual(contract["status"], "draft")
+        self.assertFalse(contract["authorization"]["live_collection_authorized"])
+        self.assertEqual(contract["resource_budgets"], base["resource_budgets"])
+        self.assertEqual(
+            contract["main_analysis"]["threshold_mapping"],
+            base["main_analysis"]["threshold_mapping"],
+        )
+        self.assertEqual(contract["full_experiment"], base["full_experiment"])
+
+        adapters = build_a13_adapters(status="draft")["adapters"]
+        investigation = [
+            row for row in adapters if row["case_id"].startswith("phase6-main-c09-")
+        ]
+        self.assertTrue(investigation)
+        self.assertTrue(
+            all(row["executor"]["kind"] == "unavailable" for row in investigation)
+        )
+
+        tasks = build_a13_tasks(status="draft")["cases"]
+        self.assertTrue(
+            all(row["completion_contract"]["goal"] == row["goal"] for row in tasks)
+        )
+
+    def test_a13_instrument_checks_bind_policy_and_phase_timing(self):
+        contract = build_a13_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        policy_sha = contract["semantic_oracle_policy"]["sha256"]
+        phases = {
+            phase: 0.0
+            for phase in (
+                "prompt_assembly",
+                "provider_request",
+                "raw_schema_validation",
+                "canonicalization",
+                "proposal_validation",
+                "oracle_execution",
+                "scoring",
+            )
+        }
+        records = [
+            {
+                "lanes": {
+                    "held_out_synthesis": {
+                        "validation": {"valid": True},
+                        "execution": {
+                            "semantic_policy_sha256": policy_sha,
+                            "execution_policy_source": "candidate_visible_prompt",
+                            "evaluations": [
+                                {
+                                    "classification": "semantic_rejected",
+                                    "execution_attempt_recorded": False,
+                                    "executed": False,
+                                    "result": "unverified",
+                                    "semantic_policy_sha256": policy_sha,
+                                }
+                            ],
+                        },
+                        "resource_usage": {
+                            "phase_timings_ms": phases,
+                            "phase_timing_residual_ms": 0.1,
+                        },
+                    }
+                }
+            }
+        ]
+
+        checks = _a13_instrument_checks(contract=contract, records=records)
+        self.assertTrue(all(checks.values()), checks)
+        records[0]["lanes"]["held_out_synthesis"]["execution"]["evaluations"][0][
+            "executed"
+        ] = True
+        checks = _a13_instrument_checks(contract=contract, records=records)
+        self.assertFalse(checks["semantic_rejected_not_executed"])
 
     def test_main_design_rejects_pseudoreplicated_task_binding(self):
         corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
@@ -149,6 +253,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             primary["resources"]["percentiles"]["p50_wall_time_increase_pct"],
             7.0,
         )
+        self.assertEqual(
+            primary["resources"]["diagnostics"]["record_count"],
+            len(records),
+        )
         records[0].pop("source_task_id")
         no_go = build_main_report(
             contract=contract,
@@ -159,6 +267,123 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
         self.assertEqual(no_go["final_decision"], "NO-GO")
         self.assertFalse(no_go["checks"]["cluster_design"])
+
+    def test_resource_diagnostics_separates_coverage_ratios_and_tails(self):
+        records = [
+            _resource_record(
+                pair_id="pair-01",
+                cell_id="cell-01",
+                baseline_wall_ms=100,
+                baseline_tokens=100,
+                candidate_wall_ms=50,
+                candidate_input_tokens=80,
+                candidate_output_tokens=20,
+                provider_client_ms=40,
+                provider_prompt_ms=10,
+                provider_output_ms=30,
+                evaluations=[{"executed": True, "runtime_ms": 5}],
+            ),
+            _resource_record(
+                pair_id="pair-02",
+                cell_id="cell-02",
+                baseline_wall_ms=200,
+                baseline_tokens=200,
+                candidate_wall_ms=20,
+                candidate_input_tokens=30,
+                candidate_output_tokens=10,
+                provider_client_ms=10,
+                provider_prompt_ms=2,
+                provider_output_ms=8,
+                evaluations=[{"executed": True}, {"executed": False}],
+            ),
+        ]
+        diagnostics = build_resource_diagnostics(
+            records=records,
+            lane_name="held_out_synthesis",
+        )
+        self.assertTrue(diagnostics["provider_timing"]["complete"])
+        self.assertEqual(diagnostics["provider_timing"]["attempt_count"], 2)
+        runtime = diagnostics["oracle_runtime"]
+        self.assertEqual(runtime["evaluation_count"], 3)
+        self.assertEqual(runtime["runtime_recorded_count"], 1)
+        self.assertEqual(runtime["executed_count"], 2)
+        self.assertEqual(runtime["executed_runtime_missing_count"], 1)
+        self.assertEqual(runtime["unexecuted_count"], 1)
+        self.assertEqual(diagnostics["attribution"]["residual_ms"]["p50"], 5.0)
+        self.assertFalse(diagnostics["candidate_phase_timing"]["complete"])
+        self.assertEqual(diagnostics["candidate_phase_timing"]["recorded_count"], 0)
+        self.assertEqual(
+            diagnostics["attribution"]["overall_input_share_of_candidate_tokens_pct"],
+            78.571429,
+        )
+        self.assertEqual(
+            diagnostics["cell_median_increase_pct"]["cell-01"],
+            {
+                "wall_time_increase_pct": 50.0,
+                "total_tokens_increase_pct": 100.0,
+            },
+        )
+        self.assertEqual(
+            diagnostics["tails"]["wall_increase_ratio_top_5pct"]["cell_counts"],
+            {"cell-01": 1},
+        )
+        self.assertEqual(
+            diagnostics["tails"]["candidate_absolute_wall_top_5pct"]["cell_counts"],
+            {"cell-01": 1},
+        )
+
+    def test_resource_diagnostics_reports_incomplete_provider_timing(self):
+        record = _resource_record(
+            pair_id="pair-01",
+            cell_id="cell-01",
+            baseline_wall_ms=100,
+            baseline_tokens=100,
+            candidate_wall_ms=50,
+            candidate_input_tokens=80,
+            candidate_output_tokens=20,
+            provider_client_ms=40,
+            provider_prompt_ms=10,
+            provider_output_ms=30,
+            evaluations=[],
+        )
+        del record["lanes"]["held_out_synthesis"]["attempts"][0]["response"][
+            "response"
+        ]["eval_duration"]
+        diagnostics = build_resource_diagnostics(
+            records=[record],
+            lane_name="held_out_synthesis",
+        )
+        self.assertFalse(diagnostics["provider_timing"]["complete"])
+        self.assertEqual(diagnostics["provider_timing"]["complete_attempt_count"], 0)
+        self.assertEqual(diagnostics["provider_timing"]["output_eval_ms"]["count"], 0)
+        self.assertEqual(diagnostics["attribution"]["residual_ms"]["p50"], 10.0)
+
+    def test_resource_diagnostics_reports_candidate_phase_timing(self):
+        record = _resource_record(
+            pair_id="pair-01",
+            cell_id="cell-01",
+            baseline_wall_ms=100,
+            baseline_tokens=100,
+            candidate_wall_ms=50,
+            candidate_input_tokens=80,
+            candidate_output_tokens=20,
+            provider_client_ms=40,
+            provider_prompt_ms=10,
+            provider_output_ms=30,
+            evaluations=[],
+            phase_timings_ms={
+                "prompt_assembly": 2.0,
+                "provider_request": 40.0,
+            },
+            phase_timing_residual_ms=8.0,
+        )
+        diagnostics = build_resource_diagnostics(
+            records=[record], lane_name="held_out_synthesis"
+        )
+        timing = diagnostics["candidate_phase_timing"]
+        self.assertTrue(timing["complete"])
+        self.assertEqual(timing["phases_ms"]["provider_request"]["p50"], 40.0)
+        self.assertEqual(timing["instrumentation_residual_ms"]["p50"], 8.0)
 
     def test_main_semantic_review_safety_rule_is_authoritative(self):
         contract = load("eval/goal_verify/v0/phase6-main-v4-contract.json")
@@ -379,6 +604,61 @@ def _synthetic_records():
                     }
                 )
     return records
+
+
+def _resource_record(
+    *,
+    pair_id: str,
+    cell_id: str,
+    baseline_wall_ms: int,
+    baseline_tokens: int,
+    candidate_wall_ms: int,
+    candidate_input_tokens: int,
+    candidate_output_tokens: int,
+    provider_client_ms: int,
+    provider_prompt_ms: int,
+    provider_output_ms: int,
+    evaluations: list[dict],
+    phase_timings_ms: dict[str, float] | None = None,
+    phase_timing_residual_ms: float | None = None,
+):
+    record = {
+        "pair_id": pair_id,
+        "cell_id": cell_id,
+        "baseline": {
+            "resource_usage": {
+                "wall_time_ms": baseline_wall_ms,
+                "total_tokens": baseline_tokens,
+            }
+        },
+        "lanes": {
+            "held_out_synthesis": {
+                "attempts": [
+                    {
+                        "response": {
+                            "response": {
+                                "client_wall_time_ns": provider_client_ms * 1_000_000,
+                                "prompt_eval_duration": provider_prompt_ms * 1_000_000,
+                                "eval_duration": provider_output_ms * 1_000_000,
+                            }
+                        }
+                    }
+                ],
+                "resource_usage": {
+                    "wall_time_ms": candidate_wall_ms,
+                    "input_tokens": candidate_input_tokens,
+                    "output_tokens": candidate_output_tokens,
+                    "total_tokens": candidate_input_tokens + candidate_output_tokens,
+                },
+                "execution": {"evaluations": evaluations},
+            }
+        },
+    }
+    if phase_timings_ms is not None:
+        usage = record["lanes"]["held_out_synthesis"]["resource_usage"]
+        usage["phase_timings_ms"] = phase_timings_ms
+        usage["phase_timing_residual_ms"] = phase_timing_residual_ms
+    return record
 
 
 if __name__ == "__main__":

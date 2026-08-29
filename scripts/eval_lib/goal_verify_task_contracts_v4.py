@@ -83,6 +83,11 @@ _STRING_CONSTRAINTS = {
     "styling",
 }
 _SHELL_PROGRAMS = {"bash", "dash", "fish", "sh", "zsh"}
+_CANDIDATE_COMPLETION_FIELDS = {
+    "profile",
+    "required_paths",
+    "verify_commands",
+}
 
 
 def load_task_contract_registry(path: Path) -> dict[str, Any]:
@@ -120,12 +125,21 @@ def bind_task_contract(
         raise ValueError(f"task execution goal missing:{case['case_id']}")
     if not isinstance(completion_contract, dict):
         raise TypeError(f"completion contract missing:{case['case_id']}")
+    completion_contract = copy.deepcopy(completion_contract)
+    completion_goal_source = "registry_completion_contract"
+    if registry.get("schema_version") == _A9_SCHEMA_VERSION:
+        # A9 declares row.goal as the semantic goal shared by both arms.  The
+        # nested completion-contract prose is not a second task definition and
+        # must not retain stale route, port, or parameter literals.
+        completion_contract["goal"] = execution_goal
+        completion_goal_source = "shared_semantic_goal"
     bound = copy.deepcopy(case)
     bound["source_goal"] = case["goal"]
     bound["goal"] = execution_goal
     bound["task_contract"] = {
         "schema_version": registry.get("schema_version"),
-        "completion_contract": copy.deepcopy(completion_contract),
+        "completion_contract": completion_contract,
+        "completion_contract_goal_source": completion_goal_source,
         "offline_dependencies": copy.deepcopy(row.get("offline_dependencies", [])),
     }
     if registry.get("schema_version") == _A9_SCHEMA_VERSION:
@@ -141,6 +155,28 @@ def bind_task_contract(
             row["operational_constraints"]
         )
     return bound
+
+
+def candidate_visible_task_contract(task_contract: dict[str, Any]) -> dict[str, Any]:
+    """Project shared execution inputs without exposing scoring metadata."""
+    completion = task_contract.get("completion_contract")
+    if not isinstance(completion, dict):
+        raise TypeError("candidate task completion contract missing")
+    projected = {
+        "schema_version": task_contract.get("schema_version"),
+        "completion_contract": {
+            field: copy.deepcopy(completion[field])
+            for field in sorted(_CANDIDATE_COMPLETION_FIELDS)
+            if field in completion
+        },
+        "offline_dependencies": copy.deepcopy(
+            task_contract.get("offline_dependencies", [])
+        ),
+    }
+    constraints = task_contract.get("operational_constraints")
+    if isinstance(constraints, dict):
+        projected["operational_constraints"] = copy.deepcopy(constraints)
+    return projected
 
 
 def task_contract_registry_errors(registry: dict[str, Any]) -> list[str]:

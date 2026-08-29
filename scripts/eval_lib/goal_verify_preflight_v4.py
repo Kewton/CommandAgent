@@ -9,6 +9,7 @@ import jsonschema
 from eval_lib.goal_verify_main_design_v4 import main_design_errors
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_sandbox import sandbox_backend_status
+from eval_lib.goal_verify_semantic_policy_v4 import semantic_policy_sha256
 from eval_lib.goal_verify_task_contracts_v4 import (
     load_task_contract_registry,
     selected_task_contract_errors,
@@ -237,6 +238,12 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
                     }
                     if actual_claims != expected_claims:
                         errors.append("answer_key_claim_set_mismatch")
+                    errors.extend(
+                        _semantic_policy_errors(
+                            contract=contract,
+                            answer_key=answer_key,
+                        )
+                    )
     claim_policy = contract.get("claim_policy")
     if claim_policy is not None and (
         claim_policy.get("allow_unverifiable_reason") is not True
@@ -267,6 +274,45 @@ def design_errors(*, root: Path, contract: dict[str, Any]) -> list[str]:
                     matrix=matrix,
                 )
             )
+    return errors
+
+
+def _semantic_policy_errors(
+    *, contract: dict[str, Any], answer_key: dict[str, Any]
+) -> list[str]:
+    policy = contract.get("semantic_oracle_policy")
+    if policy is None:
+        return []
+    errors = []
+    expected_sha = semantic_policy_sha256()
+    if policy.get("sha256") != expected_sha:
+        errors.append("semantic_policy_hash_mismatch")
+    if policy.get("unsupported_result") != "unverified":
+        errors.append("semantic_policy_not_fail_closed")
+    if answer_key.get("rules", {}).get("semantic_policy_sha256") != expected_sha:
+        errors.append("answer_key_semantic_policy_hash_mismatch")
+    for adapter in answer_key.get("adapters", []):
+        if not isinstance(adapter, dict):
+            continue
+        executor = adapter.get("executor")
+        if not isinstance(executor, dict):
+            continue
+        if executor.get("kind") != "existing_evidence_probe":
+            continue
+        supported = executor.get("supported_oracle_kinds")
+        if not isinstance(supported, list) or not supported:
+            errors.append(
+                "generic_investigation_adapter_available:"
+                + str(adapter.get("adapter_id", "unknown"))
+            )
+    measurement = contract.get("main_analysis", {}).get("resource_measurement", {})
+    if not measurement.get("candidate_phase_timing"):
+        errors.append("candidate_phase_timing_not_registered")
+    if (
+        measurement.get("phase_timing_missing")
+        != "hard diagnostic failure; never imputed"
+    ):
+        errors.append("candidate_phase_timing_missing_policy_invalid")
     return errors
 
 

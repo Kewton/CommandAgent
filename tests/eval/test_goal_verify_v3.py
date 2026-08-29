@@ -103,6 +103,20 @@ class PromptAndCanonicalizationTest(unittest.TestCase):
         self.assertTrue(payload["executor_capabilities"])
         self.assertNotIn("claim_id", payload["existing_evidence_registry"][0])
 
+    def test_a13_held_out_capabilities_are_scoped_to_the_current_case(self):
+        case = self.case("create-negative-constraint-injection")
+        prompt = build_held_out_prompt(
+            self.base,
+            case,
+            "request-a13-negative",
+            self.shape,
+            capabilities=self.capabilities,
+        )
+        payload = json.loads(prompt.rsplit("INPUT JSON:\n", 1)[1])
+
+        self.assertEqual(payload["executor_capabilities"], [])
+        self.assertRegex(payload["semantic_policy_sha256"], r"^[0-9a-f]{64}$")
+
     def test_held_out_host_replaces_provider_ids_deterministically(self):
         case = self.case("create-build-only-functional")
         proposal = load("tests/fixtures/verification_spec_v0/create.json")
@@ -386,17 +400,13 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
                     },
                 ],
             }
-            (root / "evidence.json").write_text(
-                json.dumps(evidence), encoding="utf-8"
-            )
+            (root / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
             self.assertEqual(
                 exact_sha_ci_evidence_errors(root=root, contract=contract), []
             )
             evidence["head_sha"] = "b" * 40
             evidence["workflows"][1]["conclusion"] = "failure"
-            (root / "evidence.json").write_text(
-                json.dumps(evidence), encoding="utf-8"
-            )
+            (root / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
             self.assertEqual(
                 exact_sha_ci_evidence_errors(root=root, contract=contract),
                 [
@@ -465,9 +475,7 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
                 run,
                 replay=replay,
                 replay_cwd=workspace,
-                completion_contract={
-                    "verify_commands": ["python3 cli/main.py 2 3"]
-                },
+                completion_contract={"verify_commands": ["python3 cli/main.py 2 3"]},
             )
             stdout = [row for row in observations if row["kind"] == "stdout"]
             self.assertEqual(len(stdout), 1)
@@ -601,12 +609,8 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
             {"item_id": f"semantic_hidden:case--pair-{index:02d}"}
             for index in range(1, 11)
         ]
-        mapping = {
-            f"{item['item_id']}:variant_a": "candidate" for item in items
-        }
-        mapping.update(
-            {f"{item['item_id']}:variant_b": "baseline" for item in items}
-        )
+        mapping = {f"{item['item_id']}:variant_a": "candidate" for item in items}
+        mapping.update({f"{item['item_id']}:variant_b": "baseline" for item in items})
         reviews = [
             {
                 "item_id": item["item_id"],
@@ -750,8 +754,7 @@ class WorkspaceBaselineBlindAndReadinessTest(unittest.TestCase):
                 )
             record = json.loads(
                 (
-                    run_dir
-                    / "raw/create-cli-known-multiple-inputs/pair-01.json"
+                    run_dir / "raw/create-cli-known-multiple-inputs/pair-01.json"
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual(

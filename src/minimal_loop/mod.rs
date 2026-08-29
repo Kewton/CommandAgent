@@ -14,6 +14,7 @@ pub mod feedback;
 pub mod hidden_path_feedback;
 pub mod import_scan;
 pub mod interaction_probe;
+pub(crate) mod investigation_acceptance;
 pub mod loop_run;
 pub mod pipeline_probe;
 pub(crate) mod post_write_completion;

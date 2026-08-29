@@ -7,6 +7,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from eval_lib.goal_verify_semantic_policy_v4 import (
+    available_adapters,
+    semantic_policy_sha256,
+)
 from eval_lib.goal_verify_v2 import (
     CLAIM_KINDS,
     INPUT_KINDS,
@@ -70,9 +74,14 @@ def build_conformance_prompt(
     required = []
     for claim in case["required_claims"]:
         entries = by_claim.get(claim["id"], [])
+        executable_entries = available_adapters(entries, claim=claim)
         required.append(
             {
                 **copy.deepcopy(claim),
+                "executor_status": (
+                    "available" if executable_entries else "unavailable"
+                ),
+                "semantic_policy_sha256": semantic_policy_sha256(),
                 "expected_observations": [
                     {
                         "adapter_id": row["adapter_id"],
@@ -80,7 +89,7 @@ def build_conformance_prompt(
                         "polarities": row["proposal"]["polarities"],
                         "observation_kinds": row["proposal"]["observation_kinds"],
                     }
-                    for row in entries
+                    for row in executable_entries
                 ],
             }
         )
@@ -90,6 +99,7 @@ def build_conformance_prompt(
         "intent": case["intent"],
         "profile": case["profile"],
         "required_claims": required,
+        "semantic_policy_sha256": semantic_policy_sha256(),
         "closed_vocabulary": _vocabulary(),
         "generation": _generation(request_id),
     }
@@ -107,10 +117,16 @@ def build_held_out_prompt(
     *,
     capabilities: dict[str, Any],
 ) -> str:
+    capability_case_id = case.get("source_template_case_id", case["case_id"])
+    capability_rows = [
+        row
+        for row in capabilities.get("cases", [])
+        if row.get("case_id") == capability_case_id
+    ]
     strategies = sorted(
         {
             strategy
-            for case_row in capabilities.get("cases", [])
+            for case_row in capability_rows
             for row in case_row.get("claims", [])
             if row.get("executor_status") != "unavailable"
             for strategy in row.get("strategies", [])
@@ -122,6 +138,7 @@ def build_held_out_prompt(
         "intent": case["intent"],
         "profile": case["profile"],
         "executor_capabilities": strategies,
+        "semantic_policy_sha256": semantic_policy_sha256(),
         "closed_vocabulary": _vocabulary(),
         "generation": _generation(request_id),
     }
@@ -137,13 +154,16 @@ def build_held_out_prompt(
 def _finish_prompt(
     base_prompt: str, shape_example: str, request: dict[str, Any]
 ) -> str:
+    shape = json.loads(shape_example)
     return (
         f"{base_prompt.rstrip()}\n\n"
         "The following object is a shape example only. Copy its structure, not "
         "its values.\n"
-        f"SHAPE EXAMPLE:\n{shape_example.rstrip()}\n\n"
+        "SHAPE EXAMPLE:\n"
+        f"{json.dumps(shape, ensure_ascii=False, separators=(',', ':'), sort_keys=True)}\n\n"
         "Return JSON only.\n"
-        f"INPUT JSON:\n{json.dumps(request, ensure_ascii=False, sort_keys=True)}\n"
+        "INPUT JSON:\n"
+        f"{json.dumps(request, ensure_ascii=False, separators=(',', ':'), sort_keys=True)}\n"
     )
 
 
@@ -176,8 +196,7 @@ def _held_out_origin(
     lineage = f"{case['case_id']}:held-out:{index:02d}"
     if intent == "fix":
         has_failure_polarity = any(
-            oracle.get("expected_polarity") == "failure"
-            for oracle in claim_oracles
+            oracle.get("expected_polarity") == "failure" for oracle in claim_oracles
         )
         if kind == "reproducer_observation" or has_failure_polarity:
             requirement_id, stage, polarity = "before_fails", "before", "failure"
@@ -236,7 +255,10 @@ def canonicalize_held_out_proposal(
         claim_id: [] for claim_id in old_ids
     }
     for oracle in oracles:
-        if isinstance(oracle, dict) and oracle.get("claim_id") in provider_oracles_by_claim:
+        if (
+            isinstance(oracle, dict)
+            and oracle.get("claim_id") in provider_oracles_by_claim
+        ):
             provider_oracles_by_claim[oracle["claim_id"]].append(oracle)
     for index, claim in enumerate(canonical["claims"], 1):
         provider_claim_id = claim["id"]
