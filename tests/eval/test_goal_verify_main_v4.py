@@ -14,7 +14,15 @@ from eval_lib.generate_goal_verify_main_v4_a13 import (
     _build_contract as build_a13_contract,
 )
 from eval_lib.generate_goal_verify_main_v4_a13 import _build_tasks as build_a13_tasks
-from eval_lib.goal_verify_baseline_product_v3 import _product_resource_usage
+from eval_lib.generate_goal_verify_recovery_v4_a14 import (
+    _build_contract as build_a14_recovery_contract,
+)
+from eval_lib.goal_verify_baseline_product_v3 import (
+    _product_resource_usage,
+    _product_terminal_status,
+    _recovery_plan_attempts,
+    build_product_argv,
+)
 from eval_lib.goal_verify_blind_v4 import (
     build_blind_report,
     canonical_sha256,
@@ -28,7 +36,23 @@ from eval_lib.goal_verify_main_report_v4 import (
     build_main_smoke_report,
     evaluate_main_semantic_review,
 )
+from eval_lib.goal_verify_recovery_experiment_v4 import (
+    artifact_delta,
+    classify_case_recovery_eligibility,
+    classify_initial_recovery_eligibility,
+    compare_recovery_arms,
+    execute_frozen_external_oracles,
+    recovery_contract_errors,
+)
+from eval_lib.goal_verify_recovery_live_v4 import run_recovery_pair
+from eval_lib.goal_verify_recovery_report_v4 import build_recovery_report
 from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnostics
+from eval_lib.goal_verify_task_contracts_v4 import (
+    bind_task_contract,
+    load_task_contract_registry,
+)
+from eval_lib.goal_verify_workspaces_v3 import workspace_by_case
+from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -76,6 +100,655 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "total_tokens": 42,
                 },
             )
+
+    def test_product_terminal_status_uses_last_structured_stop_event(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            rows = [
+                {
+                    "event": "run_stop",
+                    "ok": False,
+                    "status": "failed",
+                    "failure_kind": "older_failure",
+                },
+                {
+                    "event": "recovery_prompt_saved",
+                    "failure_kind": "dependency_setup_blocked_offline",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+                {
+                    "event": "plan_final_contract",
+                    "primary_reason": (
+                        "missing_required_capabilities:"
+                        "unsupported_required_capability:browser_readiness"
+                    ),
+                    "missing_capabilities": [
+                        "unsupported_required_capability:browser_readiness"
+                    ],
+                    "recovery_handoff_kind": "release_gate_failed",
+                },
+                {
+                    "event": "tui_command_stop",
+                    "ok": False,
+                    "status": "failed",
+                    "failure_kind": "direct_cli_command_failed",
+                    "stop_reason": "dependency cache is unavailable",
+                    "recovery_next_action": "fix_dependency_boundary",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+            ]
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            status = _product_terminal_status(run_dir)
+
+        self.assertTrue(status["recorded"])
+        self.assertEqual(status["event"], "tui_command_stop")
+        self.assertEqual(status["failure_kind"], "direct_cli_command_failed")
+        self.assertEqual(
+            status["recovery_failure_kind"], "dependency_setup_blocked_offline"
+        )
+        self.assertEqual(status["recovery_handoff_kind"], "release_gate_failed")
+        self.assertIn(
+            "unsupported_required_capability:browser_readiness",
+            status["structured_blockers"],
+        )
+        self.assertEqual(status["next_action"], "fix_dependency_boundary")
+        self.assertEqual(
+            status["recovery_ultra_plan_path"], ".anvil/plans/recovery.yaml"
+        )
+
+    def test_recovery_zero_records_initial_attempt_without_recovery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            telemetry = _recovery_plan_attempts(
+                Path(temporary), configured_runs=0, process_status="failed"
+            )
+
+        self.assertEqual(telemetry["configured_recovery_runs"], 0)
+        self.assertEqual(telemetry["executed_recovery_runs"], 0)
+        self.assertEqual(telemetry["attempts"][0]["kind"], "initial")
+        self.assertEqual(telemetry["attempts"][0]["status"], "failed")
+        self.assertEqual(telemetry["terminal_stop_reason"], "disabled")
+
+    def test_recovery_one_exposes_initial_failure_and_first_recovery_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            rows = [
+                {
+                    "event": "recovery_plan_auto_run_configured",
+                    "recovery_plan_auto_run_current": 0,
+                    "recovery_plan_auto_runs": 1,
+                    "recovery_plan_auto_run_stop_reason": "initial_run",
+                },
+                {
+                    "event": "recovery_plan_auto_run_start",
+                    "recovery_plan_auto_run_current": 1,
+                    "recovery_plan_auto_runs": 1,
+                    "recovery_plan_auto_run_stop_reason": "running",
+                    "recovery_handoff_kind": "verification_failed",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+                {
+                    "event": "recovery_plan_auto_run_complete",
+                    "recovery_plan_auto_run_current": 1,
+                    "recovery_plan_auto_runs": 1,
+                    "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+                },
+            ]
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            telemetry = _recovery_plan_attempts(
+                run_dir, configured_runs=1, process_status="succeeded"
+            )
+
+        self.assertEqual(telemetry["configured_recovery_runs"], 1)
+        self.assertEqual(telemetry["executed_recovery_runs"], 1)
+        self.assertTrue(telemetry["configured_matches_events"])
+        self.assertEqual(
+            [(row["kind"], row["status"]) for row in telemetry["attempts"]],
+            [("initial", "failed_recoverable"), ("recovery", "succeeded")],
+        )
+        self.assertEqual(telemetry["terminal_stop_reason"], "recovery_succeeded")
+
+    def test_product_argv_makes_recovery_zero_and_one_explicit(self):
+        common = {
+            "commandagent_bin": Path("/tmp/commandagent"),
+            "workspace": Path("/tmp/workspace"),
+            "case": {"intent": "fix", "profile": "generic", "goal": "repair"},
+            "model": "model",
+        }
+        zero = build_product_argv(**common, recovery_plan_auto_runs=0)
+        one = build_product_argv(**common, recovery_plan_auto_runs=1)
+
+        zero_index = zero.index("--recovery-plan-auto-runs")
+        one_index = one.index("--recovery-plan-auto-runs")
+        self.assertEqual(zero[zero_index : zero_index + 2], [zero[zero_index], "0"])
+        self.assertEqual(one[one_index : one_index + 2], [one[one_index], "1"])
+
+    def test_a14_case_eligibility_excludes_missing_dependency_and_oracle(self):
+        tasks = load("eval/goal_verify/v0/phase6-task-contracts-v4-a13-main.json")
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-a13-main.json")[
+            "adapters"
+        ]
+        by_id = {row["case_id"]: row for row in tasks["cases"]}
+
+        eligible = classify_case_recovery_eligibility(
+            task_contract=by_id["phase6-main-c01-task-01"], adapters=adapters
+        )
+        unavailable_oracle = classify_case_recovery_eligibility(
+            task_contract=by_id["phase6-main-c02-task-01"], adapters=adapters
+        )
+        unavailable_dependency = classify_case_recovery_eligibility(
+            task_contract=by_id["phase6-main-c06-task-01"], adapters=adapters
+        )
+
+        self.assertTrue(eligible["eligible"])
+        self.assertEqual(unavailable_oracle["category"], "capability_unavailable")
+        self.assertEqual(
+            unavailable_dependency["category"], "dependency_or_provisioning"
+        )
+
+    def test_a14_runtime_eligibility_uses_structured_failure_only(self):
+        preregistered = {
+            "policy_id": "p",
+            "eligible": True,
+            "category": "recoverable_candidate",
+            "reason": "available",
+        }
+        dependency = classify_initial_recovery_eligibility(
+            preregistered=preregistered,
+            baseline={
+                "stderr": "bounded repair text that must not influence policy",
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": False,
+                    "failure_kind": "dependency_setup_blocked_offline",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+            },
+        )
+        recoverable = classify_initial_recovery_eligibility(
+            preregistered=preregistered,
+            baseline={
+                "stderr": "dependency_setup_blocked_offline is ignored here",
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": False,
+                    "failure_kind": "verify_repair_progress_unchanged",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+            },
+        )
+
+        self.assertFalse(dependency["run_recovery_one_arm"])
+        self.assertEqual(dependency["category"], "dependency_or_provisioning")
+        self.assertTrue(recoverable["run_recovery_one_arm"])
+        self.assertEqual(recoverable["category"], "recoverable_candidate")
+
+    def test_a14_runtime_eligibility_excludes_structured_capability_blocker(self):
+        eligibility = classify_initial_recovery_eligibility(
+            preregistered={"eligible": True},
+            baseline={
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": False,
+                    "failure_kind": "direct_cli_command_failed",
+                    "recovery_failure_kind": None,
+                    "structured_blockers": [
+                        "unsupported_required_capability:browser_readiness"
+                    ],
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                }
+            },
+        )
+
+        self.assertFalse(eligibility["run_recovery_one_arm"])
+        self.assertEqual(eligibility["category"], "capability_unavailable")
+
+    def test_a14_external_oracle_is_host_owned_and_fail_closed(self):
+        calls = []
+
+        def executor(spec, *, workspace):
+            calls.append((spec["kind"], workspace))
+            return {"executed": True, "result": spec["expected_result"]}
+
+        summary = execute_frozen_external_oracles(
+            case_id="case-a",
+            adapters=[
+                {
+                    "adapter_id": "primary",
+                    "case_id": "case-a",
+                    "claim_id": "behavior",
+                    "executor": {
+                        "kind": "sandbox_command",
+                        "expected_result": "pass",
+                    },
+                },
+                {
+                    "adapter_id": "regression",
+                    "case_id": "case-a",
+                    "claim_id": "regressions",
+                    "executor": {
+                        "kind": "regression_set",
+                        "expected_result": "unverified",
+                    },
+                },
+            ],
+            workspace=Path("/tmp/a14-workspace"),
+            executor=executor,
+        )
+
+        self.assertEqual(summary["source"], "frozen_host_adapter_post_execution")
+        self.assertEqual(summary["overall"], "unusable")
+        self.assertEqual(summary["regression_status"], "unusable")
+        self.assertEqual(len(calls), 2)
+
+    def test_a14_server_not_ready_is_product_fail_not_oracle_unusable(self):
+        summary = execute_frozen_external_oracles(
+            case_id="case-a",
+            adapters=[
+                {
+                    "adapter_id": "browser",
+                    "case_id": "case-a",
+                    "claim_id": "behavior",
+                    "executor": {"kind": "playwright_script"},
+                }
+            ],
+            workspace=Path("/tmp/a14-workspace"),
+            executor=lambda spec, *, workspace: {
+                "executed": False,
+                "result": "blocked",
+                "reason": "server_not_ready",
+            },
+        )
+
+        self.assertEqual(summary["overall"], "fail")
+        self.assertEqual(
+            summary["outcomes"][0]["outcome"]["a14_attribution"],
+            "product_did_not_reach_frozen_observation_boundary",
+        )
+
+    def test_a14_comparison_reports_improvement_cost_and_regression(self):
+        initial = {
+            "recovery_plan_attempts": {
+                "configured_recovery_runs": 0,
+                "executed_recovery_runs": 0,
+                "attempts": [{"attempt_index": 0, "status": "failed"}],
+            },
+            "resource_usage": {
+                "wall_time_ms": 100,
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15,
+            },
+        }
+        recovery = {
+            "recovery_plan_attempts": {
+                "configured_recovery_runs": 1,
+                "executed_recovery_runs": 1,
+                "attempts": [
+                    {"attempt_index": 0, "status": "failed_recoverable"},
+                    {"attempt_index": 1, "status": "succeeded"},
+                ],
+            },
+            "resource_usage": {
+                "wall_time_ms": 250,
+                "input_tokens": 30,
+                "output_tokens": 15,
+                "total_tokens": 45,
+            },
+        }
+        before = {
+            "snapshot_sha256": "a" * 64,
+            "entries": [{"path": "app.py", "kind": "file", "sha256": "1", "size": 1}],
+        }
+        after = {
+            "snapshot_sha256": "b" * 64,
+            "entries": [
+                {"path": "app.py", "kind": "file", "sha256": "2", "size": 2},
+                {"path": "test.py", "kind": "file", "sha256": "3", "size": 3},
+            ],
+        }
+
+        comparison = compare_recovery_arms(
+            initial_only=initial,
+            recovery_one=recovery,
+            initial_oracles={"overall": "fail", "regression_status": "pass"},
+            recovery_oracles={"overall": "pass", "regression_status": "fail"},
+            initial_artifact_manifest=before,
+            recovery_artifact_manifest=after,
+        )
+
+        self.assertEqual(comparison["quality_transition"], "improved")
+        self.assertTrue(comparison["success_improved"])
+        self.assertTrue(comparison["regression_introduced"])
+        self.assertEqual(comparison["resource_delta"]["wall_time_ms"], 150)
+        self.assertEqual(comparison["resource_delta"]["total_tokens"], 30)
+        self.assertEqual(
+            comparison["artifact_delta_between_arms"], artifact_delta(before, after)
+        )
+
+    def test_a14_comparison_does_not_attribute_zero_executed_recovery(self):
+        comparison = compare_recovery_arms(
+            initial_only={
+                "recovery_plan_attempts": {
+                    "configured_recovery_runs": 0,
+                    "executed_recovery_runs": 0,
+                    "attempts": [],
+                },
+                "resource_usage": {},
+            },
+            recovery_one={
+                "recovery_plan_attempts": {
+                    "configured_recovery_runs": 1,
+                    "executed_recovery_runs": 0,
+                    "attempts": [],
+                },
+                "resource_usage": {},
+            },
+            initial_oracles={"overall": "fail", "regression_status": "pass"},
+            recovery_oracles={"overall": "pass", "regression_status": "pass"},
+            initial_artifact_manifest={"entries": []},
+            recovery_artifact_manifest={"entries": []},
+        )
+
+        self.assertEqual(comparison["quality_transition"], "initial_attempt_divergence")
+        self.assertEqual(comparison["raw_oracle_transition"], "improved")
+        self.assertFalse(comparison["success_improved"])
+
+    def test_a14_recovery_contract_freezes_zero_vs_one_and_exclusions(self):
+        contract = build_a14_recovery_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        paired = contract["paired_run_contract"]
+        self.assertEqual(paired["initial_only"]["recovery_plan_auto_runs"], 0)
+        self.assertEqual(paired["recovery_one"]["recovery_plan_auto_runs"], 1)
+        self.assertEqual(paired["maximum_recovery_runs"], 1)
+        self.assertFalse(
+            contract["recovery_eligibility"]["free_form_stderr_used_for_classification"]
+        )
+        eligibility = contract["recovery_eligibility"]["preregistered_smoke_cases"]
+        self.assertEqual(
+            eligibility["phase6-main-c06-task-01"]["category"],
+            "dependency_or_provisioning",
+        )
+        self.assertFalse(contract["smoke"]["effect_claim_allowed"])
+        self.assertEqual(
+            contract["execution_root_policy"]["required_root"],
+            "/Volumes/SSD_NX/tmp/commandagent_trial",
+        )
+        self.assertEqual(recovery_contract_errors(contract), [])
+        invalid = copy.deepcopy(contract)
+        invalid["paired_run_contract"]["recovery_one"]["recovery_plan_auto_runs"] = 2
+        self.assertIn(
+            "recovery_one_runs_must_be_one", recovery_contract_errors(invalid)
+        )
+
+    def test_a14_pair_runs_explicit_zero_then_one_and_scores_external_oracle(self):
+        contract = build_a14_recovery_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        source = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c01-task-01"
+        )
+        task_registry = load_task_contract_registry(
+            ROOT / contract["task_contract_registry"]
+        )
+        case = bind_task_contract(source, task_registry)
+        tasks = {row["case_id"]: row for row in task_registry["cases"]}
+        adapters = load(contract["frozen_external_oracles"])["adapters"]
+        workspaces = workspace_by_case(
+            load_v4_workspace_registry(root=ROOT, contract=contract)
+        )
+        configured = []
+
+        def baseline_runner(**kwargs):
+            configured_runs = kwargs["recovery_plan_auto_runs"]
+            configured.append(configured_runs)
+            output = kwargs["workspace"] / "cli/main.py"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(
+                "print('good')\n" if configured_runs == 1 else "print('bad')\n",
+                encoding="utf-8",
+            )
+            return {
+                "status": "completed" if configured_runs == 1 else "failed",
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": configured_runs == 1,
+                    "failure_kind": (
+                        None
+                        if configured_runs == 1
+                        else "verify_repair_progress_unchanged"
+                    ),
+                    "recovery_ultra_plan_path": (
+                        None if configured_runs == 1 else ".anvil/plans/recovery.yaml"
+                    ),
+                },
+                "recovery_plan_attempts": {
+                    "configured_recovery_runs": configured_runs,
+                    "executed_recovery_runs": configured_runs,
+                    "attempts": [
+                        {
+                            "attempt_index": configured_runs,
+                            "status": (
+                                "succeeded" if configured_runs == 1 else "failed"
+                            ),
+                        }
+                    ],
+                },
+                "resource_usage": {
+                    "wall_time_ms": 100 + configured_runs * 50,
+                    "input_tokens": 10 + configured_runs * 5,
+                    "output_tokens": 5 + configured_runs * 2,
+                    "total_tokens": 15 + configured_runs * 7,
+                },
+            }
+
+        def oracle_executor(spec, *, workspace):
+            del spec
+            content = (workspace / "cli/main.py").read_text(encoding="utf-8")
+            return {
+                "executed": True,
+                "result": "pass" if "good" in content else "fail",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            execution_root = Path(temporary)
+            record = run_recovery_pair(
+                root=ROOT,
+                contract=contract,
+                case=case,
+                task_contract=tasks[case["case_id"]],
+                workspace_contract=workspaces[case["workspace_case_id"]],
+                pair_id=f"{case['case_id']}--pair-01",
+                execution_root=execution_root,
+                namespace="a14-test",
+                commandagent_bin=ROOT / "target/release/commandagent",
+                adapters=adapters,
+                baseline_runner=baseline_runner,
+                oracle_executor=oracle_executor,
+            )
+
+        self.assertEqual(configured, [0, 1])
+        self.assertEqual(record["comparison"]["quality_transition"], "improved")
+        self.assertEqual(
+            record["initial_only"]["input_manifest"]["snapshot_sha256"],
+            record["recovery_one"]["input_manifest"]["snapshot_sha256"],
+        )
+        self.assertEqual(record["comparison"]["executed_recovery_runs"], 1)
+
+    def test_a14_pair_does_not_run_recovery_for_declared_missing_dependency(self):
+        contract = build_a14_recovery_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        source = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c06-task-01"
+        )
+        task_registry = load_task_contract_registry(
+            ROOT / contract["task_contract_registry"]
+        )
+        case = bind_task_contract(source, task_registry)
+        tasks = {row["case_id"]: row for row in task_registry["cases"]}
+        adapters = load(contract["frozen_external_oracles"])["adapters"]
+        workspaces = workspace_by_case(
+            load_v4_workspace_registry(root=ROOT, contract=contract)
+        )
+        configured = []
+
+        def baseline_runner(**kwargs):
+            configured.append(kwargs["recovery_plan_auto_runs"])
+            return {
+                "status": "failed",
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": False,
+                    "failure_kind": "dependency_setup_blocked_offline",
+                    "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                },
+                "recovery_plan_attempts": {
+                    "configured_recovery_runs": 0,
+                    "executed_recovery_runs": 0,
+                    "attempts": [],
+                },
+                "resource_usage": {},
+            }
+
+        def oracle_executor(spec, *, workspace):
+            del spec, workspace
+            return {"executed": False, "result": "unverified"}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            record = run_recovery_pair(
+                root=ROOT,
+                contract=contract,
+                case=case,
+                task_contract=tasks[case["case_id"]],
+                workspace_contract=workspaces[case["workspace_case_id"]],
+                pair_id=f"{case['case_id']}--pair-01",
+                execution_root=Path(temporary),
+                namespace="a14-test",
+                commandagent_bin=ROOT / "target/release/commandagent",
+                adapters=adapters,
+                baseline_runner=baseline_runner,
+                oracle_executor=oracle_executor,
+            )
+
+        self.assertEqual(configured, [0])
+        self.assertEqual(record["recovery_one"]["status"], "not_run")
+        self.assertEqual(
+            record["eligibility"]["runtime"]["runtime_source"],
+            "preregistered_case_policy",
+        )
+
+    def test_a14_report_separates_attributed_effect_from_excluded_pair(self):
+        contract = build_a14_recovery_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        contract["smoke"]["expected_pair_count"] = 2
+        manifest = {
+            "candidate_visibility_policy": (
+                "commandagent.goal_verify.candidate_manifest.source_config_v1"
+            )
+        }
+        usage = {
+            "wall_time_ms": 100,
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
+        oracle = {"source": "frozen_host_adapter_post_execution"}
+        records = [
+            {
+                "pair_id": "eligible",
+                "eligibility": {"runtime": {"run_recovery_one_arm": True}},
+                "initial_only": {
+                    "input_manifest": {"snapshot_sha256": "a"},
+                    "result": {
+                        "recovery_plan_attempts": {
+                            "configured_recovery_runs": 0,
+                            "executed_recovery_runs": 0,
+                        },
+                        "resource_usage": usage,
+                    },
+                    "output_artifact_manifest": manifest,
+                    "external_oracles": oracle,
+                },
+                "recovery_one": {
+                    "status": "completed",
+                    "input_manifest": {"snapshot_sha256": "a"},
+                    "result": {
+                        "recovery_plan_attempts": {
+                            "configured_recovery_runs": 1,
+                            "executed_recovery_runs": 1,
+                        },
+                        "resource_usage": {
+                            **usage,
+                            "wall_time_ms": 150,
+                            "total_tokens": 22,
+                        },
+                    },
+                    "output_artifact_manifest": manifest,
+                    "external_oracles": oracle,
+                },
+                "comparison": {
+                    "quality_transition": "improved",
+                    "resource_delta": {
+                        "wall_time_ms": 50,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 7,
+                    },
+                },
+            },
+            {
+                "pair_id": "excluded",
+                "eligibility": {"runtime": {"run_recovery_one_arm": False}},
+                "initial_only": {
+                    "result": {
+                        "recovery_plan_attempts": {
+                            "configured_recovery_runs": 0,
+                            "executed_recovery_runs": 0,
+                        },
+                        "resource_usage": usage,
+                    },
+                    "output_artifact_manifest": manifest,
+                    "external_oracles": oracle,
+                },
+                "recovery_one": {"status": "not_run"},
+                "comparison": None,
+            },
+        ]
+
+        report = build_recovery_report(records=records, contract=contract)
+
+        self.assertTrue(report["instrument_ready"])
+        self.assertFalse(report["effect_claim_allowed"])
+        self.assertEqual(report["counts"]["attributed_improved"], 1)
+        self.assertEqual(report["median_resource_delta"]["wall_time_ms"], 50)
 
     def test_candidate_resource_usage_covers_full_lane_wall_and_all_attempt_tokens(
         self,

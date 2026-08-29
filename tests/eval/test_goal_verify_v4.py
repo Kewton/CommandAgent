@@ -87,6 +87,138 @@ class WorkspaceAndConcretizationTest(unittest.TestCase):
             self.assertNotIn("secret", json.dumps(visible))
             self.assertNotIn("completion-contract", json.dumps(visible))
 
+    def test_candidate_manifest_hides_generated_cache_and_python_environments(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative, contents in {
+                "app.py": 'print("ok")\n',
+                "package.json": "{}\n",
+                "pyproject.toml": '[project]\nname = "demo"\n',
+                "src/builder/main.py": 'print("source")\n',
+                ".next/cache/turbopack/data.sst": "generated",
+                ".venv/lib/python/site.py": "dependency",
+                "venv/lib/python/site.py": "dependency",
+                "__pycache__/app.cpython-312.pyc": "cache",
+                ".pytest_cache/v/cache/nodeids": "cache",
+                ".mypy_cache/3.12/app.data.json": "cache",
+                ".ruff_cache/content": "cache",
+                "dist/app.whl": "generated",
+                "build/output.txt": "generated",
+                "coverage/index.html": "generated",
+                "htmlcov/index.html": "generated",
+                ".coverage": "generated",
+                "coverage.xml": "generated",
+                "lcov.info": "generated",
+                "default.profraw": "generated",
+            }.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(contents, encoding="utf-8")
+
+            full = workspace_manifest(root)
+            visible = candidate_visible_manifest(full)
+            visible_paths = [row["path"] for row in visible["entries"]]
+
+            self.assertGreater(len(full["entries"]), len(visible_paths))
+            self.assertEqual(
+                visible_paths,
+                ["app.py", "package.json", "pyproject.toml", "src/builder/main.py"],
+            )
+            self.assertEqual(visible["snapshot_sha256"], full["snapshot_sha256"])
+            self.assertEqual(
+                visible["candidate_visibility_policy"],
+                "commandagent.goal_verify.candidate_manifest.source_config_v1",
+            )
+            self.assertEqual(len(visible["candidate_entries_sha256"]), 64)
+            encoded = json.dumps(visible, sort_keys=True)
+            for hidden in (
+                ".next",
+                ".venv",
+                "__pycache__",
+                ".pytest_cache",
+                "dist/app.whl",
+                "build/output.txt",
+                "coverage.xml",
+                "default.profraw",
+            ):
+                self.assertNotIn(hidden, encoded)
+
+    def test_hidden_artifact_changes_full_identity_not_visible_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "app.py").write_text("print(1)\n", encoding="utf-8")
+            generated = root / ".next/cache/output.bin"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("first", encoding="utf-8")
+            before = candidate_visible_manifest(workspace_manifest(root))
+
+            generated.write_text("second", encoding="utf-8")
+            after = candidate_visible_manifest(workspace_manifest(root))
+
+            self.assertNotEqual(before["snapshot_sha256"], after["snapshot_sha256"])
+            self.assertEqual(
+                before["candidate_entries_sha256"],
+                after["candidate_entries_sha256"],
+            )
+            self.assertEqual(before["entries"], after["entries"])
+
+    def test_candidate_manifest_size_depends_on_source_not_next_build_output(self):
+        source_entries = [
+            {
+                "path": "package.json",
+                "kind": "file",
+                "sha256": "a" * 64,
+                "size": 100,
+            },
+            {
+                "path": "app/page.js",
+                "kind": "file",
+                "sha256": "b" * 64,
+                "size": 200,
+            },
+        ]
+        generated_entries = [
+            {
+                "path": f".next/server/chunks/{index:04d}.js",
+                "kind": "file",
+                "sha256": hashlib.sha256(str(index).encode()).hexdigest(),
+                "size": 1000 + index,
+            }
+            for index in range(500)
+        ]
+        visible = candidate_visible_manifest(
+            {
+                "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+                "snapshot_sha256": "c" * 64,
+                "entries": source_entries + generated_entries,
+            }
+        )
+
+        self.assertEqual(visible["entries"], source_entries)
+        self.assertLess(len(json.dumps(visible, sort_keys=True)), 1000)
+
+    def test_candidate_manifest_preserves_rust_source_and_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative, contents in {
+                "Cargo.toml": '[package]\nname = "demo"\nversion = "0.1.0"\n',
+                "Cargo.lock": "# frozen lock\n",
+                "src/main.rs": "fn main() {}\n",
+                "target/debug/demo": "derived binary",
+            }.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(contents, encoding="utf-8")
+
+            full = workspace_manifest(root)
+            visible = candidate_visible_manifest(full)
+
+            self.assertEqual(
+                [entry["path"] for entry in visible["entries"]],
+                ["Cargo.lock", "Cargo.toml", "src/main.rs"],
+            )
+            self.assertNotIn("target/debug/demo", json.dumps(full))
+
     def test_a5_task_contract_is_bound_to_both_product_and_candidate_input(self):
         corpus = load("eval/goal_verify/v0/corpus.json")
         case = next(

@@ -8,6 +8,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from eval_lib.goal_verify_manifest_visibility_v4 import (
+    project_candidate_visible_manifest,
+)
 from eval_lib.goal_verify_next_v4 import (
     executor_capabilities_match_workspace,
     next_web_server_policy,
@@ -83,18 +86,7 @@ def workspace_manifest(workspace: Path) -> dict[str, Any]:
 
 
 def candidate_visible_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema_version": manifest["schema_version"],
-        "snapshot_sha256": manifest["snapshot_sha256"],
-        "entries": [
-            {
-                key: value
-                for key, value in row.items()
-                if key in {"path", "kind", "sha256", "size"}
-            }
-            for row in manifest["entries"]
-        ],
-    }
+    return project_candidate_visible_manifest(manifest)
 
 
 def concretize_candidate_oracle(

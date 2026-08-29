@@ -131,6 +131,12 @@ def run_current_product_baseline(
             "product_run_dir": str(product_run_dir) if product_run_dir else None,
             "product_run_namespace": _product_run_namespace(workspace, product_run_dir),
             "resource_usage": _product_resource_usage(product_run_dir),
+            "recovery_plan_attempts": _recovery_plan_attempts(
+                product_run_dir,
+                configured_runs=recovery_plan_auto_runs,
+                process_status="timed_out",
+            ),
+            "terminal_status": _product_terminal_status(product_run_dir),
             **completion_verify,
         }
     run_dirs = _product_run_dirs(workspace)
@@ -148,6 +154,12 @@ def run_current_product_baseline(
         "product_run_dir": str(product_run_dir) if product_run_dir else None,
         "product_run_namespace": (_product_run_namespace(workspace, product_run_dir)),
         "resource_usage": _product_resource_usage(product_run_dir),
+        "recovery_plan_attempts": _recovery_plan_attempts(
+            product_run_dir,
+            configured_runs=recovery_plan_auto_runs,
+            process_status=("succeeded" if completed.returncode == 0 else "failed"),
+        ),
+        "terminal_status": _product_terminal_status(product_run_dir),
         "completion_contract_bound": completion_contract is not None,
         "completion_contract_sha256": completion_contract_sha256,
         **_completion_verify_status(product_run_dir),
@@ -244,6 +256,192 @@ def _product_resource_usage(run_dir: Path | None) -> dict[str, int | None]:
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": input_tokens + output_tokens,
+    }
+
+
+def _product_terminal_status(run_dir: Path | None) -> dict[str, Any]:
+    empty = {
+        "recorded": False,
+        "event": None,
+        "ok": None,
+        "status": None,
+        "failure_kind": None,
+        "recovery_failure_kind": None,
+        "recovery_handoff_kind": None,
+        "structured_blockers": [],
+        "stop_reason": None,
+        "next_action": None,
+        "recovery_ultra_plan_path": None,
+    }
+    if run_dir is None:
+        return empty
+    events_path = run_dir / "events.jsonl"
+    if not events_path.is_file():
+        return empty
+    rows = _json_rows(events_path)
+    terminal = [
+        row for row in rows if row.get("event") in {"run_stop", "tui_command_stop"}
+    ]
+    if not terminal:
+        return empty
+    tui_terminal = [row for row in terminal if row.get("event") == "tui_command_stop"]
+    row = tui_terminal[-1] if tui_terminal else terminal[-1]
+    recovery_events = [
+        event
+        for event in rows
+        if event.get("event") == "recovery_prompt_saved"
+        and isinstance(event.get("failure_kind"), str)
+    ]
+    recovery = recovery_events[-1] if recovery_events else {}
+    contract_events = [
+        event for event in rows if event.get("event") == "plan_final_contract"
+    ]
+    contract = contract_events[-1] if contract_events else {}
+    structured_blockers = _structured_terminal_blockers(contract)
+    return {
+        "recorded": True,
+        "event": row.get("event"),
+        "ok": row.get("ok") if isinstance(row.get("ok"), bool) else None,
+        "status": row.get("status"),
+        "failure_kind": row.get("failure_kind"),
+        "recovery_failure_kind": recovery.get("failure_kind"),
+        "recovery_handoff_kind": contract.get("recovery_handoff_kind"),
+        "structured_blockers": structured_blockers,
+        "stop_reason": row.get("stop_reason"),
+        "next_action": row.get("recovery_next_action", row.get("next_action")),
+        "recovery_ultra_plan_path": row.get("recovery_ultra_plan_path")
+        or recovery.get("recovery_ultra_plan_path")
+        or contract.get("recovery_ultra_plan_path"),
+    }
+
+
+def _structured_terminal_blockers(contract: dict[str, Any]) -> list[str]:
+    blockers = []
+    for field in (
+        "missing_capabilities",
+        "inconclusive_reasons",
+        "release_gate_reasons",
+    ):
+        values = contract.get(field)
+        if isinstance(values, list):
+            blockers.extend(value for value in values if isinstance(value, str))
+    primary = contract.get("primary_reason")
+    if isinstance(primary, str) and primary:
+        blockers.append(primary)
+    return sorted(set(blockers))
+
+
+def _recovery_plan_attempts(
+    run_dir: Path | None,
+    *,
+    configured_runs: int | None,
+    process_status: str,
+) -> dict[str, Any]:
+    """Project product events into explicit initial/recovery attempt telemetry."""
+    events_path = run_dir / "events.jsonl" if run_dir is not None else None
+    events = _json_rows(events_path) if events_path and events_path.is_file() else []
+    rows = [
+        row
+        for row in events
+        if row.get("event")
+        in {
+            "recovery_plan_auto_run_configured",
+            "recovery_plan_auto_run_start",
+            "recovery_plan_auto_run_complete",
+            "recovery_plan_auto_run_stopped",
+        }
+    ]
+    attempts: dict[int, dict[str, Any]] = {
+        0: {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "unknown",
+            "stop_reason": None,
+        }
+    }
+    terminal_reason = "disabled" if configured_runs == 0 else None
+    for row in rows:
+        event = row.get("event")
+        current = row.get("recovery_plan_auto_run_current")
+        if not isinstance(current, int) or isinstance(current, bool) or current < 0:
+            continue
+        stop_reason = row.get("recovery_plan_auto_run_stop_reason")
+        current_attempt = attempts.setdefault(
+            current,
+            {
+                "attempt_index": current,
+                "kind": "initial" if current == 0 else "recovery",
+                "status": "unknown",
+                "stop_reason": None,
+            },
+        )
+        if event == "recovery_plan_auto_run_configured":
+            current_attempt["status"] = "running"
+        elif event == "recovery_plan_auto_run_start":
+            previous = attempts.setdefault(
+                current - 1,
+                {
+                    "attempt_index": current - 1,
+                    "kind": "initial" if current == 1 else "recovery",
+                    "status": "unknown",
+                    "stop_reason": None,
+                },
+            )
+            previous["status"] = "failed_recoverable"
+            previous["stop_reason"] = "recovery_started"
+            current_attempt["status"] = "running"
+            current_attempt["recovery_handoff_kind"] = row.get("recovery_handoff_kind")
+            current_attempt["recovery_ultra_plan_path"] = row.get(
+                "recovery_ultra_plan_path"
+            )
+        elif event == "recovery_plan_auto_run_complete":
+            current_attempt["status"] = "succeeded"
+            current_attempt["stop_reason"] = stop_reason
+            terminal_reason = stop_reason
+        elif event == "recovery_plan_auto_run_stopped":
+            current_attempt["status"] = (
+                "timed_out" if process_status == "timed_out" else "failed"
+            )
+            current_attempt["stop_reason"] = stop_reason
+            terminal_reason = stop_reason
+
+    if not rows or (
+        attempts[0]["status"] == "running" and process_status != "succeeded"
+    ):
+        attempts[0]["status"] = process_status
+    for attempt in attempts.values():
+        if attempt["status"] == "running" and process_status == "timed_out":
+            attempt["status"] = "timed_out"
+            attempt["stop_reason"] = "process_timeout"
+            terminal_reason = "process_timeout"
+
+    event_limits = {
+        row.get("recovery_plan_auto_runs")
+        for row in rows
+        if isinstance(row.get("recovery_plan_auto_runs"), int)
+        and not isinstance(row.get("recovery_plan_auto_runs"), bool)
+    }
+    executed_runs = max(
+        (
+            row.get("recovery_plan_auto_run_current", 0)
+            for row in rows
+            if row.get("event") == "recovery_plan_auto_run_start"
+            and isinstance(row.get("recovery_plan_auto_run_current"), int)
+            and not isinstance(row.get("recovery_plan_auto_run_current"), bool)
+        ),
+        default=0,
+    )
+    return {
+        "configured_recovery_runs": configured_runs,
+        "executed_recovery_runs": executed_runs,
+        "event_telemetry_available": bool(rows),
+        "configured_matches_events": (
+            not event_limits
+            if configured_runs == 0
+            else event_limits == {configured_runs}
+        ),
+        "attempts": [attempts[index] for index in sorted(attempts)],
+        "terminal_stop_reason": terminal_reason,
     }
 
 
