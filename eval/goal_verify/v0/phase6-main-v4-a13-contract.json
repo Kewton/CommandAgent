@@ -1,11 +1,11 @@
 {
   "authorization": {
-    "approved_at": null,
-    "approved_by": null,
+    "approved_at": "2026-08-29",
+    "approved_by": "repository owner",
     "implementation_authorized": true,
-    "live_collection_authorized": false,
+    "live_collection_authorized": true,
     "note": "live collection requires explicit authorization after the draft, exact-SHA CI evidence, and freeze inputs are reviewed",
-    "scope": "A13 implementation and offline verification only"
+    "scope": "A13 local preregistered smoke and 360-pair replacement collection"
   },
   "baseline": {
     "completion_verify_result_required": false,
@@ -49,7 +49,7 @@
     "passing_credit": false,
     "scoring": "retain claim in denominator as unverified"
   },
-  "code_sha": "",
+  "code_sha": "2007ff0fcc6629f0b623a8d7c369a1d2db03dc63",
   "comparison": {
     "baseline": "current_product_evidence",
     "baseline_failure_override_allowed": false,
@@ -63,7 +63,7 @@
   "contract_id": "phase6-main-v4-20260829-live-02",
   "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2007ff0f.json",
   "execution": {
     "baseline_observation_copy_max_count": 0,
     "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
@@ -1564,7 +1564,7 @@
     "request_namespace": "phase6-main-v4-20260829-a13-smoke-01",
     "run_id": "phase6-main-v4-20260829-a13-smoke-01"
   },
-  "status": "draft",
+  "status": "frozen",
   "superseded_contract": "eval/goal_verify/v0/phase6-main-v4-contract.json",
   "supersedes": "phase6-main-v4-20260828-live-01",
   "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a13-main.json",

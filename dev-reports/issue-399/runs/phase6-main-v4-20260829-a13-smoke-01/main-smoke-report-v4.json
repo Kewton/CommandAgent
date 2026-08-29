@@ -1,0 +1,62 @@
+{
+  "checks": {
+    "additive_comparison_recorded": true,
+    "baseline_failure_not_overridden": true,
+    "baseline_honest_terminal_recorded": true,
+    "baseline_run_discovered": true,
+    "baseline_task_contract_bound": true,
+    "campaign_manifest": true,
+    "candidate_phase_timing_complete": true,
+    "cluster_manifest": true,
+    "exact_preregistered_pairs": true,
+    "executable_oracle_attempts_recorded": true,
+    "gold_used_for_execution_zero": true,
+    "host_repairs_zero": true,
+    "lane_records_complete": true,
+    "product_snapshot_recorded": true,
+    "raw_and_canonical_schema_valid": true,
+    "recovery_plan_auto_runs_zero": true,
+    "reference_fallback_zero": true,
+    "resource_measurement_complete": true,
+    "same_snapshot": true,
+    "semantic_policy_bound": true,
+    "semantic_policy_scoring_bound": true,
+    "semantic_rejected_not_executed": true,
+    "shadow_false_full_zero": true
+  },
+  "contract_id": "phase6-main-v4-20260829-live-02",
+  "counts": {
+    "baseline_product_runs": 12,
+    "candidate_oracles": 28,
+    "executable_candidate_oracles": 25,
+    "lanes": 24,
+    "records": 12,
+    "schema_valid": 24,
+    "shadow_false_full": 0
+  },
+  "final_decision": "GO",
+  "ready_for_main_collection": true,
+  "resource_measurement": {
+    "checks": {
+      "p50_total_tokens": false,
+      "p50_wall_time": false,
+      "p95_total_tokens": false,
+      "p95_wall_time": false
+    },
+    "measurement_complete": true,
+    "method": "nearest-rank percentage increase of baseline-plus-candidate over the shared baseline product run",
+    "percentiles": {
+      "p50_total_tokens_increase_pct": 40.901298,
+      "p50_wall_time_increase_pct": 21.70772,
+      "p95_total_tokens_increase_pct": 214.151253,
+      "p95_wall_time_increase_pct": 95.022522
+    }
+  },
+  "run_id": "phase6-main-v4-20260829-a13-smoke-01",
+  "same_script_replay": {
+    "byte_identical": true,
+    "script": "scripts/eval-goal-verify-main-v4-report.py",
+    "sha256": "307a90d808fee35f5fd2df91e23fbecf9bbc52f2adfeabcad6fd987d8f1f34fd"
+  },
+  "schema_version": "commandagent.goal_verify.phase6_main_smoke_report.v4"
+}
