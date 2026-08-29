@@ -57,6 +57,7 @@ fn rejected(reason: impl Into<String>) -> InvestigationAcceptance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::minimal_loop::evidence::verify_runtime_acceptance;
     use crate::planner::adjudication::contract::ProbeOutcome;
     use crate::planner::adjudication::investigate::{
         DiagnosisClaim, DiagnosisClaimKind, InvestigationBindingEvidence, InvestigationRunEvidence,
@@ -120,6 +121,81 @@ mod tests {
         assert_eq!(
             evaluate_workspace(root.path()).reason,
             "investigation_evidence_invalid_json"
+        );
+    }
+
+    #[test]
+    fn obligation_rejects_a_diagnosis_without_bound_runtime_evidence() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("output")).unwrap();
+        std::fs::write(root.path().join("output/diagnosis.md"), "diagnosis\n").unwrap();
+
+        let report = verify_runtime_acceptance(
+            root.path(),
+            &[],
+            &[],
+            &["investigation_binding".to_string()],
+            &["investigation_binding".to_string()],
+            &["investigation".to_string()],
+            &[],
+        );
+
+        assert!(!report.passed, "{report:?}");
+        assert!(
+            report
+                .missing_evidence
+                .contains(&"investigation_binding".to_string()),
+            "{report:?}"
+        );
+        assert!(
+            report
+                .missing_obligations
+                .contains(&"investigation".to_string()),
+            "{report:?}"
+        );
+        assert_eq!(
+            report.obligation_repair_targets[0].target_path,
+            "output/diagnosis.md"
+        );
+    }
+
+    #[test]
+    fn obligation_accepts_only_full_existing_adjudication() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("output")).unwrap();
+        std::fs::write(
+            root.path().join("output/diagnosis.md"),
+            "Bound to src/main.rs:1.\n",
+        )
+        .unwrap();
+        let run = InvestigationRunEvidence::new("python3 repro.py", 1, ProbeOutcome::Failure);
+        let binding = InvestigationBindingEvidence::new(vec![DiagnosisClaim {
+            kind: DiagnosisClaimKind::FileLine,
+            value: "src/main.rs:1".to_string(),
+            subject_path: Some("src/main.rs".to_string()),
+            line: Some(1),
+            matched: true,
+            nearest: None,
+        }]);
+        write_investigation_evidence(root.path(), &run, &binding).unwrap();
+
+        let report = verify_runtime_acceptance(
+            root.path(),
+            &[],
+            &[],
+            &["investigation_binding".to_string()],
+            &["investigation_binding".to_string()],
+            &["investigation".to_string()],
+            &[],
+        );
+
+        assert!(report.passed, "{report:?}");
+        assert_eq!(
+            report
+                .evidence_tiers
+                .get("investigation_binding")
+                .map(String::as_str),
+            Some("strong")
         );
     }
 }

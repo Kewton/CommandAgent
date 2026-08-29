@@ -2,6 +2,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::knowledge;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScaffoldMode {
     CanonicalTypeScriptTailwind,
@@ -39,6 +41,66 @@ impl ScaffoldMode {
             Self::CanonicalTypeScriptTailwind | Self::ExistingJavaScriptTailwind
         )
     }
+}
+
+pub(super) fn required_paths(root: &Path) -> Vec<String> {
+    match detect(root) {
+        ScaffoldMode::CanonicalTypeScriptTailwind => knowledge::get()
+            .canonical
+            .scaffold_files
+            .iter()
+            .map(|rel| rel.replace("{tailwind_config}", tailwind_config_rel(root)))
+            .collect(),
+        ScaffoldMode::ExistingTypeScriptPlainCss => [
+            "package.json",
+            "tsconfig.json",
+            "src/app/layout.tsx",
+            "src/app/page.tsx",
+            "src/app/globals.css",
+            "src/app/global.d.ts",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+        ScaffoldMode::ExistingJavaScriptTailwind => vec![
+            "package.json".to_string(),
+            "postcss.config.js".to_string(),
+            tailwind_config_rel(root).to_string(),
+            "src/app/layout.js".to_string(),
+            "src/app/page.js".to_string(),
+            "src/app/globals.css".to_string(),
+        ],
+        ScaffoldMode::ExistingPlainJavaScript => [
+            "package.json",
+            "src/app/layout.js",
+            "src/app/page.js",
+            "src/app/globals.css",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+    }
+}
+
+pub(super) fn tailwind_config_rel(root: &Path) -> &'static str {
+    if let Some(existing) = knowledge::get()
+        .canonical
+        .tailwind_config_rels
+        .iter()
+        .map(String::as_str)
+        .find(|rel| root.join(rel).is_file())
+    {
+        return existing;
+    }
+    if detect(root) == ScaffoldMode::ExistingJavaScriptTailwind {
+        return "tailwind.config.js";
+    }
+    knowledge::get()
+        .canonical
+        .tailwind_config_rels
+        .first()
+        .map(String::as_str)
+        .expect("embedded Next.js tailwind config candidates must not be empty")
 }
 
 pub(super) fn uses_typescript_toolchain(root: &Path, package: &Value) -> bool {
@@ -161,4 +223,174 @@ export default function Page() {
 
 pub(super) fn plain_css() -> &'static str {
     "* { box-sizing: border-box; }\nhtml, body { margin: 0; min-height: 100%; }\nbody { background: #05070d; color: #eef7ff; font-family: sans-serif; }\nmain { min-height: 100vh; padding: 2rem; }\nbutton { margin-right: 0.75rem; font: inherit; }\n"
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use serde_json::Value;
+
+    use super::super::{
+        complete_scaffold, package_has_dependency, repair_manifest_coherence, setup_scaffold_paths,
+    };
+
+    fn package_script(root: &Path, name: &str) -> Option<String> {
+        let package: Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join("package.json")).ok()?).ok()?;
+        package
+            .get("scripts")?
+            .get(name)?
+            .as_str()
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn existing_minimal_manifest_uses_plain_javascript_scaffold() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"plain-app","private":true}"#,
+        )
+        .unwrap();
+
+        let paths = setup_scaffold_paths(dir.path());
+        assert_eq!(
+            paths,
+            vec![
+                "package.json",
+                "src/app/layout.js",
+                "src/app/page.js",
+                "src/app/globals.css",
+            ]
+        );
+
+        let created = complete_scaffold(dir.path(), &paths).unwrap();
+        assert_eq!(
+            created,
+            vec![
+                "src/app/layout.js",
+                "src/app/page.js",
+                "src/app/globals.css",
+            ]
+        );
+        assert!(!dir.path().join("tsconfig.json").exists());
+        assert!(!dir.path().join("postcss.config.js").exists());
+        assert!(!dir.path().join("tailwind.config.ts").exists());
+        let page = std::fs::read_to_string(dir.path().join("src/app/page.js")).unwrap();
+        assert!(page.contains("data-anvil-state"), "{page}");
+        assert!(page.contains("data-anvil-action=\"primary\""), "{page}");
+    }
+
+    #[test]
+    fn manifest_repair_preserves_plain_javascript_dependency_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"plain-app","private":true}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.js"),
+            "export default function Page(){return <main>ok</main>;}\n",
+        )
+        .unwrap();
+
+        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
+
+        let package: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            package
+                .get("devDependencies")
+                .and_then(Value::as_object)
+                .is_none()
+        );
+        for forbidden in [
+            "typescript",
+            "@types/node",
+            "@types/react",
+            "@types/react-dom",
+            "tailwindcss",
+            "postcss",
+            "autoprefixer",
+        ] {
+            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
+        }
+        assert_eq!(
+            package_script(dir.path(), "dev").as_deref(),
+            Some("next dev -p 4201")
+        );
+        assert_eq!(
+            package_script(dir.path(), "build").as_deref(),
+            Some("next build")
+        );
+    }
+
+    #[test]
+    fn javascript_tailwind_scaffold_does_not_add_typescript() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"js-tailwind","private":true,"devDependencies":{"tailwindcss":"^3.4.0","postcss":"^8.0.0","autoprefixer":"^10.0.0"}}"#,
+        )
+        .unwrap();
+
+        let paths = setup_scaffold_paths(dir.path());
+        assert!(paths.contains(&"src/app/page.js".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&"tailwind.config.js".to_string()),
+            "{paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|path| path.ends_with(".tsx")),
+            "{paths:?}"
+        );
+        assert!(!paths.contains(&"tsconfig.json".to_string()), "{paths:?}");
+
+        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
+        let package: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
+        )
+        .unwrap();
+        for forbidden in [
+            "typescript",
+            "@types/node",
+            "@types/react",
+            "@types/react-dom",
+        ] {
+            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
+        }
+    }
+
+    #[test]
+    fn typescript_plain_css_scaffold_does_not_add_tailwind() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"ts-plain","private":true,"devDependencies":{"typescript":"^5.5.0","@types/node":"^20.0.0","@types/react":"^18.0.0","@types/react-dom":"^18.0.0"}}"#,
+        )
+        .unwrap();
+
+        let paths = setup_scaffold_paths(dir.path());
+        assert!(paths.contains(&"src/app/page.tsx".to_string()), "{paths:?}");
+        assert!(paths.contains(&"tsconfig.json".to_string()), "{paths:?}");
+        assert!(
+            !paths.contains(&"postcss.config.js".to_string()),
+            "{paths:?}"
+        );
+        assert!(!paths.iter().any(|path| path.starts_with("tailwind.config")));
+
+        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
+        let package: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
+        )
+        .unwrap();
+        for forbidden in ["tailwindcss", "postcss", "autoprefixer"] {
+            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
+        }
+    }
 }

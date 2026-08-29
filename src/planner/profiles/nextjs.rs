@@ -315,38 +315,7 @@ pub fn setup_scaffold_paths(root: &Path) -> Vec<String> {
         .as_ref()
         .map(|project| project.path.as_path())
         .unwrap_or(root);
-    let mode = scaffold_mode::detect(project_root);
-    let paths = match mode {
-        scaffold_mode::ScaffoldMode::CanonicalTypeScriptTailwind => knowledge::get()
-            .canonical
-            .scaffold_files
-            .iter()
-            .map(|rel| rel.replace("{tailwind_config}", setup_tailwind_config_rel(project_root)))
-            .collect::<Vec<_>>(),
-        scaffold_mode::ScaffoldMode::ExistingTypeScriptPlainCss => vec![
-            "package.json".to_string(),
-            "tsconfig.json".to_string(),
-            "src/app/layout.tsx".to_string(),
-            "src/app/page.tsx".to_string(),
-            "src/app/globals.css".to_string(),
-            "src/app/global.d.ts".to_string(),
-        ],
-        scaffold_mode::ScaffoldMode::ExistingJavaScriptTailwind => vec![
-            "package.json".to_string(),
-            "postcss.config.js".to_string(),
-            setup_tailwind_config_rel(project_root).to_string(),
-            "src/app/layout.js".to_string(),
-            "src/app/page.js".to_string(),
-            "src/app/globals.css".to_string(),
-        ],
-        scaffold_mode::ScaffoldMode::ExistingPlainJavaScript => vec![
-            "package.json".to_string(),
-            "src/app/layout.js".to_string(),
-            "src/app/page.js".to_string(),
-            "src/app/globals.css".to_string(),
-        ],
-    };
-    paths
+    scaffold_mode::required_paths(project_root)
         .into_iter()
         .map(|rel| format!("{prefix}{rel}"))
         .collect()
@@ -830,7 +799,9 @@ fn scaffold_file_content(project_root: &Path, project_rel: &str) -> Option<&'sta
         "src/app/global.d.ts" => Some(canonical_global_d_ts()),
         "src/app/layout.tsx" => Some(canonical_layout_tsx()),
         "src/app/page.tsx" => Some(fallback_page()),
-        rel if rel == setup_tailwind_config_rel(project_root) => Some(canonical_tailwind_config()),
+        rel if rel == scaffold_mode::tailwind_config_rel(project_root) => {
+            Some(canonical_tailwind_config())
+        }
         _ => None,
     }
 }
@@ -1042,7 +1013,7 @@ pub fn repair_tailwind_contract(root: &Path, goal: &str, reason: &str) -> anyhow
     if reason.contains("Tailwind config file missing") {
         if !has_tailwind_config(project_root) {
             changed |= write_file_if_changed(
-                &project_root.join(setup_tailwind_config_rel(project_root)),
+                &project_root.join(scaffold_mode::tailwind_config_rel(project_root)),
                 canonical_tailwind_config(),
             )?;
         }
@@ -1149,29 +1120,6 @@ fn locate_project_root(root: &Path) -> Result<ProjectRoot, String> {
                 .to_string(),
         ),
     }
-}
-
-fn setup_tailwind_config_rel(project_root: &Path) -> &'static str {
-    let existing = knowledge::get()
-        .canonical
-        .tailwind_config_rels
-        .iter()
-        .map(String::as_str)
-        .find(|rel| project_root.join(rel).is_file());
-    if let Some(existing) = existing {
-        return existing;
-    }
-    if scaffold_mode::detect(project_root)
-        == scaffold_mode::ScaffoldMode::ExistingJavaScriptTailwind
-    {
-        return "tailwind.config.js";
-    }
-    knowledge::get()
-        .canonical
-        .tailwind_config_rels
-        .first()
-        .map(String::as_str)
-        .expect("embedded Next.js tailwind config candidates must not be empty")
 }
 
 fn ensure_package_json(root: &Path, goal: &str) -> anyhow::Result<()> {
@@ -2052,7 +2000,7 @@ fn tailwind_contract_failure(root: &Path, package: &Value) -> Option<String> {
     if tailwind_configs.is_empty() {
         return Some(tailwind_failure(format!(
             "Tailwind config file missing: expected {}",
-            setup_tailwind_config_rel(root)
+            scaffold_mode::tailwind_config_rel(root)
         )));
     }
     if tailwind_configs.len() > 1 {
@@ -3068,155 +3016,6 @@ Phase task: Scaffold the Next.js app";
         let page = std::fs::read_to_string(dir.path().join("src/app/page.tsx")).unwrap();
         assert!(page.contains("export default function Page"), "{page}");
         assert!(page.contains("INTERACTIVE CHALLENGE"), "{page}");
-    }
-
-    #[test]
-    fn existing_minimal_manifest_uses_plain_javascript_scaffold() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"plain-app","private":true}"#,
-        )
-        .unwrap();
-
-        let paths = setup_scaffold_paths(dir.path());
-        assert_eq!(
-            paths,
-            vec![
-                "package.json",
-                "src/app/layout.js",
-                "src/app/page.js",
-                "src/app/globals.css",
-            ]
-        );
-
-        let created = complete_scaffold(dir.path(), &paths).unwrap();
-        assert_eq!(
-            created,
-            vec![
-                "src/app/layout.js",
-                "src/app/page.js",
-                "src/app/globals.css",
-            ]
-        );
-        assert!(!dir.path().join("tsconfig.json").exists());
-        assert!(!dir.path().join("postcss.config.js").exists());
-        assert!(!dir.path().join("tailwind.config.ts").exists());
-        let page = std::fs::read_to_string(dir.path().join("src/app/page.js")).unwrap();
-        assert!(page.contains("data-anvil-state"), "{page}");
-        assert!(page.contains("data-anvil-action=\"primary\""), "{page}");
-    }
-
-    #[test]
-    fn manifest_repair_preserves_plain_javascript_dependency_boundary() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"plain-app","private":true}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("src/app/page.js"),
-            "export default function Page(){return <main>ok</main>;}\n",
-        )
-        .unwrap();
-
-        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
-
-        let package: Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
-        )
-        .unwrap();
-        assert!(
-            package
-                .get("devDependencies")
-                .and_then(Value::as_object)
-                .is_none()
-        );
-        for forbidden in [
-            "typescript",
-            "@types/node",
-            "@types/react",
-            "@types/react-dom",
-            "tailwindcss",
-            "postcss",
-            "autoprefixer",
-        ] {
-            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
-        }
-        assert_eq!(
-            package_script(dir.path(), "dev").as_deref(),
-            Some("next dev -p 4201")
-        );
-        assert_eq!(
-            package_script(dir.path(), "build").as_deref(),
-            Some("next build")
-        );
-    }
-
-    #[test]
-    fn javascript_tailwind_scaffold_does_not_add_typescript() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"js-tailwind","private":true,"devDependencies":{"tailwindcss":"^3.4.0","postcss":"^8.0.0","autoprefixer":"^10.0.0"}}"#,
-        )
-        .unwrap();
-
-        let paths = setup_scaffold_paths(dir.path());
-        assert!(paths.contains(&"src/app/page.js".to_string()), "{paths:?}");
-        assert!(
-            paths.contains(&"tailwind.config.js".to_string()),
-            "{paths:?}"
-        );
-        assert!(
-            !paths.iter().any(|path| path.ends_with(".tsx")),
-            "{paths:?}"
-        );
-        assert!(!paths.contains(&"tsconfig.json".to_string()), "{paths:?}");
-
-        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
-        let package: Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
-        )
-        .unwrap();
-        for forbidden in [
-            "typescript",
-            "@types/node",
-            "@types/react",
-            "@types/react-dom",
-        ] {
-            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
-        }
-    }
-
-    #[test]
-    fn typescript_plain_css_scaffold_does_not_add_tailwind() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"ts-plain","private":true,"devDependencies":{"typescript":"^5.5.0","@types/node":"^20.0.0","@types/react":"^18.0.0","@types/react-dom":"^18.0.0"}}"#,
-        )
-        .unwrap();
-
-        let paths = setup_scaffold_paths(dir.path());
-        assert!(paths.contains(&"src/app/page.tsx".to_string()), "{paths:?}");
-        assert!(paths.contains(&"tsconfig.json".to_string()), "{paths:?}");
-        assert!(
-            !paths.contains(&"postcss.config.js".to_string()),
-            "{paths:?}"
-        );
-        assert!(!paths.iter().any(|path| path.starts_with("tailwind.config")));
-
-        assert!(repair_manifest_coherence(dir.path(), "port 4201").unwrap());
-        let package: Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
-        )
-        .unwrap();
-        for forbidden in ["tailwindcss", "postcss", "autoprefixer"] {
-            assert!(!package_has_dependency(&package, forbidden), "{forbidden}");
-        }
     }
 
     #[test]
