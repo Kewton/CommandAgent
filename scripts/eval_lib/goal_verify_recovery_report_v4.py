@@ -101,9 +101,15 @@ def build_recovery_report(
         transitions.append(comparison.get("quality_transition"))
         if record.get("pairing_unit") == "shared_pre_recovery_snapshot":
             shared_history.append(comparison.get("shared_initial_history") is True)
-            semantic_validation.append(
-                comparison.get("oracle_semantics", {}).get("valid") is True
-            )
+            # A preregistered dependency/capability exclusion has no Recovery
+            # treatment and therefore no before/after fix polarity to validate.
+            # It remains governed by ineligible_recovery_not_executed; applying
+            # treatment semantics here would make an honest exclusion fail the
+            # unrelated Recovery-effect gate.
+            if runtime_eligible is True:
+                semantic_validation.append(
+                    comparison.get("oracle_semantics", {}).get("valid") is True
+                )
             if executed_recovery_runs == 1:
                 boundary_matches.append(
                     comparison.get("control_snapshot_matches_boundary") is True

@@ -27,6 +27,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
     _build_tasks as build_a14_a2_tasks,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a3 import (
+    _build_contract as build_a14_a3_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _product_resource_usage,
     _product_terminal_status,
@@ -596,6 +599,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             adapters=adapters,
         )
         self.assertTrue(semantics["valid"], semantics)
+
         roles = {
             row["a14_role"]
             for row in adapters
@@ -624,6 +628,23 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "shared_boundary_frozen_input_hashes_missing",
             recovery_contract_errors(missing_hashes),
         )
+
+    def test_a14_a3_scopes_recovery_semantics_away_from_excluded_pairs(self):
+        contract = build_a14_a3_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        self.assertEqual(
+            contract["analysis"]["oracle_semantics_validation_population"],
+            "runtime_recovery_eligible_pairs_only",
+        )
+        self.assertEqual(
+            contract["analysis"]["preregistered_exclusion_gate"],
+            "ineligible_recovery_not_executed",
+        )
+        self.assertFalse(contract["authorization"]["smoke_collection_authorized"])
 
     def test_shared_boundary_comparison_requires_semantic_oracle_validation(self):
         treatment = {
@@ -897,6 +918,40 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         report = build_recovery_report(records=[record], contract=contract)
         self.assertTrue(report["instrument_ready"], report["diagnostics"])
         self.assertTrue(report["effect_attribution_ready"])
+
+        excluded = copy.deepcopy(record)
+        excluded["pair_id"] = "preregistered-dependency-exclusion"
+        excluded["eligibility"]["runtime"] = {
+            "run_recovery_one_arm": False,
+            "category": "dependency_or_provisioning",
+        }
+        excluded["recovery_one"]["result"]["recovery_plan_attempts"] = {
+            "configured_recovery_runs": 0,
+            "executed_recovery_runs": 0,
+        }
+        excluded["comparison"]["oracle_semantics"] = {
+            "valid": False,
+            "errors": ["fix_precondition_oracle_missing"],
+        }
+        excluded["comparison"]["effect_attribution_ready"] = False
+        excluded["comparison"]["quality_transition"] = "no_recovery_executed"
+        contract["smoke"]["expected_pair_count"] = 2
+        report_with_exclusion = build_recovery_report(
+            records=[record, excluded], contract=contract
+        )
+        self.assertTrue(
+            report_with_exclusion["checks"][
+                "final_success_oracle_semantics_validated"
+            ]
+        )
+        self.assertTrue(
+            report_with_exclusion["checks"][
+                "fix_before_and_after_polarity_distinct"
+            ]
+        )
+        self.assertTrue(
+            report_with_exclusion["checks"]["ineligible_recovery_not_executed"]
+        )
 
     def test_recovery_snapshot_hash_matches_product_fixed_vector(self):
         with tempfile.TemporaryDirectory() as temporary:

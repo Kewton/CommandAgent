@@ -3,7 +3,7 @@
 - Worktree: `/Users/maenokota/share/work/github_kewton/CommandAgent-develop`
 - Product execution root: `/Volumes/SSD_NX/tmp/commandagent_trial`
 - Amendment: `v4-A14-A2`
-- Status: implementation verified locally; exact-SHA CI and four-case smoke pending
+- Status: implementation and exact-SHA CI verified; A14-A2 smoke completed NO-GO
 - Inference boundary: the smoke is instrument diagnostics only. It must not be
   reported as evidence that Recovery improves population success.
 
@@ -95,3 +95,16 @@ Before the four-case smoke, all of the following are required:
    authorize or replace the full paired collection.
 
 Historical A14 and A14-A1 records remain immutable and are not rescored.
+
+## Exact-SHA and smoke outcome
+
+- Implementation SHA: `97fa75fa33167f0f5dcc9b7f85efa4de96e789a5`
+- GitHub Actions `CI`: completed / success, run `33257977336`
+- GitHub Actions `acceptance`: completed / success, run `33257977367`
+- Clean release version: `commandagent 0.1.0 97fa75fa 2026-08-29T23:34:34+09:00`
+- Four-case collection: completed 4/4 on the SSD execution root
+- A14-A2 verdict: NO-GO because the report applied Recovery fix-polarity
+  semantics to the preregistered c06 no-treatment exclusion
+
+The completed A14-A2 run is immutable. The scope correction is preregistered
+as A14-A3 with a new run ID; see `a14-a2-smoke-01-analysis.md`.
