@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import time
@@ -69,6 +70,7 @@ def run_current_product_baseline(
     completion_contract: dict[str, Any] | None = None,
     recovery_plan_auto_runs: int | None = None,
     execution_action: str = "plan_run",
+    capture_recovery_boundary: bool = False,
 ) -> dict[str, Any]:
     completion_contract_path = None
     completion_contract_sha256 = None
@@ -111,10 +113,14 @@ def run_current_product_baseline(
         else None
     )
     started = time.monotonic_ns()
+    environment = os.environ.copy()
+    if capture_recovery_boundary:
+        environment["COMMANDAGENT_CAPTURE_RECOVERY_BOUNDARY"] = "1"
     try:
         completed = subprocess.run(
             argv,
             cwd=workspace,
+            env=environment,
             stdin=subprocess.DEVNULL,
             text=True,
             capture_output=True,
@@ -146,6 +152,7 @@ def run_current_product_baseline(
                 process_status="timed_out",
             ),
             "terminal_status": _product_terminal_status(product_run_dir),
+            "recovery_boundary": _recovery_boundary(product_run_dir),
             **completion_verify,
         }
     run_dirs = _product_run_dirs(workspace)
@@ -169,6 +176,7 @@ def run_current_product_baseline(
             process_status=("succeeded" if completed.returncode == 0 else "failed"),
         ),
         "terminal_status": _product_terminal_status(product_run_dir),
+        "recovery_boundary": _recovery_boundary(product_run_dir),
         "completion_contract_bound": completion_contract is not None,
         "completion_contract_sha256": completion_contract_sha256,
         **_completion_verify_status(product_run_dir),
@@ -321,6 +329,87 @@ def _product_terminal_status(run_dir: Path | None) -> dict[str, Any]:
         "recovery_ultra_plan_path": row.get("recovery_ultra_plan_path")
         or recovery.get("recovery_ultra_plan_path")
         or contract.get("recovery_ultra_plan_path"),
+    }
+
+
+def _recovery_boundary(run_dir: Path | None) -> dict[str, Any]:
+    empty = {
+        "status": "not_recorded",
+        "workspace_relative_path": None,
+        "file_count": None,
+        "total_bytes": None,
+        "snapshot_sha256": None,
+        "initial_provider_usage": _empty_usage(),
+        "recovery_provider_usage": _empty_usage(),
+    }
+    if run_dir is None:
+        return empty
+    events_path = run_dir / "events.jsonl"
+    if not events_path.is_file():
+        return empty
+    rows = _json_rows(events_path)
+    snapshot_rows = [
+        row for row in rows if row.get("event") == "recovery_boundary_snapshot"
+    ]
+    if not snapshot_rows:
+        return empty
+    snapshot = snapshot_rows[-1]
+    start_index = next(
+        (
+            index
+            for index, row in enumerate(rows)
+            if row.get("event") == "recovery_plan_auto_run_start"
+        ),
+        None,
+    )
+    if start_index is None:
+        return {
+            **empty,
+            "status": snapshot.get("status", "invalid"),
+            "workspace_relative_path": snapshot.get("workspace_relative_path"),
+            "file_count": snapshot.get("file_count"),
+            "total_bytes": snapshot.get("total_bytes"),
+            "snapshot_sha256": snapshot.get("snapshot_sha256"),
+        }
+    return {
+        "status": snapshot.get("status", "invalid"),
+        "workspace_relative_path": snapshot.get("workspace_relative_path"),
+        "file_count": snapshot.get("file_count"),
+        "total_bytes": snapshot.get("total_bytes"),
+        "snapshot_sha256": snapshot.get("snapshot_sha256"),
+        "initial_provider_usage": _provider_usage(rows[:start_index]),
+        "recovery_provider_usage": _provider_usage(rows[start_index + 1 :]),
+    }
+
+
+def _empty_usage() -> dict[str, int]:
+    return {
+        "wall_time_ms": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+
+
+def _provider_usage(rows: list[dict[str, Any]]) -> dict[str, int]:
+    turns = [row for row in rows if row.get("event") == "provider_turn_duration"]
+
+    def total(field: str) -> int:
+        return sum(
+            value
+            for row in turns
+            if isinstance((value := row.get(field)), int)
+            and not isinstance(value, bool)
+            and value >= 0
+        )
+
+    input_tokens = total("prompt_eval_count")
+    output_tokens = total("eval_count")
+    return {
+        "wall_time_ms": total("duration_ms"),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
     }
 
 

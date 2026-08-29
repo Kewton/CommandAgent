@@ -107,6 +107,18 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         errors.append("record_ledger_invalid")
     if integrity.get("append_only_records") is not True:
         errors.append("append_only_records_must_be_true")
+    if paired.get("pairing_unit") == "shared_pre_recovery_snapshot":
+        frozen = contract.get("frozen_input_sha256")
+        if not isinstance(frozen, dict) or len(frozen) < 6:
+            errors.append("shared_boundary_frozen_input_hashes_missing")
+        elif any(
+            not isinstance(path, str)
+            or not path
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            for path, digest in frozen.items()
+        ):
+            errors.append("shared_boundary_frozen_input_hash_invalid")
     return errors
 
 
@@ -210,12 +222,15 @@ def execute_frozen_external_oracles(
     case_id: str,
     adapters: list[dict[str, Any]],
     workspace: Path,
+    a14_role: str | None = None,
     executor: OracleExecutor = execute_registered,
 ) -> dict[str, Any]:
     """Run registered host-owned oracles after product execution, never as input."""
     outcomes = []
     for adapter in adapters:
         if adapter.get("case_id") != case_id:
+            continue
+        if a14_role is not None and adapter.get("a14_role") != a14_role:
             continue
         outcome = _normalize_product_oracle_outcome(
             executor(adapter["executor"], workspace=workspace)
@@ -232,7 +247,151 @@ def execute_frozen_external_oracles(
                 "outcome": outcome,
             }
         )
-    return summarize_frozen_external_oracles(outcomes)
+    summary = summarize_frozen_external_oracles(outcomes)
+    if a14_role is not None:
+        summary["a14_role"] = a14_role
+    return summary
+
+
+def validate_a14_oracle_semantics(
+    *, case_id: str, intent: str, adapters: list[dict[str, Any]]
+) -> dict[str, Any]:
+    rows = [row for row in adapters if row.get("case_id") == case_id]
+    final_rows = [row for row in rows if row.get("a14_role") == "final_success"]
+    precondition_rows = [
+        row for row in rows if row.get("a14_role") == "precondition"
+    ]
+    errors = []
+    if not final_rows:
+        errors.append("final_success_oracle_missing")
+    if any(row.get("a14_role") not in {"final_success", "precondition"} for row in rows):
+        errors.append("oracle_role_unregistered")
+    for row in final_rows:
+        executor = row.get("executor", {})
+        if executor.get("kind") == "fixture_hash_command" and executor.get(
+            "observation", {}
+        ).get("expected") != 0:
+            errors.append(f"final_fixture_not_success:{row.get('adapter_id')}")
+        if executor.get("kind") == "file_content" and executor.get(
+            "polarity"
+        ) not in {"present", "absent"}:
+            errors.append(f"typed_polarity_invalid:{row.get('adapter_id')}")
+    if intent == "fix":
+        if not precondition_rows:
+            errors.append("fix_precondition_oracle_missing")
+        before = [
+            row
+            for row in precondition_rows
+            if row.get("executor", {}).get("kind") == "fixture_hash_command"
+        ]
+        after = [
+            row
+            for row in final_rows
+            if row.get("executor", {}).get("kind") == "fixture_hash_command"
+        ]
+        if not before or not after:
+            errors.append("fix_before_after_fixture_pair_missing")
+        else:
+            before_executor = before[0]["executor"]
+            after_executor = after[0]["executor"]
+            if before_executor.get("observation", {}).get("expected") == 0:
+                errors.append("fix_precondition_does_not_require_failure")
+            for field in ("argv", "registered_fixture"):
+                if before_executor.get(field) != after_executor.get(field):
+                    errors.append(f"fix_before_after_{field}_mismatch")
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "final_success_adapter_ids": [row.get("adapter_id") for row in final_rows],
+        "precondition_adapter_ids": [
+            row.get("adapter_id") for row in precondition_rows
+        ],
+    }
+
+
+def compare_shared_recovery_boundary(
+    *,
+    treatment: dict[str, Any],
+    control_oracles: dict[str, Any],
+    treatment_oracles: dict[str, Any],
+    control_artifact_manifest: dict[str, Any],
+    treatment_artifact_manifest: dict[str, Any],
+    control_snapshot_matches_boundary: bool,
+    oracle_semantics: dict[str, Any],
+    precondition_oracles: dict[str, Any] | None,
+) -> dict[str, Any]:
+    attempts = treatment.get("recovery_plan_attempts", {})
+    executed = attempts.get("executed_recovery_runs")
+    initial_quality = control_oracles.get("overall")
+    recovery_quality = treatment_oracles.get("overall")
+    if initial_quality == "fail" and recovery_quality == "pass":
+        raw_transition = "improved"
+    elif initial_quality == "pass" and recovery_quality != "pass":
+        raw_transition = "harmed"
+    elif initial_quality == recovery_quality == "pass":
+        raw_transition = "unchanged_pass"
+    elif initial_quality == recovery_quality == "fail":
+        raw_transition = "unchanged_fail"
+    else:
+        raw_transition = "unusable"
+    precondition_valid = precondition_oracles is None or precondition_oracles.get(
+        "overall"
+    ) == "pass"
+    attribution_ready = (
+        executed == 1
+        and control_snapshot_matches_boundary
+        and oracle_semantics.get("valid") is True
+        and precondition_valid
+        and raw_transition != "unusable"
+    )
+    transition = raw_transition if attribution_ready else "unattributed"
+    boundary = treatment.get("recovery_boundary", {})
+    changed = artifact_delta(
+        control_artifact_manifest, treatment_artifact_manifest
+    )
+    return {
+        "quality_transition": transition,
+        "raw_oracle_transition": raw_transition,
+        "effect_attribution_ready": attribution_ready,
+        "success_improved": attribution_ready and raw_transition == "improved",
+        "existing_artifact_harmed": attribution_ready and raw_transition == "harmed",
+        "regression_introduced": (
+            attribution_ready
+            and control_oracles.get("regression_status") == "pass"
+            and treatment_oracles.get("regression_status") == "fail"
+        ),
+        "executed_recovery_runs": executed,
+        "shared_initial_history": True,
+        "control_snapshot_matches_boundary": control_snapshot_matches_boundary,
+        "oracle_semantics": oracle_semantics,
+        "precondition_oracle_status": (
+            precondition_oracles.get("overall")
+            if precondition_oracles is not None
+            else "not_applicable"
+        ),
+        "resource_delta": boundary.get("recovery_provider_usage", {}),
+        "recovery_changed_paths": {
+            "added": changed["added"],
+            "removed": changed["removed"],
+            "changed": changed["changed"],
+            "change_count": changed["change_count"],
+        },
+        "artifact_delta_between_arms": changed,
+        "initial_oracle_status": initial_quality,
+        "recovery_oracle_status": recovery_quality,
+        "initial_regression_status": control_oracles.get("regression_status"),
+        "recovery_regression_status": treatment_oracles.get("regression_status"),
+        "internal_external_outcome_matrix": {
+            "control": {
+                "internal": "failed_recoverable",
+                "external": initial_quality,
+            },
+            "treatment": {
+                "internal": treatment.get("terminal_status", {}).get("status"),
+                "external": recovery_quality,
+            },
+        },
+    }
 
 
 def summarize_frozen_external_oracles(

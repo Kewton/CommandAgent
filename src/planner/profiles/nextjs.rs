@@ -103,9 +103,10 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
         return profile_failure(format!("start script must run next start on port {port}"));
     }
     let Some(entry) = find_entrypoint(&project.path) else {
-        return profile_failure(project.rel_path(
-            "Next entrypoint missing: expected src/app/page.tsx, app/page.tsx, or pages/index.tsx",
-        ));
+        let expected = knowledge::get().canonical.entrypoint_files.join(", ");
+        return profile_failure(
+            project.rel_path(&format!("Next entrypoint missing: expected {expected}")),
+        );
     };
     if entry.requires_layout && find_app_layout(&project.path, &entry.app_dir).is_none() {
         return profile_failure(project.rel_path(&format!(
@@ -1819,37 +1820,20 @@ export default function Page() {
 }
 
 fn find_entrypoint(root: &Path) -> Option<EntryPoint> {
-    for (rel, app_dir) in [
-        ("src/app/page.tsx", "src/app"),
-        ("src/app/page.jsx", "src/app"),
-        ("src/app/page.ts", "src/app"),
-        ("src/app/page.js", "src/app"),
-        ("app/page.tsx", "app"),
-        ("app/page.jsx", "app"),
-        ("app/page.ts", "app"),
-        ("app/page.js", "app"),
-    ] {
+    for rel in &knowledge::get().canonical.entrypoint_files {
         if root.join(rel).is_file() {
+            let requires_layout = rel.contains("/app/") || rel.starts_with("app/");
             return Some(EntryPoint {
-                app_dir: app_dir.to_string(),
-                requires_layout: true,
-            });
-        }
-    }
-    for rel in [
-        "pages/index.tsx",
-        "pages/index.jsx",
-        "pages/index.ts",
-        "pages/index.js",
-        "src/pages/index.tsx",
-        "src/pages/index.jsx",
-        "src/pages/index.ts",
-        "src/pages/index.js",
-    ] {
-        if root.join(rel).is_file() {
-            return Some(EntryPoint {
-                app_dir: String::new(),
-                requires_layout: false,
+                app_dir: if requires_layout {
+                    Path::new(rel)
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                } else {
+                    String::new()
+                },
+                requires_layout,
             });
         }
     }
@@ -2086,16 +2070,12 @@ fn tailwind_stack_scaffold_path(path: &str) -> bool {
 }
 
 fn client_component_contract_failure(root: &Path) -> Option<String> {
-    for rel in [
-        "src/app/page.tsx",
-        "src/app/page.jsx",
-        "src/app/page.ts",
-        "src/app/page.js",
-        "app/page.tsx",
-        "app/page.jsx",
-        "app/page.ts",
-        "app/page.js",
-    ] {
+    for rel in knowledge::get()
+        .canonical
+        .entrypoint_files
+        .iter()
+        .filter(|rel| rel.contains("/app/") || rel.starts_with("app/"))
+    {
         let Ok(content) = std::fs::read_to_string(root.join(rel)) else {
             continue;
         };

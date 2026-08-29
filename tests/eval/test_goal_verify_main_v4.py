@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,9 +18,19 @@ from eval_lib.generate_goal_verify_main_v4_a13 import _build_tasks as build_a13_
 from eval_lib.generate_goal_verify_recovery_v4_a14_a1 import (
     _build_contract as build_a14_recovery_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
+    _build_adapters as build_a14_a2_adapters,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
+    _build_contract as build_a14_a2_contract,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
+    _build_tasks as build_a14_a2_tasks,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _product_resource_usage,
     _product_terminal_status,
+    _recovery_boundary,
     _recovery_plan_attempts,
     build_product_argv,
 )
@@ -41,10 +52,15 @@ from eval_lib.goal_verify_recovery_experiment_v4 import (
     classify_case_recovery_eligibility,
     classify_initial_recovery_eligibility,
     compare_recovery_arms,
+    compare_shared_recovery_boundary,
     execute_frozen_external_oracles,
     recovery_contract_errors,
+    validate_a14_oracle_semantics,
 )
-from eval_lib.goal_verify_recovery_live_v4 import run_recovery_pair
+from eval_lib.goal_verify_recovery_live_v4 import (
+    _snapshot_content_sha256,
+    run_recovery_pair,
+)
 from eval_lib.goal_verify_recovery_report_v4 import build_recovery_report
 from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnostics
 from eval_lib.goal_verify_task_contracts_v4 import (
@@ -100,6 +116,45 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "total_tokens": 42,
                 },
             )
+
+    def test_recovery_boundary_splits_provider_usage_at_shared_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            rows = [
+                {
+                    "event": "provider_turn_duration",
+                    "duration_ms": 10,
+                    "prompt_eval_count": 20,
+                    "eval_count": 3,
+                },
+                {
+                    "event": "recovery_boundary_snapshot",
+                    "status": "captured",
+                    "workspace_relative_path": (
+                        ".commandagent/recovery-boundaries/attempt-1/workspace"
+                    ),
+                    "file_count": 2,
+                    "total_bytes": 30,
+                    "snapshot_sha256": "b" * 64,
+                },
+                {"event": "recovery_plan_auto_run_start"},
+                {
+                    "event": "provider_turn_duration",
+                    "duration_ms": 7,
+                    "prompt_eval_count": 11,
+                    "eval_count": 2,
+                },
+            ]
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            boundary = _recovery_boundary(run_dir)
+
+        self.assertEqual(boundary["status"], "captured")
+        self.assertEqual(boundary["snapshot_sha256"], "b" * 64)
+        self.assertEqual(boundary["initial_provider_usage"]["total_tokens"], 23)
+        self.assertEqual(boundary["recovery_provider_usage"]["total_tokens"], 13)
 
     def test_product_terminal_status_uses_last_structured_stop_event(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -511,6 +566,110 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             recovery_contract_errors(wrong_action),
         )
 
+    def test_a14_a2_contract_uses_shared_boundary_and_typed_oracles(self):
+        contract = build_a14_a2_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        tasks = build_a14_a2_tasks()
+        adapters = build_a14_a2_adapters()["adapters"]
+        cli = next(
+            row
+            for row in tasks["cases"]
+            if row["case_id"] == "phase6-main-c01-task-01"
+        )["completion_contract"]
+        self.assertEqual(
+            contract["paired_run_contract"]["pairing_unit"],
+            "shared_pre_recovery_snapshot",
+        )
+        self.assertGreaterEqual(len(contract["frozen_input_sha256"]), 6)
+        self.assertFalse(
+            contract["paired_run_contract"]["independent_workspace_copies"]
+        )
+        self.assertEqual(cli["required_obligations"], ["implementation"])
+        self.assertEqual(cli["command_observations"][0]["expected_stdout"], "5\n")
+        semantics = validate_a14_oracle_semantics(
+            case_id="phase6-main-c07-task-01",
+            intent="fix",
+            adapters=adapters,
+        )
+        self.assertTrue(semantics["valid"], semantics)
+        roles = {
+            row["a14_role"]
+            for row in adapters
+            if row["case_id"] == "phase6-main-c07-task-01"
+        }
+        self.assertEqual(roles, {"precondition", "final_success"})
+        for task_id in range(1, 11):
+            case_id = f"phase6-main-c07-task-{task_id:02d}"
+            self.assertTrue(
+                validate_a14_oracle_semantics(
+                    case_id=case_id,
+                    intent="fix",
+                    adapters=adapters,
+                )["valid"],
+                case_id,
+            )
+        c06 = [
+            row for row in adapters if row["case_id"].startswith("phase6-main-c06-")
+        ]
+        self.assertTrue(c06)
+        self.assertTrue(all(row["executor"].get("blocked_patterns") for row in c06))
+        self.assertEqual(recovery_contract_errors(contract), [])
+        missing_hashes = copy.deepcopy(contract)
+        missing_hashes.pop("frozen_input_sha256")
+        self.assertIn(
+            "shared_boundary_frozen_input_hashes_missing",
+            recovery_contract_errors(missing_hashes),
+        )
+
+    def test_shared_boundary_comparison_requires_semantic_oracle_validation(self):
+        treatment = {
+            "recovery_plan_attempts": {"executed_recovery_runs": 1},
+            "recovery_boundary": {
+                "recovery_provider_usage": {
+                    "wall_time_ms": 20,
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                    "total_tokens": 12,
+                }
+            },
+            "terminal_status": {"status": "completed"},
+        }
+        before = {
+            "entries": [{"path": "app.py", "kind": "file", "sha256": "a"}]
+        }
+        after = {
+            "entries": [{"path": "app.py", "kind": "file", "sha256": "b"}]
+        }
+        blocked = compare_shared_recovery_boundary(
+            treatment=treatment,
+            control_oracles={"overall": "fail", "regression_status": "pass"},
+            treatment_oracles={"overall": "pass", "regression_status": "pass"},
+            control_artifact_manifest=before,
+            treatment_artifact_manifest=after,
+            control_snapshot_matches_boundary=True,
+            oracle_semantics={"valid": False},
+            precondition_oracles={"overall": "pass"},
+        )
+        self.assertEqual(blocked["quality_transition"], "unattributed")
+        self.assertFalse(blocked["success_improved"])
+        attributed = compare_shared_recovery_boundary(
+            treatment=treatment,
+            control_oracles={"overall": "fail", "regression_status": "pass"},
+            treatment_oracles={"overall": "pass", "regression_status": "pass"},
+            control_artifact_manifest=before,
+            treatment_artifact_manifest=after,
+            control_snapshot_matches_boundary=True,
+            oracle_semantics={"valid": True},
+            precondition_oracles={"overall": "pass"},
+        )
+        self.assertEqual(attributed["quality_transition"], "improved")
+        self.assertTrue(attributed["success_improved"])
+        self.assertEqual(attributed["resource_delta"]["total_tokens"], 12)
+
     def test_a14_pair_runs_explicit_zero_then_one_and_scores_external_oracle(self):
         contract = build_a14_recovery_contract(
             status="draft",
@@ -613,6 +772,140 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             record["recovery_one"]["input_manifest"]["snapshot_sha256"],
         )
         self.assertEqual(record["comparison"]["executed_recovery_runs"], 1)
+
+    def test_a14_a2_pair_uses_one_product_run_and_shared_pre_recovery_snapshot(self):
+        contract = build_a14_a2_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        source = next(
+            row
+            for row in corpus["cases"]
+            if row["case_id"] == "phase6-main-c07-task-01"
+        )
+        task_registry = build_a14_a2_tasks()
+        case = bind_task_contract(source, task_registry)
+        tasks = {row["case_id"]: row for row in task_registry["cases"]}
+        adapters = build_a14_a2_adapters()["adapters"]
+        workspaces = workspace_by_case(
+            load_v4_workspace_registry(root=ROOT, contract=contract)
+        )
+        calls = []
+
+        def baseline_runner(**kwargs):
+            calls.append(
+                (
+                    kwargs["recovery_plan_auto_runs"],
+                    kwargs["capture_recovery_boundary"],
+                )
+            )
+            workspace = kwargs["workspace"]
+            relative = Path(
+                ".commandagent/recovery-boundaries/attempt-1/workspace"
+            )
+            boundary = workspace / relative
+            boundary.mkdir(parents=True)
+            shutil.copy2(workspace / "app.py", boundary / "app.py")
+            shutil.copytree(workspace / "fixture", boundary / "fixture")
+            snapshot_sha256 = _snapshot_content_sha256(boundary)
+            (workspace / "app.py").write_text("print('fixed')\n", encoding="utf-8")
+            return {
+                "status": "completed",
+                "argv": ["commandagent", "--ultra-plan-run", "goal"],
+                "terminal_status": {"recorded": True, "ok": True, "status": "completed"},
+                "recovery_plan_attempts": {
+                    "configured_recovery_runs": 1,
+                    "executed_recovery_runs": 1,
+                    "attempts": [
+                        {
+                            "attempt_index": 0,
+                            "kind": "initial",
+                            "status": "failed_recoverable",
+                        },
+                        {
+                            "attempt_index": 1,
+                            "kind": "recovery",
+                            "status": "succeeded",
+                            "recovery_handoff_kind": "verification_failed",
+                        },
+                    ],
+                },
+                "resource_usage": {
+                    "wall_time_ms": 100,
+                    "input_tokens": 30,
+                    "output_tokens": 5,
+                    "total_tokens": 35,
+                },
+                "recovery_boundary": {
+                    "status": "captured",
+                    "workspace_relative_path": relative.as_posix(),
+                    "file_count": 3,
+                    "total_bytes": 100,
+                    "snapshot_sha256": snapshot_sha256,
+                    "initial_provider_usage": {
+                        "wall_time_ms": 70,
+                        "input_tokens": 20,
+                        "output_tokens": 3,
+                        "total_tokens": 23,
+                    },
+                    "recovery_provider_usage": {
+                        "wall_time_ms": 30,
+                        "input_tokens": 10,
+                        "output_tokens": 2,
+                        "total_tokens": 12,
+                    },
+                },
+            }
+
+        def oracle_executor(spec, *, workspace):
+            if spec["kind"] == "file_content":
+                present = spec["pattern"] in (workspace / spec["path"]).read_text(
+                    encoding="utf-8"
+                )
+                passed = not present if spec["polarity"] == "absent" else present
+            else:
+                fixed = "fixed" in (workspace / "app.py").read_text(encoding="utf-8")
+                passed = fixed if spec["observation"]["expected"] == 0 else not fixed
+            return {"executed": True, "result": "pass" if passed else "fail"}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            record = run_recovery_pair(
+                root=ROOT,
+                contract=contract,
+                case=case,
+                task_contract=tasks[case["case_id"]],
+                workspace_contract=workspaces[case["workspace_case_id"]],
+                pair_id=f"{case['case_id']}--pair-01",
+                execution_root=Path(temporary),
+                namespace="a14-a2-test",
+                commandagent_bin=ROOT / "target/release/commandagent",
+                adapters=adapters,
+                baseline_runner=baseline_runner,
+                oracle_executor=oracle_executor,
+            )
+
+        self.assertEqual(calls, [(1, True)])
+        self.assertEqual(record["initial_only"]["status"], "captured_pre_recovery_control")
+        self.assertEqual(record["comparison"]["quality_transition"], "improved")
+        self.assertTrue(record["comparison"]["effect_attribution_ready"])
+        self.assertTrue(record["comparison"]["control_snapshot_matches_boundary"])
+        self.assertEqual(record["comparison"]["resource_delta"]["total_tokens"], 12)
+        contract["smoke"]["expected_pair_count"] = 1
+        report = build_recovery_report(records=[record], contract=contract)
+        self.assertTrue(report["instrument_ready"], report["diagnostics"])
+        self.assertTrue(report["effect_attribution_ready"])
+
+    def test_recovery_snapshot_hash_matches_product_fixed_vector(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "a.txt").write_text("x\n", encoding="utf-8")
+            self.assertEqual(
+                _snapshot_content_sha256(root),
+                "fca205d27f585d85835e310c03faf89448c6707cc889e2fda18085ae527122bf",
+            )
 
     def test_a14_pair_does_not_run_recovery_for_declared_missing_dependency(self):
         contract = build_a14_recovery_contract(

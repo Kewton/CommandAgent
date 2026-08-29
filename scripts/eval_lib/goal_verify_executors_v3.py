@@ -62,6 +62,22 @@ def _command_result(
         }
     if result.get("timed_out"):
         return {**result, "result": "blocked", "reason": "timeout"}
+    blocked_patterns = executor.get("blocked_patterns", [])
+    if not isinstance(blocked_patterns, list) or any(
+        not isinstance(pattern, str) or not pattern for pattern in blocked_patterns
+    ):
+        raise ValueError("blocked_patterns must be a string array")
+    output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".casefold()
+    matched_blocker = next(
+        (pattern for pattern in blocked_patterns if pattern.casefold() in output), None
+    )
+    if matched_blocker is not None:
+        return {
+            **result,
+            "result": "blocked",
+            "reason": "dependency_unavailable",
+            "matched_blocked_pattern": matched_blocker,
+        }
     expected = executor["observation"].get("expected")
     actual = result.get(executor["observation"]["kind"])
     passed = actual == expected
@@ -106,6 +122,8 @@ def execute_registered(
             **_command_result(executor, workspace, runner),
             "fixture_sha256": actual_hash,
         }
+    if kind == "file_content":
+        return _file_content_result(executor, workspace)
     if kind == "regression_set":
         rows = []
         for row in executor["registered"]:
@@ -140,6 +158,60 @@ def execute_registered(
     if kind == "playwright_script":
         return _execute_playwright(executor, workspace, runner)
     raise ValueError(f"unsupported v3 executor: {kind}")
+
+
+def _file_content_result(
+    executor: dict[str, Any], workspace: Path
+) -> dict[str, Any]:
+    relative = Path(executor.get("path", ""))
+    if (
+        not relative.parts
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or relative.as_posix().startswith(".")
+    ):
+        return {
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "file_content_path_invalid",
+        }
+    path = (workspace / relative).resolve()
+    if not path.is_relative_to(workspace.resolve()) or not path.is_file():
+        return {
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "file_content_path_missing",
+        }
+    pattern = executor.get("pattern")
+    polarity = executor.get("polarity")
+    if not isinstance(pattern, str) or not pattern or polarity not in {
+        "present",
+        "absent",
+    }:
+        return {
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "file_content_predicate_invalid",
+        }
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return {
+            "executed": False,
+            "result": "oracle_error",
+            "reason": "file_content_not_utf8",
+        }
+    present = pattern in content
+    passed = present if polarity == "present" else not present
+    return {
+        "executed": True,
+        "result": "pass" if passed else "fail",
+        "reason": "predicate_match" if passed else "predicate_mismatch",
+        "path": relative.as_posix(),
+        "pattern_sha256": hashlib.sha256(pattern.encode()).hexdigest(),
+        "polarity": polarity,
+        "actual_present": present,
+    }
 
 
 def _wait_for_url(url: str, timeout_ms: int) -> bool:

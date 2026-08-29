@@ -95,6 +95,7 @@ pub(crate) struct CanonicalKnowledge {
     pub(crate) package_script_build: String,
     pub(crate) package_script_dev: String,
     pub(crate) package_script_start: String,
+    pub(crate) entrypoint_files: Vec<String>,
     pub(crate) required_hooks: Vec<String>,
     pub(crate) scaffold_files: Vec<String>,
     pub(crate) tailwind_config_rels: Vec<String>,
@@ -363,6 +364,18 @@ mod tests {
         assert_eq!(canonical.package_script_build, "next build");
         assert_eq!(canonical.package_script_dev, "next dev -p {port}");
         assert_eq!(canonical.package_script_start, "next start -p {port}");
+        assert_eq!(canonical.entrypoint_files.len(), 16);
+        for path in [
+            "src/app/page.tsx",
+            "src/app/page.js",
+            "pages/index.ts",
+            "src/pages/index.js",
+        ] {
+            assert!(
+                canonical.entrypoint_files.iter().any(|entry| entry == path),
+                "missing {path}"
+            );
+        }
         assert_eq!(
             canonical.required_hooks,
             vec![

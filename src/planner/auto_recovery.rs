@@ -139,7 +139,18 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
     }
 
     fn start(&mut self, used: u8, candidate: &RecoveryCandidate, prepared: &Self::Prepared) {
-        emit_with_candidate(self.config, "recovery_plan_auto_run_start", used, candidate);
+        let snapshot = crate::planner::recovery_snapshot::capture_if_enabled(
+            &self.config.workspace_root,
+            used,
+        );
+        emit_boundary_snapshot(self.config, used, &snapshot);
+        emit_with_candidate(
+            self.config,
+            "recovery_plan_auto_run_start",
+            used,
+            candidate,
+            snapshot.as_ref().ok().and_then(|value| value.as_ref()),
+        );
         crate::runs::emit_resume_start(self.config, prepared);
     }
 
@@ -439,7 +450,45 @@ fn emit(config: &Config, event: &str, used: u8, stop_reason: &str) {
     );
 }
 
-fn emit_with_candidate(config: &Config, event: &str, used: u8, candidate: &RecoveryCandidate) {
+fn emit_boundary_snapshot(
+    config: &Config,
+    used: u8,
+    snapshot: &anyhow::Result<Option<crate::planner::recovery_snapshot::RecoveryBoundarySnapshot>>,
+) {
+    let (status, path, file_count, total_bytes, snapshot_sha256, reason) = match snapshot {
+        Ok(Some(snapshot)) => (
+            "captured",
+            snapshot.workspace_relative_path.as_str(),
+            Some(snapshot.file_count),
+            Some(snapshot.total_bytes),
+            Some(snapshot.snapshot_sha256.as_str()),
+            None,
+        ),
+        Ok(None) => ("not_requested", "", None, None, None, None),
+        Err(error) => ("failed", "", None, None, None, Some(error.to_string())),
+    };
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_boundary_snapshot",
+            "recovery_plan_auto_run_current": used,
+            "status": status,
+            "workspace_relative_path": path,
+            "file_count": file_count,
+            "total_bytes": total_bytes,
+            "snapshot_sha256": snapshot_sha256,
+            "reason": reason,
+        }),
+    );
+}
+
+fn emit_with_candidate(
+    config: &Config,
+    event: &str,
+    used: u8,
+    candidate: &RecoveryCandidate,
+    snapshot: Option<&crate::planner::recovery_snapshot::RecoveryBoundarySnapshot>,
+) {
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -452,6 +501,9 @@ fn emit_with_candidate(config: &Config, event: &str, used: u8, candidate: &Recov
             "recovery_ultra_plan_path": crate::planner::repair::workspace_relative_handoff_path(
                 &candidate.path
             ),
+            "pre_recovery_snapshot_path": snapshot
+                .map(|snapshot| snapshot.workspace_relative_path.as_str())
+                .unwrap_or_default(),
         }),
     );
 }

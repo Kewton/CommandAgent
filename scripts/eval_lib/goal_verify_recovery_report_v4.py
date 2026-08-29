@@ -18,6 +18,14 @@ def build_recovery_report(
     execution_action_violations = []
     executed_recovery_pairs = []
     transitions = []
+    shared_history = []
+    boundary_matches = []
+    semantic_validation = []
+    pre_recovery_handoffs = []
+    changed_paths_recorded = []
+    initial_success_attribution_violations = []
+    matrix_recorded = []
+    attribution_ready = []
     deltas: dict[str, list[int]] = {
         "wall_time_ms": [],
         "input_tokens": [],
@@ -50,19 +58,26 @@ def build_recovery_report(
                     f"eligible_recovery_not_completed:{pair_id}"
                 )
             continue
-        if runtime_eligible is not True:
-            ineligible_recovery_violations.append(
-                f"ineligible_recovery_executed:{pair_id}"
-            )
         recovery_result = recovery.get("result", {})
         recovery_attempts = recovery_result.get("recovery_plan_attempts", {})
         executed_recovery_runs = recovery_attempts.get("executed_recovery_runs")
-        configured_one.append(
-            recovery_attempts.get("configured_recovery_runs") == 1
+        shared_record = record.get("pairing_unit") == "shared_pre_recovery_snapshot"
+        configured_runs = recovery_attempts.get("configured_recovery_runs")
+        configured_valid = (
+            configured_runs == 0 and executed_recovery_runs == 0
+            if shared_record and runtime_eligible is not True
+            else configured_runs == 1
             and isinstance(executed_recovery_runs, int)
             and not isinstance(executed_recovery_runs, bool)
             and 0 <= executed_recovery_runs <= 1
         )
+        configured_one.append(configured_valid)
+        if runtime_eligible is not True and (
+            not shared_record or executed_recovery_runs != 0
+        ):
+            ineligible_recovery_violations.append(
+                f"ineligible_recovery_executed:{pair_id}"
+            )
         if executed_recovery_runs == 1:
             executed_recovery_pairs.append(pair_id)
         if initial.get("input_manifest", {}).get("snapshot_sha256") != recovery.get(
@@ -84,6 +99,43 @@ def build_recovery_report(
             ineligible_recovery_violations.append(f"comparison_missing:{pair_id}")
             continue
         transitions.append(comparison.get("quality_transition"))
+        if record.get("pairing_unit") == "shared_pre_recovery_snapshot":
+            shared_history.append(comparison.get("shared_initial_history") is True)
+            semantic_validation.append(
+                comparison.get("oracle_semantics", {}).get("valid") is True
+            )
+            if executed_recovery_runs == 1:
+                boundary_matches.append(
+                    comparison.get("control_snapshot_matches_boundary") is True
+                )
+                pre_recovery_handoffs.append(
+                    initial_result.get("terminal_status", {}).get(
+                        "recovery_handoff_kind"
+                    )
+                    is not None
+                )
+                changed_paths_recorded.append(
+                    isinstance(comparison.get("recovery_changed_paths"), dict)
+                    and isinstance(
+                        comparison.get("recovery_changed_paths", {}).get(
+                            "change_count"
+                        ),
+                        int,
+                    )
+                )
+                attribution_ready.append(
+                    comparison.get("effect_attribution_ready") is True
+                )
+            matrix_recorded.append(
+                isinstance(comparison.get("internal_external_outcome_matrix"), dict)
+            )
+            runtime_category = (
+                record.get("eligibility", {}).get("runtime", {}).get("category")
+            )
+            if runtime_category == "initial_success" and comparison.get(
+                "success_improved"
+            ) is True:
+                initial_success_attribution_violations.append(str(pair_id))
         for field, values in deltas.items():
             value = comparison.get("resource_delta", {}).get(field)
             if isinstance(value, int) and not isinstance(value, bool):
@@ -114,6 +166,38 @@ def build_recovery_report(
             and len(executed_recovery_pairs) >= minimum_executed
         ),
     }
+    shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
+        "shared_pre_recovery_snapshot"
+    )
+    if shared_pairing:
+        checks.update(
+            {
+                "recovery_attribution_requires_shared_initial_history": (
+                    bool(shared_history) and all(shared_history)
+                ),
+                "pre_recovery_snapshot_matches_control": (
+                    bool(boundary_matches) and all(boundary_matches)
+                ),
+                "pre_recovery_failure_handoff_recorded": (
+                    bool(pre_recovery_handoffs) and all(pre_recovery_handoffs)
+                ),
+                "final_success_oracle_semantics_validated": (
+                    bool(semantic_validation) and all(semantic_validation)
+                ),
+                "fix_before_and_after_polarity_distinct": (
+                    bool(semantic_validation) and all(semantic_validation)
+                ),
+                "initial_success_pair_not_attributed": (
+                    not initial_success_attribution_violations
+                ),
+                "recovery_changed_paths_recorded": (
+                    bool(changed_paths_recorded) and all(changed_paths_recorded)
+                ),
+                "internal_external_outcome_matrix_recorded": (
+                    bool(matrix_recorded) and all(matrix_recorded)
+                ),
+            }
+        )
     return {
         "schema_version": "commandagent.goal_verify.recovery_report.v4_a14",
         "contract_id": contract["contract_id"],
@@ -123,6 +207,11 @@ def build_recovery_report(
         "record_count": len(records),
         "checks": checks,
         "instrument_ready": all(checks.values()),
+        "effect_attribution_ready": (
+            all(checks.values())
+            and bool(attribution_ready)
+            and all(attribution_ready)
+        ),
         "counts": {
             "attributed_improved": transitions.count("improved"),
             "attributed_harmed": transitions.count("harmed"),
@@ -148,6 +237,9 @@ def build_recovery_report(
             "execution_action_violations": execution_action_violations,
             "paired_execution_action": paired_execution_action,
             "executed_recovery_pair_ids": executed_recovery_pairs,
+            "initial_success_attribution_violations": (
+                initial_success_attribution_violations
+            ),
         },
     }
 

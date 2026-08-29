@@ -27,6 +27,9 @@ expect = "not_checked"
 fixtures/recovery-events.jsonl = [
   "\"event\":\"recovery_plan_auto_run_configured\"",
   "\"recovery_plan_auto_runs\":2",
+  "\"event\":\"recovery_boundary_snapshot\"",
+  "\"workspace_relative_path\":\".commandagent/recovery-boundaries/attempt-1/workspace\"",
+  "\"snapshot_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"recovery_plan_auto_runs_used\":1",
   "\"event\":\"recovery_plan_auto_run_complete\"",

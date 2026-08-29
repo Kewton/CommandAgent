@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 _A9_SCHEMA_VERSION = "commandagent.goal_verify.task_contracts.v4_a9"
+_A14_A2_SCHEMA_VERSION = "commandagent.goal_verify.task_contracts.v4_a14_a2"
+_SHARED_GOAL_SCHEMA_VERSIONS = {_A9_SCHEMA_VERSION, _A14_A2_SCHEMA_VERSION}
 _A9_ROOT_FIELDS = {
     "schema_version",
     "status",
@@ -62,6 +64,7 @@ _A9_COMPLETION_FIELDS = {
     "required_obligations",
     "deferred_verify_requirements",
     "verify_repair_cap",
+    "command_observations",
 }
 _STRING_LIST_CONSTRAINTS = {
     "allowed_dependencies",
@@ -98,7 +101,7 @@ def load_task_contract_registry(path: Path) -> dict[str, Any]:
     case_ids = [row.get("case_id") for row in rows if isinstance(row, dict)]
     if len(case_ids) != len(rows) or len(set(case_ids)) != len(case_ids):
         raise ValueError("task contract case IDs must be present and unique")
-    if value.get("schema_version") == _A9_SCHEMA_VERSION:
+    if value.get("schema_version") in _SHARED_GOAL_SCHEMA_VERSIONS:
         errors = task_contract_registry_errors(value)
         if errors:
             raise ValueError("task contract a9 invalid:" + ",".join(errors))
@@ -117,7 +120,7 @@ def bind_task_contract(
         raise ValueError(f"task contract source goal mismatch:{case['case_id']}")
     execution_goal = (
         row.get("goal")
-        if registry.get("schema_version") == _A9_SCHEMA_VERSION
+        if registry.get("schema_version") in _SHARED_GOAL_SCHEMA_VERSIONS
         else row.get("execution_goal")
     )
     completion_contract = row.get("completion_contract")
@@ -127,7 +130,7 @@ def bind_task_contract(
         raise TypeError(f"completion contract missing:{case['case_id']}")
     completion_contract = copy.deepcopy(completion_contract)
     completion_goal_source = "registry_completion_contract"
-    if registry.get("schema_version") == _A9_SCHEMA_VERSION:
+    if registry.get("schema_version") in _SHARED_GOAL_SCHEMA_VERSIONS:
         # A9 declares row.goal as the semantic goal shared by both arms.  The
         # nested completion-contract prose is not a second task definition and
         # must not retain stale route, port, or parameter literals.
@@ -142,7 +145,7 @@ def bind_task_contract(
         "completion_contract_goal_source": completion_goal_source,
         "offline_dependencies": copy.deepcopy(row.get("offline_dependencies", [])),
     }
-    if registry.get("schema_version") == _A9_SCHEMA_VERSION:
+    if registry.get("schema_version") in _SHARED_GOAL_SCHEMA_VERSIONS:
         expected_claims = [claim.get("id") for claim in case.get("required_claims", [])]
         if row.get("registered_claims") != expected_claims:
             raise ValueError(
@@ -184,7 +187,7 @@ def task_contract_registry_errors(registry: dict[str, Any]) -> list[str]:
     unknown_root = sorted(set(registry) - _A9_ROOT_FIELDS)
     if unknown_root:
         errors.append("unknown_root_fields:" + "+".join(unknown_root))
-    if registry.get("schema_version") != _A9_SCHEMA_VERSION:
+    if registry.get("schema_version") not in _SHARED_GOAL_SCHEMA_VERSIONS:
         errors.append("schema_version_invalid")
     if registry.get("status") not in {"draft", "frozen"}:
         errors.append("status_invalid")
@@ -349,6 +352,28 @@ def _completion_contract_errors(case_id: str, value: Any) -> list[str]:
     cap = value.get("verify_repair_cap")
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 0:
         errors.append(f"completion_contract_verify_repair_cap:{case_id}")
+    observations = value.get("command_observations", [])
+    if not isinstance(observations, list):
+        errors.append(f"completion_contract_command_observations:{case_id}")
+    else:
+        for observation in observations:
+            if not isinstance(observation, dict) or set(observation) != {
+                "argv",
+                "expected_exit_code",
+                "expected_stdout",
+            }:
+                errors.append(f"completion_contract_command_observation_shape:{case_id}")
+                continue
+            exit_code = observation.get("expected_exit_code")
+            if (
+                _direct_argv_error(observation.get("argv"))
+                or not isinstance(exit_code, int)
+                or isinstance(exit_code, bool)
+                or not 0 <= exit_code <= 255
+                or not isinstance(observation.get("expected_stdout"), str)
+                or len(observation["expected_stdout"].encode("utf-8")) > 24_000
+            ):
+                errors.append(f"completion_contract_command_observation_invalid:{case_id}")
     return errors
 
 

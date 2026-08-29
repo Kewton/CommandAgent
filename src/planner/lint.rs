@@ -874,11 +874,8 @@ fn has_nextjs_entrypoint(
     step: &crate::planner::step_plan::PlanStep,
 ) -> bool {
     nextjs_entrypoints().iter().any(|path| {
-        seen_paths.contains(path)
-            || step
-                .expected_paths
-                .iter()
-                .any(|expected| expected.as_str() == *path)
+        seen_paths.contains(path.as_str())
+            || step.expected_paths.iter().any(|expected| expected == path)
     })
 }
 
@@ -948,17 +945,10 @@ fn has_preferred_verify(commands: &[&str], preferred: &[String]) -> bool {
     })
 }
 
-fn nextjs_entrypoints() -> &'static [&'static str] {
-    &[
-        "src/app/page.tsx",
-        "src/app/page.jsx",
-        "app/page.tsx",
-        "app/page.jsx",
-        "pages/index.tsx",
-        "pages/index.jsx",
-        "src/pages/index.tsx",
-        "src/pages/index.jsx",
-    ]
+fn nextjs_entrypoints() -> &'static [String] {
+    &crate::planner::profiles::nextjs::knowledge::get()
+        .canonical
+        .entrypoint_files
 }
 
 fn has_nextjs_artifact_intent(paths: &[&str], context: &PlanQualityContext) -> bool {
@@ -969,17 +959,9 @@ fn has_nextjs_artifact_intent(paths: &[&str], context: &PlanQualityContext) -> b
         .collect::<Vec<_>>();
     expected.iter().any(|path| path.ends_with("package.json"))
         && expected.iter().any(|path| {
-            matches!(
-                *path,
-                "src/app/page.tsx"
-                    | "src/app/page.jsx"
-                    | "app/page.tsx"
-                    | "app/page.jsx"
-                    | "pages/index.tsx"
-                    | "pages/index.jsx"
-                    | "src/pages/index.tsx"
-                    | "src/pages/index.jsx"
-            )
+            nextjs_entrypoints()
+                .iter()
+                .any(|entrypoint| path == entrypoint)
         })
 }
 
@@ -1389,7 +1371,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_manifest_and_entrypoint_allow_final_nextjs_verify() {
+    fn workspace_manifest_and_plain_javascript_entrypoint_allow_final_nextjs_verify() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -1398,12 +1380,12 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("src/app/page.tsx"),
+            dir.path().join("src/app/page.js"),
             "export default function Page() { return null; }\n",
         )
         .unwrap();
         let plan = StepPlan {
-            goal: "Verify the existing Next.js app".to_string(),
+            goal: "Verify the existing plain JavaScript Next.js app".to_string(),
             steps: vec![PlanStep {
                 id: "final-verify".to_string(),
                 kind: "verify".to_string(),

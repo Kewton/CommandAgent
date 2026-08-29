@@ -1,4 +1,24 @@
 #[test]
+fn completion_contract_mismatch_is_structured_as_non_recovery_profile_failure() {
+    let gate = ReleaseGateSummary {
+        status: "failed".to_string(),
+        reasons: Vec::new(),
+        browser_readiness_status: String::new(),
+        browser_readiness_evidence_path: String::new(),
+        interaction_evidence_status: String::new(),
+        interaction_evidence_path: String::new(),
+    };
+    assert_eq!(
+        release_recovery_failure_kind(
+            &gate,
+            "failed",
+            "missing_required_obligation_target:verification:tests/test_main.py",
+        ),
+        "profile_contract:missing_required_obligation_target"
+    );
+}
+
+#[test]
 fn dev_server_marker_with_contamination_is_env_node_env_conflict() {
     let status = run_ignored_runner_harness(
         "planner::runner::tests::dev_server_marker_with_contamination_is_env_node_env_conflict_child",

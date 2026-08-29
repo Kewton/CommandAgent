@@ -271,6 +271,44 @@ class ExecutorAndScoringTest(unittest.TestCase):
         self.assertEqual(result["result"], "oracle_error")
         self.assertEqual(result["reason"], "sandbox_backend_unavailable")
 
+    def test_registered_command_preserves_dependency_blocked_as_third_state(self):
+        executor = {
+            "kind": "stage_command",
+            "argv": ["python3", "app.py"],
+            "observation": {"kind": "exit_code", "expected": 0},
+            "blocked_patterns": ["ModuleNotFoundError"],
+        }
+
+        def runner(argv, cwd, timeout):
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "ModuleNotFoundError: No module named 'pandas'",
+                "runtime_ms": 1,
+            }
+
+        result = execute_registered(executor, workspace=ROOT, runner=runner)
+        self.assertEqual(result["result"], "blocked")
+        self.assertEqual(result["reason"], "dependency_unavailable")
+
+    def test_file_content_absence_is_host_owned_and_polarity_aware(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "app.py").write_text("print('fixed')\n", encoding="utf-8")
+            executor = {
+                "kind": "file_content",
+                "path": "app.py",
+                "pattern": "fixture/control.json",
+                "polarity": "absent",
+            }
+            passed = execute_registered(executor, workspace=workspace)
+            self.assertEqual(passed["result"], "pass")
+            (workspace / "app.py").write_text(
+                "open('fixture/control.json')\n", encoding="utf-8"
+            )
+            failed = execute_registered(executor, workspace=workspace)
+            self.assertEqual(failed["result"], "fail")
+
     def test_regression_set_runner_error_is_not_a_test_failure(self):
         executor = next(
             row["executor"]

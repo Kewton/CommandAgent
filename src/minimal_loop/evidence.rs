@@ -1988,7 +1988,7 @@ fn contains_assertion(content: &str) -> bool {
 fn has_bound_verify_command(verify_commands: &[String], workspace: &WorkspaceEvidence) -> bool {
     verify_commands
         .iter()
-        .any(|command| verify_command_kind(command, workspace).is_strong_for_capability())
+        .any(|command| verify_command_kind(command, workspace).is_semantic_bound_verify())
 }
 
 fn has_build_command_or_dependency_boundary(
@@ -2315,8 +2315,8 @@ enum VerifyCommandKind {
 }
 
 impl VerifyCommandKind {
-    fn is_strong_for_capability(&self) -> bool {
-        matches!(self, Self::Test | Self::Build | Self::StaticSyntax)
+    fn is_semantic_bound_verify(&self) -> bool {
+        matches!(self, Self::Test | Self::Build)
     }
 
     fn is_build(&self) -> bool {
@@ -4783,6 +4783,14 @@ export default function Page() {
                 .weak_evidence
                 .contains(&"node_smoke_without_assertion".to_string())
         );
+    }
+
+    #[test]
+    fn python_syntax_check_does_not_satisfy_bound_behavior_verification() {
+        assert!(!has_bound_verify_command(
+            &["python3 -m py_compile cli/main.py".to_string()],
+            &WorkspaceEvidence::default()
+        ));
     }
 
     #[test]
