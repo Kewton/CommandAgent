@@ -11,8 +11,8 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
     _build_adapters,
     _build_tasks,
 )
-from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
-    _build_contract as _build_a14_a13_1_contract,
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_2 import (
+    _build_contract as _build_a14_a13_2_contract,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     classify_case_recovery_eligibility,
@@ -23,14 +23,16 @@ CONTRACT_PATH = EVAL / "phase6-recovery-v4-a14-a14-contract.json"
 
 CONTRACT_ID = "phase6-recovery-v4-20260830-a14-a14-live-01"
 RUN_ID = "phase6-recovery-v4-20260830-a14-a14-live-01"
-ELIGIBLE_CELL_IDS = ["cell-05", "cell-07", "cell-08"]
+ELIGIBLE_CELL_IDS = ["cell-05", "cell-07"]
 ELIGIBLE_CASE_IDS = [
     f"phase6-main-c{cell_number:02d}-task-{task_number:02d}"
-    for cell_number in (5, 7, 8)
+    for cell_number in (5, 7)
     for task_number in range(1, 11)
 ]
 SENTINEL_CASE_IDS = [
-    f"phase6-main-c06-task-{task_number:02d}" for task_number in range(1, 11)
+    f"phase6-main-c{cell_number:02d}-task-{task_number:02d}"
+    for cell_number in (6, 8)
+    for task_number in range(1, 11)
 ]
 
 
@@ -55,7 +57,7 @@ def _build_contract(
 ) -> dict[str, Any]:
     tasks = _build_tasks()
     adapters = _build_adapters()
-    contract = _build_a14_a13_1_contract(
+    contract = _build_a14_a13_2_contract(
         status=status,
         code_sha=code_sha,
         exact_sha_ci_evidence=exact_sha_ci_evidence,
@@ -86,10 +88,10 @@ def _build_contract(
             "contract_id": CONTRACT_ID,
             "smoke_run_id": RUN_ID,
             "supersedes_contract": (
-                "phase6-recovery-v4-20260830-a14-a13-1-live-01"
+                "phase6-recovery-v4-20260830-a14-a13-2-live-01"
             ),
             "supersedes_smoke_run": (
-                "phase6-recovery-v4-20260830-a14-a13-1-smoke-01"
+                "phase6-recovery-v4-20260830-a14-a13-2-smoke-01"
             ),
         }
     )
@@ -98,14 +100,15 @@ def _build_contract(
             "amendment_id": "v4-A14-A14",
             "reason": (
                 "pre-register the first population Recovery 0-vs-1 estimate after "
-                "the corrected A14-A13-1 stratified instrument smoke"
+                "the corrected A14-A13-2 profile-contract exclusion smoke"
             ),
             "historical_run_policy": (
-                "all A14 through A14-A13-1 runs remain immutable instrument "
+                "all A14 through A14-A13-2 runs remain immutable instrument "
                 "evidence and are excluded from this effect estimate"
             ),
             "inference_role": (
-                "fixed 90-pair eligible fix population plus 10 dependency sentinels"
+                "fixed 60-pair eligible fix population plus 20 dependency or "
+                "profile-contract sentinels"
             ),
         }
     )
@@ -129,8 +132,8 @@ def _build_contract(
         "sentinel_case_ids": SENTINEL_CASE_IDS,
         "eligible_pair_ids": eligible_pair_ids,
         "sentinel_pair_ids": sentinel_pair_ids,
-        "eligible_pair_count": 90,
-        "sentinel_pair_count": 10,
+        "eligible_pair_count": 60,
+        "sentinel_pair_count": 20,
         "cluster_unit": "source_task_id",
         "stratification_unit": "cell_id",
         "minimum_clusters_per_cell": 10,
@@ -165,9 +168,9 @@ def _build_contract(
     contract["analysis"].update(
         {
             "primary_population": (
-                "preregistered eligible fix tasks in cli, generic, and nextjs; "
-                "dependency sentinels are retained but excluded from the effect "
-                "denominator by frozen role"
+                "preregistered eligible fix tasks in cli and generic; dependency "
+                "and explicit profile-contract sentinels are retained but excluded "
+                "from the effect denominator by frozen role"
             ),
             "bootstrap_method": (
                 "stratified hierarchical paired percentile: resample task clusters "

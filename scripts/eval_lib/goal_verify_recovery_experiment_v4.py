@@ -195,6 +195,19 @@ def classify_case_recovery_eligibility(
     """Freeze whether a case has the inputs and external oracle needed by A14."""
     case_id = task_contract.get("case_id")
     constraints = task_contract.get("operational_constraints", {})
+    profile = task_contract.get("completion_contract", {}).get("profile")
+    forbidden_conversions = constraints.get("do_not_convert_to", [])
+    normalized_profile = _normalized_contract_token(profile)
+    if normalized_profile and any(
+        normalized_profile in _normalized_contract_token(target)
+        for target in forbidden_conversions
+        if isinstance(target, str)
+    ):
+        return _classification(
+            eligible=False,
+            category="profile_or_completion_contract",
+            reason="product_profile_explicitly_forbidden_by_task_contract",
+        )
     if constraints.get("unavailable_dependencies"):
         return _classification(
             eligible=False,
@@ -221,6 +234,10 @@ def classify_case_recovery_eligibility(
         category="recoverable_candidate",
         reason="task_inputs_and_frozen_external_oracles_available",
     )
+
+
+def _normalized_contract_token(value: Any) -> str:
+    return "".join(character for character in str(value).lower() if character.isalnum())
 
 
 def classify_initial_recovery_eligibility(

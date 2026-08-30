@@ -79,6 +79,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
     _build_tasks as build_a14_a13_1_tasks,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_2 import (
+    _build_contract as build_a14_a13_2_contract,
+)
 from eval_lib.generate_goal_verify_recovery_v4_a14_a14 import (
     _build_contract as build_a14_a14_contract,
 )
@@ -1385,8 +1388,15 @@ class GoalVerifyMainV4Test(unittest.TestCase):
 
         self.assertEqual(recovery_contract_errors(contract), [])
         full = contract["full_experiment"]
-        self.assertEqual(full["eligible_pair_count"], 90)
-        self.assertEqual(full["sentinel_pair_count"], 10)
+        self.assertEqual(full["eligible_pair_count"], 60)
+        self.assertEqual(full["sentinel_pair_count"], 20)
+        self.assertEqual(full["eligible_cell_ids"], ["cell-05", "cell-07"])
+        self.assertTrue(
+            all("c08" not in pair_id for pair_id in full["eligible_pair_ids"])
+        )
+        self.assertTrue(
+            any("c08" in pair_id for pair_id in full["sentinel_pair_ids"])
+        )
         self.assertEqual(full["pairs_per_eligible_cluster"], 3)
         self.assertEqual(full["minimum_executed_recovery_pairs"], 30)
         self.assertEqual(full["bootstrap_samples"], 2000)
@@ -1443,6 +1453,34 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 completion["fix_reproducer_command"],
                 shlex.join(constraints["reproducer"]["argv"]),
             )
+
+    def test_a14_a13_2_excludes_explicit_profile_contract_conflict(self):
+        contract = build_a14_a13_2_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        eligibility = contract["recovery_eligibility"][
+            "preregistered_smoke_cases"
+        ]
+        self.assertTrue(eligibility["phase6-main-c05-task-05"]["eligible"])
+        self.assertTrue(eligibility["phase6-main-c07-task-01"]["eligible"])
+        self.assertEqual(
+            eligibility["phase6-main-c06-task-01"]["category"],
+            "dependency_or_provisioning",
+        )
+        self.assertEqual(
+            eligibility["phase6-main-c08-task-01"],
+            {
+                "eligible": False,
+                "category": "profile_or_completion_contract",
+                "reason": "product_profile_explicitly_forbidden_by_task_contract",
+                "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+            },
+        )
 
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
