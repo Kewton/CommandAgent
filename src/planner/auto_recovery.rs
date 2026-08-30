@@ -663,6 +663,18 @@ fn recovery_preflight(
             config.offline,
             config.eval_events_path.as_deref(),
         );
+    let completion_acceptance = if report.is_pass() {
+        let mut observation_config = config.clone();
+        observation_config.eval_events_path = None;
+        Some(
+            crate::planner::runner::recovery_acceptance::runtime_acceptance_report(
+                &candidate.plan,
+                &observation_config,
+            ),
+        )
+    } else {
+        None
+    };
     let observed_sha256 =
         crate::planner::recovery_snapshot::current_source_sha256(&config.workspace_root);
     let source_mutated = observed_sha256
@@ -686,15 +698,33 @@ fn recovery_preflight(
         };
     }
     if report.is_pass() {
-        return RecoveryPreflight::CurrentSuccess {
-            reason: format!(
-                "registered_final_success_passed:{} commands",
-                candidate
-                    .handoff
-                    .verify_commands
-                    .len()
-                    .max(contract.verify_commands.len())
-            ),
+        return match completion_acceptance.expect("pass report records acceptance") {
+            Ok(acceptance)
+                if completion_acceptance_passes_after_registered_observation(
+                    &acceptance,
+                    &contract,
+                ) =>
+            {
+                RecoveryPreflight::CurrentSuccess {
+                    reason: format!(
+                        "registered_final_success_and_completion_contract_passed:{} commands",
+                        candidate
+                            .handoff
+                            .verify_commands
+                            .len()
+                            .max(contract.verify_commands.len())
+                    ),
+                }
+            }
+            Ok(acceptance) => RecoveryPreflight::Failed {
+                reason: format!(
+                    "completion_contract_acceptance_failed:{}",
+                    acceptance.primary_reason
+                ),
+            },
+            Err(error) => RecoveryPreflight::Unavailable {
+                reason: format!("completion_contract_acceptance_unavailable:{error}"),
+            },
         };
     }
     if !report.dependency_missing.is_empty() || !report.verifier_command_false_negatives.is_empty()
@@ -725,14 +755,27 @@ fn bind_candidate_verify_commands(
     let original_commands_all_registered = original_commands
         .iter()
         .all(|command| contract.verify_commands.contains(command));
-    let plan_rewritten = original_commands != contract.verify_commands;
-    candidate.handoff.verify_commands = contract.verify_commands;
+    let commands_rewritten = original_commands != contract.verify_commands;
+    candidate.handoff.verify_commands = contract.verify_commands.clone();
     candidate.verify_command_source = "completion_contract".to_string();
-
-    if plan_rewritten {
+    if commands_rewritten {
         candidate.handoff.failure_evidence = vec![format!(
             "Registered final-success observation failed before automatic Recovery: {preflight_reason}"
         )];
+    }
+    let completion_requirements_added =
+        bind_candidate_completion_requirements(config, &contract, &mut candidate)?;
+    let plan_rewritten = commands_rewritten || completion_requirements_added;
+
+    if plan_rewritten {
+        if !commands_rewritten {
+            push_unique(
+                &mut candidate.handoff.failure_evidence,
+                format!(
+                    "Registered final-success observation failed before automatic Recovery: {preflight_reason}"
+                ),
+            );
+        }
         let plan = crate::planner::repair::build_recovery_ultra_plan(&candidate.handoff);
         let scope = contract_bound_scope(candidate.handoff.failed_step.as_deref());
         let path = crate::planner::repair::save_recovery_ultra_plan(
@@ -759,6 +802,107 @@ fn bind_candidate_verify_commands(
         }),
     );
     Ok(candidate)
+}
+
+fn bind_candidate_completion_requirements(
+    config: &Config,
+    contract: &crate::minimal_loop::completion::CompletionContract,
+    candidate: &mut RecoveryCandidate,
+) -> Result<bool, CandidateStop> {
+    let acceptance = crate::planner::runner::recovery_acceptance::runtime_acceptance_report(
+        &candidate.plan,
+        config,
+    )
+    .map_err(|_| CandidateStop::ContractAcceptanceBindFailed)?;
+    let mut added = false;
+    for target in &acceptance.obligation_repair_targets {
+        added |= push_unique(
+            &mut candidate.handoff.missing_paths,
+            target.target_path.clone(),
+        );
+        added |= push_unique(
+            &mut candidate.handoff.repair_targets,
+            format!(
+                "completion obligation {} at {}",
+                target.obligation, target.target_path
+            ),
+        );
+    }
+    for evidence in &acceptance.missing_evidence {
+        if evidence == "bound_verify_command" && has_registered_fix_reproducer(contract) {
+            continue;
+        }
+        added |= push_unique(
+            &mut candidate.handoff.failure_evidence,
+            format!("missing completion evidence: {evidence}"),
+        );
+    }
+    for obligation in &acceptance.missing_obligations {
+        added |= push_unique(
+            &mut candidate.handoff.failure_evidence,
+            format!("missing completion obligation: {obligation}"),
+        );
+    }
+    if !acceptance.passed && !acceptance.primary_reason.is_empty() {
+        added |= push_unique(
+            &mut candidate.handoff.failure_evidence,
+            format!(
+                "completion contract acceptance failed: {}",
+                acceptance.primary_reason
+            ),
+        );
+    }
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_candidate_completion_requirements_bound",
+            "source": "product_visible_completion_contract",
+            "external_oracle_used": false,
+            "completion_acceptance_passed": acceptance.passed,
+            "missing_evidence_count": acceptance.missing_evidence.len(),
+            "missing_obligation_count": acceptance.missing_obligations.len(),
+            "obligation_repair_target_count": acceptance.obligation_repair_targets.len(),
+            "recovery_plan_rewrite_required": added,
+        }),
+    );
+    Ok(added)
+}
+
+fn completion_acceptance_passes_after_registered_observation(
+    acceptance: &crate::minimal_loop::evidence::RuntimeAcceptanceReport,
+    contract: &crate::minimal_loop::completion::CompletionContract,
+) -> bool {
+    acceptance.passed
+        || (has_registered_fix_reproducer(contract)
+            && acceptance.missing_capabilities.is_empty()
+            && acceptance.missing_obligations.is_empty()
+            && acceptance.missing_evidence.len() == 1
+            && acceptance.missing_evidence[0] == "bound_verify_command"
+            && acceptance.weak_evidence.is_empty()
+            && !acceptance.inconclusive)
+}
+
+fn has_registered_fix_reproducer(
+    contract: &crate::minimal_loop::completion::CompletionContract,
+) -> bool {
+    contract
+        .fix_reproducer_command
+        .as_ref()
+        .is_some_and(|command| {
+            contract
+                .verify_commands
+                .iter()
+                .any(|verify| verify == command)
+        })
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) -> bool {
+    if values.contains(&value) {
+        false
+    } else {
+        values.push(value);
+        true
+    }
 }
 
 fn contract_bound_scope(failed_step: Option<&str>) -> String {
@@ -839,6 +983,7 @@ enum CandidateStop {
     TreatmentPrepareFailed,
     TreatmentContractBindFailed,
     ContractCommandBindFailed,
+    ContractAcceptanceBindFailed,
     ResumeSafetyRejected,
     WorkspaceDrift,
 }
@@ -854,6 +999,7 @@ impl CandidateStop {
             Self::TreatmentPrepareFailed => "treatment_prepare_failed",
             Self::TreatmentContractBindFailed => "treatment_contract_bind_failed",
             Self::ContractCommandBindFailed => "contract_command_bind_failed",
+            Self::ContractAcceptanceBindFailed => "contract_acceptance_bind_failed",
             Self::ResumeSafetyRejected => "resume_safety_rejected",
             Self::WorkspaceDrift => "workspace_drift",
         }
@@ -1180,7 +1326,9 @@ mod tests {
         let mut config =
             Config::from_cli(crate::cli::Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
         config.workspace_root = root.to_path_buf();
-        config.eval_events_path = Some(root.join("events.jsonl"));
+        let events_dir = root.join(".commandagent");
+        std::fs::create_dir_all(&events_dir).unwrap();
+        config.eval_events_path = Some(events_dir.join("events.jsonl"));
         config.recovery_plan_auto_runs = limit;
         config
     }
@@ -1581,6 +1729,90 @@ mod tests {
     }
 
     #[test]
+    fn recovery_candidate_binds_missing_completion_obligation_targets() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("fixture")).unwrap();
+        std::fs::write(root.path().join("app.py"), "print('ready')\n").unwrap();
+        std::fs::write(root.path().join("fixture/task-01.json"), "{}\n").unwrap();
+        std::fs::write(root.path().join("fixture/control.json"), "{}\n").unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{"required_paths":["app.py","fixture/task-01.json","fixture/control.json"],"verify_commands":["python3 app.py fixture/task-01.json"],"fix_reproducer_command":"python3 app.py fixture/task-01.json","required_evidence":["implementation_artifact","bound_verify_command"],"required_obligations":["implementation","verification","acceptance_evidence"],"profile":"generic"}"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+        let mut original = candidate("completion-obligations");
+        original.handoff.original_goal =
+            "Fix app.py and verify fixture/task-01.json without substitution".to_string();
+        original.handoff.verify_commands = vec!["python3 app.py fixture/task-01.json".to_string()];
+
+        let rebound = bind_candidate_verify_commands(&config, original, "completion incomplete")
+            .expect("bind completion requirements");
+
+        assert!(
+            rebound
+                .handoff
+                .missing_paths
+                .contains(&"tests/test_app.py".to_string())
+        );
+        assert!(
+            rebound
+                .handoff
+                .missing_paths
+                .contains(&"README.md".to_string())
+        );
+        let rendered = std::fs::read_to_string(&rebound.path).unwrap();
+        assert!(rendered.contains("tests/test_app.py"));
+        assert!(rendered.contains("README.md"));
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("recovery_candidate_completion_requirements_bound"));
+        assert!(events.contains("\"obligation_repair_target_count\":2"));
+        assert!(events.contains("\"recovery_plan_rewrite_required\":true"));
+    }
+
+    #[test]
+    fn preflight_requires_full_completion_contract_before_success() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("fixture")).unwrap();
+        std::fs::write(root.path().join("app.py"), "print('ready')\n").unwrap();
+        std::fs::write(root.path().join("fixture/task-01.json"), "{}\n").unwrap();
+        std::fs::write(root.path().join("fixture/control.json"), "{}\n").unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{"required_paths":["app.py","fixture/task-01.json","fixture/control.json"],"verify_commands":["python3 app.py fixture/task-01.json"],"fix_reproducer_command":"python3 app.py fixture/task-01.json","required_evidence":["implementation_artifact","bound_verify_command"],"required_obligations":["implementation","verification","acceptance_evidence"],"profile":"generic"}"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+        let recovery = candidate("completion-gate");
+
+        let incomplete = recovery_preflight(&config, &recovery, 0);
+        assert!(
+            matches!(
+                &incomplete,
+                RecoveryPreflight::Failed { reason }
+                    if reason.starts_with("completion_contract_acceptance_failed:")
+            ),
+            "{incomplete:?}"
+        );
+
+        std::fs::create_dir_all(root.path().join("tests")).unwrap();
+        std::fs::write(
+            root.path().join("tests/test_app.py"),
+            "def test_app():\n    assert True\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("README.md"), "# Acceptance\nready\n").unwrap();
+        assert!(matches!(
+            recovery_preflight(&config, &recovery, 1),
+            RecoveryPreflight::CurrentSuccess { .. }
+        ));
+    }
+
+    #[test]
     fn recovery_candidate_marks_exact_contract_match_without_rewriting_plan() {
         let root = tempfile::tempdir().unwrap();
         let contract_path = root.path().join("completion-contract.json");
@@ -1617,10 +1849,11 @@ mod tests {
         let mut config = config(root.path(), 1);
         config.completion_contract_path = Some(contract_path);
 
-        assert!(matches!(
-            recovery_preflight(&config, &candidate("protected"), 0),
-            RecoveryPreflight::CurrentSuccess { .. }
-        ));
+        let protected = recovery_preflight(&config, &candidate("protected"), 0);
+        assert!(
+            matches!(&protected, RecoveryPreflight::CurrentSuccess { .. }),
+            "{protected:?}"
+        );
     }
 
     #[test]
@@ -1644,27 +1877,29 @@ mod tests {
     #[test]
     fn preflight_observes_input_output_contract_with_bound_fix_reproducer() {
         let root = tempfile::tempdir().unwrap();
-        let ready = root.path().join("ready.txt");
-        std::fs::write(&ready, "ready").unwrap();
+        let app = root.path().join("app.py");
+        std::fs::write(&app, "print('ready')\n").unwrap();
         let contract_path = root.path().join("completion-contract.json");
         std::fs::write(
             &contract_path,
-            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"fix_reproducer_command":"test -f ready.txt","required_capabilities":["input_output_contract"],"profile":"generic"}"#,
+            r#"{"required_paths":["app.py"],"verify_commands":["python3 app.py"],"fix_reproducer_command":"python3 app.py","required_capabilities":["input_output_contract"],"profile":"generic"}"#,
         )
         .unwrap();
         let mut config = config(root.path(), 1);
         config.completion_contract_path = Some(contract_path);
 
-        assert!(matches!(
-            recovery_preflight(&config, &candidate("protected-input-output"), 0),
-            RecoveryPreflight::CurrentSuccess { .. }
-        ));
+        let protected = recovery_preflight(&config, &candidate("protected-input-output"), 0);
+        assert!(
+            matches!(&protected, RecoveryPreflight::CurrentSuccess { .. }),
+            "{protected:?}"
+        );
 
-        std::fs::remove_file(ready).unwrap();
-        assert!(matches!(
-            recovery_preflight(&config, &candidate("repairable-input-output"), 1),
-            RecoveryPreflight::Failed { .. }
-        ));
+        std::fs::write(app, "raise SystemExit(1)\n").unwrap();
+        let missing = recovery_preflight(&config, &candidate("repairable-input-output"), 1);
+        assert!(
+            matches!(&missing, RecoveryPreflight::Failed { .. }),
+            "{missing:?}"
+        );
     }
 
     #[test]

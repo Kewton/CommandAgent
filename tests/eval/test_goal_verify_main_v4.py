@@ -82,10 +82,14 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a13_2 import (
     _build_contract as build_a14_a13_2_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_3 import (
+    _build_contract as build_a14_a13_3_contract,
+)
 from eval_lib.generate_goal_verify_recovery_v4_a14_a14 import (
     _build_contract as build_a14_a14_contract,
 )
 from eval_lib.goal_verify_baseline_product_v3 import (
+    _completion_verify_status,
     _fix_reproducer_binding,
     _product_resource_usage,
     _product_terminal_status,
@@ -208,6 +212,64 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 },
             )
 
+    def test_recovery_completion_requires_post_contract_pass_promotion_and_success(self):
+        recovery_events = [
+            {
+                "event": "recovery_preflight_observation",
+                "observation_phase": "post_recovery",
+                "status": "pass",
+                "source": "product_visible_completion_contract",
+                "reason": (
+                    "registered_final_success_and_completion_contract_passed:"
+                    "1 commands"
+                ),
+            },
+            {
+                "event": "recovery_promotion_decision",
+                "decision": "promoted",
+            },
+            {
+                "event": "recovery_plan_auto_run_complete",
+                "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            complete = root / "complete"
+            complete.mkdir()
+            rows = [{"event": "completion_verify", "ok": False}, *recovery_events]
+            (complete / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _completion_verify_status(complete),
+                {
+                    "completion_verify_attempt_recorded": True,
+                    "completion_verify_passed": True,
+                },
+            )
+
+            for omitted in range(len(recovery_events)):
+                incomplete = root / f"incomplete-{omitted}"
+                incomplete.mkdir()
+                rows = [
+                    {"event": "completion_verify", "ok": False},
+                    *(
+                        row
+                        for index, row in enumerate(recovery_events)
+                        if index != omitted
+                    ),
+                ]
+                (incomplete / "events.jsonl").write_text(
+                    "\n".join(json.dumps(row) for row in rows) + "\n",
+                    encoding="utf-8",
+                )
+                self.assertFalse(
+                    _completion_verify_status(incomplete)[
+                        "completion_verify_passed"
+                    ]
+                )
     def test_typed_fix_reproducer_binding_is_reduced_to_durable_fields(self):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
@@ -1480,6 +1542,35 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "reason": "product_profile_explicitly_forbidden_by_task_contract",
                 "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
             },
+        )
+
+    def test_a14_a13_3_preregisters_completion_safe_recovery(self):
+        contract = build_a14_a13_3_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["pre_live_amendments"][-1]["amendment_id"],
+            "v4-A14-A13-3",
+        )
+        self.assertEqual(
+            contract["supersedes_smoke_run"],
+            "phase6-recovery-v4-20260830-a14-a13-2-smoke-01",
+        )
+        self.assertEqual(
+            contract["analysis"]["recovery_promotion_policy"],
+            "promote only after the registered final-success observation and "
+            "the remaining product-visible completion contract both pass",
+        )
+        self.assertTrue(
+            contract["smoke"]["require_recovery_fix_terminal_completion"]
+        )
+        self.assertFalse(
+            contract["authorization"]["smoke_collection_authorized"]
         )
 
     def test_registered_browser_process_records_execution(self):

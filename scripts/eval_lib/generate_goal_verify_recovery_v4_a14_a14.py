@@ -11,8 +11,8 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
     _build_adapters,
     _build_tasks,
 )
-from eval_lib.generate_goal_verify_recovery_v4_a14_a13_2 import (
-    _build_contract as _build_a14_a13_2_contract,
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_3 import (
+    _build_contract as _build_a14_a13_3_contract,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     classify_case_recovery_eligibility,
@@ -57,7 +57,7 @@ def _build_contract(
 ) -> dict[str, Any]:
     tasks = _build_tasks()
     adapters = _build_adapters()
-    contract = _build_a14_a13_2_contract(
+    contract = _build_a14_a13_3_contract(
         status=status,
         code_sha=code_sha,
         exact_sha_ci_evidence=exact_sha_ci_evidence,
@@ -88,10 +88,10 @@ def _build_contract(
             "contract_id": CONTRACT_ID,
             "smoke_run_id": RUN_ID,
             "supersedes_contract": (
-                "phase6-recovery-v4-20260830-a14-a13-2-live-01"
+                "phase6-recovery-v4-20260830-a14-a13-3-live-01"
             ),
             "supersedes_smoke_run": (
-                "phase6-recovery-v4-20260830-a14-a13-2-smoke-01"
+                "phase6-recovery-v4-20260830-a14-a13-3-smoke-01"
             ),
         }
     )
@@ -100,10 +100,10 @@ def _build_contract(
             "amendment_id": "v4-A14-A14",
             "reason": (
                 "pre-register the first population Recovery 0-vs-1 estimate after "
-                "the corrected A14-A13-2 profile-contract exclusion smoke"
+                "the corrected A14-A13-3 completion-safe Recovery smoke"
             ),
             "historical_run_policy": (
-                "all A14 through A14-A13-2 runs remain immutable instrument "
+                "all A14 through A14-A13-3 runs remain immutable instrument "
                 "evidence and are excluded from this effect estimate"
             ),
             "inference_role": (
@@ -148,7 +148,7 @@ def _build_contract(
             "stratified task-cluster resampling"
         ),
         "stopping_rule": (
-            "collect exactly the frozen 90 eligible pairs and 10 sentinels; do not "
+            "collect exactly the frozen 60 eligible pairs and 20 sentinels; do not "
             "extend, replace, exclude, or relabel pairs after observing outcomes"
         ),
         "go_rule": (

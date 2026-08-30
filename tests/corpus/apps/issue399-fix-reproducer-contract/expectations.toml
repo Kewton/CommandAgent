@@ -36,6 +36,8 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"external_oracle_used\":false",
   "\"event\":\"recovery_candidate_verify_commands_bound\"",
   "\"recovery_verify_command_source\":\"completion_contract\"",
+  "\"event\":\"recovery_candidate_completion_requirements_bound\"",
+  "\"obligation_repair_target_count\":1",
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"event\":\"completion_contract_bound\"",
   "\"completion_contract_path\":\".commandagent/recovery-runtime/completion-contract.json\"",
@@ -64,6 +66,7 @@ fixtures/typed-fix-reproducer.jsonl = [
 fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_preflight_observation\"",
   "\"event\":\"recovery_candidate_verify_commands_bound\"",
+  "\"event\":\"recovery_candidate_completion_requirements_bound\"",
   "\"event\":\"recovery_boundary_snapshot\"",
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"event\":\"completion_contract_bound\"",

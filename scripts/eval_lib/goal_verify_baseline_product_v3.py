@@ -236,9 +236,36 @@ def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
     events_path = run_dir / "events.jsonl"
     events = _json_rows(events_path) if events_path.is_file() else []
     attempts = [row for row in events if row.get("event") == "completion_verify"]
+    post_recovery_contract_passed = any(
+        row.get("event") == "recovery_preflight_observation"
+        and row.get("observation_phase") == "post_recovery"
+        and row.get("status") == "pass"
+        and row.get("source") == "product_visible_completion_contract"
+        and str(row.get("reason", "")).startswith(
+            "registered_final_success_and_completion_contract_passed:"
+        )
+        for row in events
+    )
+    recovery_treatment_promoted = any(
+        row.get("event") == "recovery_promotion_decision"
+        and row.get("decision") == "promoted"
+        for row in events
+    )
+    recovery_completed = any(
+        row.get("event") == "recovery_plan_auto_run_complete"
+        and row.get("recovery_plan_auto_run_stop_reason") == "recovery_succeeded"
+        for row in events
+    )
+    recovery_completion_verified = (
+        post_recovery_contract_passed
+        and recovery_treatment_promoted
+        and recovery_completed
+    )
     return {
-        "completion_verify_attempt_recorded": bool(attempts),
-        "completion_verify_passed": any(row.get("ok") is True for row in attempts),
+        "completion_verify_attempt_recorded": bool(attempts)
+        or recovery_completion_verified,
+        "completion_verify_passed": any(row.get("ok") is True for row in attempts)
+        or recovery_completion_verified,
     }
 
 
