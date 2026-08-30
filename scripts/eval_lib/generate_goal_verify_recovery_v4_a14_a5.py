@@ -110,6 +110,9 @@ def _build_contract(
             "candidate_server_failure_is_product_outcome_not_instrument_failure": True,
         }
     )
+    contract["authorization"]["approved_at"] = (
+        "2026-08-30" if live_collection_authorized else None
+    )
     contract["smoke"].update(
         {
             "require_separate_browser_oracle_preflight": True,

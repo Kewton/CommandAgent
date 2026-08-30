@@ -823,6 +823,15 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             contract["frozen_external_oracles"],
             "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a5.json",
         )
+        authorized_contract = build_a14_a5_contract(
+            status="frozen",
+            code_sha="a" * 40,
+            exact_sha_ci_evidence="exact-sha.json",
+            live_collection_authorized=True,
+        )
+        self.assertEqual(
+            authorized_contract["authorization"]["approved_at"], "2026-08-30"
+        )
 
         contract["smoke"]["expected_pair_count"] = 1
         usage = {
