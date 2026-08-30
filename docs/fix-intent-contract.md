@@ -64,3 +64,20 @@ run は正直に failed(baseline_not_reproduced) または partial に落ちる�
 R は決定的であること（時刻・乱数・外部ネットワーク非依存）。
 R の特定が依頼に含まれない場合、修正着手前に R を構築し
 stage=before の実行で失敗を確認してから修正に入ること。
+
+## 9. A14-A6 amendment — 型付き completion reproducer（2026-08-30）
+
+依頼側が既知の R を持つ fix run は、任意の
+`CompletionContract.fix_reproducer_command` に単一の決定的コマンドを指定できる。
+指定値は通常の verify command policy で正規化・検証し、複数コマンドへ正規化される
+入力は拒否する。fix intent の先頭 phase だけがこの値を読み、機械生成した
+`expected_result=fail` の単一 verify stepとして stage=before で実行する。
+
+この field は profile 別の推測規則ではなく、全 profile 共通の入力契約である。
+ただし workflow が origin-confined state に明示的な reproducer binding を持つ場合は、
+既存の workflow binding を優先して lineage を維持する。field がない run、fix 以外の
+intent、先頭以外の phase の計画生成は従来どおりとする。
+
+これは candidate-visible な既知の再現条件を型付けするものであり、凍結済み外部oracle、
+answer key、実行後の採点結果を製品やRecoveryへ渡す経路ではない。F1〜F3の裁定、
+Recovery開始条件、外部oracleによる最終成功判定は変更しない。

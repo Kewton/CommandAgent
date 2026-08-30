@@ -1,0 +1,39 @@
+case_id = "issue399_fix_reproducer_contract"
+source = "Issue 399 A14-A6 typed fix reproducer binding"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["fix_plan_synthesized", "completion_contract:fix_reproducer_command", "python3 cli.py 7"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/typed-fix-reproducer.jsonl = [
+  "\"event\":\"fix_plan_synthesized\"",
+  "\"r_basis\":\"completion_contract:fix_reproducer_command\"",
+  "\"expected_result\":\"fail\"",
+  "\"verify\":[\"python3 cli.py 7\"]"
+]
+
+[fixture_ordered]
+fixtures/typed-fix-reproducer.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"fix_plan_synthesized\"",
+  "\"event\":\"step_plan_generated\"",
+  "\"event\":\"fix_evidence_recorded\"",
+  "\"event\":\"run_stop\""
+]

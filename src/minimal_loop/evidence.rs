@@ -4449,6 +4449,7 @@ export default function Page() {
         let contract = crate::minimal_loop::completion::CompletionContract {
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("シューティングでドラゴンを倒すゲーム".to_string()),
             required_capabilities: Vec::new(),
@@ -4601,6 +4602,7 @@ export default function Page() {
         let contract = crate::minimal_loop::completion::CompletionContract {
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("ブロック崩し".to_string()),
             required_capabilities: Vec::new(),

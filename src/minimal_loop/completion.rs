@@ -29,6 +29,8 @@ pub struct CompletionContract {
     pub required_paths: Vec<String>,
     #[serde(default)]
     pub verify_commands: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix_reproducer_command: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
@@ -99,6 +101,15 @@ impl CompletionContract {
         }
         self.required_paths = paths;
         self.verify_commands = commands;
+        if let Some(command) = self.fix_reproducer_command.take() {
+            let mut normalized = normalize_planner_verify_command(&command)?;
+            if normalized.len() != 1 {
+                bail!("fix_reproducer_command must normalize to exactly one command");
+            }
+            let command = normalized.remove(0);
+            validate_verify_command(&command)?;
+            self.fix_reproducer_command = Some(command);
+        }
         self.required_capabilities = normalize_unique_list(self.required_capabilities);
         self.deterministic_oracles = normalize_unique_list(self.deterministic_oracles);
         self.required_evidence = normalize_unique_list(self.required_evidence);
@@ -2510,6 +2521,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["src/main.rs".to_string(), "src/main.rs".to_string()],
             verify_commands: vec!["cargo test".to_string(), "cargo test".to_string()],
+            fix_reproducer_command: Some("python3 cli.py 7".to_string()),
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2524,7 +2536,38 @@ export class SpaceInvadersEngine {\n\
         .unwrap();
         assert_eq!(contract.required_paths, vec!["src/main.rs"]);
         assert_eq!(contract.verify_commands, vec!["cargo test"]);
+        assert_eq!(
+            contract.fix_reproducer_command.as_deref(),
+            Some("python3 cli.py 7")
+        );
         assert_eq!(contract.verify_repair_cap, 2);
+    }
+
+    #[test]
+    fn structured_contract_rejects_multiple_fix_reproducer_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = CompletionContract {
+            required_paths: Vec::new(),
+            verify_commands: Vec::new(),
+            fix_reproducer_command: Some("python3 cli.py 7\npython3 cli.py 8".to_string()),
+            profile: None,
+            goal: None,
+            required_capabilities: Vec::new(),
+            deterministic_oracles: Vec::new(),
+            required_evidence: Vec::new(),
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 2,
+        }
+        .validate(dir.path())
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            error.contains("fix_reproducer_command") || error.contains("verify command"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -2535,6 +2578,7 @@ export class SpaceInvadersEngine {\n\
             verify_commands: vec![
                 r#"grep -q "alpha" src/report.txt && grep -q "beta" src/report.txt"#.to_string(),
             ],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2560,6 +2604,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: vec![
@@ -2615,6 +2660,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("シューティングでドラゴンを倒すゲーム".to_string()),
             required_capabilities: Vec::new(),
@@ -2655,6 +2701,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2679,6 +2726,7 @@ export class SpaceInvadersEngine {\n\
         let err = CompletionContract {
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2708,6 +2756,7 @@ export class SpaceInvadersEngine {\n\
             let err = CompletionContract {
                 required_paths: vec![path.to_string()],
                 verify_commands: Vec::new(),
+                fix_reproducer_command: None,
                 profile: None,
                 goal: None,
                 required_capabilities: Vec::new(),
@@ -2733,6 +2782,7 @@ export class SpaceInvadersEngine {\n\
         let err = CompletionContract {
             required_paths: vec!["out/file.txt".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2760,6 +2810,7 @@ export class SpaceInvadersEngine {\n\
             let err = CompletionContract {
                 required_paths: Vec::new(),
                 verify_commands: vec![command.to_string()],
+                fix_reproducer_command: None,
                 profile: None,
                 goal: None,
                 required_capabilities: Vec::new(),
@@ -2879,6 +2930,7 @@ export class SpaceInvadersEngine {\n\
                 "tests/gameplay.test.ts".to_string(),
             ],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: None,
             required_capabilities: Vec::new(),
@@ -2941,6 +2993,7 @@ export class SpaceInvadersEngine {\n\
         let report = CompletionContract {
             required_paths: vec!["test_repair_report.py".to_string()],
             verify_commands: vec!["python3 -m unittest test_repair_report.py".to_string()],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2988,6 +3041,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3025,6 +3079,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["package.json".to_string()],
             verify_commands: vec!["npm run build".to_string()],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3060,6 +3115,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3111,6 +3167,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3193,6 +3250,7 @@ export class SpaceInvadersEngine {\n\
                 "src/app/global.d.ts".to_string(),
             ],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: Some("Create a Next.js app".to_string()),
             required_capabilities: Vec::new(),
@@ -3250,6 +3308,7 @@ export class SpaceInvadersEngine {\n\
         let contract = CompletionContract {
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: Some("Create a Next.js app".to_string()),
             required_capabilities: Vec::new(),

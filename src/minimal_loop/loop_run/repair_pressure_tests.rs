@@ -911,6 +911,7 @@ mod moved {
         let contract = CompletionContract {
             required_paths: vec!["a.py".to_string()],
             verify_commands: vec!["python3 -m py_compile a.py".to_string()],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -964,6 +965,7 @@ mod moved {
         let contract = CompletionContract {
             required_paths: vec!["src/main.rs".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -1022,6 +1024,7 @@ mod moved {
         let contract = CompletionContract {
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),

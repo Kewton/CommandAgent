@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod cases {
+    #[path = "completion_contract_tests.rs"]
+    mod completion_contract_tests;
+
     use std::collections::BTreeMap;
     use std::path::Path;
 
