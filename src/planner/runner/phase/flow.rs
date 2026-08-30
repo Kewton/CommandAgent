@@ -786,6 +786,7 @@ pub fn run_ultra_plan_with_ui(
         )?;
         phase_machine.phase_committed(true, &plan.intent)?;
     }
+    fix_runtime = crate::planner::fix_recovery::resume(fix_runtime, plan, config)?;
     if let Some(runtime) = fix_runtime {
         let result = runtime.finish(config, plan);
         phase_machine.intent_finished(result.is_ok())?;

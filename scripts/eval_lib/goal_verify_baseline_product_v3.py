@@ -513,6 +513,20 @@ def _recovery_plan_attempts(
         for row in events
         if row.get("event") == "recovery_step_plan_verify_commands_bound"
     ]
+    fix_contract_resumptions = [
+        {
+            "original_intent": row.get("original_intent"),
+            "contract_origin": row.get("contract_origin"),
+            "contract_version": row.get("contract_version"),
+            "contract_ref": row.get("contract_ref"),
+            "fix_run_id": row.get("fix_run_id"),
+            "reproducer_command": row.get("reproducer_command"),
+            "source": row.get("source"),
+            "external_oracle_used": row.get("external_oracle_used"),
+        }
+        for row in events
+        if row.get("event") == "recovery_fix_contract_resumed"
+    ]
     rows = [
         row
         for row in events
@@ -649,6 +663,7 @@ def _recovery_plan_attempts(
             row.get("event") == "recovery_control_restore_failed" for row in rows
         ),
         "step_plan_contract_bindings": step_plan_contract_bindings,
+        "fix_contract_resumptions": fix_contract_resumptions,
         "promotion_decisions": [
             {
                 "decision": row.get("decision"),

@@ -23,35 +23,36 @@ use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 mod evidence;
 use evidence::*;
 mod data_isolate;
-mod data_role;
+pub(crate) mod data_role;
 #[cfg(test)]
 mod fix6_tests;
 
 pub(crate) const FIX_CONTRACT_ORIGIN: &str = "fix_intent_v0";
 
 #[derive(Debug, Clone)]
-struct ReproducerBinding {
-    command: String,
-    lineage: String,
+pub(crate) struct ReproducerBinding {
+    pub(crate) command: String,
+    pub(crate) lineage: String,
 }
 
 #[derive(Debug)]
 pub(crate) struct FixRuntime {
-    terminal_config: Config,
-    run_id: String,
-    profile: String,
-    goal: String,
-    regression_bindings: Vec<ProfileFixRegressionBinding>,
-    reproducer: Option<ReproducerBinding>,
-    before: Option<FixEvidenceObservation>,
-    after: Option<FixEvidenceObservation>,
-    regressions: Vec<FixEvidenceObservation>,
-    contract_predicate: Option<crate::planner::fix_contract_predicate::FixContractPredicateContext>,
-    diagnostic: Option<crate::planner::fix_diagnostics::FixFailureDiagnostic>,
-    data_role_policy: data_role::DataRolePolicy,
-    epoch: u64,
-    fix_written: bool,
-    terminalized: bool,
+    pub(crate) terminal_config: Config,
+    pub(crate) run_id: String,
+    pub(crate) profile: String,
+    pub(crate) goal: String,
+    pub(crate) regression_bindings: Vec<ProfileFixRegressionBinding>,
+    pub(crate) reproducer: Option<ReproducerBinding>,
+    pub(crate) before: Option<FixEvidenceObservation>,
+    pub(crate) after: Option<FixEvidenceObservation>,
+    pub(crate) regressions: Vec<FixEvidenceObservation>,
+    pub(crate) contract_predicate:
+        Option<crate::planner::fix_contract_predicate::FixContractPredicateContext>,
+    pub(crate) diagnostic: Option<crate::planner::fix_diagnostics::FixFailureDiagnostic>,
+    pub(crate) data_role_policy: data_role::DataRolePolicy,
+    pub(crate) epoch: u64,
+    pub(crate) fix_written: bool,
+    pub(crate) terminalized: bool,
 }
 
 #[derive(Serialize)]
@@ -404,7 +405,7 @@ impl Drop for FixRuntime {
     }
 }
 
-fn regression_binding_lineage(binding: &ProfileFixRegressionBinding) -> String {
+pub(crate) fn regression_binding_lineage(binding: &ProfileFixRegressionBinding) -> String {
     let adapter = match &binding.adapter {
         ProfileFixRegressionAdapter::VerifyCommand(command) => format!("verify:{command}"),
         ProfileFixRegressionAdapter::ProfileContract => "profile_contract".to_string(),

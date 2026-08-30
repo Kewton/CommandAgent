@@ -57,6 +57,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a9 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a10 import (
     _build_contract as build_a14_a10_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a11 import (
+    _build_contract as build_a14_a11_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -356,6 +359,17 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "registered_verify_commands": ["python3 cli.py 16"],
                     "removed_step_ids": ["reproduce-failure"],
                 },
+                {
+                    "event": "recovery_fix_contract_resumed",
+                    "original_intent": "fix",
+                    "contract_origin": "fix_intent_v0",
+                    "contract_version": "v0",
+                    "contract_ref": "docs/fix-intent-contract.md",
+                    "fix_run_id": "01a-test-fix",
+                    "reproducer_command": "python3 cli.py 16",
+                    "source": "host_owned_recovery_fix_origin",
+                    "external_oracle_used": False,
+                },
             ]
             (run_dir / "events.jsonl").write_text(
                 "\n".join(json.dumps(row) for row in rows) + "\n",
@@ -380,6 +394,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(
             telemetry["step_plan_contract_bindings"][0]["binding_mode"],
             "read_only_inspection",
+        )
+        self.assertEqual(
+            telemetry["fix_contract_resumptions"][0]["fix_run_id"],
+            "01a-test-fix",
         )
 
     def test_product_argv_makes_recovery_zero_and_one_explicit(self):
@@ -1220,6 +1238,28 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "classify pytest invocation as Test only when a test artifact exists",
         )
 
+    def test_a14_a11_requires_fix_contract_continuity(self):
+        contract = build_a14_a11_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["supersedes_contract"],
+            "phase6-recovery-v4-20260830-a14-a10-live-01",
+        )
+        self.assertTrue(contract["smoke"]["require_fix_contract_continuity"])
+        self.assertIn(
+            "fix_contract_continuity",
+            contract["smoke"]["required_readiness_checks"],
+        )
+        self.assertIn(
+            "fix-origin.json", contract["analysis"]["recovery_fix_origin_source"]
+        )
+
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
             outcome = _run_registered_browser_command(
@@ -1833,6 +1873,33 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "registered_inner_recovery_verify_commands"
             ]
         )
+
+        contract["smoke"]["require_fix_contract_continuity"] = True
+        contract["smoke"]["typed_fix_reproducer_commands"] = {
+            "eligible": "python3 cli.py 16"
+        }
+        missing_fix_continuity = build_recovery_report(
+            records=records, contract=contract
+        )
+        self.assertFalse(
+            missing_fix_continuity["checks"]["fix_contract_continuity"]
+        )
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "fix_contract_resumptions"
+        ] = [
+            {
+                "original_intent": "fix",
+                "contract_origin": "fix_intent_v0",
+                "contract_version": "v0",
+                "contract_ref": "docs/fix-intent-contract.md",
+                "fix_run_id": "01a-test-fix",
+                "reproducer_command": "python3 cli.py 16",
+                "source": "host_owned_recovery_fix_origin",
+                "external_oracle_used": False,
+            }
+        ]
+        fixed_continuity = build_recovery_report(records=records, contract=contract)
+        self.assertTrue(fixed_continuity["checks"]["fix_contract_continuity"])
 
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "executed_recovery_runs"

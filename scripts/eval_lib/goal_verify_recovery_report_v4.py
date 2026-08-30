@@ -38,6 +38,7 @@ def build_recovery_report(
     typed_reproducer_violations = []
     recovery_verify_command_source_violations = []
     inner_recovery_verify_command_violations = []
+    fix_contract_continuity_violations = []
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -178,6 +179,12 @@ def build_recovery_report(
                 )
             ):
                 inner_recovery_verify_command_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get("require_fix_contract_continuity") is True:
+                resumptions = recovery_attempts.get("fix_contract_resumptions")
+                if not _valid_fix_contract_continuity(
+                    resumptions, expected_reproducer
+                ):
+                    fix_contract_continuity_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
             if not (
                 isinstance(treatment_path, str)
@@ -323,6 +330,8 @@ def build_recovery_report(
         checks["registered_inner_recovery_verify_commands"] = (
             not inner_recovery_verify_command_violations
         )
+    if smoke.get("require_fix_contract_continuity") is True:
+        checks["fix_contract_continuity"] = not fix_contract_continuity_violations
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -426,8 +435,35 @@ def build_recovery_report(
                 is True
                 else {}
             ),
+            **(
+                {
+                    "fix_contract_continuity_violations": (
+                        fix_contract_continuity_violations
+                    )
+                }
+                if smoke.get("require_fix_contract_continuity") is True
+                else {}
+            ),
         },
     }
+
+
+def _valid_fix_contract_continuity(value: Any, expected_reproducer: Any) -> bool:
+    if not isinstance(value, list) or len(value) != 1:
+        return False
+    row = value[0]
+    return (
+        isinstance(row, dict)
+        and row.get("original_intent") == "fix"
+        and row.get("contract_origin") == "fix_intent_v0"
+        and row.get("contract_version") == "v0"
+        and row.get("contract_ref") == "docs/fix-intent-contract.md"
+        and isinstance(row.get("fix_run_id"), str)
+        and bool(row.get("fix_run_id"))
+        and row.get("reproducer_command") == expected_reproducer
+        and row.get("source") == "host_owned_recovery_fix_origin"
+        and row.get("external_oracle_used") is False
+    )
 
 
 def _valid_inner_recovery_bindings(value: Any) -> bool:

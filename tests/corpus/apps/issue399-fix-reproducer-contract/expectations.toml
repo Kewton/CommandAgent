@@ -39,6 +39,9 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"event\":\"completion_contract_bound\"",
   "\"completion_contract_path\":\".commandagent/recovery-runtime/completion-contract.json\"",
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"contract_origin\":\"fix_intent_v0\"",
+  "\"source\":\"host_owned_recovery_fix_origin\"",
   "\"event\":\"recovery_step_plan_verify_commands_bound\"",
   "\"binding_mode\":\"completion_contract_final_success\"",
   "\"bound_verify_commands\":[\"python3 cli.py 7\"]"
@@ -58,5 +61,6 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_boundary_snapshot\"",
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"event\":\"completion_contract_bound\"",
+  "\"event\":\"recovery_fix_contract_resumed\"",
   "\"event\":\"recovery_step_plan_verify_commands_bound\""
 ]
