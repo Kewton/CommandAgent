@@ -5,11 +5,15 @@ from typing import Any
 
 
 def build_recovery_report(
-    *, records: list[dict[str, Any]], contract: dict[str, Any]
+    *,
+    records: list[dict[str, Any]],
+    contract: dict[str, Any],
+    oracle_executability_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected = int(contract["smoke"]["expected_pair_count"])
     configured_zero = []
     configured_one = []
+    maximum_one_executed = []
     ineligible_recovery_violations = []
     snapshot_mismatches = []
     oracle_source_violations = []
@@ -44,9 +48,12 @@ def build_recovery_report(
         initial_attempts = initial_result.get("recovery_plan_attempts", {})
         configured_zero.append(initial_attempts.get("configured_recovery_runs") == 0)
         _check_oracle_source(initial, pair_id, oracle_source_violations)
-        _check_browser_oracle_executability(
-            initial, pair_id, browser_oracle_unavailable
-        )
+        if contract.get("smoke", {}).get(
+            "require_separate_browser_oracle_preflight"
+        ) is not True:
+            _check_browser_oracle_executability(
+                initial, pair_id, browser_oracle_unavailable
+            )
         _check_resources(initial_result, pair_id, "initial_only", resource_missing)
         _check_manifest_policy(initial, pair_id, manifest_policy_violations)
         _check_execution_action(
@@ -90,16 +97,29 @@ def build_recovery_report(
                 f"rejected_without_control_retention:{pair_id}"
             )
         shared_record = record.get("pairing_unit") == "shared_pre_recovery_snapshot"
+        preregistered_eligible = (
+            record.get("eligibility", {}).get("preregistered", {}).get("eligible")
+        )
+        configured_eligibility = (
+            preregistered_eligible
+            if isinstance(preregistered_eligible, bool)
+            else runtime_eligible
+        )
         configured_runs = recovery_attempts.get("configured_recovery_runs")
         configured_valid = (
-            configured_runs == 0 and executed_recovery_runs == 0
-            if shared_record and runtime_eligible is not True
+            configured_runs == (1 if configured_eligibility is True else 0)
+            if shared_record
             else configured_runs == 1
             and isinstance(executed_recovery_runs, int)
             and not isinstance(executed_recovery_runs, bool)
             and 0 <= executed_recovery_runs <= 1
         )
         configured_one.append(configured_valid)
+        maximum_one_executed.append(
+            isinstance(executed_recovery_runs, int)
+            and not isinstance(executed_recovery_runs, bool)
+            and 0 <= executed_recovery_runs <= 1
+        )
         if runtime_eligible is not True and (
             not shared_record or executed_recovery_runs != 0
         ):
@@ -138,9 +158,12 @@ def build_recovery_report(
         ).get("snapshot_sha256"):
             snapshot_mismatches.append(pair_id)
         _check_oracle_source(recovery, pair_id, oracle_source_violations)
-        _check_browser_oracle_executability(
-            recovery, pair_id, browser_oracle_unavailable
-        )
+        if contract.get("smoke", {}).get(
+            "require_separate_browser_oracle_preflight"
+        ) is not True:
+            _check_browser_oracle_executability(
+                recovery, pair_id, browser_oracle_unavailable
+            )
         _check_resources(recovery_result, pair_id, "recovery_one", resource_missing)
         _check_manifest_policy(recovery, pair_id, manifest_policy_violations)
         _check_execution_action(
@@ -208,11 +231,18 @@ def build_recovery_report(
     smoke = contract.get("smoke", {})
     minimum_executed = smoke.get("minimum_executed_recovery_pairs", 0)
     minimum_suppressions = smoke.get("minimum_current_success_suppressions", 0)
+    if smoke.get("require_separate_browser_oracle_preflight") is True:
+        browser_oracle_unavailable.extend(
+            _browser_preflight_errors(
+                oracle_executability_preflight,
+                contract=contract,
+            )
+        )
     checks = {
         "target_pairs_complete": len(records) == expected,
         "initial_arm_configured_zero": bool(configured_zero) and all(configured_zero),
         "recovery_arm_configured_one_or_preregistered_not_run": all(configured_one),
-        "maximum_one_recovery_executed": all(configured_one),
+        "maximum_one_recovery_executed": all(maximum_one_executed),
         "ineligible_recovery_not_executed": not ineligible_recovery_violations,
         "paired_input_snapshot_match": not snapshot_mismatches,
         "frozen_external_oracle_post_execution": not oracle_source_violations,
@@ -356,6 +386,49 @@ def _check_browser_oracle_executability(
             errors.append(
                 f"{pair_id}:{row.get('adapter_id')}:{outcome.get('reason', 'unknown')}"
             )
+
+
+def _browser_preflight_errors(
+    preflight: dict[str, Any] | None,
+    *,
+    contract: dict[str, Any],
+) -> list[str]:
+    if not isinstance(preflight, dict):
+        return ["separate_preflight_missing"]
+    errors = []
+    if preflight.get("contract_id") != contract.get("contract_id"):
+        errors.append("separate_preflight_contract_mismatch")
+    if preflight.get("run_id") != contract.get("smoke_run_id"):
+        errors.append("separate_preflight_run_mismatch")
+    if preflight.get("source") != "frozen_reference_workspace":
+        errors.append("separate_preflight_source_invalid")
+    if preflight.get("passed_to_product_or_recovery") is not False:
+        errors.append("separate_preflight_information_boundary_invalid")
+    rows = preflight.get("outcomes")
+    if not isinstance(rows, list) or not rows:
+        return [*errors, "separate_preflight_outcomes_missing"]
+    for row in rows:
+        if not isinstance(row, dict):
+            errors.append("separate_preflight:invalid:row_invalid")
+            continue
+        adapter_id = row.get("adapter_id")
+        if row.get("candidate_visible") is not False:
+            errors.append(
+                f"separate_preflight:{adapter_id}:candidate_visibility_invalid"
+            )
+        build = row.get("build", {}).get("outcome", {})
+        if build.get("executed") is not True or build.get("result") != "pass":
+            errors.append(
+                f"separate_preflight:{adapter_id}:"
+                f"{build.get('reason', 'reference_build_invalid')}"
+            )
+        outcome = row.get("outcome", {}) if isinstance(row, dict) else {}
+        if outcome.get("executed") is not True or outcome.get("result") != "pass":
+            errors.append(
+                f"separate_preflight:{adapter_id}:"
+                f"{outcome.get('reason', 'unknown')}"
+            )
+    return errors
 
 
 def _check_resources(

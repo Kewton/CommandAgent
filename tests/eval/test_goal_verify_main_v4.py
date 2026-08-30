@@ -33,6 +33,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a3 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a4 import (
     _build_contract as build_a14_a4_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a5 import (
+    _build_contract as build_a14_a5_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _product_resource_usage,
     _product_terminal_status,
@@ -45,6 +48,7 @@ from eval_lib.goal_verify_blind_v4 import (
     canonical_sha256,
     human_sample,
 )
+from eval_lib.goal_verify_executors_v3 import _run_registered_browser_command
 from eval_lib.goal_verify_live_v4 import _candidate_resource_usage, _cluster_manifest
 from eval_lib.goal_verify_main_design_v4 import main_design_errors
 from eval_lib.goal_verify_main_report_v4 import (
@@ -65,6 +69,7 @@ from eval_lib.goal_verify_recovery_experiment_v4 import (
 )
 from eval_lib.goal_verify_recovery_live_v4 import (
     _attach_frozen_browser_toolchain,
+    _ensure_oracle_executability_preflight,
     _snapshot_content_sha256,
     run_recovery_pair,
 )
@@ -798,6 +803,254 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertFalse(
             blocked_report["checks"]["browser_oracle_executability_preflight"]
         )
+
+    def test_a14_a5_separates_reference_preflight_from_candidate_failure(self):
+        contract = build_a14_a5_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        self.assertTrue(
+            contract["smoke"]["require_separate_browser_oracle_preflight"]
+        )
+        self.assertEqual(
+            contract["analysis"]["browser_executability_preflight_source"],
+            "frozen reference workspace, never candidate artifact",
+        )
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["frozen_external_oracles"],
+            "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a5.json",
+        )
+
+        contract["smoke"]["expected_pair_count"] = 1
+        usage = {
+            "wall_time_ms": 1,
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "total_tokens": 2,
+        }
+        manifest = {
+            "candidate_visibility_policy": (
+                "commandagent.goal_verify.candidate_manifest.source_config_v1"
+            )
+        }
+        candidate_browser_failure = {
+            "source": "frozen_host_adapter_post_execution",
+            "outcomes": [
+                {
+                    "adapter_id": "candidate-browser",
+                    "executor_kind": "playwright_script",
+                    "outcome": {
+                        "executed": False,
+                        "result": "blocked",
+                        "reason": "candidate_server_not_ready",
+                    },
+                }
+            ],
+        }
+        record = {
+            "pair_id": "runtime-excluded-after-preregistration",
+            "pairing_unit": "shared_pre_recovery_snapshot",
+            "eligibility": {
+                "preregistered": {"eligible": True},
+                "runtime": {
+                    "run_recovery_one_arm": False,
+                    "category": "dependency_or_provisioning",
+                },
+            },
+            "initial_only": {
+                "input_manifest": {"snapshot_sha256": "a" * 64},
+                "result": {
+                    "argv": ["commandagent", "--ultra-plan-run", "goal"],
+                    "recovery_plan_attempts": {
+                        "configured_recovery_runs": 0,
+                        "executed_recovery_runs": 0,
+                    },
+                    "resource_usage": usage,
+                },
+                "output_artifact_manifest": manifest,
+                "external_oracles": candidate_browser_failure,
+            },
+            "recovery_one": {
+                "status": "completed",
+                "input_manifest": {"snapshot_sha256": "a" * 64},
+                "result": {
+                    "argv": ["commandagent", "--ultra-plan-run", "goal"],
+                    "recovery_plan_attempts": {
+                        "configured_recovery_runs": 1,
+                        "executed_recovery_runs": 0,
+                    },
+                    "resource_usage": usage,
+                },
+                "output_artifact_manifest": manifest,
+                "external_oracles": candidate_browser_failure,
+            },
+            "comparison": {
+                "quality_transition": "no_recovery_executed",
+                "success_improved": False,
+                "shared_initial_history": True,
+                "internal_external_outcome_matrix": {},
+                "resource_delta": {
+                    "wall_time_ms": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
+            },
+        }
+        preflight = {
+            "contract_id": contract["contract_id"],
+            "run_id": contract["smoke_run_id"],
+            "source": "frozen_reference_workspace",
+            "passed_to_product_or_recovery": False,
+            "outcomes": [
+                {
+                    "adapter_id": "reference-browser",
+                    "candidate_visible": False,
+                    "build": {
+                        "outcome": {
+                            "executed": True,
+                            "result": "pass",
+                            "reason": "registered_reference_build_passed",
+                        }
+                    },
+                    "outcome": {
+                        "executed": True,
+                        "result": "pass",
+                        "reason": "observation_match",
+                    },
+                }
+            ],
+        }
+
+        report = build_recovery_report(
+            records=[record],
+            contract=contract,
+            oracle_executability_preflight=preflight,
+        )
+
+        self.assertTrue(
+            report["checks"][
+                "recovery_arm_configured_one_or_preregistered_not_run"
+            ]
+        )
+        self.assertTrue(report["checks"]["maximum_one_recovery_executed"])
+        self.assertTrue(report["checks"]["ineligible_recovery_not_executed"])
+        self.assertTrue(
+            report["checks"]["browser_oracle_executability_preflight"],
+            report["diagnostics"],
+        )
+
+        wrong_run = copy.deepcopy(preflight)
+        wrong_run["run_id"] = "different-run"
+        wrong_run_report = build_recovery_report(
+            records=[record],
+            contract=contract,
+            oracle_executability_preflight=wrong_run,
+        )
+        self.assertFalse(
+            wrong_run_report["checks"]["browser_oracle_executability_preflight"]
+        )
+
+        too_many = copy.deepcopy(record)
+        too_many["recovery_one"]["result"]["recovery_plan_attempts"][
+            "executed_recovery_runs"
+        ] = 2
+        too_many_report = build_recovery_report(
+            records=[too_many],
+            contract=contract,
+            oracle_executability_preflight=preflight,
+        )
+        self.assertTrue(
+            too_many_report["checks"][
+                "recovery_arm_configured_one_or_preregistered_not_run"
+            ]
+        )
+        self.assertFalse(
+            too_many_report["checks"]["maximum_one_recovery_executed"]
+        )
+
+    def test_registered_browser_process_records_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            outcome = _run_registered_browser_command(
+                ["node", "-e", "process.stdout.write('ok')"],
+                Path(temporary),
+                1_000,
+            )
+
+        self.assertTrue(outcome["executed"])
+        self.assertEqual(outcome["exit_code"], 0)
+
+    def test_reference_browser_preflight_builds_registered_stage_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "root"
+            reference = root / "fixture/reference"
+            next_package = reference / "node_modules/next/package.json"
+            next_package.parent.mkdir(parents=True)
+            next_package.write_text('{"version":"16.3.1"}', encoding="utf-8")
+            (reference / "package.json").write_text("{}", encoding="utf-8")
+            run_dir = base / "run"
+            run_dir.mkdir()
+            build_calls = []
+
+            def build_runner(argv, workspace, timeout_ms):
+                build_calls.append((argv, workspace, timeout_ms))
+                return {
+                    "executed": True,
+                    "exit_code": 0,
+                    "timed_out": False,
+                }
+
+            def oracle_executor(executor, *, workspace):
+                self.assertEqual(executor["kind"], "playwright_script")
+                self.assertTrue((workspace / "package.json").is_file())
+                return {
+                    "executed": True,
+                    "result": "pass",
+                    "reason": "observation_match",
+                }
+
+            document = _ensure_oracle_executability_preflight(
+                contract={
+                    "contract_id": "a14-a5-test",
+                    "smoke": {"require_separate_browser_oracle_preflight": True},
+                },
+                adapters=[
+                    {
+                        "adapter_id": "browser-reference",
+                        "case_id": "case-1",
+                        "executor": {
+                            "kind": "playwright_script",
+                            "workspace": "workspace-1",
+                            "stage": "reference",
+                        },
+                    }
+                ],
+                workspaces={
+                    "workspace-1": {
+                        "case_id": "workspace-1",
+                        "profile": "nextjs",
+                        "root": "fixture",
+                        "stages": {"reference": "golden"},
+                    }
+                },
+                root=root,
+                execution_root=base / "execution",
+                namespace="a14-a5-smoke",
+                selected_pair_ids=["case-1--pair-01"],
+                run_dir=run_dir,
+                build_runner=build_runner,
+                oracle_executor=oracle_executor,
+            )
+
+        self.assertEqual(len(build_calls), 1)
+        self.assertEqual(build_calls[0][0], ["npx", "next", "build", "--webpack"])
+        self.assertEqual(document["source"], "frozen_reference_workspace")
+        self.assertFalse(document["passed_to_product_or_recovery"])
+        self.assertTrue(document["outcomes"][0]["outcome"]["executed"])
 
     def test_shared_boundary_comparison_requires_semantic_oracle_validation(self):
         treatment = {

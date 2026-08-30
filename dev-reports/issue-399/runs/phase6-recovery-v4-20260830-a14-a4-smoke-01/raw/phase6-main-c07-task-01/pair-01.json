@@ -1,0 +1,941 @@
+{
+  "case_id": "phase6-main-c07-task-01",
+  "comparison": {
+    "control_snapshot_matches_boundary": false,
+    "effect_attribution_ready": false,
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "pass",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "pass",
+        "internal": "completed"
+      },
+      "treatment": {
+        "external": "not_applicable",
+        "internal": "not_executed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "final-success--phase6-cell-07-source-task-01",
+        "forbidden-substitution-absent--phase6-cell-07-source-task-01"
+      ],
+      "precondition_adapter_ids": [
+        "exact-reproducer--phase6-cell-07-source-task-01"
+      ],
+      "valid": true
+    },
+    "quality_transition": "no_recovery_needed",
+    "raw_oracle_transition": "unchanged_pass",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "recovery_oracle_status": "pass",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_ms": 0
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "initial_success",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "paired_recovery_one_arm_runs_but_should_execute_zero_recoveries",
+      "run_recovery_one_arm": true,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "final-success--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 33,
+            "stderr": "",
+            "stdout": "1\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "forbidden-substitution-absent--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "file_content",
+          "is_regression": false,
+          "outcome": {
+            "actual_present": false,
+            "executed": true,
+            "path": "app.py",
+            "pattern_sha256": "9d3e56ab2f70675fa81c2ea6cd69ca86676ea60d90d7ece6d971ad98505794d5",
+            "polarity": "absent",
+            "reason": "predicate_match",
+            "result": "pass"
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-adjudication.json",
+          "sha256": "3fe7baa135ec1443a0b484b9f762639ff943f2718d71558a386871be8f178f05",
+          "size": 3036
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-after.json",
+          "sha256": "1e0f08cca811bf389435c9bab3f55290b343b475f6829b41af3087ce09ca3e48",
+          "size": 674
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-before.json",
+          "sha256": "a0045f879587ffb52177966f2f406bb865d9d8542928299aa93dcb7971e568b1",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-regression-profile_contract.json",
+          "sha256": "2ccff6b3192a39e0c343dc42d1b9821c4b87719bac47c51068bde21e4a9ed2a4",
+          "size": 696
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-adjudication.json",
+          "sha256": "3fe7baa135ec1443a0b484b9f762639ff943f2718d71558a386871be8f178f05",
+          "size": 3036
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-after.json",
+          "sha256": "1e0f08cca811bf389435c9bab3f55290b343b475f6829b41af3087ce09ca3e48",
+          "size": 674
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-before.json",
+          "sha256": "a0045f879587ffb52177966f2f406bb865d9d8542928299aa93dcb7971e568b1",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-regression-profile_contract.json",
+          "sha256": "2ccff6b3192a39e0c343dc42d1b9821c4b87719bac47c51068bde21e4a9ed2a4",
+          "size": 696
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a4-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "succeeded",
+            "stop_reason": "initial_success"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "no_recovery_boundary_reached"
+      },
+      "resource_usage": {
+        "input_tokens": 29865,
+        "output_tokens": 3661,
+        "total_tokens": 33526,
+        "wall_time_ms": 135531
+      },
+      "status": "completed",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "",
+        "next_action": "collect_missing_final_acceptance_evidence",
+        "ok": true,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": null,
+        "status": "completed",
+        "stop_reason": "completed",
+        "structured_blockers": []
+      }
+    },
+    "status": "same_run_no_recovery_boundary"
+  },
+  "intent": "fix",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "final-success--phase6-cell-07-source-task-01",
+      "forbidden-substitution-absent--phase6-cell-07-source-task-01"
+    ],
+    "precondition_adapter_ids": [
+      "exact-reproducer--phase6-cell-07-source-task-01"
+    ],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c07-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "generic",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260830-a14-a4-smoke-01/raw/phase6-main-c07-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "final-success--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 33,
+            "stderr": "",
+            "stdout": "1\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "forbidden-substitution-absent--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "file_content",
+          "is_regression": false,
+          "outcome": {
+            "actual_present": false,
+            "executed": true,
+            "path": "app.py",
+            "pattern_sha256": "9d3e56ab2f70675fa81c2ea6cd69ca86676ea60d90d7ece6d971ad98505794d5",
+            "polarity": "absent",
+            "reason": "predicate_match",
+            "result": "pass"
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "host_capability_attachments": [],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-adjudication.json",
+        "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-after.json",
+        "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-before.json",
+        "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-regression-profile_contract.json"
+      ],
+      "after_snapshot_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2",
+      "before_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "change_count": 5,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-adjudication.json",
+          "sha256": "3fe7baa135ec1443a0b484b9f762639ff943f2718d71558a386871be8f178f05",
+          "size": 3036
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-after.json",
+          "sha256": "1e0f08cca811bf389435c9bab3f55290b343b475f6829b41af3087ce09ca3e48",
+          "size": 674
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-before.json",
+          "sha256": "a0045f879587ffb52177966f2f406bb865d9d8542928299aa93dcb7971e568b1",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-regression-profile_contract.json",
+          "sha256": "2ccff6b3192a39e0c343dc42d1b9821c4b87719bac47c51068bde21e4a9ed2a4",
+          "size": 696
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-adjudication.json",
+          "sha256": "3fe7baa135ec1443a0b484b9f762639ff943f2718d71558a386871be8f178f05",
+          "size": 3036
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-after.json",
+          "sha256": "1e0f08cca811bf389435c9bab3f55290b343b475f6829b41af3087ce09ca3e48",
+          "size": 674
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-before.json",
+          "sha256": "a0045f879587ffb52177966f2f406bb865d9d8542928299aa93dcb7971e568b1",
+          "size": 1162
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a0500b-fdf1-7cd1-94ec-5be9c9076a5b-regression-profile_contract.json",
+          "sha256": "2ccff6b3192a39e0c343dc42d1b9821c4b87719bac47c51068bde21e4a9ed2a4",
+          "size": 696
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "2c640c143db6964e1e02a27228d258d7574143b5c317e3567cae4eae343021b2"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a4-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "d467945389646c1f067c716b35f1780f4740694646b0c66bfd6b0cad05e41e60",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "de762e9589438fcb4dd0ee019b88076450dfc5d39d6d4b601a254fb21d6ae37d",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c07-task-01--pair-01--shared-run/before/.commandagent/runs/01a0500b-fdba-7f92-8947-ed3e9dbbe354",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "succeeded",
+            "stop_reason": "initial_success"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "control_restore_failed_count": 0,
+        "control_retained_count": 0,
+        "current_success_suppressed": false,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "promotion_decisions": [],
+        "terminal_stop_reason": "initial_success",
+        "treatment_regression_rejected_count": 0
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 29865,
+        "output_tokens": 3661,
+        "total_tokens": 33526,
+        "wall_time_ms": 135531
+      },
+      "returncode": 0,
+      "status": "completed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\n",
+      "stdout": "### Plan\n- Goal: Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-boun...\n- Profile: generic\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: Reproduce t...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: Reproduce the P...\n3. ○ repair - Apply the focused repair for the reproduced failure in: Reproduce the Python crash with exactly ...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: Reproduce the Python cras...\n── Phase 1/4: reproduce-before ──\n→ planning steps for phase 1/4 reproduce-before (qwen3.6, up to 600s)\n✓ step plan ready (5s)\n#### Phase: reproduce-before\n1. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n→ planning steps for phase 2/4 isolate-cause (qwen3.6, up to 600s)\n✓ step plan ready (10s)\n#### Phase: isolate-cause\n1. ○ [inspect] Read app.py to understand the logic and identify where the 'amount' key is accessed, particularl... (verify 0)\n2. ○ [inspect] Read fixture/task-01.json to understand the data structure and verify if the 'amount' key is pre... (verify 0)\n3. ○ [inspect] Compare the app.py logic with the fixture structure to determine why the 'amount' key is not fou... (verify 0)\n→ step inspect-app-py [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n✓ Read ok\n→ step inspect-fixture [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read fixture/task-01.json\n✓ Read ok\n→ step analyze-mismatch [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (11s)\n→ Bash python3 app.py fixture/task-01.json 2>&1; echo \"EXIT: $?\"\n✓ Bash ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n↻ plan quality retry 2: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (11s)\n↻ plan quality retry 3: code task lacks test, build, smoke, or compile verification\n#### Phase: repair\n1. ○ [inspect] Read app.py and fixture/task-01.json to understand the data structure and locate the KeyError at... (verify 0)\n2. ○ [implement] Fix app.py to handle missing 'amount' keys gracefully, likely by using dict.get() with a default... (verify 0)\n3. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-crash-context [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read app.py\n→ Read fixture/task-01.json\n✓ Read ok\n✓ Read ok\n→ step implement-fix [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (10s)\n→ Edit app.py\n✓ Edit ok\n→ step verify-reproducer [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (3s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n✓ verify repair (intermediate_invariant)\n✓ Phase 3/4: repair\n── Phase 4/4: verify-regressions ──\n→ planning steps for phase 4/4 verify-regressions (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n✗ planner planner_error\n→ planning steps for phase 4/4 verify-regressions (qwen3.6, up to 600s)\n✓ step plan ready (7s)\n↻ plan quality retry 2: code task lacks test, build, smoke, or compile verification\n→ planning steps for phase 4/4 verify-regressions (qwen3.6, up to 600s)\n✓ step plan ready (16s)\n↻ plan quality retry 3: verify command may not create or write files with shell redirects; create files with the Write t...\n#### Phase: verify-regressions\n1. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step verify-reproducer-success [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 app.py fixture/task-01.json\n✓ Bash ok\n✓ verify verify-regressions (intermediate_invariant)\n✓ verify verify-regressions (final_acceptance)\n✓ Phase 4/4: verify-regressions\n✗ final acceptance partial\n✓ ultra plan complete 4 phases\nultra-plan-run complete: 4 phases\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "",
+        "next_action": "collect_missing_final_acceptance_evidence",
+        "ok": true,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": null,
+        "status": "completed",
+        "stop_reason": "completed",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 136359
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c07-task-01"
+}

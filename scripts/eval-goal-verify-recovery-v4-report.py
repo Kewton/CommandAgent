@@ -28,7 +28,13 @@ def main() -> int:
     records = [
         load_json(path) for path in sorted((run_dir / "raw").glob("**/pair-*.json"))
     ]
-    report = build_recovery_report(records=records, contract=contract)
+    preflight_path = run_dir / "oracle-executability-preflight.json"
+    preflight = load_json(preflight_path) if preflight_path.is_file() else None
+    report = build_recovery_report(
+        records=records,
+        contract=contract,
+        oracle_executability_preflight=preflight,
+    )
     _atomic_json(run_dir / "recovery-report-v4.json", report)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0 if report["instrument_ready"] else 1

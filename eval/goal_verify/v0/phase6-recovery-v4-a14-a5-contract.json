@@ -4,6 +4,8 @@
     "attribution_requires_shared_initial_history": true,
     "blocked_browser_oracle_excluded_from_effect_evidence": true,
     "bootstrap_iterations": 2000,
+    "browser_executability_preflight_source": "frozen reference workspace, never candidate artifact",
+    "candidate_server_failure_is_product_outcome_not_instrument_failure": true,
     "confidence_interval": 0.95,
     "configured_one_but_executed_zero": "arm differences are initial-attempt divergence, not Recovery effect",
     "cost_deltas": [
@@ -22,6 +24,7 @@
     "preregistered_exclusion_gate": "ineligible_recovery_not_executed",
     "primary_transition": "fail to pass by frozen external oracle",
     "recovery_treatment_promotion_requires_non_regression": true,
+    "runtime_exclusion_allows_configured_one_executed_zero": true,
     "safety_transitions": [
       "pass to non-pass",
       "regression pass to fail"
@@ -36,17 +39,17 @@
     "regression_introduced": "initial_only frozen regression pass and recovery_one frozen regression fail"
   },
   "authorization": {
-    "approved_at": "2026-08-30",
-    "approved_by": "repository owner",
+    "approved_at": null,
+    "approved_by": null,
     "full_collection_authorized": false,
     "implementation_authorized": true,
-    "smoke_collection_authorized": true
+    "smoke_collection_authorized": false
   },
-  "code_sha": "c1209e63f2dbc560c5988c1ff40ea29f27f8dbd0",
-  "contract_id": "phase6-recovery-v4-20260830-a14-a4-live-01",
+  "code_sha": "",
+  "contract_id": "phase6-recovery-v4-20260830-a14-a5-live-01",
   "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-c1209e63.json",
+  "exact_sha_ci_evidence": "",
   "execution_root_policy": {
     "internal_disk_execution_forbidden": true,
     "required_root": "/Volumes/SSD_NX/tmp/commandagent_trial"
@@ -70,14 +73,20 @@
     "typed_negative_assertions_required": true,
     "unverified_or_error": "unusable, never pass"
   },
-  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json",
+  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a5.json",
   "frozen_input_sha256": {
     "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
     "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a5.json": "68b6cd354505628cad4a530c89367a53c1e0c7fc1525db067f1f4d8ed7c90c06",
     "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
     "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
     "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
-    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a2.json": "3dd424aa5187d3dd16ac3744f094524387be661282038b77533d320630655135"
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a2.json": "3dd424aa5187d3dd16ac3744f094524387be661282038b77533d320630655135",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/layout.js": "decfc2f161f8d2c2ba495ac56a7e558e74c8c022cff5653e955b41e5fa96ca29",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/page.js": "60027e201b4ca49feca5e97a2d25347d87a7c9d8be22ef0f81336326d6577b0f",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/play-01/page.js": "f955747df19e0cb2969fec01b0cf15b36f2c4191d6207a18f451064b15906573",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/next.config.js": "9ec21e32c339ca74d2d5272dec98e6a6f959c8780061e9d337a8ea9779c746b0",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/package.json": "70781ee29f0ba2b5db9da49f43e8bc47b3f21e7f9441fa7124ab61eca27561e6"
   },
   "integrity": {
     "append_only_records": true,
@@ -100,6 +109,31 @@
   },
   "model": "qwen3.6:27b-coding-nvfp4",
   "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "oracle_executability_preflight": {
+    "candidate_visible": false,
+    "passed_to_product_or_recovery": false,
+    "reference_overrides": {
+      "create-ui-copy-style-port-path": {
+        "frozen_file_sha256": {
+          "reference/app/layout.js": "decfc2f161f8d2c2ba495ac56a7e558e74c8c022cff5653e955b41e5fa96ca29",
+          "reference/app/page.js": "60027e201b4ca49feca5e97a2d25347d87a7c9d8be22ef0f81336326d6577b0f",
+          "reference/app/play-01/page.js": "f955747df19e0cb2969fec01b0cf15b36f2c4191d6207a18f451064b15906573",
+          "reference/next.config.js": "9ec21e32c339ca74d2d5272dec98e6a6f959c8780061e9d337a8ea9779c746b0",
+          "reference/package.json": "70781ee29f0ba2b5db9da49f43e8bc47b3f21e7f9441fa7124ab61eca27561e6"
+        },
+        "reuse_provisioning_from": "create-ui-copy-style-port-path",
+        "root": "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/",
+        "stage": "reference",
+        "tracked_files": [
+          "reference/app/layout.js",
+          "reference/app/page.js",
+          "reference/app/play-01/page.js",
+          "reference/next.config.js",
+          "reference/package.json"
+        ]
+      }
+    }
+  },
   "paired_run_contract": {
     "arm_order": [
       "initial_only",
@@ -159,6 +193,20 @@
         "Next.js route-bound fallback language leaked into generic tasks"
       ],
       "reason": "A14-A3 proved that a host-rewritten negative assertion and an internal false failure could trigger Recovery that damaged an already passing deliverable"
+    },
+    {
+      "amendment_id": "v4-A14-A5",
+      "historical_run_policy": "A14-A4 smoke-01 remains immutable NO-GO evidence and is never rescored into A14-A5 evidence",
+      "inference_role": "measurement-instrument correction only; effect claim remains forbidden",
+      "instrument_findings": [
+        "browser executability was checked on the candidate artifact instead of a frozen reference workspace",
+        "the inherited reference route /play did not match the A14 registered route /play-01",
+        "the A14 adapter dropped the browser-normalized rgb(0, 0, 255) expected value",
+        "the registered browser command omitted executed=true after an actual process execution",
+        "runtime dependency exclusion can only be known after a preregistered configured-one shared run starts",
+        "maximum-one execution was incorrectly aliased to configuration validity"
+      ],
+      "reason": "A14-A4 kept Recovery harm at zero but conflated candidate server failure with browser-oracle executability and rejected a preregistered configured-one/runtime-excluded executed-zero pair"
     }
   ],
   "product_timeout_sec": 900,
@@ -232,10 +280,12 @@
     "scripts/eval_lib/goal_verify_executors_v3.py",
     "scripts/eval_lib/goal_verify_task_contracts_v4.py",
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a3.py",
-    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py"
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py"
   ],
-  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a14_a4",
+  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a14_a5",
   "smoke": {
+    "browser_oracle_gate_source": "oracle-executability-preflight.json",
     "effect_claim_allowed": false,
     "expected_pair_count": 4,
     "includes_dependency_exclusion_sentinel": true,
@@ -248,6 +298,7 @@
     "require_isolated_treatment_workspace": true,
     "require_recovery_capable_execution_action": true,
     "require_recovery_handoff_fidelity": true,
+    "require_separate_browser_oracle_preflight": true,
     "require_transaction_control_retention": true,
     "required_readiness_checks": [
       "pre_recovery_snapshot_matches_control",
@@ -271,12 +322,12 @@
       "phase6-main-c07-task-01--pair-01"
     ]
   },
-  "smoke_run_id": "phase6-recovery-v4-20260830-a14-a4-smoke-01",
-  "status": "frozen",
+  "smoke_run_id": "phase6-recovery-v4-20260830-a14-a5-smoke-01",
+  "status": "draft",
   "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
   "supersedes": "phase6-main-v4-20260829-live-02",
-  "supersedes_contract": "phase6-recovery-v4-20260829-a14-a3-live-01",
-  "supersedes_smoke_run": "phase6-recovery-v4-20260829-a14-a3-smoke-01",
+  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a4-live-01",
+  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a4-smoke-01",
   "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a2.json",
   "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
   "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json"

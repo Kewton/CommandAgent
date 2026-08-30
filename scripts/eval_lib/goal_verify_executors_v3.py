@@ -393,12 +393,14 @@ def _run_registered_browser_command(
         )
     except subprocess.TimeoutExpired as error:
         return {
+            "executed": True,
             "timed_out": True,
             "stdout": error.stdout or "",
             "stderr": error.stderr or "",
             "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
         }
     return {
+        "executed": True,
         "exit_code": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,

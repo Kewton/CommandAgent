@@ -12,6 +12,7 @@ from eval_lib.goal_verify_additive_v4 import (
     workspace_manifest,
 )
 from eval_lib.goal_verify_baseline_product_v3 import run_current_product_baseline
+from eval_lib.goal_verify_executors_v3 import execute_registered, run_command
 from eval_lib.goal_verify_live import (
     _acquire_run_lock,
     _append_record_ledger,
@@ -22,6 +23,7 @@ from eval_lib.goal_verify_live import (
 )
 from eval_lib.goal_verify_live_v4 import _freeze_browser_toolchain
 from eval_lib.goal_verify_main_design_v4 import product_stage, workspace_case_id
+from eval_lib.goal_verify_next_v4 import detect_executor_capabilities
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     artifact_delta,
@@ -620,6 +622,16 @@ def run_recovery_smoke(
         _atomic_json(manifest_path, manifest)
     lock = _acquire_run_lock(run_dir, contract["integrity"]["exclusive_run_lock"])
     try:
+        _ensure_oracle_executability_preflight(
+            contract=contract,
+            adapters=adapters,
+            workspaces=workspaces,
+            root=root,
+            execution_root=execution_root,
+            namespace=namespace,
+            selected_pair_ids=selected_pair_ids,
+            run_dir=run_dir,
+        )
         ledger_path = run_dir / contract["integrity"]["record_ledger"]
         entries, ledger_head = _load_record_ledger(
             root=root, run_dir=run_dir, ledger_path=ledger_path
@@ -679,6 +691,167 @@ def run_recovery_smoke(
         return load_json(run_dir / "campaign-summary.json")
     finally:
         lock.close()
+
+
+def _ensure_oracle_executability_preflight(
+    *,
+    contract: dict[str, Any],
+    adapters: list[dict[str, Any]],
+    workspaces: dict[str, dict[str, Any]],
+    root: Path,
+    execution_root: Path,
+    namespace: str,
+    selected_pair_ids: list[str],
+    run_dir: Path,
+    build_runner=run_command,
+    oracle_executor=execute_registered,
+) -> dict[str, Any] | None:
+    if contract.get("smoke", {}).get(
+        "require_separate_browser_oracle_preflight"
+    ) is not True:
+        return None
+    path = run_dir / "oracle-executability-preflight.json"
+    if path.is_file():
+        existing = load_json(path)
+        if (
+            existing.get("contract_id") != contract.get("contract_id")
+            or existing.get("run_id") != namespace
+        ):
+            raise ValueError("oracle executability preflight identity mismatch")
+        return existing
+    selected_cases = {
+        pair_id.removesuffix("--pair-01") for pair_id in selected_pair_ids
+    }
+    browser_adapters = [
+        row
+        for row in adapters
+        if row.get("case_id") in selected_cases
+        and row.get("executor", {}).get("kind") == "playwright_script"
+    ]
+    prepared: dict[tuple[str, str], tuple[Path, dict[str, Any]]] = {}
+    outcomes = []
+    for adapter in browser_adapters:
+        executor = adapter["executor"]
+        workspace_id = executor.get("workspace")
+        stage = executor.get("stage")
+        if workspace_id not in workspaces or not isinstance(stage, str):
+            raise ValueError(
+                f"browser preflight workspace is not registered:{workspace_id}"
+            )
+        key = (workspace_id, stage)
+        if key not in prepared:
+            workspace_contract = workspaces[workspace_id]
+            override = (
+                contract.get("oracle_executability_preflight", {})
+                .get("reference_overrides", {})
+                .get(workspace_id)
+            )
+            if isinstance(override, dict):
+                if override.get("stage") != stage:
+                    raise ValueError(
+                        f"browser preflight override stage mismatch:{workspace_id}"
+                    )
+                source_id = override.get("reuse_provisioning_from")
+                if source_id not in workspaces:
+                    raise ValueError(
+                        f"browser preflight provisioning source missing:{source_id}"
+                    )
+                expected_hashes = override.get("frozen_file_sha256", {})
+                if not isinstance(expected_hashes, dict) or not expected_hashes:
+                    raise ValueError(
+                        f"browser preflight override hashes missing:{workspace_id}"
+                    )
+                for relative, expected in expected_hashes.items():
+                    source = root / override["root"] / relative
+                    if not source.is_file() or sha256_file(source) != expected:
+                        raise ValueError(
+                            f"browser preflight override hash mismatch:"
+                            f"{workspace_id}:{relative}"
+                        )
+                workspace_contract = {
+                    **workspaces[source_id],
+                    "root": override["root"],
+                    "stages": {stage: "frozen A14-A5 oracle reference"},
+                    "tracked_files": override["tracked_files"],
+                    "frozen_file_sha256": expected_hashes,
+                }
+            workspace = prepare_workspace_stage(
+                root=root,
+                workspace=workspace_contract,
+                stage=stage,
+                destination=(
+                    execution_root
+                    / namespace
+                    / "oracle-executability-preflight"
+                    / workspace_id
+                    / stage
+                ),
+                provisioned_root=execution_root / "provisioned",
+            )
+            capabilities = detect_executor_capabilities(
+                workspace, profile=workspace_contract["profile"]
+            )
+            next_capability = capabilities.get("next", {})
+            build_argv = next_capability.get("safe_build_argv")
+            if not isinstance(build_argv, list) or not build_argv:
+                build = {
+                    "executed": False,
+                    "result": "blocked",
+                    "reason": "registered_reference_build_unavailable",
+                }
+            else:
+                raw_build = build_runner(build_argv, workspace, 180_000)
+                build = {
+                    **raw_build,
+                    "result": (
+                        "pass"
+                        if raw_build.get("executed") is True
+                        and raw_build.get("exit_code") == 0
+                        and raw_build.get("timed_out") is not True
+                        else "fail"
+                    ),
+                    "reason": (
+                        "registered_reference_build_passed"
+                        if raw_build.get("executed") is True
+                        and raw_build.get("exit_code") == 0
+                        and raw_build.get("timed_out") is not True
+                        else "registered_reference_build_failed"
+                    ),
+                }
+            prepared[key] = (workspace, {"argv": build_argv, "outcome": build})
+        workspace, build = prepared[key]
+        if build["outcome"].get("result") != "pass":
+            outcome = {
+                "executed": False,
+                "result": "blocked",
+                "reason": "reference_build_failed",
+            }
+        else:
+            outcome = oracle_executor(executor, workspace=workspace)
+        outcomes.append(
+            {
+                "adapter_id": adapter.get("adapter_id"),
+                "case_id": adapter.get("case_id"),
+                "executor_kind": "playwright_script",
+                "workspace": workspace_id,
+                "stage": stage,
+                "candidate_visible": False,
+                "build": build,
+                "outcome": outcome,
+            }
+        )
+    document = {
+        "schema_version": (
+            "commandagent.goal_verify.oracle_executability_preflight.v4_a14_a5"
+        ),
+        "contract_id": contract["contract_id"],
+        "run_id": namespace,
+        "source": "frozen_reference_workspace",
+        "passed_to_product_or_recovery": False,
+        "outcomes": outcomes,
+    }
+    _atomic_json(path, document)
+    return document
 
 
 def _prepare_arm_workspace(
