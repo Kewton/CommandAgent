@@ -1,0 +1,5456 @@
+{
+  "cases": [
+    {
+      "case_id": "phase6-main-c05-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "7",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 7",
+        "goal": "`python3 cli.py 7` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 7",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 7` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "7"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "0c8d5e6a610091f220fdf6ff60a516d08339882a8ca200f51096e604319b8307"
+    },
+    {
+      "case_id": "phase6-main-c05-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "8",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 8",
+        "goal": "`python3 cli.py 8` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 8",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 8` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "8"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "756b81e8aeff9f30d903dc0f1aced3eaa944559a6b936ae1981a2a05b36fa411"
+    },
+    {
+      "case_id": "phase6-main-c05-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "9",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 9",
+        "goal": "`python3 cli.py 9` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 9",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 9` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "9"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "b5a23e00c6a8b0b62dc6e356bc6925e374d09d83f2bdb624f4ae2d71fb993422"
+    },
+    {
+      "case_id": "phase6-main-c05-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "10",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 10",
+        "goal": "`python3 cli.py 10` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 10",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 10` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "10"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "d396af3878e7bd628c5f6f7ce10defc438b1d6f2fe68ede61b0d043e02dbb725"
+    },
+    {
+      "case_id": "phase6-main-c05-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "11",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 11",
+        "goal": "`python3 cli.py 11` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 11",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 11` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "11"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "f55f6d3fbb95c4bafe67ec3b0921cde74b90715ba195dd0b04a46c7ed0fcfb04"
+    },
+    {
+      "case_id": "phase6-main-c05-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "12",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 12",
+        "goal": "`python3 cli.py 12` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 12",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 12` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "12"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "a37a22ea501a6220a781cf9e91e19961d85e35667ad1af25e8abad94c49c02da"
+    },
+    {
+      "case_id": "phase6-main-c05-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "13",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 13",
+        "goal": "`python3 cli.py 13` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 13",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 13` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "13"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "7ccec4aaccf400ff93d76ba53b47df6e47a9f39afe1ab7902ba639f9c45c426e"
+    },
+    {
+      "case_id": "phase6-main-c05-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "14",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 14",
+        "goal": "`python3 cli.py 14` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 14",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 14` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "14"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "ee15b20ae0a331d6b3b368739770b4a7711354f2c428dde55b3390fe51da5f4a"
+    },
+    {
+      "case_id": "phase6-main-c05-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "15",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 15",
+        "goal": "`python3 cli.py 15` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 15",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 15` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "15"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "958293c1523980c420c48289b285c3c9b00965de0fe73da800494184313a010c"
+    },
+    {
+      "case_id": "phase6-main-c05-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "cli.py",
+          "16",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 cli.py 16",
+        "goal": "`python3 cli.py 16` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+        "profile": "cli",
+        "required_capabilities": [
+          "input_output_contract"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "cli.py",
+          "tests/test_cli.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 cli.py 16",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'Node.js の harness へ置換しない。' moved to operational_constraints"
+      ],
+      "goal": "`python3 cli.py 16` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "cli.py",
+            "16"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 2,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "before-after",
+        "regressions"
+      ],
+      "source_goal_sha256": "2d1da919337223387b0a112d6e52bcb65eaa853846864985bc90468814b923ed"
+    },
+    {
+      "case_id": "phase6-main-c06-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_01",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 1"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_01 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "319913abf0a9c4be547a884cea674686af53d4a7fd3cdc5965f90bf08c6e4a7f"
+    },
+    {
+      "case_id": "phase6-main-c06-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_02",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 2` which imports offline-unavailable repro_dep_02. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 2"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 2` which imports offline-unavailable repro_dep_02. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_02 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "a0129d0fddffcae05ec51bc9e96c4b7028622069b4d4434ce55257909f9c21e2"
+    },
+    {
+      "case_id": "phase6-main-c06-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_03",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 3` which imports offline-unavailable repro_dep_03. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 3"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 3` which imports offline-unavailable repro_dep_03. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_03 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "694f38d4433828b2a5ddc44bfdfe8afbf4c8078642ea0effd89218cc7783393a"
+    },
+    {
+      "case_id": "phase6-main-c06-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_04",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 4` which imports offline-unavailable repro_dep_04. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 4"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 4` which imports offline-unavailable repro_dep_04. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_04 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "049d7622d69c1f37670d9e0d4a93b9f6e77c2d5a41f15c43689010b2d85af4bb"
+    },
+    {
+      "case_id": "phase6-main-c06-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_05",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 5` which imports offline-unavailable repro_dep_05. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 5"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 5` which imports offline-unavailable repro_dep_05. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_05 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "8a92a411e87104e3d6a0f8c1ed8b97456663af416f9885ac47287ee471b8fb3d"
+    },
+    {
+      "case_id": "phase6-main-c06-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_06",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 6` which imports offline-unavailable repro_dep_06. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 6"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 6` which imports offline-unavailable repro_dep_06. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_06 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "2c0b07bac2de1ae8a0b24edebb2f704377decb98b02b38c590af27dd3b57c11b"
+    },
+    {
+      "case_id": "phase6-main-c06-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_07",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 7` which imports offline-unavailable repro_dep_07. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 7"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 7` which imports offline-unavailable repro_dep_07. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_07 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "3e7f1b3bb5b693a1756680c947d86546dfb36b7f29a2f798be13d211851e25c7"
+    },
+    {
+      "case_id": "phase6-main-c06-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_08",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 8` which imports offline-unavailable repro_dep_08. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 8"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 8` which imports offline-unavailable repro_dep_08. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_08 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "1a034c0d1847317e51340e3b89f4a3ef0f79422911cfbb3296fa7ad0fbb27069"
+    },
+    {
+      "case_id": "phase6-main-c06-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_09",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 9` which imports offline-unavailable repro_dep_09. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 9"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 9` which imports offline-unavailable repro_dep_09. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_09 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "5b4c36c3f49991a2bf0bf0a7cf2310f04d64d26a460e9964d11343674b89843d"
+    },
+    {
+      "case_id": "phase6-main-c06-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py",
+          "repro_dep_10",
+          "unverified"
+        ],
+        "goal": "Run the frozen existing tests, then assess `python3 repro.py 10` which imports offline-unavailable repro_dep_10. Do not claim the bug fixed from old tests alone.",
+        "profile": "data",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py"
+        ],
+        "verify_commands": [
+          "python3 -m pytest -q tests",
+          "python3 repro.py 10"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A13 binds the nested completion goal to the shared semantic goal; operational constraints remain non-scored",
+      "dropped_from_a5_execution_goal": [
+        "'The optional repro_dep is intentionally unavailable offline' and 'do not install from the network' moved to operational_constraints"
+      ],
+      "goal": "Run the frozen existing tests, then assess `python3 repro.py 10` which imports offline-unavailable repro_dep_10. Do not claim the bug fixed from old tests alone.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest",
+        "repro_dep:intentionally_unavailable"
+      ],
+      "operational_constraints": {
+        "extra_tools": [
+          "pytest"
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "scored": false,
+        "shell": "forbidden",
+        "unavailable_dependencies": [
+          "repro_dep_10 (intentionally unavailable offline)"
+        ]
+      },
+      "registered_claims": [
+        "bug-reproducer"
+      ],
+      "source_goal_sha256": "9dd2a44ef3958045ce0defbb74fa0866defc479b3423ab29906a9e2f5d3f548a"
+    },
+    {
+      "case_id": "phase6-main-c07-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-01.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-01.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-01.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-01.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-01.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-01.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "b5fdb0fffdf78bc0c9f0dee189d28dd798d2b7dc01be1cff4a302658b3ff20cc"
+    },
+    {
+      "case_id": "phase6-main-c07-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-02.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-02.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-02.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-02.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-02.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-02.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-02.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-02.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "acbb477df490aa8ee8b1e57390668559216d43b9f4c0bab4cdb6c8becc264ce1"
+    },
+    {
+      "case_id": "phase6-main-c07-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-03.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-03.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-03.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-03.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-03.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-03.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-03.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-03.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "247a8954d2c5329e80014faf6b0d6e4f3713b24489ec083d19784b2d8ebf0766"
+    },
+    {
+      "case_id": "phase6-main-c07-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-04.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-04.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-04.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-04.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-04.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-04.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-04.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-04.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "18aea0b2348a9754f7e1dab18553926dbd21c062215d56f662fe61abd4934d03"
+    },
+    {
+      "case_id": "phase6-main-c07-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-05.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-05.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-05.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-05.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-05.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-05.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-05.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-05.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "2e5f3455e15da7942e5bdcf4c13e23d0134a818b6d2142463ab8b95b7db8138d"
+    },
+    {
+      "case_id": "phase6-main-c07-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-06.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-06.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-06.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-06.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-06.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-06.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-06.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-06.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "eb21de40aa52f62e9dd823ab89d019bab564a4a38729b8f4509ffc0d91bfa5c7"
+    },
+    {
+      "case_id": "phase6-main-c07-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-07.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-07.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-07.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-07.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-07.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-07.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-07.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-07.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "1c608fa706f2a6ac1e5c1d7aac4c999eb37b40917315ec9818b73d497366fa89"
+    },
+    {
+      "case_id": "phase6-main-c07-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-08.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-08.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-08.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-08.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-08.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-08.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-08.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-08.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "507e953831321bdde0c0c2205817d6862562616472b335964af5c1e23c148124"
+    },
+    {
+      "case_id": "phase6-main-c07-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-09.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-09.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-09.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-09.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-09.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-09.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-09.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-09.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "b544a4371d9dd8dbd7dd89b2b69aee7e421504846e9e5dcb6aa343123883f3ab"
+    },
+    {
+      "case_id": "phase6-main-c07-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "app.py",
+          "fixture/task-10.json"
+        ],
+        "fix_reproducer_command": "python3 app.py fixture/task-10.json",
+        "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-10.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+        "profile": "generic",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "bound_verify_command"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "app.py",
+          "fixture/task-10.json",
+          "fixture/control.json"
+        ],
+        "verify_commands": [
+          "python3 app.py fixture/task-10.json"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Do not substitute fixture/b.json and do not replace the Python program with a Node.js harness.' moved to operational_constraints"
+      ],
+      "goal": "Reproduce the Python crash with exactly `python3 app.py fixture/task-10.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js harness"
+        ],
+        "do_not_substitute": [
+          "fixture/control.json"
+        ],
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "fixture/task-10.json",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "app.py",
+            "fixture/task-10.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden",
+        "stdlib_only": true
+      },
+      "registered_claims": [
+        "exact-reproducer"
+      ],
+      "source_goal_sha256": "375aa4e86843c88e1c387e8f64c0dd912c28b55316609e6f76f6d5611447a345"
+    },
+    {
+      "case_id": "phase6-main-c08-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 1",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 1",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 1` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 1",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 1` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "1"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "510015e0f88eda319af921d99570c39892cd779a00eebd1fa6518ca9811489a5"
+    },
+    {
+      "case_id": "phase6-main-c08-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 2",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 2",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 2` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 2",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 2` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "2"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "d4e8e0907a2719cd9c04d3a0c4df1554f9a80f43b71d6851e62ec57b01a8413c"
+    },
+    {
+      "case_id": "phase6-main-c08-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 3",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 3",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 3` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 3",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 3` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "3"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "7040061d9aeb58cab0b90276589bc38a3acff1648dbb381a98dff615dfac9dc2"
+    },
+    {
+      "case_id": "phase6-main-c08-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 4",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 4",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 4` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 4",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 4` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "4"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "e2a43838c68bcc4e37c8ebda92a21ea591694a7fba6689da4a716eccb096e998"
+    },
+    {
+      "case_id": "phase6-main-c08-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 5",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 5",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 5` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 5",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 5` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "5"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "0de528fcde9dc956bf40064fa7fbccd689df2edd4a5cbeecdd0b8f21ddb7807d"
+    },
+    {
+      "case_id": "phase6-main-c08-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 6",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 6",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 6` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 6",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 6` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "6"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "d148662e4acef7b42e9ef6d95c9b18191e2ec76c4f881d06cdcb224e0e353b6b"
+    },
+    {
+      "case_id": "phase6-main-c08-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 7",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 7",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 7` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 7",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 7` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "7"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "4516ec5067fcb30cb992bdc5779417b4d5de4306aed17aeb7f3021971ced7c5c"
+    },
+    {
+      "case_id": "phase6-main-c08-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 8",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 8",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 8` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 8",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 8` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "8"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "a6f6af2d582ca44923b007907aa01d92caa7d90dbdd31ee3404111069df33c32"
+    },
+    {
+      "case_id": "phase6-main-c08-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 9",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 9",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 9` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 9",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 9` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "9"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "d9e3491ff74409d42096348fc8e6e5ca44413846bf81545baa1968d636a825fe"
+    },
+    {
+      "case_id": "phase6-main-c08-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "repro.py 10",
+          "pytest-tests",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 repro.py 10",
+        "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 10` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "lib.py",
+          "repro.py",
+          "tests/test_lib.py",
+          "scripts/contract_check.py"
+        ],
+        "verify_commands": [
+          "python3 repro.py 10",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A14-A13-1 binds the typed fix reproducer to the same structured operational constraint consumed by task consistency validation",
+      "dropped_from_a5_execution_goal": [
+        "'Node/Next.js project へ変換しない。' moved to operational_constraints"
+      ],
+      "goal": "既存 project の Unicode 正規化不具合を `python3 repro.py 10` で修正後にも再現確認し、凍結済み pytest と contract-check の2件を省略せず実行する。",
+      "goal_role": "shared semantic goal for both arms (paired); observable acceptance requirements in this text are covered by registered_claims",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "do_not_convert_to": [
+          "Node.js project",
+          "Next.js project"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "language": "python3",
+        "network": "denied",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "repro.py",
+            "10"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "after-executed",
+        "full-regression-set"
+      ],
+      "source_goal_sha256": "fa8e8b68f60a480e6e862937606e37e520320e5259ca1cbde9ec0aeb0d68695a"
+    },
+    {
+      "case_id": "phase6-main-c13-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-01.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-01.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-01.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-01.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-01.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-01.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-01.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-01.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "6e6b8dff2f53b7530ea6624e7afe610dc58e9d311148284a5d09aaec52ce0b76"
+    },
+    {
+      "case_id": "phase6-main-c14-task-01",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-01.json",
+          "#result-01",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-01.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-01.json` changes from exit 1 to exit 0 and / renders #result-01 as ready-01. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-01.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-01.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-01.json` changes from exit 1 to exit 0 and / renders #result-01 as ready-01. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-01.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-01.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "ea0eefc7d3af1c32a841b0ae2dc803af952cba8c05a66acb756672edacd2863f"
+    },
+    {
+      "case_id": "phase6-main-c13-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-02.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-02.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-02.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-02.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-02.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-02.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-02.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-02.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "e71f3c1a34814974ca857167e82f9ca346b55c07cf02581363e3a47b9d7697a6"
+    },
+    {
+      "case_id": "phase6-main-c14-task-02",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-02.json",
+          "#result-02",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-02.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-02.json` changes from exit 1 to exit 0 and / renders #result-02 as ready-02. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-02.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-02.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-02.json` changes from exit 1 to exit 0 and / renders #result-02 as ready-02. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-02.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-02.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "9353d507b328fba418eb6871de082348c4db175d5c10693d76b6e15035f750c6"
+    },
+    {
+      "case_id": "phase6-main-c13-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-03.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-03.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-03.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-03.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-03.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-03.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-03.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-03.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "5336f0a176d0c4b95abbd980481e19224f15ea1520cc0832c35be13eb27118c6"
+    },
+    {
+      "case_id": "phase6-main-c14-task-03",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-03.json",
+          "#result-03",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-03.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-03.json` changes from exit 1 to exit 0 and / renders #result-03 as ready-03. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-03.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-03.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-03.json` changes from exit 1 to exit 0 and / renders #result-03 as ready-03. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-03.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-03.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "a31a9cee807c4e5376a068fcc709272e5f64ccb0fafb7a17a3211f756b5da617"
+    },
+    {
+      "case_id": "phase6-main-c13-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-04.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-04.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-04.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-04.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-04.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-04.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-04.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-04.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "5ea4733340804e5c6357b5650a33b8f3c046387d8674ae67aba9aabef0a61746"
+    },
+    {
+      "case_id": "phase6-main-c14-task-04",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-04.json",
+          "#result-04",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-04.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-04.json` changes from exit 1 to exit 0 and / renders #result-04 as ready-04. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-04.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-04.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-04.json` changes from exit 1 to exit 0 and / renders #result-04 as ready-04. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-04.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-04.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "a00c28e23db8b28c7d46881f46599143b186508abb34648f016e6470debde7d2"
+    },
+    {
+      "case_id": "phase6-main-c13-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-05.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-05.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-05.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-05.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-05.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-05.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-05.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-05.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "a7dcf43edb17a9d26bd57a1dc8848fae653a7f207553fb78c1d9245a93d2c7c6"
+    },
+    {
+      "case_id": "phase6-main-c14-task-05",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-05.json",
+          "#result-05",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-05.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-05.json` changes from exit 1 to exit 0 and / renders #result-05 as ready-05. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-05.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-05.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-05.json` changes from exit 1 to exit 0 and / renders #result-05 as ready-05. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-05.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-05.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "d3ab8e9e1d14741c4a2c302ed4cb3a84c1603b123c7b8cf0307cbacc80cc0362"
+    },
+    {
+      "case_id": "phase6-main-c13-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-06.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-06.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-06.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-06.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-06.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-06.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-06.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-06.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "de3b669efaf00bf5e50bffcc1fa1c39fa274eed8c49b2afb56299195d3ba0053"
+    },
+    {
+      "case_id": "phase6-main-c14-task-06",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-06.json",
+          "#result-06",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-06.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-06.json` changes from exit 1 to exit 0 and / renders #result-06 as ready-06. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-06.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-06.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-06.json` changes from exit 1 to exit 0 and / renders #result-06 as ready-06. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-06.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-06.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "0f70d3d777832025748458fa3fad7701e2da66c827c2ad0dcbfd9a966300f290"
+    },
+    {
+      "case_id": "phase6-main-c13-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-07.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-07.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-07.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-07.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-07.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-07.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-07.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-07.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "3328e48d6969d2549718485847c2055160210e58698af69b224cbe54b6dc24eb"
+    },
+    {
+      "case_id": "phase6-main-c14-task-07",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-07.json",
+          "#result-07",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-07.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-07.json` changes from exit 1 to exit 0 and / renders #result-07 as ready-07. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-07.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-07.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-07.json` changes from exit 1 to exit 0 and / renders #result-07 as ready-07. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-07.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-07.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "d4f599e64f103476bfffb1f0ae2256ead3ae49355081f31ebde74f2a9d069b4f"
+    },
+    {
+      "case_id": "phase6-main-c13-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-08.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-08.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-08.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-08.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-08.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-08.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-08.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-08.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "fc0258474b22fa8ee8a2a4558d3e40590682f5c904516658c3dbefd8ef7f00fb"
+    },
+    {
+      "case_id": "phase6-main-c14-task-08",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-08.json",
+          "#result-08",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-08.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-08.json` changes from exit 1 to exit 0 and / renders #result-08 as ready-08. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-08.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-08.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-08.json` changes from exit 1 to exit 0 and / renders #result-08 as ready-08. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-08.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-08.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "9f155511b000a2c6419743521aae85e4da63243545fb637ee34d9e1a51008d4f"
+    },
+    {
+      "case_id": "phase6-main-c13-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-09.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-09.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-09.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-09.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-09.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-09.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-09.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-09.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "bbf08f9a0c06ea922713ae7507f9f251f27e23192c8598cc065519ab39ee3b44"
+    },
+    {
+      "case_id": "phase6-main-c14-task-09",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-09.json",
+          "#result-09",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-09.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-09.json` changes from exit 1 to exit 0 and / renders #result-09 as ready-09. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-09.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-09.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-09.json` changes from exit 1 to exit 0 and / renders #result-09 as ready-09. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-09.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-09.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "29460e0e78aced608305e5e2ccb8280103680713fa96ee5a5e915f965ffa9fbc"
+    },
+    {
+      "case_id": "phase6-main-c13-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "data/task-10.csv",
+          "data_reconciliation",
+          "contract-check"
+        ],
+        "fix_reproducer_command": "python3 scripts/repro.py data/task-10.csv",
+        "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-10.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+        "profile": "data",
+        "required_capabilities": [
+          "data_reconciliation",
+          "data_claims_binding",
+          "data_rerun_consistency",
+          "data_results_schema"
+        ],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "non_zero_test_or_assertion_evidence"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "pipeline/main.py",
+          "data/task-10.csv",
+          "scripts/repro.py",
+          "scripts/contract_check.py",
+          "tests/test_pipeline.py",
+          "output/inspection.json",
+          "output/results.json",
+          "output/report.md"
+        ],
+        "verify_commands": [
+          "python3 scripts/repro.py data/task-10.csv",
+          "python3 -m pytest -q tests",
+          "python3 scripts/contract_check.py"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing deterministic data pipeline so `python3 scripts/repro.py data/task-10.csv` changes from exit 1 to exit 0, with input_rows = used_rows + excluded rows. Preserve the frozen pytest and contract-check regressions and regenerate the standard data profile outputs.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "python3-stdlib",
+        "pytest"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "python3-stdlib",
+          "pytest"
+        ],
+        "entry_paths": [
+          "pipeline/main.py"
+        ],
+        "extra_tools": [
+          "pytest"
+        ],
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "python3",
+              "-m",
+              "pytest",
+              "-q",
+              "tests"
+            ],
+            "id": "pytest-tests"
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/contract_check.py"
+            ],
+            "id": "contract-check"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "python3",
+        "network": "denied",
+        "registered_reproducer_fixture": "data/task-10.csv",
+        "reproducer": {
+          "argv": [
+            "python3",
+            "scripts/repro.py",
+            "data/task-10.csv"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions"
+      ],
+      "source_goal_sha256": "d34c8900c360ffc2a03590ddacd424d539d7eec20444cde2b44858e97c56b714"
+    },
+    {
+      "case_id": "phase6-main-c14-task-10",
+      "completion_contract": {
+        "deferred_verify_requirements": [],
+        "deterministic_oracles": [],
+        "evidence_hint_tokens": [
+          "fixture/task-10.json",
+          "#result-10",
+          "production-build"
+        ],
+        "fix_reproducer_command": "node scripts/repro.mjs fixture/task-10.json",
+        "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-10.json` changes from exit 1 to exit 0 and / renders #result-10 as ready-10. Preserve the frozen Node regression and complete a production build.",
+        "profile": "nextjs",
+        "required_capabilities": [],
+        "required_evidence": [
+          "implementation_artifact",
+          "test_artifact",
+          "bound_verify_command",
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation",
+          "verification",
+          "acceptance_evidence"
+        ],
+        "required_paths": [
+          "package.json",
+          "package-lock.json",
+          "next.config.js",
+          "app/layout.js",
+          "app/page.js",
+          "lib/label.mjs",
+          "fixture/task-10.json",
+          "scripts/repro.mjs",
+          "scripts/regression.mjs"
+        ],
+        "verify_commands": [
+          "node scripts/repro.mjs fixture/task-10.json",
+          "node scripts/regression.mjs",
+          "npx next build --webpack"
+        ],
+        "verify_repair_cap": 1
+      },
+      "decision": "A15 adds a real, offline-executable profile task to the eligible Recovery population; it is not a dependency or profile-mismatch sentinel",
+      "dropped_from_a5_execution_goal": [],
+      "goal": "Fix the existing offline Next.js App Router project so `node scripts/repro.mjs fixture/task-10.json` changes from exit 1 to exit 0 and / renders #result-10 as ready-10. Preserve the frozen Node regression and complete a production build.",
+      "goal_role": "shared semantic goal for both Recovery arms",
+      "offline_dependencies": [
+        "next@16.3.1",
+        "react@19.2.8",
+        "react-dom@19.2.8",
+        "playwright-core@1.62.1 (host-owned)"
+      ],
+      "operational_constraints": {
+        "allowed_dependencies": [
+          "next@16.3.1",
+          "react@19.2.8",
+          "react-dom@19.2.8"
+        ],
+        "entry_paths": [
+          "app/page.js"
+        ],
+        "framework": "nextjs-app-router",
+        "frozen_regression_set": [
+          {
+            "argv": [
+              "node",
+              "scripts/regression.mjs"
+            ],
+            "id": "node-regression"
+          },
+          {
+            "argv": [
+              "npx",
+              "next",
+              "build",
+              "--webpack"
+            ],
+            "id": "production-build"
+          }
+        ],
+        "install_from_network": "forbidden",
+        "language": "javascript",
+        "network": "denied",
+        "provisioning": "hash-bound vendored node_modules restored before each arm",
+        "registered_reproducer_fixture": "fixture/task-10.json",
+        "reproducer": {
+          "argv": [
+            "node",
+            "scripts/repro.mjs",
+            "fixture/task-10.json"
+          ],
+          "expected_exit_after": 0,
+          "expected_exit_before": 1,
+          "stage_before": "before"
+        },
+        "reserved_port": 4185,
+        "scored": false,
+        "shell": "forbidden"
+      },
+      "registered_claims": [
+        "exact-reproducer",
+        "regressions",
+        "route-render"
+      ],
+      "source_goal_sha256": "4976aa4510933d6764fd4072683a6687e1383b971fa91de94fff400deed62379"
+    }
+  ],
+  "policy": {
+    "a15_real_profiles": "data and nextjs eligible tasks must use their actual admitted profile artifacts and frozen executable host oracles; sentinels remain separate",
+    "acceptance_requirements": "any observable acceptance requirement that must be scored is a registered claim with an adapter; unregistered A5 requirements were dropped rather than promoted (see dropped_from_a5_execution_goal)",
+    "fix_reproducer_command": "A14-A6 types the already candidate-visible c05 reproducer argv as one CompletionContract fix command; goals and acceptance requirements are unchanged",
+    "goal": "one shared semantic goal component per case, identical for the current-product baseline and both candidate lanes; equals the corpus goal plus only the binding specifics that registered claims and adapters need",
+    "host_tooling": "playwright-core in offline_dependencies is frozen host-owned browser tooling copied outside candidate workspaces; it is not an allowed product dependency",
+    "loader": "goal_verify_task_contracts_v4.bind reads `goal` instead of `execution_goal`; candidate INPUT JSON keeps `goal` and `task_contract.operational_constraints` as separate fields, while baseline --plan-run receives a deterministic labeled envelope containing the same semantic goal and canonical operational_constraints JSON",
+    "operational_constraints": "typed, shared, candidate-visible, and not independently scored; candidates must not derive new claims from them, but may use them to bind oracles for already-provided required claim IDs; the conformance lane's exact registered claim ID set is unchanged"
+  },
+  "schema_version": "commandagent.goal_verify.task_contracts.v4_a14_a13",
+  "status": "draft",
+  "supersedes": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a13-1.json",
+  "validation": {
+    "completion_contract": "must be an object whose required_paths are safe relative paths and whose verify_commands remain consistent with the semantic goal and registered claims",
+    "fix_reproducer_command": "optional single command normalized by the product verify policy; it must equal the candidate-visible operational_constraints.reproducer argv",
+    "goal": "must be a non-empty semantic goal component shared unchanged inside the baseline envelope and candidate INPUT JSON",
+    "operational_constraints": "must be an object with scored=false; paths must be safe workspace-relative strings; argv values must be non-empty direct argument arrays without shell syntax; allowed and forbidden dependency sets must not overlap",
+    "readiness": "all selected cases must pass these checks before contract freeze",
+    "registered_claims": "must exactly equal the corresponding corpus required claim ID set with no duplicates",
+    "source_goal_sha256": "must equal the SHA-256 of the corresponding corpus goal",
+    "unknown_fields": "rejected unless added to the preregistered v4_a9 task-registry validator"
+  }
+}

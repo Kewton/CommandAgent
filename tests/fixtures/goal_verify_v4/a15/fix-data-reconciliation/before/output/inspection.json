@@ -1,0 +1,1 @@
+{"column_names": ["region", "amount"], "distinct_values": {"region": ["north", "south", "unknown"]}, "input_row_count": 3, "sample_rows": [{"amount": "1", "region": "north"}], "type_summaries": {"amount": "numeric_with_invalid", "region": "string"}}

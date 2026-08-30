@@ -1,0 +1,1 @@
+{"reconciliation": {"excluded": [{"reason": "non_numeric_amount", "rows": 1}], "input_rows": 3, "used_rows": 3}, "values": {"total": 3}}
