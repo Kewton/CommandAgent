@@ -1,0 +1,533 @@
+{
+  "case_id": "phase6-main-c06-task-01",
+  "comparison": {
+    "control_snapshot_matches_boundary": false,
+    "effect_attribution_ready": false,
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "unusable",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "unusable",
+        "internal": "failed"
+      },
+      "treatment": {
+        "external": "not_applicable",
+        "internal": "not_executed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [
+        "fix_precondition_oracle_missing",
+        "fix_before_after_fixture_pair_missing"
+      ],
+      "final_success_adapter_ids": [
+        "bug-reproducer-executed--phase6-cell-06-source-task-01"
+      ],
+      "precondition_adapter_ids": [],
+      "valid": false
+    },
+    "quality_transition": "no_recovery_executed",
+    "raw_oracle_transition": "unchanged_fail",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "recovery_oracle_status": "unusable",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_ms": 0
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_contract_declares_unavailable_dependencies"
+    },
+    "runtime": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_contract_declares_unavailable_dependencies",
+      "run_recovery_one_arm": false,
+      "runtime_source": "preregistered_case_policy"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 1,
+      "outcomes": [
+        {
+          "adapter_id": "bug-reproducer-executed--phase6-cell-06-source-task-01",
+          "claim_id": "bug-reproducer",
+          "executor_kind": "stage_command",
+          "is_regression": false,
+          "outcome": {
+            "executed": true,
+            "exit_code": 1,
+            "matched_blocked_pattern": "ModuleNotFoundError",
+            "output_truncated": false,
+            "reason": "dependency_unavailable",
+            "result": "blocked",
+            "runtime_ms": 34,
+            "stderr": "Traceback (most recent call last):\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/repro.py\", line 15, in <module>\n    raise SystemExit(main(sys.argv))\n                     ^^^^^^^^^^^^^^\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/repro.py\", line 10, in main\n    importlib.import_module(f\"repro_dep_{int(argv[1]):02d}\")\n  File \"/Users/maenokota/.pyenv/versions/3.12.3/lib/python3.12/importlib/__init__.py\", line 90, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1387, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked\nModuleNotFoundError: No module named 'repro_dep_01'\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "unusable",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 1
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c"
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-adjudication.json",
+          "sha256": "010fc4afbe3163300da7111cfd1e85e70ccfa00c6756812446a439f3d75784af",
+          "size": 2294
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-before.json",
+          "sha256": "a6223d0402985b443822ce364ddd15c113bd5aec21443ed3bedd4dfd6f587d86",
+          "size": 1145
+        },
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-adjudication.json",
+          "sha256": "010fc4afbe3163300da7111cfd1e85e70ccfa00c6756812446a439f3d75784af",
+          "size": 2294
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-before.json",
+          "sha256": "a6223d0402985b443822ce364ddd15c113bd5aec21443ed3bedd4dfd6f587d86",
+          "size": 1145
+        },
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a5-final-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "data",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--ultra-plan-run",
+        "Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not claim the bug fixed from old tests alone.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"extra_tools\":[\"pytest\"],\"install_from_network\":\"forbidden\",\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"unavailable_dependencies\":[\"repro_dep_01 (intentionally unavailable offline)\"]}"
+      ],
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "no_recovery_boundary_reached"
+      },
+      "resource_usage": {
+        "input_tokens": 3310,
+        "output_tokens": 261,
+        "total_tokens": 3571,
+        "wall_time_ms": 14319
+      },
+      "status": "failed",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml",
+        "status": "failed",
+        "stop_reason": "phase scaffold failed: repair_target_unresolved; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml",
+        "structured_blockers": []
+      }
+    },
+    "status": "same_run_no_recovery_boundary"
+  },
+  "intent": "fix",
+  "oracle_semantics": {
+    "errors": [
+      "fix_precondition_oracle_missing",
+      "fix_before_after_fixture_pair_missing"
+    ],
+    "final_success_adapter_ids": [
+      "bug-reproducer-executed--phase6-cell-06-source-task-01"
+    ],
+    "precondition_adapter_ids": [],
+    "valid": false
+  },
+  "pair_id": "phase6-main-c06-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "data",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260830-a14-a5-smoke-01/raw/phase6-main-c06-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 1,
+      "outcomes": [
+        {
+          "adapter_id": "bug-reproducer-executed--phase6-cell-06-source-task-01",
+          "claim_id": "bug-reproducer",
+          "executor_kind": "stage_command",
+          "is_regression": false,
+          "outcome": {
+            "executed": true,
+            "exit_code": 1,
+            "matched_blocked_pattern": "ModuleNotFoundError",
+            "output_truncated": false,
+            "reason": "dependency_unavailable",
+            "result": "blocked",
+            "runtime_ms": 34,
+            "stderr": "Traceback (most recent call last):\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/repro.py\", line 15, in <module>\n    raise SystemExit(main(sys.argv))\n                     ^^^^^^^^^^^^^^\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/repro.py\", line 10, in main\n    importlib.import_module(f\"repro_dep_{int(argv[1]):02d}\")\n  File \"/Users/maenokota/.pyenv/versions/3.12.3/lib/python3.12/importlib/__init__.py\", line 90, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1387, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked\nModuleNotFoundError: No module named 'repro_dep_01'\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "unusable",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 1
+    },
+    "host_capability_attachments": [],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-adjudication.json",
+        "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-before.json"
+      ],
+      "after_snapshot_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438",
+      "before_snapshot_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c",
+      "change_count": 2,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-adjudication.json",
+          "sha256": "010fc4afbe3163300da7111cfd1e85e70ccfa00c6756812446a439f3d75784af",
+          "size": 2294
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-before.json",
+          "sha256": "a6223d0402985b443822ce364ddd15c113bd5aec21443ed3bedd4dfd6f587d86",
+          "size": 1145
+        },
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-adjudication.json",
+          "sha256": "010fc4afbe3163300da7111cfd1e85e70ccfa00c6756812446a439f3d75784af",
+          "size": 2294
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05033-2842-7303-979a-aaf72f4c2f33-before.json",
+          "sha256": "a6223d0402985b443822ce364ddd15c113bd5aec21443ed3bedd4dfd6f587d86",
+          "size": 1145
+        },
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "3aadbe29b6aeff03f8079ae7031b3e3a7af901e9e206bf9ec69de0dacd0a5438"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a5-final-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "data",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--ultra-plan-run",
+        "Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not claim the bug fixed from old tests alone.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"extra_tools\":[\"pytest\"],\"install_from_network\":\"forbidden\",\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"unavailable_dependencies\":[\"repro_dep_01 (intentionally unavailable offline)\"]}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "73662353b5d065dcefb1826d710bc7f92c25d2eab586a53375e03c020147feaa",
+      "completion_verify_attempt_recorded": false,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "186b11842a9def7c8f6bf2a841bf78520e11fff960fb5d0732bea8997b3d58a2",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a5-smoke-01/phase6-main-c06-task-01--pair-01--shared-run/before/.commandagent/runs/01a05033-2805-72c2-a436-a662e4682646",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "control_restore_failed_count": 0,
+        "control_retained_count": 0,
+        "current_success_suppressed": false,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "promotion_decisions": [],
+        "terminal_stop_reason": "disabled",
+        "treatment_regression_rejected_count": 0
+      },
+      "recovery_plan_auto_runs": 0,
+      "resource_usage": {
+        "input_tokens": 3310,
+        "output_tokens": 261,
+        "total_tokens": 3571,
+        "wall_time_ms": 14319
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: phase scaffold failed: repair_target_unresolved; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml\n",
+      "stdout": "### Plan\n- Goal: Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not c...\n- Profile: data\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: Run the fro...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: Run the frozen ...\n3. ○ repair - Apply the focused repair for the reproduced failure in: Run the frozen existing tests, then asse...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: Run the frozen existing t...\n── Phase 1/4: reproduce-before ──\n→ planning steps for phase 1/4 reproduce-before (qwen3.6, up to 600s)\n✓ step plan ready (7s)\n#### Phase: reproduce-before\n1. ○ [verify] Run the reproducer script with argument 1 to confirm it fails because repro_dep_01 is unavailabl... (verify 1)\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n#### Phase: isolate-cause\n1. ○ [inspect] Read only the executed runtime-bound F1 failure evidence and the existing subjects no additional... (verify 0)\n→ step isolate-cause [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Glob **/*\n✓ Glob ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n✗ Phase 3/4: repair repair_target_unresolved\n✗ planner planner_error\n✗ final acceptance failed\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": null,
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml",
+        "status": "failed",
+        "stop_reason": "phase scaffold failed: repair_target_unresolved; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .commandagent/repairs/repair-phase-repair-01a05033-6088-7503-92c9-df9f769b3b77.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-repair-01a05033-6089-7a03-919b-a98ea57dca33.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 14743
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c06-task-01"
+}

@@ -1,0 +1,105 @@
+{
+  "contract_id": "phase6-recovery-v4-20260830-a14-a5-live-01",
+  "outcomes": [
+    {
+      "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+      "build": {
+        "argv": [
+          "npx",
+          "next",
+          "build",
+          "--webpack"
+        ],
+        "outcome": {
+          "executed": true,
+          "exit_code": 0,
+          "output_truncated": false,
+          "reason": "registered_reference_build_passed",
+          "result": "pass",
+          "runtime_ms": 6972,
+          "stderr": "",
+          "stdout": "▲ Next.js 16.3.1 (webpack)\n✓ Running next.config.js took 6ms\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 1432ms\n  Running TypeScript ...\n  Finished TypeScript in 1ms ...\n  Collecting page data using 5 workers ...\n  Generating static pages using 5 workers (0/4) ...\n  Generating static pages using 5 workers (1/4) \r\n  Generating static pages using 5 workers (2/4) \r\n  Generating static pages using 5 workers (3/4) \r\n✓ Generating static pages using 5 workers (4/4) in 264ms\n  Finalizing page optimization ...\n  Collecting build traces ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n└ ○ /play-01\n\n\n○  (Static)  prerendered as static content\n\n",
+          "timed_out": false
+        }
+      },
+      "candidate_visible": false,
+      "case_id": "phase6-main-c04-task-01",
+      "executor_kind": "playwright_script",
+      "outcome": {
+        "actual": [
+          {
+            "selector": "h1",
+            "text": "開始"
+          },
+          {
+            "computed": "background-color",
+            "selector": "body",
+            "value": "rgb(0, 0, 255)"
+          }
+        ],
+        "executed": true,
+        "exit_code": 0,
+        "reason": "observation_match",
+        "result": "pass",
+        "runtime_ms": 604,
+        "stderr": "",
+        "stdout": "[{\"selector\":\"h1\",\"text\":\"開始\"},{\"selector\":\"body\",\"computed\":\"background-color\",\"value\":\"rgb(0, 0, 255)\"}]\n",
+        "timed_out": false
+      },
+      "stage": "reference",
+      "workspace": "create-ui-copy-style-port-path"
+    },
+    {
+      "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+      "build": {
+        "argv": [
+          "npx",
+          "next",
+          "build",
+          "--webpack"
+        ],
+        "outcome": {
+          "executed": true,
+          "exit_code": 0,
+          "output_truncated": false,
+          "reason": "registered_reference_build_passed",
+          "result": "pass",
+          "runtime_ms": 6972,
+          "stderr": "",
+          "stdout": "▲ Next.js 16.3.1 (webpack)\n✓ Running next.config.js took 6ms\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 1432ms\n  Running TypeScript ...\n  Finished TypeScript in 1ms ...\n  Collecting page data using 5 workers ...\n  Generating static pages using 5 workers (0/4) ...\n  Generating static pages using 5 workers (1/4) \r\n  Generating static pages using 5 workers (2/4) \r\n  Generating static pages using 5 workers (3/4) \r\n✓ Generating static pages using 5 workers (4/4) in 264ms\n  Finalizing page optimization ...\n  Collecting build traces ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n└ ○ /play-01\n\n\n○  (Static)  prerendered as static content\n\n",
+          "timed_out": false
+        }
+      },
+      "candidate_visible": false,
+      "case_id": "phase6-main-c04-task-01",
+      "executor_kind": "playwright_script",
+      "outcome": {
+        "actual": [
+          {
+            "selector": "h1",
+            "text": "開始"
+          },
+          {
+            "computed": "background-color",
+            "selector": "body",
+            "value": "rgb(0, 0, 255)"
+          }
+        ],
+        "executed": true,
+        "exit_code": 0,
+        "reason": "observation_match",
+        "result": "pass",
+        "runtime_ms": 592,
+        "stderr": "",
+        "stdout": "[{\"selector\":\"h1\",\"text\":\"開始\"},{\"selector\":\"body\",\"computed\":\"background-color\",\"value\":\"rgb(0, 0, 255)\"}]\n",
+        "timed_out": false
+      },
+      "stage": "reference",
+      "workspace": "create-ui-copy-style-port-path"
+    }
+  ],
+  "passed_to_product_or_recovery": false,
+  "run_id": "phase6-recovery-v4-20260830-a14-a5-smoke-01",
+  "schema_version": "commandagent.goal_verify.oracle_executability_preflight.v4_a14_a5",
+  "source": "frozen_reference_workspace"
+}
