@@ -46,6 +46,7 @@
       "pass to non-pass",
       "regression pass to fail"
     ],
+    "selected_task_binding_preflight": "bind and validate every selected case before manifest creation and before the first product invocation",
     "smoke_cluster_design": "one task in each eligible fix profile repeated three times; one declared-offline dependency sentinel repeated once",
     "smoke_readiness_requires_live_recovery_execution": true,
     "stateful_shell_fragment_policy": "never carry unregistered fragments into automatic Recovery",
@@ -106,7 +107,7 @@
     "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
     "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
     "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
-    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a13.json": "1571ce2ee86abcbcf08f78875aa829a09821a0ae7c5373697717e99cecfa0475"
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a13-1.json": "368051f9e99708033b576addfaa6ea37858e92a9714ad8118a2adb1ef05f719e"
   },
   "full_experiment": {
     "bootstrap_samples": 2000,
@@ -479,10 +480,21 @@
       "reason": "A14-A12 demonstrated one CLI rescue but did not exercise repeated pairs or typed fix continuity for generic and nextjs profiles"
     },
     {
+      "amendment_id": "v4-A14-A13-1",
+      "historical_run_policy": "A14-A13 smoke-01 remains immutable early-terminated evidence at 3 of 10 pairs and is never resumed or pooled",
+      "inference_role": "corrected three-profile repeated-pair instrument smoke; no population effect claim",
+      "instrument_findings": [
+        "all three CLI repetitions completed before the binding failure",
+        "the first generic binding failed before its product invocation",
+        "selected-case binding was previously lazy and allowed partial collection"
+      ],
+      "reason": "A14-A13 added completion_contract.fix_reproducer_command for generic and nextjs but omitted the matching structured operational_constraints.reproducer binding"
+    },
+    {
       "amendment_id": "v4-A14-A14",
-      "historical_run_policy": "all A14 through A14-A13 runs remain immutable instrument evidence and are excluded from this effect estimate",
+      "historical_run_policy": "all A14 through A14-A13-1 runs remain immutable instrument evidence and are excluded from this effect estimate",
       "inference_role": "fixed 90-pair eligible fix population plus 10 dependency sentinels",
-      "reason": "pre-register the first population Recovery 0-vs-1 estimate after the A14-A13 stratified instrument smoke"
+      "reason": "pre-register the first population Recovery 0-vs-1 estimate after the corrected A14-A13-1 stratified instrument smoke"
     }
   ],
   "product_timeout_sec": 900,
@@ -782,6 +794,7 @@
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a11.py",
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a12.py",
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13_1.py",
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a14.py",
     "scripts/eval_lib/goal_verify_recovery_full_report_v4.py",
     "scripts/eval_lib/goal_verify_stats_v2.py"
@@ -1017,9 +1030,9 @@
   "status": "draft",
   "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
   "supersedes": "phase6-main-v4-20260829-live-02",
-  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a13-live-01",
-  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a13-smoke-01",
-  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a13.json",
+  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a13-1-live-01",
+  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a13-1-smoke-01",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a13-1.json",
   "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
   "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json"
 }

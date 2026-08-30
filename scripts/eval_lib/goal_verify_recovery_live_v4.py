@@ -611,6 +611,11 @@ def run_recovery_smoke(
     selected_pair_ids = contract["smoke"]["selected_pair_ids"]
     if limit is not None:
         selected_pair_ids = selected_pair_ids[:limit]
+    bound_cases = bind_selected_recovery_cases(
+        selected_pair_ids=selected_pair_ids,
+        corpus_by_id=corpus_by_id,
+        task_registry=task_registry,
+    )
     manifest = {
         "schema_version": "commandagent.goal_verify.recovery_campaign.v4_a14",
         "contract_id": contract["contract_id"],
@@ -654,13 +659,11 @@ def run_recovery_smoke(
         )
         for completed, pair_id in enumerate(selected_pair_ids, 1):
             case_id, sample_index, record_filename = parse_recovery_pair_id(pair_id)
-            if case_id not in corpus_by_id:
-                raise ValueError(f"invalid frozen recovery pair ID:{pair_id}")
             relative = Path("raw") / case_id / record_filename
             record_path = run_dir / relative
             reference = str(record_path.relative_to(root))
             if not record_path.exists():
-                case = bind_task_contract(corpus_by_id[case_id], task_registry)
+                case = bound_cases[case_id]
                 workspace_id = workspace_case_id(case)
                 record = run_recovery_pair(
                     root=root,
@@ -710,6 +713,23 @@ def run_recovery_smoke(
         return load_json(run_dir / "campaign-summary.json")
     finally:
         lock.close()
+
+
+def bind_selected_recovery_cases(
+    *,
+    selected_pair_ids: list[str],
+    corpus_by_id: dict[str, dict[str, Any]],
+    task_registry: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Validate every selected task binding before the first live pair runs."""
+    bound = {}
+    for pair_id in selected_pair_ids:
+        case_id, _, _ = parse_recovery_pair_id(pair_id)
+        if case_id not in corpus_by_id:
+            raise ValueError(f"invalid frozen recovery pair ID:{pair_id}")
+        if case_id not in bound:
+            bound[case_id] = bind_task_contract(corpus_by_id[case_id], task_registry)
+    return bound
 
 
 def _ensure_oracle_executability_preflight(

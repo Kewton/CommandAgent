@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shlex
 import shutil
 import tempfile
 import unittest
@@ -72,6 +73,12 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
     _build_tasks as build_a14_a13_tasks,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
+    _build_contract as build_a14_a13_1_contract,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
+    _build_tasks as build_a14_a13_1_tasks,
+)
 from eval_lib.generate_goal_verify_recovery_v4_a14_a14 import (
     _build_contract as build_a14_a14_contract,
 )
@@ -111,6 +118,7 @@ from eval_lib.goal_verify_recovery_live_v4 import (
     _attach_frozen_browser_toolchain,
     _ensure_oracle_executability_preflight,
     _snapshot_content_sha256,
+    bind_selected_recovery_cases,
     parse_recovery_pair_id,
     run_recovery_pair,
 )
@@ -1390,6 +1398,51 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             },
         )
         self.assertFalse(contract["authorization"]["full_collection_authorized"])
+
+    def test_a14_a13_1_prebinds_every_selected_task(self):
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        corpus_by_id = {row["case_id"]: row for row in corpus["cases"]}
+        tasks = build_a14_a13_1_tasks()
+        contract = build_a14_a13_1_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(task_contract_registry_errors(tasks), [])
+        self.assertEqual(recovery_contract_errors(contract), [])
+        with self.assertRaisesRegex(
+            ValueError, "completion contract fix reproducer mismatch"
+        ):
+            bind_selected_recovery_cases(
+                selected_pair_ids=contract["smoke"]["selected_pair_ids"],
+                corpus_by_id=corpus_by_id,
+                task_registry=build_a14_a13_tasks(),
+            )
+        bound = bind_selected_recovery_cases(
+            selected_pair_ids=contract["smoke"]["selected_pair_ids"],
+            corpus_by_id=corpus_by_id,
+            task_registry=tasks,
+        )
+        self.assertEqual(
+            set(bound),
+            {
+                "phase6-main-c05-task-05",
+                "phase6-main-c06-task-01",
+                "phase6-main-c07-task-01",
+                "phase6-main-c08-task-01",
+            },
+        )
+        for case_id in ("phase6-main-c07-task-01", "phase6-main-c08-task-01"):
+            completion = bound[case_id]["task_contract"]["completion_contract"]
+            constraints = bound[case_id]["task_contract"][
+                "operational_constraints"
+            ]
+            self.assertEqual(
+                completion["fix_reproducer_command"],
+                shlex.join(constraints["reproducer"]["argv"]),
+            )
 
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -4,15 +4,15 @@ import argparse
 from typing import Any
 
 from eval_lib.generate_goal_verify_main_v4 import _write_json
-from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
-    ADAPTERS_PATH,
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import ADAPTERS_PATH
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
     ROOT,
     TASKS_PATH,
     _build_adapters,
     _build_tasks,
 )
-from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
-    _build_contract as _build_a14_a13_contract,
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13_1 import (
+    _build_contract as _build_a14_a13_1_contract,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     classify_case_recovery_eligibility,
@@ -55,7 +55,7 @@ def _build_contract(
 ) -> dict[str, Any]:
     tasks = _build_tasks()
     adapters = _build_adapters()
-    contract = _build_a14_a13_contract(
+    contract = _build_a14_a13_1_contract(
         status=status,
         code_sha=code_sha,
         exact_sha_ci_evidence=exact_sha_ci_evidence,
@@ -86,10 +86,10 @@ def _build_contract(
             "contract_id": CONTRACT_ID,
             "smoke_run_id": RUN_ID,
             "supersedes_contract": (
-                "phase6-recovery-v4-20260830-a14-a13-live-01"
+                "phase6-recovery-v4-20260830-a14-a13-1-live-01"
             ),
             "supersedes_smoke_run": (
-                "phase6-recovery-v4-20260830-a14-a13-smoke-01"
+                "phase6-recovery-v4-20260830-a14-a13-1-smoke-01"
             ),
         }
     )
@@ -98,11 +98,11 @@ def _build_contract(
             "amendment_id": "v4-A14-A14",
             "reason": (
                 "pre-register the first population Recovery 0-vs-1 estimate after "
-                "the A14-A13 stratified instrument smoke"
+                "the corrected A14-A13-1 stratified instrument smoke"
             ),
             "historical_run_policy": (
-                "all A14 through A14-A13 runs remain immutable instrument evidence "
-                "and are excluded from this effect estimate"
+                "all A14 through A14-A13-1 runs remain immutable instrument "
+                "evidence and are excluded from this effect estimate"
             ),
             "inference_role": (
                 "fixed 90-pair eligible fix population plus 10 dependency sentinels"
