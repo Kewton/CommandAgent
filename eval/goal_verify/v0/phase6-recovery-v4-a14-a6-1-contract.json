@@ -42,17 +42,17 @@
     "regression_introduced": "initial_only frozen regression pass and recovery_one frozen regression fail"
   },
   "authorization": {
-    "approved_at": "2026-08-30",
-    "approved_by": "repository owner",
+    "approved_at": null,
+    "approved_by": null,
     "full_collection_authorized": false,
     "implementation_authorized": true,
-    "smoke_collection_authorized": true
+    "smoke_collection_authorized": false
   },
-  "code_sha": "1c688aefc3ffa0dcfbe8b899d1e4ad5f3743e03c",
-  "contract_id": "phase6-recovery-v4-20260830-a14-a6-live-01",
+  "code_sha": "",
+  "contract_id": "phase6-recovery-v4-20260830-a14-a6-1-live-01",
   "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-1c688aef.json",
+  "exact_sha_ci_evidence": "",
   "execution_root_policy": {
     "internal_disk_execution_forbidden": true,
     "required_root": "/Volumes/SSD_NX/tmp/commandagent_trial"
@@ -76,15 +76,15 @@
     "typed_negative_assertions_required": true,
     "unverified_or_error": "unusable, never pass"
   },
-  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6.json",
+  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6-1.json",
   "frozen_input_sha256": {
     "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
     "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
-    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6.json": "120637bb6f6592488ed6afc19fe5254e2fefb11ba88b78863a2bc9488790f3b7",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6-1.json": "cd169df4f14da187092117e9b0ae21d0a3bb179fdca6f39d52125b69d38086be",
     "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
     "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
     "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
-    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6.json": "521578f987d8a57a1b9963b457b82a014ef77b5dfbfc6a00b54cc010576c4b5f",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6-1.json": "48856969b1e8ce732757818ba5f413fd61a3513961df6072eeb64d7cdb58ec76",
     "tests/fixtures/goal_verify_v3/fix-reproduced-after-regression/before/tests/test_cli.py": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497"
   },
   "integrity": {
@@ -183,15 +183,15 @@
       "reason": "A14-A4 kept Recovery harm at zero but conflated candidate server failure with browser-oracle executability and rejected a preregistered configured-one/runtime-excluded executed-zero pair"
     },
     {
-      "amendment_id": "v4-A14-A6",
-      "historical_run_policy": "A14-A5 smoke-01 and both A14-A6 design diagnostics remain immutable; none are rescored into A14-A6",
+      "amendment_id": "v4-A14-A6.1",
+      "historical_run_policy": "A14-A6 smoke-01 remains an immutable zero-record pre-execution failure; its run ID and input files are never reused or rescored",
       "inference_role": "typed reproducer and initial-resolution readiness; Recovery effect is conditional on a naturally executed Recovery run",
       "instrument_findings": [
-        "known candidate-visible reproducer argv lacked a typed completion field",
-        "model planning and sanitizer expansion changed one F1 command into seven verifies",
-        "typed F1 made design diagnostic task-01 pass the frozen final oracle without Recovery"
+        "the loader recognizes shared goal semantics by a closed schema-version set",
+        "A14-A6 changed the registry schema string without registering a migration",
+        "A14-A6.1 preserves v4_a14_a2 schema and adds the optional field to its closed validator"
       ],
-      "reason": "a candidate-visible known fix reproducer expanded into seven model verify commands and prevented the valid F1 expected-failure boundary"
+      "reason": "A14-A6 stopped before product execution because the task registry changed to an unregistered schema version and bypassed shared-goal binding"
     }
   ],
   "product_timeout_sec": 900,
@@ -263,7 +263,7 @@
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py",
     "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a6.py"
   ],
-  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a14_a6",
+  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a14_a6_1",
   "smoke": {
     "browser_oracle_gate_source": "not_applicable_cli_only_smoke",
     "effect_claim_allowed": false,
@@ -298,13 +298,13 @@
       "phase6-main-c05-task-10--pair-01": "python3 cli.py 16"
     }
   },
-  "smoke_run_id": "phase6-recovery-v4-20260830-a14-a6-smoke-01",
-  "status": "frozen",
+  "smoke_run_id": "phase6-recovery-v4-20260830-a14-a6-1-smoke-01",
+  "status": "draft",
   "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
   "supersedes": "phase6-main-v4-20260829-live-02",
-  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a5-live-01",
-  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a5-smoke-01",
-  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6.json",
+  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a6-live-01",
+  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a6-smoke-01",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6-1.json",
   "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
   "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json"
 }

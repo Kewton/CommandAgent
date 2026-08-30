@@ -91,6 +91,7 @@ from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnost
 from eval_lib.goal_verify_task_contracts_v4 import (
     bind_task_contract,
     load_task_contract_registry,
+    task_contract_registry_errors,
 )
 from eval_lib.goal_verify_workspaces_v3 import workspace_by_case
 from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
@@ -1028,6 +1029,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
 
     def test_a14_a6_types_c05_reproducer_and_freezes_cli_only_smoke(self):
         tasks = build_a14_a6_tasks()
+        self.assertEqual(task_contract_registry_errors(tasks), [])
         task = next(
             row
             for row in tasks["cases"]
@@ -1037,6 +1039,23 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             task["completion_contract"]["fix_reproducer_command"],
             "python3 cli.py 7",
         )
+        corpus = load("eval/goal_verify/v0/phase6-main-corpus-v4.json")
+        for case_id, command in (
+            ("phase6-main-c05-task-01", "python3 cli.py 7"),
+            ("phase6-main-c05-task-05", "python3 cli.py 11"),
+            ("phase6-main-c05-task-10", "python3 cli.py 16"),
+        ):
+            source = next(
+                row for row in corpus["cases"] if row["case_id"] == case_id
+            )
+            bound = bind_task_contract(source, tasks)
+            self.assertEqual(bound["goal"], source["goal"])
+            self.assertEqual(
+                bound["task_contract"]["completion_contract"][
+                    "fix_reproducer_command"
+                ],
+                command,
+            )
         adapters = build_a14_a6_adapters()["adapters"]
         before = next(
             row

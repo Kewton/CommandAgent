@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ _A9_CONSTRAINT_FIELDS = {
 _A9_COMPLETION_FIELDS = {
     "required_paths",
     "verify_commands",
+    "fix_reproducer_command",
     "profile",
     "goal",
     "required_capabilities",
@@ -345,6 +347,9 @@ def _completion_contract_errors(case_id: str, value: Any) -> list[str]:
             errors.append(f"completion_contract_path:{case_id}:{path}")
     if not all(_nonempty_string(item) for item in value.get("verify_commands", [])):
         errors.append(f"completion_contract_verify_commands:{case_id}")
+    fix_reproducer = value.get("fix_reproducer_command")
+    if fix_reproducer is not None and not _nonempty_string(fix_reproducer):
+        errors.append(f"completion_contract_fix_reproducer:{case_id}")
     if not _nonempty_string(value.get("profile")) or not _nonempty_string(
         value.get("goal")
     ):
@@ -403,6 +408,12 @@ def _a9_case_binding_errors(case: dict[str, Any], row: dict[str, Any]) -> list[s
         and " ".join(reproducer["argv"]) not in verify_commands
     ):
         errors.append(f"completion contract reproducer command missing:{case_id}")
+    fix_reproducer = completion.get("fix_reproducer_command")
+    if fix_reproducer is not None and (
+        not isinstance(reproducer, dict)
+        or fix_reproducer != shlex.join(reproducer["argv"])
+    ):
+        errors.append(f"completion contract fix reproducer mismatch:{case_id}")
     for regression in constraints.get("frozen_regression_set", []):
         command = " ".join(regression["argv"])
         if command not in verify_commands:

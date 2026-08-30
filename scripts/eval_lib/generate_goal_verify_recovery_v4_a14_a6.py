@@ -16,12 +16,12 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a5 import (
 EVAL = ROOT / "eval/goal_verify/v0"
 SOURCE_TASKS = EVAL / "phase6-task-contracts-v4-a14-a2.json"
 SOURCE_ADAPTERS = EVAL / "phase6-command-adapters-v4-a14-a5.json"
-TASKS_PATH = EVAL / "phase6-task-contracts-v4-a14-a6.json"
-ADAPTERS_PATH = EVAL / "phase6-command-adapters-v4-a14-a6.json"
-CONTRACT_PATH = EVAL / "phase6-recovery-v4-a14-a6-contract.json"
+TASKS_PATH = EVAL / "phase6-task-contracts-v4-a14-a6-1.json"
+ADAPTERS_PATH = EVAL / "phase6-command-adapters-v4-a14-a6-1.json"
+CONTRACT_PATH = EVAL / "phase6-recovery-v4-a14-a6-1-contract.json"
 
-CONTRACT_ID = "phase6-recovery-v4-20260830-a14-a6-live-01"
-SMOKE_ID = "phase6-recovery-v4-20260830-a14-a6-smoke-01"
+CONTRACT_ID = "phase6-recovery-v4-20260830-a14-a6-1-live-01"
+SMOKE_ID = "phase6-recovery-v4-20260830-a14-a6-1-smoke-01"
 SELECTED_CASE_IDS = [
     "phase6-main-c05-task-01",
     "phase6-main-c05-task-05",
@@ -52,10 +52,13 @@ def _build_tasks() -> dict[str, Any]:
         ):
             continue
         task["completion_contract"]["fix_reproducer_command"] = shlex.join(argv)
-    value["schema_version"] = "commandagent.goal_verify.task_contracts.v4_a14_a6"
-    value["decision"] = (
+    value["policy"]["fix_reproducer_command"] = (
         "A14-A6 types the already candidate-visible c05 reproducer argv as one "
         "CompletionContract fix command; goals and acceptance requirements are unchanged"
+    )
+    value["validation"]["fix_reproducer_command"] = (
+        "optional single command normalized by the product verify policy; it must equal "
+        "the candidate-visible operational_constraints.reproducer argv"
     )
     return value
 
@@ -81,7 +84,7 @@ def _build_adapters() -> dict[str, Any]:
             executor["registered_fixture"] = fixture
         else:
             adapter["a14_role"] = "final_success"
-    value["schema_version"] = "commandagent.goal_verify.adapters.v4_a14_a6"
+    value["schema_version"] = "commandagent.goal_verify.adapters.v4_a14_a6_1"
     return value
 
 
@@ -103,15 +106,15 @@ def _build_contract(
     contract.update(
         {
             "schema_version": (
-                "commandagent.goal_verify.recovery_experiment.v4_a14_a6"
+                "commandagent.goal_verify.recovery_experiment.v4_a14_a6_1"
             ),
             "contract_id": CONTRACT_ID,
             "smoke_run_id": SMOKE_ID,
             "supersedes_contract": (
-                "phase6-recovery-v4-20260830-a14-a5-live-01"
+                "phase6-recovery-v4-20260830-a14-a6-live-01"
             ),
             "supersedes_smoke_run": (
-                "phase6-recovery-v4-20260830-a14-a5-smoke-01"
+                "phase6-recovery-v4-20260830-a14-a6-smoke-01"
             ),
             "task_contract_registry": str(TASKS_PATH.relative_to(ROOT)),
             "frozen_external_oracles": str(ADAPTERS_PATH.relative_to(ROOT)),
@@ -119,23 +122,23 @@ def _build_contract(
     )
     contract["pre_live_amendments"].append(
         {
-            "amendment_id": "v4-A14-A6",
+            "amendment_id": "v4-A14-A6.1",
             "reason": (
-                "a candidate-visible known fix reproducer expanded into seven model "
-                "verify commands and prevented the valid F1 expected-failure boundary"
+                "A14-A6 stopped before product execution because the task registry "
+                "changed to an unregistered schema version and bypassed shared-goal binding"
             ),
             "historical_run_policy": (
-                "A14-A5 smoke-01 and both A14-A6 design diagnostics remain immutable; "
-                "none are rescored into A14-A6"
+                "A14-A6 smoke-01 remains an immutable zero-record pre-execution failure; "
+                "its run ID and input files are never reused or rescored"
             ),
             "inference_role": (
                 "typed reproducer and initial-resolution readiness; Recovery effect is "
                 "conditional on a naturally executed Recovery run"
             ),
             "instrument_findings": [
-                "known candidate-visible reproducer argv lacked a typed completion field",
-                "model planning and sanitizer expansion changed one F1 command into seven verifies",
-                "typed F1 made design diagnostic task-01 pass the frozen final oracle without Recovery",
+                "the loader recognizes shared goal semantics by a closed schema-version set",
+                "A14-A6 changed the registry schema string without registering a migration",
+                "A14-A6.1 preserves v4_a14_a2 schema and adds the optional field to its closed validator",
             ],
         }
     )
