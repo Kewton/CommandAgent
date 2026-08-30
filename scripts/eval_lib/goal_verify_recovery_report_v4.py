@@ -26,6 +26,11 @@ def build_recovery_report(
     initial_success_attribution_violations = []
     matrix_recorded = []
     attribution_ready = []
+    browser_oracle_unavailable = []
+    current_success_suppressions = []
+    transaction_control_violations = []
+    handoff_fidelity_violations = []
+    treatment_isolation_violations = []
     deltas: dict[str, list[int]] = {
         "wall_time_ms": [],
         "input_tokens": [],
@@ -39,6 +44,9 @@ def build_recovery_report(
         initial_attempts = initial_result.get("recovery_plan_attempts", {})
         configured_zero.append(initial_attempts.get("configured_recovery_runs") == 0)
         _check_oracle_source(initial, pair_id, oracle_source_violations)
+        _check_browser_oracle_executability(
+            initial, pair_id, browser_oracle_unavailable
+        )
         _check_resources(initial_result, pair_id, "initial_only", resource_missing)
         _check_manifest_policy(initial, pair_id, manifest_policy_violations)
         _check_execution_action(
@@ -61,6 +69,26 @@ def build_recovery_report(
         recovery_result = recovery.get("result", {})
         recovery_attempts = recovery_result.get("recovery_plan_attempts", {})
         executed_recovery_runs = recovery_attempts.get("executed_recovery_runs")
+        if (
+            recovery_attempts.get("terminal_stop_reason")
+            == "current_success_protected"
+            or recovery_attempts.get("current_success_suppressed") is True
+        ):
+            current_success_suppressions.append(pair_id)
+        if recovery_attempts.get("control_restore_failed_count", 0) != 0:
+            transaction_control_violations.append(f"restore_failed:{pair_id}")
+        rejected_count = recovery_attempts.get(
+            "treatment_regression_rejected_count", 0
+        )
+        retained_count = recovery_attempts.get("control_retained_count", 0)
+        if (
+            isinstance(rejected_count, int)
+            and isinstance(retained_count, int)
+            and rejected_count > retained_count
+        ):
+            transaction_control_violations.append(
+                f"rejected_without_control_retention:{pair_id}"
+            )
         shared_record = record.get("pairing_unit") == "shared_pre_recovery_snapshot"
         configured_runs = recovery_attempts.get("configured_recovery_runs")
         configured_valid = (
@@ -80,11 +108,39 @@ def build_recovery_report(
             )
         if executed_recovery_runs == 1:
             executed_recovery_pairs.append(pair_id)
+            recovery_attempt = next(
+                (
+                    row
+                    for row in recovery_attempts.get("attempts", [])
+                    if row.get("attempt_index") == 1
+                ),
+                {},
+            )
+            if (
+                recovery_attempt.get("recovery_candidate_scope")
+                not in {"step", "phase"}
+                or not isinstance(
+                    recovery_attempt.get("recovery_verify_command_count"), int
+                )
+            ):
+                handoff_fidelity_violations.append(str(pair_id))
+            treatment_path = recovery_attempt.get("recovery_treatment_path")
+            if not (
+                isinstance(treatment_path, str)
+                and treatment_path.startswith(
+                    ".commandagent/recovery-treatments/attempt-"
+                )
+                and treatment_path.endswith("/workspace")
+            ):
+                treatment_isolation_violations.append(str(pair_id))
         if initial.get("input_manifest", {}).get("snapshot_sha256") != recovery.get(
             "input_manifest", {}
         ).get("snapshot_sha256"):
             snapshot_mismatches.append(pair_id)
         _check_oracle_source(recovery, pair_id, oracle_source_violations)
+        _check_browser_oracle_executability(
+            recovery, pair_id, browser_oracle_unavailable
+        )
         _check_resources(recovery_result, pair_id, "recovery_one", resource_missing)
         _check_manifest_policy(recovery, pair_id, manifest_policy_violations)
         _check_execution_action(
@@ -151,6 +207,7 @@ def build_recovery_report(
     )
     smoke = contract.get("smoke", {})
     minimum_executed = smoke.get("minimum_executed_recovery_pairs", 0)
+    minimum_suppressions = smoke.get("minimum_current_success_suppressions", 0)
     checks = {
         "target_pairs_complete": len(records) == expected,
         "initial_arm_configured_zero": bool(configured_zero) and all(configured_zero),
@@ -171,21 +228,45 @@ def build_recovery_report(
             and not isinstance(minimum_executed, bool)
             and len(executed_recovery_pairs) >= minimum_executed
         ),
+        "current_success_suppression_observed": (
+            isinstance(minimum_suppressions, int)
+            and not isinstance(minimum_suppressions, bool)
+            and len(current_success_suppressions) >= minimum_suppressions
+        ),
+        "browser_oracle_executability_preflight": (
+            smoke.get("require_browser_oracle_executability") is not True
+            or not browser_oracle_unavailable
+        ),
+        "transaction_control_retention": (
+            smoke.get("require_transaction_control_retention") is not True
+            or not transaction_control_violations
+        ),
+        "recovery_handoff_fidelity": (
+            smoke.get("require_recovery_handoff_fidelity") is not True
+            or not handoff_fidelity_violations
+        ),
+        "isolated_recovery_treatment": (
+            smoke.get("require_isolated_treatment_workspace") is not True
+            or not treatment_isolation_violations
+        ),
     }
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
     if shared_pairing:
+        require_attributed = smoke.get("require_executed_recovery_for_attribution", True)
         checks.update(
             {
                 "recovery_attribution_requires_shared_initial_history": (
                     bool(shared_history) and all(shared_history)
                 ),
                 "pre_recovery_snapshot_matches_control": (
-                    bool(boundary_matches) and all(boundary_matches)
+                    (bool(boundary_matches) and all(boundary_matches))
+                    or (not require_attributed and not boundary_matches)
                 ),
                 "pre_recovery_failure_handoff_recorded": (
-                    bool(pre_recovery_handoffs) and all(pre_recovery_handoffs)
+                    (bool(pre_recovery_handoffs) and all(pre_recovery_handoffs))
+                    or (not require_attributed and not pre_recovery_handoffs)
                 ),
                 "final_success_oracle_semantics_validated": (
                     bool(semantic_validation) and all(semantic_validation)
@@ -197,7 +278,8 @@ def build_recovery_report(
                     not initial_success_attribution_violations
                 ),
                 "recovery_changed_paths_recorded": (
-                    bool(changed_paths_recorded) and all(changed_paths_recorded)
+                    (bool(changed_paths_recorded) and all(changed_paths_recorded))
+                    or (not require_attributed and not changed_paths_recorded)
                 ),
                 "internal_external_outcome_matrix_recorded": (
                     bool(matrix_recorded) and all(matrix_recorded)
@@ -243,6 +325,11 @@ def build_recovery_report(
             "execution_action_violations": execution_action_violations,
             "paired_execution_action": paired_execution_action,
             "executed_recovery_pair_ids": executed_recovery_pairs,
+            "current_success_suppression_pair_ids": current_success_suppressions,
+            "browser_oracle_unavailable": browser_oracle_unavailable,
+            "transaction_control_violations": transaction_control_violations,
+            "handoff_fidelity_violations": handoff_fidelity_violations,
+            "treatment_isolation_violations": treatment_isolation_violations,
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
             ),
@@ -256,6 +343,19 @@ def _check_oracle_source(arm: dict[str, Any], pair_id: Any, errors: list[str]) -
         != "frozen_host_adapter_post_execution"
     ):
         errors.append(str(pair_id))
+
+
+def _check_browser_oracle_executability(
+    arm: dict[str, Any], pair_id: Any, errors: list[str]
+) -> None:
+    for row in arm.get("external_oracles", {}).get("outcomes", []):
+        if row.get("executor_kind") != "playwright_script":
+            continue
+        outcome = row.get("outcome", {})
+        if outcome.get("executed") is not True:
+            errors.append(
+                f"{pair_id}:{row.get('adapter_id')}:{outcome.get('reason', 'unknown')}"
+            )
 
 
 def _check_resources(

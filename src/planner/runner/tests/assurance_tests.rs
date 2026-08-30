@@ -610,7 +610,7 @@ if __name__ == "__main__":
         let recovery_text = render_ultra_plan(&recovery_plan);
         assert!(recovery_text.contains("Failed acceptance layer or phase"));
         assert!(recovery_text.contains("browser_readiness_missing"));
-        assert!(recovery_text.contains("Preferred verify/browser check"));
+        assert!(recovery_text.contains("Preferred product-visible final-success check"));
     }
 
     #[test]
@@ -667,7 +667,7 @@ if __name__ == "__main__":
         let recovery_text = render_ultra_plan(&recovery_plan);
         assert!(recovery_text.contains("release gate reason"));
         assert!(recovery_text.contains("browser readiness"));
-        assert!(recovery_text.contains("Preferred verify/browser check"));
+        assert!(recovery_text.contains("Preferred product-visible final-success check"));
     }
 
     #[test]

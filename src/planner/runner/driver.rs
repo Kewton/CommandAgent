@@ -509,10 +509,11 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     attempt,
                     &sanitizer_report,
                 );
-                let lint_report = crate::planner::lint::lint_template_contract(
+                let mut lint_report = crate::planner::lint::lint_template_contract(
                     &plan,
                     Some(&config.workspace_root),
                 );
+                sanitizer_report.append_policy_errors(&mut lint_report);
                 if lint_report.is_pass() {
                     let quality_context = plan_quality_context(config, goal);
                     let quality_report = step_plan_quality_report(&plan, &quality_context);
@@ -700,8 +701,9 @@ pub(super) fn deterministic_step_plan_for_phase(
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
-    let lint_report =
+    let mut lint_report =
         crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
+    sanitizer_report.append_policy_errors(&mut lint_report);
     if !lint_report.is_pass() {
         emit_planner_error_for_lint(config, provider, model, &lint_report, 1);
         anyhow::bail!(
@@ -1722,6 +1724,12 @@ pub(super) fn emit_planner_plan_sanitized(
                 "original_command": eval_events::body_snippet(&record.original_command),
                 "fragments": record.fragments.iter().map(|fragment| eval_events::body_snippet(fragment)).collect::<Vec<_>>(),
                 "dropped_fallback": record.dropped_fallback.as_deref().map(eval_events::body_snippet),
+            })).collect::<Vec<_>>(),
+            "semantic_change_rejections": report.semantic_change_rejections.iter().map(|record| json!({
+                "kind": &record.kind,
+                "step_id": &record.step_id,
+                "value": eval_events::body_snippet(&record.value),
+                "reason": eval_events::body_snippet(&record.reason),
             })).collect::<Vec<_>>(),
             "removed_commands": report.removed_commands.iter().map(|record| json!({
                 "step_id": &record.step_id,

@@ -11,7 +11,7 @@ use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
 use crate::planner::verify::VerificationReport;
-use crate::planner::{auto_recovery::record_candidate, contract_attribute_repair};
+use crate::planner::{auto_recovery::record_handoff_candidate, contract_attribute_repair};
 
 #[derive(Debug, Clone, Default)]
 pub struct RepairContext {
@@ -392,14 +392,14 @@ pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
             UltraPhase {
                 id: "inspect-current-state".to_string(),
                 prompt: format!(
-                    "Inspect the current workspace before changing files. Original goal: {}. Failed acceptance layer or phase: {failed_phase}. Failed step: {failed_step}. Failure kind: {}. Preserve useful existing artifacts and identify the smallest remaining implementation gap.",
+                    "Inspect the current workspace before changing files. Original goal: {}. Failed acceptance layer or phase: {failed_phase}. Failed step: {failed_step}. Failure kind: {}. Preserve useful existing artifacts and identify the smallest remaining implementation gap. Historical failures are immutable evidence, not commands that the current workspace must make fail. Use expected_result=pass for every Recovery step.",
                     handoff.original_goal, handoff.failure_kind
                 ),
             },
             UltraPhase {
                 id: format!("repair-{}", recovery_plan_phase_token(failed_phase)),
                 prompt: format!(
-                    "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nFailed step: {failed_step}\nMissing capability or artifact signals:\n{}\nFailure evidence:\n{}\nRepair targets:\n{}\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete.",
+                    "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nFailed step: {failed_step}\nMissing capability or artifact signals:\n{}\nFailure evidence:\n{}\nRepair targets:\n{}\nCreate or update only task-specific implementation artifacts needed to satisfy the original goal. Do not add README, tests, routes, or acceptance obligations unless they are explicitly listed above or in the original goal. Preserve checks that already pass. Historical expected failures must not be recreated in the current workspace. Use expected_result=pass for every Recovery step.",
                     handoff.original_goal,
                     list_or_none(&missing_signals),
                     list_or_none(&redacted_list(&handoff.failure_evidence)),
@@ -409,7 +409,7 @@ pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
             UltraPhase {
                 id: "verify-recovery".to_string(),
                 prompt: format!(
-                    "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nPreferred verify/browser check:\n{}\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report.",
+                    "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nPreferred product-visible final-success check:\n{}\nUse only the preferred checks above; if none is registered, stop honestly instead of inventing a reproducer, browser route, README, or test obligation. Every Recovery verify step must use expected_result=pass.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report.",
                     handoff.original_goal,
                     list_or_none(&verify_preference),
                 ),
@@ -447,7 +447,7 @@ fn save_recovery_ultra_plan_rendered(
         uuid::Uuid::now_v7()
     ));
     std::fs::write(&path, rendered)?;
-    record_candidate(path.clone(), plan.clone(), handoff.failure_kind.clone());
+    record_handoff_candidate(path.clone(), plan.clone(), handoff);
     Ok(path)
 }
 
@@ -590,11 +590,7 @@ fn recovery_missing_signals(handoff: &RecoveryHandoff) -> Vec<String> {
 
 fn recovery_verify_preference(handoff: &RecoveryHandoff) -> Vec<String> {
     if handoff.verify_commands.is_empty() {
-        vec![
-            "use deterministic file existence, build, route, and capability evidence checks"
-                .to_string(),
-            "avoid shell control syntax and interactive dev-server-only verification".to_string(),
-        ]
+        vec!["none registered; do not invent a replacement acceptance check".to_string()]
     } else {
         handoff.verify_commands.clone()
     }
@@ -635,6 +631,8 @@ Required recovery action:\n\
 - Preserve already useful artifacts.\n\
 - Create or repair the missing implementation artifacts.\n\
 - Use deterministic verification.\n\
+- Use expected_result=pass for every Recovery step; historical failures are immutable evidence.\n\
+- Do not invent README, tests, routes, browser checks, or other acceptance obligations.\n\
 - Do not treat scaffold-only or build-only output as complete.\n",
         handoff.original_goal,
         handoff.profile,
@@ -1011,8 +1009,9 @@ mod tests {
         assert!(text.contains("web-audio-synth-and-ui"));
         assert!(text.contains("interactive_ui"));
         assert!(text.contains("Failed acceptance layer or phase"));
-        assert!(text.contains("Preferred verify/browser check"));
-        assert!(text.contains("Verify preference"));
+        assert!(text.contains("Preferred product-visible final-success check"));
+        assert!(text.contains("Use expected_result=pass for every Recovery step"));
+        assert!(text.contains("Historical expected failures must not be recreated"));
         let parsed = parse_ultra_plan(&text).unwrap();
         assert_eq!(parsed, build_recovery_ultra_plan(&handoff));
         assert_eq!(

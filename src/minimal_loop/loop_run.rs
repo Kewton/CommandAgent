@@ -5758,7 +5758,7 @@ export default function Page(){
     }
 
     #[test]
-    fn verify_step_runtime_strips_custom_status_echo_shell_control_before_policy_bail() {
+    fn verify_step_runtime_rejects_custom_status_echo_before_safe_retry() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5769,15 +5769,26 @@ export default function Page(){
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
         cfg.eval_events_path = Some(events_path.clone());
-        let mut fake = Fake::new(vec![Ok(AssistantReply {
-            content: String::new(),
-            tool_calls: vec![ToolCall::new(
-                "Bash",
-                json!({"command":"test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""}),
-            )],
-            prompt_tokens: None,
-            completion_tokens: None,
-        })]);
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Bash",
+                    json!({"command":"test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Bash",
+                    json!({"command":"test -f src/app/page.tsx"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_options(
             &mut fake,
@@ -5791,49 +5802,31 @@ export default function Page(){
         .unwrap();
         assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert_eq!(outcome.final_text, "step tool observation completed");
-        let bash_result = session
-            .messages
-            .iter()
-            .find(|message| message.role == "tool" && message.name.as_deref() == Some("Bash"))
-            .map(|message| message.content.as_str())
-            .unwrap_or_default();
-        assert!(bash_result.contains("outcome: Success"), "{bash_result}");
-        assert!(bash_result.contains("command succeeded"), "{bash_result}");
-        assert!(!bash_result.contains("echo \"EXISTS\""), "{bash_result}");
         let events = event_values(&events_path);
         assert!(
-            !events.iter().any(
+            events.iter().any(
                 |event| event.get("event").and_then(Value::as_str) == Some("tool_policy_error")
             ),
             "{events:?}"
         );
         let policy = events
             .iter()
-            .find(|event| event.get("event").and_then(Value::as_str) == Some("runtime_bash_policy"))
+            .find(|event| {
+                event.get("event").and_then(Value::as_str) == Some("runtime_bash_policy")
+                    && event.get("blocked").and_then(Value::as_bool) == Some(true)
+            })
             .unwrap();
         assert_eq!(
-            policy.get("normalization_kind").and_then(Value::as_str),
+            policy.get("violation_kind").and_then(Value::as_str),
             Some("success_failure_echo_stripped")
         );
-        assert_eq!(policy.get("blocked").and_then(Value::as_bool), Some(false));
+        assert_eq!(policy.get("blocked").and_then(Value::as_bool), Some(true));
+        assert_eq!(policy.get("normalized_commands"), Some(&json!([])));
         let normalization = events.iter().find(|event| {
             event.get("event").and_then(Value::as_str)
                 == Some("verify_command_normalized_at_runtime")
         });
-        assert_eq!(
-            normalization.and_then(|event| event.get("repaired").and_then(Value::as_str)),
-            Some("test -f src/app/page.tsx")
-        );
-        assert_eq!(
-            normalization.and_then(|event| event.get("original_command")),
-            Some(&json!(
-                "test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""
-            ))
-        );
-        assert_eq!(
-            normalization.and_then(|event| event.get("normalized_commands")),
-            Some(&json!(["test -f src/app/page.tsx"]))
-        );
+        assert!(normalization.is_none(), "{events:?}");
     }
 
     #[test]

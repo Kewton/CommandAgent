@@ -443,10 +443,16 @@ def _recovery_plan_attempts(
         for row in events
         if row.get("event")
         in {
+            "recovery_control_restore_failed",
+            "recovery_control_retained",
+            "recovery_preflight_observation",
+            "recovery_promotion_decision",
             "recovery_plan_auto_run_configured",
             "recovery_plan_auto_run_start",
             "recovery_plan_auto_run_complete",
             "recovery_plan_auto_run_stopped",
+            "recovery_suppressed_current_success",
+            "recovery_treatment_rejected_regression",
         }
     ]
     attempts: dict[int, dict[str, Any]] = {
@@ -491,6 +497,16 @@ def _recovery_plan_attempts(
             current_attempt["recovery_handoff_kind"] = row.get("recovery_handoff_kind")
             current_attempt["recovery_ultra_plan_path"] = row.get(
                 "recovery_ultra_plan_path"
+            )
+            current_attempt["recovery_treatment_path"] = row.get(
+                "recovery_treatment_path"
+            )
+            current_attempt["recovery_candidate_scope"] = row.get(
+                "recovery_candidate_scope"
+            )
+            current_attempt["recovery_failed_step"] = row.get("recovery_failed_step")
+            current_attempt["recovery_verify_command_count"] = row.get(
+                "recovery_verify_command_count"
             )
         elif event == "recovery_plan_auto_run_complete":
             current_attempt["status"] = "succeeded"
@@ -540,6 +556,28 @@ def _recovery_plan_attempts(
         ),
         "attempts": [attempts[index] for index in sorted(attempts)],
         "terminal_stop_reason": terminal_reason,
+        "current_success_suppressed": any(
+            row.get("event") == "recovery_suppressed_current_success"
+            for row in rows
+        ),
+        "treatment_regression_rejected_count": sum(
+            row.get("event") == "recovery_treatment_rejected_regression"
+            for row in rows
+        ),
+        "control_retained_count": sum(
+            row.get("event") == "recovery_control_retained" for row in rows
+        ),
+        "control_restore_failed_count": sum(
+            row.get("event") == "recovery_control_restore_failed" for row in rows
+        ),
+        "promotion_decisions": [
+            {
+                "decision": row.get("decision"),
+                "reason": row.get("reason"),
+            }
+            for row in rows
+            if row.get("event") == "recovery_promotion_decision"
+        ],
     }
 
 

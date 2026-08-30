@@ -2445,7 +2445,7 @@ if __name__ == "__main__":
             recovery_plan
                 .phases
                 .iter()
-                .any(|phase| phase.prompt.contains("Verify preference"))
+                .any(|phase| phase.prompt.contains("product-visible final-success"))
         );
         let event_text = std::fs::read_to_string(events).unwrap();
         assert!(event_text.contains("\"planner_error_kind\":\"phase_scaffold_error\""));

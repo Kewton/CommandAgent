@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::planner::lint::{
-    VerifyDependencyOrderViolationKind, diagnose_step_plan_dependency_order,
+    PlanLintReport, VerifyDependencyOrderViolationKind, diagnose_step_plan_dependency_order,
 };
 use crate::planner::side_effect_paths::{SideEffectPathTier, diagnose_expected_path};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
@@ -24,6 +24,7 @@ pub struct SanitizerReport {
     pub goal_truncations: Vec<SanitizedGoalTruncationRecord>,
     pub normalized_commands: Vec<SanitizedCommandNormalizationRecord>,
     pub shell_control_splits: Vec<SanitizedShellControlSplitRecord>,
+    pub semantic_change_rejections: Vec<SanitizedSemanticChangeRejectionRecord>,
     pub removed_commands: Vec<SanitizedCommandRecord>,
     pub substituted_commands: Vec<SanitizedSubstitutionRecord>,
     pub moved_commands: Vec<SanitizedMoveRecord>,
@@ -65,6 +66,14 @@ pub struct SanitizedShellControlSplitRecord {
     pub original_command: String,
     pub fragments: Vec<String>,
     pub dropped_fallback: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SanitizedSemanticChangeRejectionRecord {
+    pub kind: String,
+    pub step_id: String,
+    pub value: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +127,7 @@ impl SanitizerReport {
         self.goal_truncations.is_empty()
             && self.normalized_commands.is_empty()
             && self.shell_control_splits.is_empty()
+            && self.semantic_change_rejections.is_empty()
             && self.removed_commands.is_empty()
             && self.substituted_commands.is_empty()
             && self.moved_commands.is_empty()
@@ -128,6 +138,18 @@ impl SanitizerReport {
             && self.instruction_truncations.is_empty()
             && self.instruction_notes.is_empty()
     }
+
+    pub fn append_policy_errors(&self, report: &mut PlanLintReport) {
+        for rejection in &self.semantic_change_rejections {
+            report.push(
+                "semantic_change_rejected",
+                format!(
+                    "step {} rejected {}: {}",
+                    rejection.step_id, rejection.kind, rejection.reason
+                ),
+            );
+        }
+    }
 }
 
 pub fn sanitize_step_plan_against_policy(
@@ -135,6 +157,7 @@ pub fn sanitize_step_plan_against_policy(
     workspace_root: Option<&Path>,
 ) -> SanitizerReport {
     let mut report = SanitizerReport::default();
+    reject_recovery_expected_fail_steps(plan, &mut report);
     normalize_oversized_goal(plan, &mut report);
     drop_side_effect_expected_paths(plan, &mut report);
     normalize_repairable_verify_commands(plan, workspace_root, &mut report);
@@ -198,6 +221,18 @@ fn sanitize_shell_control_verify_commands(plan: &mut StepPlan, report: &mut Sani
                 sanitized.push(command);
                 continue;
             };
+            if split.dropped_fallback.is_some() {
+                report.semantic_change_rejections.push(
+                    SanitizedSemanticChangeRejectionRecord {
+                        kind: "verify_command_rewritten_with_semantic_change".to_string(),
+                        step_id: step.id.clone(),
+                        value: command.clone(),
+                        reason: "shell fallback cannot be removed while preserving verify polarity; use one typed deterministic assertion".to_string(),
+                    },
+                );
+                sanitized.push(command);
+                continue;
+            }
             sanitized.extend(split.fragments.iter().cloned());
             report
                 .shell_control_splits
@@ -210,6 +245,27 @@ fn sanitize_shell_control_verify_commands(plan: &mut StepPlan, report: &mut Sani
                 });
         }
         step.verify = sanitized;
+    }
+}
+
+fn reject_recovery_expected_fail_steps(plan: &StepPlan, report: &mut SanitizerReport) {
+    let recovery_intent = plan
+        .goal
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case("intent: recover"));
+    if !recovery_intent {
+        return;
+    }
+    for step in &plan.steps {
+        if step.expected_result_kind() != crate::planner::step_plan::ExpectedResult::Fail {
+            continue;
+        }
+        report.semantic_change_rejections.push(SanitizedSemanticChangeRejectionRecord {
+            kind: "recovery_expected_fail_outside_reproducer_before".to_string(),
+            step_id: step.id.clone(),
+            value: step.expected_result.clone(),
+            reason: "Recovery steps must preserve current success and may not require the current workspace to fail; historical expected failures belong to immutable before evidence".to_string(),
+        });
     }
 }
 
@@ -899,7 +955,7 @@ fn dedupe_verify_commands(plan: &mut StepPlan) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::planner::lint::lint_step_plan_report_with_workspace;
+    use crate::planner::lint::{lint_step_plan_report, lint_step_plan_report_with_workspace};
 
     fn valid_artifact_plan(goal: String) -> StepPlan {
         StepPlan {
@@ -1276,7 +1332,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Ke
     }
 
     #[test]
-    fn sanitizer_splits_shell_control_verify_commands_and_drops_fallback_tail() {
+    fn sanitizer_rejects_shell_control_rewrite_that_would_drop_fallback() {
         let dir = tempfile::tempdir().unwrap();
         let mut plan = StepPlan {
             goal: "Verify content scaffold artifacts".to_string(),
@@ -1294,26 +1350,52 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Ke
 
         let report = sanitize_step_plan_against_policy(&mut plan, Some(dir.path()));
 
-        assert_eq!(report.shell_control_splits.len(), 1);
-        assert_eq!(report.shell_control_splits[0].kind, "shell_control_split");
+        assert!(report.shell_control_splits.is_empty(), "{report:?}");
+        assert_eq!(report.semantic_change_rejections.len(), 1);
         assert_eq!(
-            report.shell_control_splits[0].dropped_fallback.as_deref(),
-            Some("echo fallback")
+            report.semantic_change_rejections[0].kind,
+            "verify_command_rewritten_with_semantic_change"
         );
         assert_eq!(
             plan.steps[0].verify,
             vec![
-                "python -m compileall -q src",
-                "test -f src/app/page.tsx",
-                r#"grep -q -- "-p 3011" package.json"#,
+                r#"python -m compileall -q src && test -f src/app/page.tsx; grep -q "-p 3011" package.json || echo fallback"#,
             ]
         );
         assert!(
-            lint_step_plan_report_with_workspace(&plan, Some(dir.path())).is_pass(),
+            !lint_step_plan_report_with_workspace(&plan, Some(dir.path())).is_pass(),
             "{plan:?}"
         );
         let second = sanitize_step_plan_against_policy(&mut plan, Some(dir.path()));
-        assert!(second.is_empty(), "{second:?}");
+        assert_eq!(second.semantic_change_rejections.len(), 1, "{second:?}");
+    }
+
+    #[test]
+    fn sanitizer_rejects_expected_fail_in_recovery_step_plan() {
+        let mut plan = StepPlan {
+            goal: "Original ultra goal: repair app\nIntent: recover\nPhase id: verify-recovery"
+                .to_string(),
+            steps: vec![PlanStep {
+                id: "reproduce-crash".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "fail".to_string(),
+                instruction: "Reproduce the historical crash.".to_string(),
+                expected_paths: Vec::new(),
+                verify: vec!["python3 app.py fixture/task-01.json".to_string()],
+            }],
+        };
+
+        let report = sanitize_step_plan_against_policy(&mut plan, None);
+        let mut lint = lint_step_plan_report(&plan);
+        report.append_policy_errors(&mut lint);
+
+        assert_eq!(report.semantic_change_rejections.len(), 1);
+        assert_eq!(
+            report.semantic_change_rejections[0].kind,
+            "recovery_expected_fail_outside_reproducer_before"
+        );
+        assert!(lint.has_category("semantic_change_rejected"), "{lint:?}");
+        assert_eq!(plan.steps[0].expected_result, "fail");
     }
 
     #[test]

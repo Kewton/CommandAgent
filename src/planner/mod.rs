@@ -4,6 +4,7 @@ pub mod capability_catalog;
 pub(crate) mod completion_contract_path;
 pub mod contract_attribute_repair;
 pub(crate) mod declarative_command_checks;
+pub(crate) mod expected_result_observation;
 pub mod extension_profiles;
 pub(crate) mod external_reproducer;
 pub(crate) mod failure_vocabulary;
@@ -56,6 +57,7 @@ pub(crate) mod step_plan_finalize;
 pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;
+pub(crate) mod verify_semantics;
 pub mod profiles {
     pub mod community_mini_app;
     pub mod data;

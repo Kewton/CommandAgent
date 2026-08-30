@@ -20,6 +20,7 @@ from eval_lib.goal_verify_live import (
     load_json,
     sha256_file,
 )
+from eval_lib.goal_verify_live_v4 import _freeze_browser_toolchain
 from eval_lib.goal_verify_main_design_v4 import product_stage, workspace_case_id
 from eval_lib.goal_verify_preflight_v3 import exact_sha_ci_evidence_errors
 from eval_lib.goal_verify_recovery_experiment_v4 import (
@@ -93,6 +94,9 @@ def run_recovery_pair(
         destination=execution_root / namespace / f"{pair_id}--initial-only",
         provisioned_root=execution_root / "provisioned",
     )
+    initial_browser_toolchain = _freeze_browser_toolchain(
+        initial_workspace, initial_workspace.parent
+    )
     initial_result = baseline_runner(
         commandagent_bin=commandagent_bin,
         workspace=initial_workspace,
@@ -105,6 +109,9 @@ def run_recovery_pair(
     )
     initial_output_full = workspace_manifest(initial_workspace)
     initial_output_artifact = candidate_visible_manifest(initial_output_full)
+    initial_attachments = _attach_frozen_browser_toolchain(
+        initial_browser_toolchain, initial_workspace
+    )
     initial_oracles = execute_frozen_external_oracles(
         case_id=case["case_id"],
         adapters=adapters,
@@ -133,6 +140,7 @@ def run_recovery_pair(
                 candidate_visible_manifest(initial_input), initial_output_artifact
             ),
             "external_oracles": initial_oracles,
+            "host_capability_attachments": initial_attachments,
         },
         "recovery_one": {
             "status": "not_run",
@@ -150,6 +158,9 @@ def run_recovery_pair(
         destination=execution_root / namespace / f"{pair_id}--recovery-one",
         provisioned_root=execution_root / "provisioned",
     )
+    recovery_browser_toolchain = _freeze_browser_toolchain(
+        recovery_workspace, recovery_workspace.parent
+    )
     if recovery_input["snapshot_sha256"] != initial_input["snapshot_sha256"]:
         raise ValueError(f"paired input snapshot mismatch:{pair_id}")
     recovery_result = baseline_runner(
@@ -164,6 +175,9 @@ def run_recovery_pair(
     )
     recovery_output_full = workspace_manifest(recovery_workspace)
     recovery_output_artifact = candidate_visible_manifest(recovery_output_full)
+    recovery_attachments = _attach_frozen_browser_toolchain(
+        recovery_browser_toolchain, recovery_workspace
+    )
     recovery_oracles = execute_frozen_external_oracles(
         case_id=case["case_id"],
         adapters=adapters,
@@ -180,6 +194,7 @@ def run_recovery_pair(
             candidate_visible_manifest(recovery_input), recovery_output_artifact
         ),
         "external_oracles": recovery_oracles,
+        "host_capability_attachments": recovery_attachments,
     }
     record["comparison"] = compare_recovery_arms(
         initial_only=initial_result,
@@ -225,6 +240,7 @@ def _run_shared_recovery_pair(
         destination=execution_root / namespace / f"{pair_id}--shared-run",
         provisioned_root=execution_root / "provisioned",
     )
+    browser_toolchain = _freeze_browser_toolchain(workspace, workspace.parent)
     configured_runs = 1 if preregistered["eligible"] is True else 0
     treatment_result = baseline_runner(
         commandagent_bin=commandagent_bin,
@@ -239,6 +255,9 @@ def _run_shared_recovery_pair(
     )
     treatment_full = workspace_manifest(workspace)
     treatment_artifact = candidate_visible_manifest(treatment_full)
+    treatment_attachments = _attach_frozen_browser_toolchain(
+        browser_toolchain, workspace
+    )
     semantics = validate_a14_oracle_semantics(
         case_id=case["case_id"], intent=case["intent"], adapters=adapters
     )
@@ -292,6 +311,7 @@ def _run_shared_recovery_pair(
                 candidate_visible_manifest(input_manifest), treatment_artifact
             ),
             "external_oracles": treatment_oracles,
+            "host_capability_attachments": treatment_attachments,
         },
         "comparison": None,
     }
@@ -360,6 +380,9 @@ def _run_shared_recovery_pair(
     attached = _attach_oracle_capabilities(
         source_workspace=workspace, boundary_workspace=control_workspace
     )
+    attached.extend(
+        _attach_frozen_browser_toolchain(browser_toolchain, control_workspace)
+    )
     control_full = workspace_manifest(control_workspace)
     control_artifact = candidate_visible_manifest(control_full)
     control_oracles = execute_frozen_external_oracles(
@@ -384,6 +407,7 @@ def _run_shared_recovery_pair(
             destination=execution_root / namespace / f"{pair_id}--precondition",
             provisioned_root=execution_root / "provisioned",
         )
+        _attach_frozen_browser_toolchain(browser_toolchain, precondition_workspace)
         precondition_oracles = execute_frozen_external_oracles(
             case_id=case["case_id"],
             adapters=adapters,
@@ -459,6 +483,22 @@ def _attach_oracle_capabilities(
         destination.symlink_to(source.resolve(), target_is_directory=source.is_dir())
         attached.append(relative.as_posix())
     return attached
+
+
+def _attach_frozen_browser_toolchain(
+    browser_toolchain: Path | None, workspace: Path
+) -> list[str]:
+    if browser_toolchain is None:
+        return []
+    source = browser_toolchain / "playwright-core"
+    if not source.is_dir():
+        raise ValueError("frozen browser toolchain is missing playwright-core")
+    destination = workspace / "node_modules" / "playwright-core"
+    if destination.exists():
+        return []
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(source.resolve(), target_is_directory=True)
+    return ["node_modules/playwright-core"]
 
 
 def _shared_control_result(treatment: dict[str, Any]) -> dict[str, Any]:

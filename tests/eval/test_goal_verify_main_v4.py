@@ -30,6 +30,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a2 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a3 import (
     _build_contract as build_a14_a3_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a4 import (
+    _build_contract as build_a14_a4_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _product_resource_usage,
     _product_terminal_status,
@@ -61,6 +64,7 @@ from eval_lib.goal_verify_recovery_experiment_v4 import (
     validate_a14_oracle_semantics,
 )
 from eval_lib.goal_verify_recovery_live_v4 import (
+    _attach_frozen_browser_toolchain,
     _snapshot_content_sha256,
     run_recovery_pair,
 )
@@ -81,6 +85,29 @@ def load(relative: str):
 
 
 class GoalVerifyMainV4Test(unittest.TestCase):
+    def test_recovery_browser_toolchain_is_attached_after_product_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            toolchain = root / "candidate-toolchain"
+            workspace = root / "workspace"
+            (toolchain / "playwright-core").mkdir(parents=True)
+            (toolchain / "playwright-core/package.json").write_text(
+                '{}', encoding="utf-8"
+            )
+            workspace.mkdir()
+
+            attached = _attach_frozen_browser_toolchain(toolchain, workspace)
+
+            link = workspace / "node_modules/playwright-core"
+            self.assertEqual(attached, ["node_modules/playwright-core"])
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(
+                link.resolve(), (toolchain / "playwright-core").resolve()
+            )
+            self.assertEqual(
+                _attach_frozen_browser_toolchain(toolchain, workspace), []
+            )
+
     def test_generated_workspace_file_list_ignores_runtime_caches(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -645,6 +672,132 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "ineligible_recovery_not_executed",
         )
         self.assertFalse(contract["authorization"]["smoke_collection_authorized"])
+
+    def test_a14_a4_freezes_current_success_and_browser_safety_gates(self):
+        contract = build_a14_a4_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        self.assertEqual(
+            contract["recovery_safety_policy"]["maximum_automatic_recovery_runs"],
+            1,
+        )
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 0)
+        self.assertEqual(
+            contract["smoke"]["minimum_current_success_suppressions"], 1
+        )
+        self.assertTrue(contract["smoke"]["require_browser_oracle_executability"])
+        self.assertTrue(contract["smoke"]["require_isolated_treatment_workspace"])
+        self.assertFalse(
+            contract["smoke"]["require_executed_recovery_for_attribution"]
+        )
+        findings = contract["pre_live_amendments"][-1]["product_findings"]
+        self.assertEqual(len(findings), 12)
+        self.assertFalse(contract["authorization"]["smoke_collection_authorized"])
+        self.assertEqual(recovery_contract_errors(contract), [])
+
+    def test_a14_a4_report_accepts_protected_success_but_not_blocked_browser(self):
+        contract = build_a14_a4_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        contract["smoke"]["expected_pair_count"] = 1
+        usage = {
+            "wall_time_ms": 100,
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
+        manifest = {
+            "candidate_visibility_policy": (
+                "commandagent.goal_verify.candidate_manifest.source_config_v1"
+            )
+        }
+        external_oracles = {
+            "source": "frozen_host_adapter_post_execution",
+            "outcomes": [
+                {
+                    "adapter_id": "browser-golden",
+                    "executor_kind": "playwright_script",
+                    "outcome": {"executed": True, "result": "pass"},
+                }
+            ],
+        }
+        result = {
+            "argv": ["commandagent", "--ultra-plan-run", "goal"],
+            "recovery_plan_attempts": {
+                "configured_recovery_runs": 1,
+                "executed_recovery_runs": 0,
+                "terminal_stop_reason": "current_success_protected",
+            },
+            "resource_usage": usage,
+        }
+        record = {
+            "pair_id": "protected-current-success",
+            "pairing_unit": "shared_pre_recovery_snapshot",
+            "eligibility": {
+                "runtime": {
+                    "run_recovery_one_arm": True,
+                    "category": "initial_success",
+                }
+            },
+            "initial_only": {
+                "input_manifest": {"snapshot_sha256": "a" * 64},
+                "result": {
+                    **result,
+                    "recovery_plan_attempts": {
+                        "configured_recovery_runs": 0,
+                        "executed_recovery_runs": 0,
+                    },
+                },
+                "output_artifact_manifest": manifest,
+                "external_oracles": external_oracles,
+            },
+            "recovery_one": {
+                "status": "completed",
+                "input_manifest": {"snapshot_sha256": "a" * 64},
+                "result": result,
+                "output_artifact_manifest": manifest,
+                "external_oracles": external_oracles,
+            },
+            "comparison": {
+                "quality_transition": "no_recovery_needed",
+                "success_improved": False,
+                "shared_initial_history": True,
+                "effect_attribution_ready": False,
+                "oracle_semantics": {"valid": True},
+                "internal_external_outcome_matrix": {},
+                "resource_delta": {
+                    "wall_time_ms": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
+            },
+        }
+
+        report = build_recovery_report(records=[record], contract=contract)
+
+        self.assertTrue(report["instrument_ready"], report["diagnostics"])
+        self.assertTrue(report["checks"]["current_success_suppression_observed"])
+        self.assertTrue(report["checks"]["browser_oracle_executability_preflight"])
+        self.assertFalse(report["effect_attribution_ready"])
+
+        blocked = copy.deepcopy(record)
+        blocked["recovery_one"]["external_oracles"]["outcomes"][0]["outcome"] = {
+            "executed": False,
+            "result": "blocked",
+            "reason": "playwright-core unavailable",
+        }
+        blocked_report = build_recovery_report(records=[blocked], contract=contract)
+        self.assertFalse(blocked_report["instrument_ready"])
+        self.assertFalse(
+            blocked_report["checks"]["browser_oracle_executability_preflight"]
+        )
 
     def test_shared_boundary_comparison_requires_semantic_oracle_validation(self):
         treatment = {
