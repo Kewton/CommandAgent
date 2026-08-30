@@ -1,0 +1,732 @@
+{
+  "case_id": "phase6-main-c05-task-01",
+  "comparison": {
+    "control_snapshot_matches_boundary": false,
+    "effect_attribution_ready": false,
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "pass",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "pass",
+        "internal": "failed"
+      },
+      "treatment": {
+        "external": "not_applicable",
+        "internal": "not_executed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "before-after-after--phase6-cell-05-source-task-01",
+        "regressions--phase6-cell-05-source-task-01"
+      ],
+      "precondition_adapter_ids": [
+        "before-after-before--phase6-cell-05-source-task-01"
+      ],
+      "valid": true
+    },
+    "quality_transition": "no_recovery_needed",
+    "raw_oracle_transition": "unchanged_pass",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "recovery_oracle_status": "pass",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_ms": 0
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "structured_recovery_candidate:verify_repair_progress_unchanged",
+      "run_recovery_one_arm": true,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "before-after-after--phase6-cell-05-source-task-01",
+          "claim_id": "before-after",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 28,
+            "stderr": "",
+            "stdout": "13\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "regressions--phase6-cell-05-source-task-01",
+          "claim_id": "regressions",
+          "executor_kind": "regression_set",
+          "is_regression": true,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "reason": "full_regression_set_pass",
+            "registered_results": [
+              {
+                "executed": true,
+                "exit_code": 0,
+                "id": "pytest-tests",
+                "output_truncated": false,
+                "runtime_ms": 433,
+                "stderr": "",
+                "stdout": "..                                                                       [100%]\n2 passed in 0.00s\n",
+                "timed_out": false
+              },
+              {
+                "executed": true,
+                "exit_code": 0,
+                "id": "contract-check",
+                "output_truncated": false,
+                "runtime_ms": 28,
+                "stderr": "",
+                "stdout": "",
+                "timed_out": false
+              }
+            ],
+            "result": "pass",
+            "runtime_ms": 461
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "pass",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "f09ae529e39a70297f8cb52099daed28d81369a5323bcda361863db0a43a4bfd",
+          "size": 525
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "b44d190b5a81493707a86a95b15f9fcea575c4623dfad0a86ecf7c31f14471ad"
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "50bcca24a2ec7a6f1a6879d0cf627f8e77423437fb18e8dd5bf7ec8fe0d270ac",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "87dffe56bed6561319cbc52bc7555088e124c2a79d8be95c4956d5e990995a99",
+          "size": 529
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-adjudication.json",
+          "sha256": "f95553a730cd0f16820a8c8f2c6ab268a9c27549d442c486822fa5ef742c6e11",
+          "size": 1558
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-before.json",
+          "sha256": "0507ce7ffce6291bbc9e8362814b4a6a0232e6a867e1e9ca63e298e146fd9a1f",
+          "size": 767
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4fb0ddc9bbf42e2e1804b26bf431945885e0370cde7b6d9f3b805576b87232dd"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".pytest_cache/.gitignore",
+          "sha256": "3ed731b65d06150c138e2dadb0be0697550888a6b47eb8c45ecc9adba8b8e9bd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/CACHEDIR.TAG",
+          "sha256": "37dc88ef9a0abeddbe81053a6dd8fdfb13afb613045ea1eb4a5c815a74a3bde4",
+          "size": 191
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/README.md",
+          "sha256": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
+          "size": 302
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/v/cache/nodeids",
+          "sha256": "2dd78d8ba962ef74c4f56d20a577e33239ffb34316a6b8b236366cc796327284",
+          "size": 100
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "__pycache__/cli.cpython-312.pyc",
+          "sha256": "4cf417e2d712e936a03a9895676844c8af1c1e54e59ffff78e9facaaabee08eb",
+          "size": 1240
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "87dffe56bed6561319cbc52bc7555088e124c2a79d8be95c4956d5e990995a99",
+          "size": 529
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-adjudication.json",
+          "sha256": "f95553a730cd0f16820a8c8f2c6ab268a9c27549d442c486822fa5ef742c6e11",
+          "size": 1558
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-before.json",
+          "sha256": "0507ce7ffce6291bbc9e8362814b4a6a0232e6a867e1e9ca63e298e146fd9a1f",
+          "size": 767
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/__pycache__/test_cli.cpython-312-pytest-9.0.2.pyc",
+          "sha256": "51d27cdb9ad507577ff5a2ca0101f69dedffae71b37ccafcb032cd03396c6c4e",
+          "size": 4000
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4fb0ddc9bbf42e2e1804b26bf431945885e0370cde7b6d9f3b805576b87232dd"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a12-exact-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "`python3 cli.py 7` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"extra_tools\":[\"pytest\"],\"frozen_regression_set\":[{\"argv\":[\"python3\",\"-m\",\"pytest\",\"-q\",\"tests\"],\"id\":\"pytest-tests\"},{\"argv\":[\"python3\",\"scripts/contract_check.py\"],\"id\":\"contract-check\"}],\"language\":\"python3\",\"network\":\"denied\",\"reproducer\":{\"argv\":[\"python3\",\"cli.py\",\"7\"],\"expected_exit_after\":0,\"expected_exit_before\":2,\"stage_before\":\"before\"},\"scored\":false,\"shell\":\"forbidden\"}"
+      ],
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": "current_success_protected"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "no_recovery_boundary_reached"
+      },
+      "resource_usage": {
+        "input_tokens": 61197,
+        "output_tokens": 4146,
+        "total_tokens": 65343,
+        "wall_time_ms": 156785
+      },
+      "status": "failed",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "verify_repair_progress_unchanged",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-repair-01a05143-0db0-7bc1-b523-bc4d28aa8a38.yaml",
+        "status": "failed",
+        "stop_reason": "automatic Recovery Plan suppressed: current final-success observations pass",
+        "structured_blockers": []
+      }
+    },
+    "status": "same_run_no_recovery_boundary"
+  },
+  "intent": "fix",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "before-after-after--phase6-cell-05-source-task-01",
+      "regressions--phase6-cell-05-source-task-01"
+    ],
+    "precondition_adapter_ids": [
+      "before-after-before--phase6-cell-05-source-task-01"
+    ],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c05-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "cli",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260830-a14-a12-smoke-01/raw/phase6-main-c05-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "before-after-after--phase6-cell-05-source-task-01",
+          "claim_id": "before-after",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 28,
+            "stderr": "",
+            "stdout": "13\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "regressions--phase6-cell-05-source-task-01",
+          "claim_id": "regressions",
+          "executor_kind": "regression_set",
+          "is_regression": true,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "reason": "full_regression_set_pass",
+            "registered_results": [
+              {
+                "executed": true,
+                "exit_code": 0,
+                "id": "pytest-tests",
+                "output_truncated": false,
+                "runtime_ms": 433,
+                "stderr": "",
+                "stdout": "..                                                                       [100%]\n2 passed in 0.00s\n",
+                "timed_out": false
+              },
+              {
+                "executed": true,
+                "exit_code": 0,
+                "id": "contract-check",
+                "output_truncated": false,
+                "runtime_ms": 28,
+                "stderr": "",
+                "stdout": "",
+                "timed_out": false
+              }
+            ],
+            "result": "pass",
+            "runtime_ms": 461
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "pass",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "host_capability_attachments": [],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "f09ae529e39a70297f8cb52099daed28d81369a5323bcda361863db0a43a4bfd",
+          "size": 525
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "b44d190b5a81493707a86a95b15f9fcea575c4623dfad0a86ecf7c31f14471ad"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-adjudication.json",
+        "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-before.json"
+      ],
+      "after_snapshot_sha256": "4fb0ddc9bbf42e2e1804b26bf431945885e0370cde7b6d9f3b805576b87232dd",
+      "before_snapshot_sha256": "b44d190b5a81493707a86a95b15f9fcea575c4623dfad0a86ecf7c31f14471ad",
+      "change_count": 3,
+      "changed": [
+        "cli.py"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "50bcca24a2ec7a6f1a6879d0cf627f8e77423437fb18e8dd5bf7ec8fe0d270ac",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "87dffe56bed6561319cbc52bc7555088e124c2a79d8be95c4956d5e990995a99",
+          "size": 529
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-adjudication.json",
+          "sha256": "f95553a730cd0f16820a8c8f2c6ab268a9c27549d442c486822fa5ef742c6e11",
+          "size": 1558
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-before.json",
+          "sha256": "0507ce7ffce6291bbc9e8362814b4a6a0232e6a867e1e9ca63e298e146fd9a1f",
+          "size": 767
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4fb0ddc9bbf42e2e1804b26bf431945885e0370cde7b6d9f3b805576b87232dd"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".pytest_cache/.gitignore",
+          "sha256": "3ed731b65d06150c138e2dadb0be0697550888a6b47eb8c45ecc9adba8b8e9bd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/CACHEDIR.TAG",
+          "sha256": "37dc88ef9a0abeddbe81053a6dd8fdfb13afb613045ea1eb4a5c815a74a3bde4",
+          "size": 191
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/README.md",
+          "sha256": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
+          "size": 302
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/v/cache/nodeids",
+          "sha256": "2dd78d8ba962ef74c4f56d20a577e33239ffb34316a6b8b236366cc796327284",
+          "size": 100
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "593d71817f396a3417e0bb6944d0e9fa3e55ab4ae5a1a0ae13479ea1b2208d41",
+          "size": 231
+        },
+        {
+          "kind": "file",
+          "path": "__pycache__/cli.cpython-312.pyc",
+          "sha256": "4cf417e2d712e936a03a9895676844c8af1c1e54e59ffff78e9facaaabee08eb",
+          "size": 1240
+        },
+        {
+          "kind": "file",
+          "path": "cli.py",
+          "sha256": "87dffe56bed6561319cbc52bc7555088e124c2a79d8be95c4956d5e990995a99",
+          "size": 529
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-adjudication.json",
+          "sha256": "f95553a730cd0f16820a8c8f2c6ab268a9c27549d442c486822fa5ef742c6e11",
+          "size": 1558
+        },
+        {
+          "kind": "file",
+          "path": "evidence/fix-01a05140-a000-7601-b564-07e8382f112a-before.json",
+          "sha256": "0507ce7ffce6291bbc9e8362814b4a6a0232e6a867e1e9ca63e298e146fd9a1f",
+          "size": 767
+        },
+        {
+          "kind": "file",
+          "path": "scripts/contract_check.py",
+          "sha256": "ee8785184c13bf1ff136f5818f52d313ef7c70965cd602beeb03e403af4ef287",
+          "size": 711
+        },
+        {
+          "kind": "file",
+          "path": "tests/__pycache__/test_cli.cpython-312-pytest-9.0.2.pyc",
+          "sha256": "51d27cdb9ad507577ff5a2ca0101f69dedffae71b37ccafcb032cd03396c6c4e",
+          "size": 4000
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_cli.py",
+          "sha256": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497",
+          "size": 377
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "4fb0ddc9bbf42e2e1804b26bf431945885e0370cde7b6d9f3b805576b87232dd"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a12-exact-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "`python3 cli.py 7` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-check を両方維持する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"extra_tools\":[\"pytest\"],\"frozen_regression_set\":[{\"argv\":[\"python3\",\"-m\",\"pytest\",\"-q\",\"tests\"],\"id\":\"pytest-tests\"},{\"argv\":[\"python3\",\"scripts/contract_check.py\"],\"id\":\"contract-check\"}],\"language\":\"python3\",\"network\":\"denied\",\"reproducer\":{\"argv\":[\"python3\",\"cli.py\",\"7\"],\"expected_exit_after\":0,\"expected_exit_before\":2,\"stage_before\":\"before\"},\"scored\":false,\"shell\":\"forbidden\"}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "9e00f6e187c8714df488030b5f17f19fab9190a8e96ebaf3a5fe4f1022a72e4f",
+      "completion_verify_attempt_recorded": false,
+      "completion_verify_passed": false,
+      "fix_reproducer_binding": {
+        "before_evidence_count": 1,
+        "binding_ids": [
+          "python3 cli.py 7"
+        ],
+        "executed_before_failure_count": 1,
+        "observed": true,
+        "r_bases": [
+          "completion_contract:fix_reproducer_command"
+        ],
+        "reproduce_before_step_counts": [
+          1
+        ],
+        "synthesized_event_count": 1
+      },
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "58be77d6638ba344709a8297be2f07c7e44e9e47d341f56a85c2cef74b0f5adc",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a12-smoke-01/phase6-main-c05-task-01--pair-01--shared-run/before/.commandagent/runs/01a05140-9fbc-79e1-b88b-c4114e95ad42",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": "current_success_protected"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "control_restore_failed_count": 0,
+        "control_retained_count": 0,
+        "current_success_suppressed": true,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "fix_contract_resumptions": [],
+        "promotion_decisions": [],
+        "step_plan_contract_bindings": [],
+        "terminal_stop_reason": "current_success_protected",
+        "treatment_regression_rejected_count": 0
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 61197,
+        "output_tokens": 4146,
+        "total_tokens": 65343,
+        "wall_time_ms": 156785
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: automatic Recovery Plan suppressed: current final-success observations pass: phase repair failed: step reproduce-failure failed verification after bounded repair: command failed: test $? -eq 2 outcome: CommandFailed status: exit status: 1 elapsed_ms: 28 summary: command did not succeed: test $? -eq 2 stdout: stderr: ; failure_kind=verify_repair_progress_unchanged; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved:\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-repair-01a05143-0db0-7bc1-b523-bc3ef4e03c63.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-repair-01a05143-0db0-7bc1-b523-bc4d28aa8a38.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .commandagent/repairs/repair-phase-repair-01a05143-0db0-7bc1-b523-bc3ef4e03c63.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-repair-01a05143-0db0-7bc1-b523-bc4d28aa8a38.yaml\n",
+      "stdout": "### Plan\n- Goal: `python3 cli.py 7` が終了コード2になる既知入力を先に再現し、修正後は終了コード0にする。凍結済みの pytest と contract-che...\n- Profile: cli\n- Port: not specified\n- UltraPlan accepted: 4 phases; first: reproduce-before\n- Phase list:\n1. ○ reproduce-before - Bind and run one deterministic failing reproducer R before any workspace change for: `python3 cl...\n2. ○ isolate-cause - Isolate the cause of the reproduced failure without modifying the workspace for: `python3 cli.py...\n3. ○ repair - Apply the focused repair for the reproduced failure in: `python3 cli.py 7` が終了コード2になる既...\n4. ○ verify-regressions - Verify the repaired behavior and the profile-bound regression set for: `python3 cli.py 7` が終了...\n── Phase 1/4: reproduce-before ──\n#### Phase: reproduce-before\n1. ○ [verify] Run the bound reproducer R to record the required F1 failing baseline before any workspace chang... (verify 1)\n✓ Phase 1/4: reproduce-before\n── Phase 2/4: isolate-cause ──\n→ planning steps for phase 2/4 isolate-cause (qwen3.6, up to 600s)\n✓ step plan ready (22s)\n#### Phase: isolate-cause\n1. ○ [inspect] Read cli.py to understand argument parsing, validation logic, and error handling paths that coul... (verify 0)\n2. ○ [inspect] Read tests directory to understand existing test coverage and assertions related to cli.py behav... (verify 0)\n3. ○ [inspect] Read scripts/contract_check.py to understand the contract validation logic that must remain pass... (verify 0)\n4. ○ [verify] Run python3 cli.py 7 and capture exit code to confirm it is currently 2. (verify 2)\n5. ○ [verify] Run the frozen pytest suite to establish baseline pass status before any changes. (verify 1)\n6. ○ [verify] Run the frozen contract check to establish baseline pass status before any changes. (verify 1)\n7. ○ [inspect] Run python3 cli.py 7 with stderr captured to identify the specific error message or traceback ca... (verify 0)\nplan normalized: shell_control_split\n→ step inspect-cli-code [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (8s)\n→ Read cli.py\n→ Glob **/*.py\n✓ Read ok\n✓ Glob ok\n→ step inspect-test-suite [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read tests/test_cli.py\n→ Read scripts/contract_check.py\n✓ Read ok\n✓ Read ok\n→ step inspect-contract-check [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read scripts/contract_check.py\n✓ Read ok\n→ step reproduce-failure [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash python3 cli.py 7; echo \"EXIT_CODE=$?\"\n✗ Bash verify_command_policy_error\n✗ Bash verify_command_policy_error\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (2s)\n→ Bash python3 cli.py 7\n✓ Bash ok\n✗ verify command failed: python3 cli.py 7 outcome: CommandFailed status: exit status: 2 elapsed_ms: 30 summar...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (17s)\n→ Edit cli.py\n✓ Edit ok\n↻ repair 1/2: unknown\n→ step run-existing-tests [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Bash python3 -m pytest -q tests\n✓ Bash ok\n→ step run-contract-check [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Bash python3 scripts/contract_check.py\n✓ Bash ok\n→ step inspect-error-output [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (13s)\n→ Read cli.py\n✓ Read ok\n✓ verify isolate-cause (intermediate_invariant)\n✓ Phase 2/4: isolate-cause\n── Phase 3/4: repair ──\n→ planning steps for phase 3/4 repair (qwen3.6, up to 600s)\n✓ step plan ready (17s)\n#### Phase: repair\n1. ○ [inspect] Read cli.py to identify the logic causing exit code 2 for input 7. (verify 0)\n2. ○ [verify] Run python3 cli.py 7 to confirm it currently exits with code 2. (verify 2)\n3. ○ [implement] Modify cli.py to handle input 7 correctly so it exits with code 0. (verify 0)\n4. ○ [verify] Run python3 cli.py 7 to confirm it now exits with code 0. (verify 2)\n5. ○ [verify] Run frozen pytest suite to ensure no regressions. (verify 1)\n6. ○ [verify] Run frozen contract check to ensure no regressions. (verify 1)\nplan normalized: shell_control_split x2\n→ step inspect-cli [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (7s)\n→ Read cli.py\n✓ Read ok\n→ step reproduce-failure [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (10s)\n→ Read cli.py\n✓ Read ok\n✗ verify command failed: test $? -eq 2 outcome: CommandFailed status: exit status: 1 elapsed_ms: 30 summary: ...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (13s)\n→ Bash python3 cli.py 7\n✓ Bash ok\n↻ repair 1/2: implementation\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (17s)\n→ Bash python3 -m pytest -q tests\n✓ Bash ok\n↻ repair 2/2: implementation\n✗ Phase 3/4: repair step reproduce-failure failed verification after bounded repair: command failed:...\n✗ final acceptance failed\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "verify_repair_progress_unchanged",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-repair-01a05143-0db0-7bc1-b523-bc4d28aa8a38.yaml",
+        "status": "failed",
+        "stop_reason": "automatic Recovery Plan suppressed: current final-success observations pass",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 160031
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c05-task-01"
+}

@@ -59,17 +59,17 @@
     "regression_introduced": "initial_only frozen regression pass and recovery_one frozen regression fail"
   },
   "authorization": {
-    "approved_at": null,
-    "approved_by": null,
+    "approved_at": "2026-08-30",
+    "approved_by": "repository owner",
     "full_collection_authorized": false,
     "implementation_authorized": true,
-    "smoke_collection_authorized": false
+    "smoke_collection_authorized": true
   },
-  "code_sha": "",
+  "code_sha": "2139f3ebefc8d408947ccccbedca96c36d24bee0",
   "contract_id": "phase6-recovery-v4-20260830-a14-a12-live-01",
   "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
   "endpoint": "http://127.0.0.1:11434/api/generate",
-  "exact_sha_ci_evidence": "",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2139f3eb.json",
   "execution_root_policy": {
     "internal_disk_execution_forbidden": true,
     "required_root": "/Volumes/SSD_NX/tmp/commandagent_trial"
@@ -408,7 +408,7 @@
     }
   },
   "smoke_run_id": "phase6-recovery-v4-20260830-a14-a12-smoke-01",
-  "status": "draft",
+  "status": "frozen",
   "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
   "supersedes": "phase6-main-v4-20260829-live-02",
   "supersedes_contract": "phase6-recovery-v4-20260830-a14-a11-live-01",

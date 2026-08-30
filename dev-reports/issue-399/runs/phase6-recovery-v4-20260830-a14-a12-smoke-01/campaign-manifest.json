@@ -1,0 +1,52 @@
+{
+  "code_sha": "2139f3ebefc8d408947ccccbedca96c36d24bee0",
+  "commandagent_bin": "/Volumes/SSD_NX/tmp/CommandAgent-a14-a12-exact-target/release/commandagent",
+  "commandagent_binary_sha256": "f5c720ef559526c4f3e4a38a0949e6aa08ecf839eaab7e0aceee1fcd6b8c8f91",
+  "contract_id": "phase6-recovery-v4-20260830-a14-a12-live-01",
+  "contract_sha256": "0c13d631a1b276e4550f2c77586c1bf337f78199903a9d682ff067fe362ffb72",
+  "exact_sha_ci_evidence_sha256": "4115833f2299fea8646cbf303c679cada0ce379e1ed652d333f669798e0c6797",
+  "execution_root": "/Volumes/SSD_NX/tmp/commandagent_trial",
+  "frozen_input_sha256": {
+    "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6-1.json": "cd169df4f14da187092117e9b0ae21d0a3bb179fdca6f39d52125b69d38086be",
+    "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
+    "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6-1.json": "48856969b1e8ce732757818ba5f413fd61a3513961df6072eeb64d7cdb58ec76",
+    "tests/fixtures/goal_verify_v3/fix-reproduced-after-regression/before/tests/test_cli.py": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497"
+  },
+  "run_id": "phase6-recovery-v4-20260830-a14-a12-smoke-01",
+  "runner_source_sha256": {
+    "scripts/eval-goal-verify-recovery-v4-report.py": "bc793cf5ff9dc7478d3105c10b8974c9a087932bf27d4d5720dda1ff6066d6b8",
+    "scripts/eval-goal-verify-recovery-v4.py": "5c93c04eb2988375ec044919d4ae15096ba38b9ffa005b222fe4a76ee332b32c",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14.py": "0e6d6a6b71b45a5970522669483af5997c45cf45c0519cefe900e320e06553df",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a1.py": "745c5d02bf4b90f054a1f96d95c829de64ec4ccc63876f992d1c52195fe0a7d4",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a10.py": "ee4acddd0febaf0b51415e4393fc58ad3e44fadffd1dec5e9e87ba8699f7ed5d",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a11.py": "77832e19f7f1b7886da249d63df5e1679de1df35ef9eae8556d376558eed0932",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a12.py": "d61e11c90c529c56f2a0ae434c42c07e60fd049577ca10c5efc835234ee6480d",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a2.py": "d67f90929a611b9a4ca7494b1f8cd22effb9a7ed444ce5513e7049b4543be209",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a3.py": "6864b964011fe43e4d7299de65f28725a08fa1ceb9eedbd62e9fe50c91083aeb",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py": "b34d39ce6a2973696626251ed6337838d1937e2822e364caa22036f3bcb31b73",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py": "387ac6832a99e6dcce7e9d55f096a64146435c2daf38e0afa1d20f21b37dbb42",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a6.py": "9417db7910b2c4049fff06a60c6548ece33054cb45ff964afb32d06644612100",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a7.py": "84030f259491b978c7a5623f0944f2d70fb40ac716e71e1fff371f1f4129432e",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a8.py": "836d2460e2dd0b2d784352f2bc6547540abb5c59651d5d2e12df49db72030b62",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a9.py": "c22a50366e09c9be7de209be7dbf37a7bcd7477fa4f3052613f27f21343daf76",
+    "scripts/eval_lib/goal_verify_additive_v4.py": "f3c173dee24c39076805be8f99a3a6103c7a40db008364804290836ba6306948",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py": "a4557df3c7ccf24111896f4cc9e5dfa41bb1b45944616bed2256efe419696ecc",
+    "scripts/eval_lib/goal_verify_executors_v3.py": "82d3eb3939807f39b6b96b7225a6e7f277439a0d7aee24ee709512efc90eb978",
+    "scripts/eval_lib/goal_verify_manifest_visibility_v4.py": "04eed2409e71c84eb6c694e91d88db1c03352b23b95ed464e17bac71a63321b3",
+    "scripts/eval_lib/goal_verify_recovery_experiment_v4.py": "fc9fc69ac5a143d9c06269ee011e3a442174f59e6799d0e40ca0f9fb25b004de",
+    "scripts/eval_lib/goal_verify_recovery_live_v4.py": "424df5493c41d723a4110464c55802d7567c9b6b520f08db4d9a13acbb377f01",
+    "scripts/eval_lib/goal_verify_recovery_report_v4.py": "a97aa630a1f981eaeeeee2604ede8ffa5ce34d174f0e50a0ca64b6e19ecca986",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py": "e76f6843a4f45450038788988d4715bbe4b5e1fc3d405f1417aa9afb2f7aacd3"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_campaign.v4_a14",
+  "selected_pair_ids": [
+    "phase6-main-c05-task-01--pair-01",
+    "phase6-main-c05-task-05--pair-01",
+    "phase6-main-c05-task-10--pair-01"
+  ],
+  "target_pairs": 3
+}
