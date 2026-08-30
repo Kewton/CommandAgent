@@ -100,6 +100,53 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         and execution_action != "ultra_plan_run"
     ):
         errors.append("smoke_execution_action_not_recovery_capable")
+    full = contract.get("full_experiment")
+    if full is not None:
+        if not isinstance(full, dict):
+            errors.append("full_experiment_invalid")
+        else:
+            eligible_pairs = full.get("eligible_pair_ids")
+            sentinel_pairs = full.get("sentinel_pair_ids")
+            frozen_pairs = (
+                [*eligible_pairs, *sentinel_pairs]
+                if isinstance(eligible_pairs, list)
+                and isinstance(sentinel_pairs, list)
+                else None
+            )
+            if (
+                not eligible_pairs
+                or not sentinel_pairs
+                or frozen_pairs != pair_ids
+                or len(frozen_pairs) != len(set(frozen_pairs))
+            ):
+                errors.append("full_experiment_pair_population_invalid")
+            if full.get("effect_claim_allowed") is not True:
+                errors.append("full_experiment_effect_claim_not_authorized")
+            if full.get("bootstrap_samples") != 2000:
+                errors.append("full_experiment_bootstrap_samples_invalid")
+            if full.get("confidence_interval") != 0.95:
+                errors.append("full_experiment_confidence_interval_invalid")
+            if not isinstance(full.get("bootstrap_seed"), int) or isinstance(
+                full.get("bootstrap_seed"), bool
+            ):
+                errors.append("full_experiment_bootstrap_seed_invalid")
+            if full.get("pairs_per_eligible_cluster") != 3:
+                errors.append("full_experiment_cluster_repeats_invalid")
+            if full.get("minimum_clusters_per_cell") != 10:
+                errors.append("full_experiment_clusters_per_cell_invalid")
+            if full.get("minimum_executed_recovery_pairs") != minimum_executed:
+                errors.append("full_experiment_minimum_executed_mismatch")
+            if isinstance(eligible_pairs, list) and full.get(
+                "eligible_pair_count"
+            ) != len(eligible_pairs):
+                errors.append("full_experiment_eligible_pair_count_invalid")
+            if isinstance(sentinel_pairs, list) and full.get(
+                "sentinel_pair_count"
+            ) != len(sentinel_pairs):
+                errors.append("full_experiment_sentinel_pair_count_invalid")
+            budgets = full.get("resource_budgets")
+            if not _valid_full_resource_budgets(budgets):
+                errors.append("full_experiment_resource_budgets_invalid")
     integrity = contract.get("integrity", {})
     if integrity.get("exclusive_run_lock") != ".campaign.lock":
         errors.append("exclusive_run_lock_invalid")
@@ -120,6 +167,26 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         ):
             errors.append("shared_boundary_frozen_input_hash_invalid")
     return errors
+
+
+def _valid_full_resource_budgets(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "wall_time_ms",
+        "total_tokens",
+    }:
+        return False
+    return all(
+        isinstance(value[field], dict)
+        and set(value[field]) == {"p50", "p95"}
+        and all(
+            isinstance(value[field][percentile], int)
+            and not isinstance(value[field][percentile], bool)
+            and value[field][percentile] > 0
+            for percentile in ("p50", "p95")
+        )
+        and value[field]["p50"] <= value[field]["p95"]
+        for field in ("wall_time_ms", "total_tokens")
+    )
 
 
 def classify_case_recovery_eligibility(
@@ -279,26 +346,36 @@ def validate_a14_oracle_semantics(
     if intent == "fix":
         if not precondition_rows:
             errors.append("fix_precondition_oracle_missing")
-        before = [
-            row
+        command_kinds = {"fixture_hash_command", "sandbox_command", "stage_command"}
+        before_commands = [
+            row["executor"]
             for row in precondition_rows
-            if row.get("executor", {}).get("kind") == "fixture_hash_command"
+            if row.get("executor", {}).get("kind") in command_kinds
         ]
-        after = [
-            row
+        after_commands = [
+            row["executor"]
             for row in final_rows
-            if row.get("executor", {}).get("kind") == "fixture_hash_command"
+            if row.get("executor", {}).get("kind") in command_kinds
         ]
-        if not before or not after:
-            errors.append("fix_before_after_fixture_pair_missing")
-        else:
-            before_executor = before[0]["executor"]
-            after_executor = after[0]["executor"]
-            if before_executor.get("observation", {}).get("expected") == 0:
-                errors.append("fix_precondition_does_not_require_failure")
-            for field in ("argv", "registered_fixture"):
-                if before_executor.get(field) != after_executor.get(field):
-                    errors.append(f"fix_before_after_{field}_mismatch")
+        matched = [
+            (before, after)
+            for before in before_commands
+            for after in after_commands
+            if before.get("kind") == after.get("kind")
+            and before.get("argv") == after.get("argv")
+            and (
+                before.get("kind") != "fixture_hash_command"
+                or before.get("registered_fixture") == after.get("registered_fixture")
+            )
+        ]
+        if not matched:
+            errors.append("fix_before_after_command_pair_missing")
+        elif not any(
+            before.get("observation", {}).get("expected") not in {None, 0}
+            and after.get("observation", {}).get("expected") == 0
+            for before, after in matched
+        ):
+            errors.append("fix_before_after_polarity_not_distinct")
     return {
         "valid": not errors,
         "errors": errors,

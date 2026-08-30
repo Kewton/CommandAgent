@@ -63,6 +63,18 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a11 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a12 import (
     _build_contract as build_a14_a12_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
+    _build_adapters as build_a14_a13_adapters,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
+    _build_contract as build_a14_a13_contract,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a13 import (
+    _build_tasks as build_a14_a13_tasks,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a14 import (
+    _build_contract as build_a14_a14_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -99,6 +111,7 @@ from eval_lib.goal_verify_recovery_live_v4 import (
     _attach_frozen_browser_toolchain,
     _ensure_oracle_executability_preflight,
     _snapshot_content_sha256,
+    parse_recovery_pair_id,
     run_recovery_pair,
 )
 from eval_lib.goal_verify_recovery_report_v4 import (
@@ -1287,6 +1300,96 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "AcceptancePassed",
             contract["analysis"]["recovery_fix_phase_completion_policy"],
         )
+
+    def test_a14_a13_types_three_fix_profiles_and_repeats_pairs(self):
+        tasks = build_a14_a13_tasks()
+        adapters = build_a14_a13_adapters()
+        contract = build_a14_a13_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(task_contract_registry_errors(tasks), [])
+        self.assertEqual(recovery_contract_errors(contract), [])
+        task_by_id = {row["case_id"]: row for row in tasks["cases"]}
+        for case_id in (
+            "phase6-main-c05-task-05",
+            "phase6-main-c07-task-01",
+            "phase6-main-c08-task-01",
+        ):
+            completion = task_by_id[case_id]["completion_contract"]
+            self.assertEqual(
+                completion["fix_reproducer_command"],
+                completion["verify_commands"][0],
+            )
+        before = [
+            row
+            for row in adapters["adapters"]
+            if row.get("case_id") == "phase6-main-c08-task-01"
+            and row.get("a14_role") == "precondition"
+        ]
+        self.assertEqual(len(before), 1)
+        self.assertEqual(before[0]["executor"]["stage"], "before")
+        self.assertEqual(before[0]["executor"]["observation"]["expected"], 1)
+        self.assertTrue(
+            validate_a14_oracle_semantics(
+                case_id="phase6-main-c08-task-01",
+                intent="fix",
+                adapters=adapters["adapters"],
+            )["valid"]
+        )
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 10)
+        self.assertIn(
+            "phase6-main-c05-task-05--pair-03",
+            contract["smoke"]["selected_pair_ids"],
+        )
+        self.assertEqual(
+            len(contract["smoke"]["typed_fix_reproducer_commands"]), 9
+        )
+        self.assertFalse(
+            contract["recovery_eligibility"]["preregistered_smoke_cases"][
+                "phase6-main-c06-task-01"
+            ]["eligible"]
+        )
+
+    def test_recovery_pair_id_parser_preserves_replicate(self):
+        self.assertEqual(
+            parse_recovery_pair_id("phase6-main-c05-task-05--pair-03"),
+            ("phase6-main-c05-task-05", 3, "pair-03.json"),
+        )
+        for invalid in (
+            "phase6-main-c05-task-05--pair-00",
+            "phase6-main-c05-task-05--pair-1",
+            "phase6-main-c05-task-05",
+        ):
+            with self.assertRaises(ValueError):
+                parse_recovery_pair_id(invalid)
+
+    def test_a14_a14_freezes_full_cluster_design_and_four_budgets(self):
+        contract = build_a14_a14_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        full = contract["full_experiment"]
+        self.assertEqual(full["eligible_pair_count"], 90)
+        self.assertEqual(full["sentinel_pair_count"], 10)
+        self.assertEqual(full["pairs_per_eligible_cluster"], 3)
+        self.assertEqual(full["minimum_executed_recovery_pairs"], 30)
+        self.assertEqual(full["bootstrap_samples"], 2000)
+        self.assertEqual(
+            full["resource_budgets"],
+            {
+                "wall_time_ms": {"p50": 240000, "p95": 600000},
+                "total_tokens": {"p50": 60000, "p95": 120000},
+            },
+        )
+        self.assertFalse(contract["authorization"]["full_collection_authorized"])
 
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:

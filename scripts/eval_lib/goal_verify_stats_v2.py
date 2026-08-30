@@ -111,3 +111,73 @@ def cluster_paired_bootstrap_interval(
         "lower": round(estimates[lower_index], 6),
         "upper": round(estimates[upper_index], 6),
     }
+
+
+def stratified_cluster_paired_bootstrap_interval(
+    rows: list[dict[str, Any]],
+    *,
+    delta: Callable[[dict[str, Any]], float],
+    samples: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Resample task clusters within each cell, then replicates within tasks."""
+    if samples < 1:
+        raise ValueError("bootstrap samples must be positive")
+    strata: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in rows:
+        cell_id = row.get("cell_id")
+        cluster_id = row.get("source_task_id")
+        if not isinstance(cell_id, str) or not cell_id:
+            raise ValueError("every row must have a cell_id")
+        if not isinstance(cluster_id, str) or not cluster_id:
+            raise ValueError("every row must have a source_task_id")
+        strata[cell_id][cluster_id].append(row)
+    if not strata or any(len(clusters) < 2 for clusters in strata.values()):
+        return {
+            "status": "insufficient_evidence",
+            "stratum_count": len(strata),
+            "cluster_count": sum(len(clusters) for clusters in strata.values()),
+            "pair_count": len(rows),
+            "lower": None,
+            "upper": None,
+        }
+    rng = random.Random(seed)
+    estimates = []
+    for _ in range(samples):
+        stratum_estimates = []
+        for cell_id in sorted(strata):
+            clusters = strata[cell_id]
+            cluster_ids = sorted(clusters)
+            sampled_cluster_ids = [
+                cluster_ids[rng.randrange(len(cluster_ids))] for _ in cluster_ids
+            ]
+            cluster_estimates = []
+            for cluster_id in sampled_cluster_ids:
+                members = clusters[cluster_id]
+                sampled_members = [
+                    members[rng.randrange(len(members))] for _ in members
+                ]
+                cluster_estimates.append(
+                    sum(delta(row) for row in sampled_members)
+                    / len(sampled_members)
+                )
+            stratum_estimates.append(
+                sum(cluster_estimates) / len(cluster_estimates)
+            )
+        estimates.append(sum(stratum_estimates) / len(stratum_estimates))
+    estimates.sort()
+    lower_index = max(0, math.floor(0.025 * (len(estimates) - 1)))
+    upper_index = min(len(estimates) - 1, math.ceil(0.975 * (len(estimates) - 1)))
+    return {
+        "status": "estimated",
+        "method": "stratified_hierarchical_cluster_paired_percentile",
+        "stratum_count": len(strata),
+        "cluster_count": sum(len(clusters) for clusters in strata.values()),
+        "pair_count": len(rows),
+        "samples": samples,
+        "seed": seed,
+        "lower": round(estimates[lower_index], 6),
+        "upper": round(estimates[upper_index], 6),
+    }

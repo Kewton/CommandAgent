@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from eval_lib.goal_verify_live import _atomic_json, _load_record_ledger, load_json
+from eval_lib.goal_verify_recovery_full_report_v4 import build_recovery_full_report
 from eval_lib.goal_verify_recovery_report_v4 import build_recovery_report
 
 
@@ -30,14 +31,20 @@ def main() -> int:
     ]
     preflight_path = run_dir / "oracle-executability-preflight.json"
     preflight = load_json(preflight_path) if preflight_path.is_file() else None
-    report = build_recovery_report(
+    report_builder = (
+        build_recovery_full_report
+        if isinstance(contract.get("full_experiment"), dict)
+        else build_recovery_report
+    )
+    report = report_builder(
         records=records,
         contract=contract,
         oracle_executability_preflight=preflight,
     )
     _atomic_json(run_dir / "recovery-report-v4.json", report)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 0 if report["instrument_ready"] else 1
+    ready = report.get("effect_claim_ready", report["instrument_ready"])
+    return 0 if ready else 1
 
 
 if __name__ == "__main__":

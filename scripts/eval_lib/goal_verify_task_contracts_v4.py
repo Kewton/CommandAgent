@@ -9,7 +9,12 @@ from typing import Any
 
 _A9_SCHEMA_VERSION = "commandagent.goal_verify.task_contracts.v4_a9"
 _A14_A2_SCHEMA_VERSION = "commandagent.goal_verify.task_contracts.v4_a14_a2"
-_SHARED_GOAL_SCHEMA_VERSIONS = {_A9_SCHEMA_VERSION, _A14_A2_SCHEMA_VERSION}
+_A14_A13_SCHEMA_VERSION = "commandagent.goal_verify.task_contracts.v4_a14_a13"
+_SHARED_GOAL_SCHEMA_VERSIONS = {
+    _A9_SCHEMA_VERSION,
+    _A14_A2_SCHEMA_VERSION,
+    _A14_A13_SCHEMA_VERSION,
+}
 _A9_ROOT_FIELDS = {
     "schema_version",
     "status",

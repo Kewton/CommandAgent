@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -44,6 +45,21 @@ from eval_lib.goal_verify_workspaces_v3 import (
     workspace_by_case,
 )
 from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
+
+_RECOVERY_PAIR_ID = re.compile(r"^(?P<case_id>.+)--pair-(?P<sample_index>[0-9]{2,})$")
+
+
+def parse_recovery_pair_id(pair_id: str) -> tuple[str, int, str]:
+    """Return the frozen case, numeric replicate, and raw-record filename."""
+    match = _RECOVERY_PAIR_ID.fullmatch(pair_id)
+    if match is None:
+        raise ValueError(f"invalid frozen recovery pair ID:{pair_id}")
+    case_id = match.group("case_id")
+    sample_index_text = match.group("sample_index")
+    sample_index = int(sample_index_text)
+    if sample_index < 1:
+        raise ValueError(f"invalid frozen recovery pair ID:{pair_id}")
+    return case_id, sample_index, f"pair-{sample_index_text}.json"
 
 
 def run_recovery_pair(
@@ -637,10 +653,10 @@ def run_recovery_smoke(
             root=root, run_dir=run_dir, ledger_path=ledger_path
         )
         for completed, pair_id in enumerate(selected_pair_ids, 1):
-            case_id = pair_id.removesuffix("--pair-01")
-            if case_id not in corpus_by_id or pair_id != f"{case_id}--pair-01":
+            case_id, sample_index, record_filename = parse_recovery_pair_id(pair_id)
+            if case_id not in corpus_by_id:
                 raise ValueError(f"invalid frozen recovery pair ID:{pair_id}")
-            relative = Path("raw") / case_id / "pair-01.json"
+            relative = Path("raw") / case_id / record_filename
             record_path = run_dir / relative
             reference = str(record_path.relative_to(root))
             if not record_path.exists():
@@ -663,6 +679,9 @@ def run_recovery_smoke(
                     {
                         **record,
                         "source_case_id": case_id,
+                        "source_task_id": case["source_task_id"],
+                        "cell_id": case["cell_id"],
+                        "sample_index": sample_index,
                         "record_path": reference,
                     },
                 )
@@ -720,7 +739,7 @@ def _ensure_oracle_executability_preflight(
             raise ValueError("oracle executability preflight identity mismatch")
         return existing
     selected_cases = {
-        pair_id.removesuffix("--pair-01") for pair_id in selected_pair_ids
+        parse_recovery_pair_id(pair_id)[0] for pair_id in selected_pair_ids
     }
     browser_adapters = [
         row

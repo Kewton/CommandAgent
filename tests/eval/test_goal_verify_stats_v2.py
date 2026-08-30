@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_stats_v2 import (
     cluster_paired_bootstrap_interval,
+    stratified_cluster_paired_bootstrap_interval,
     validate_cluster_design,
 )
 
@@ -75,6 +76,31 @@ class GoalVerifyStatsV2Test(unittest.TestCase):
             seed=399,
         )
         self.assertEqual(interval["status"], "insufficient_evidence")
+
+    def test_stratified_cluster_bootstrap_preserves_cells_and_is_deterministic(self):
+        rows = [
+            {
+                "cell_id": cell_id,
+                "source_task_id": f"{cell_id}-task-{task}",
+                "delta": delta,
+            }
+            for cell_id, delta in (("cli", 1.0), ("generic", 0.0))
+            for task in (1, 2)
+            for _ in range(3)
+        ]
+        first = stratified_cluster_paired_bootstrap_interval(
+            rows, delta=lambda row: row["delta"], samples=2000, seed=39914
+        )
+        second = stratified_cluster_paired_bootstrap_interval(
+            rows, delta=lambda row: row["delta"], samples=2000, seed=39914
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["method"], "stratified_hierarchical_cluster_paired_percentile")
+        self.assertEqual(first["stratum_count"], 2)
+        self.assertEqual(first["cluster_count"], 4)
+        self.assertEqual(first["lower"], 0.5)
+        self.assertEqual(first["upper"], 0.5)
 
 
 if __name__ == "__main__":
