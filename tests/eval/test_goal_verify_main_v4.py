@@ -36,7 +36,17 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a4 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a5 import (
     _build_contract as build_a14_a5_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
+    _build_adapters as build_a14_a6_adapters,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
+    _build_contract as build_a14_a6_contract,
+)
+from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
+    _build_tasks as build_a14_a6_tasks,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
+    _fix_reproducer_binding,
     _product_resource_usage,
     _product_terminal_status,
     _recovery_boundary,
@@ -73,7 +83,10 @@ from eval_lib.goal_verify_recovery_live_v4 import (
     _snapshot_content_sha256,
     run_recovery_pair,
 )
-from eval_lib.goal_verify_recovery_report_v4 import build_recovery_report
+from eval_lib.goal_verify_recovery_report_v4 import (
+    _typed_reproducer_matches,
+    build_recovery_report,
+)
 from eval_lib.goal_verify_resource_diagnostics_v4 import build_resource_diagnostics
 from eval_lib.goal_verify_task_contracts_v4 import (
     bind_task_contract,
@@ -151,6 +164,38 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "total_tokens": 42,
                 },
             )
+
+    def test_typed_fix_reproducer_binding_is_reduced_to_durable_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            rows = [
+                {
+                    "event": "fix_plan_synthesized",
+                    "r_basis": "completion_contract:fix_reproducer_command",
+                },
+                {
+                    "event": "ultra_phase_plan_validated",
+                    "phase_id": "reproduce-before",
+                    "step_count": 1,
+                },
+                {
+                    "event": "fix_evidence_recorded",
+                    "requirement_id": "before_fails",
+                    "stage": "before",
+                    "executed": True,
+                    "expected_polarity": "failure",
+                    "outcome": "failure",
+                    "binding_id": "python3 cli.py 7",
+                },
+            ]
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            binding = _fix_reproducer_binding(run_dir)
+
+        self.assertTrue(_typed_reproducer_matches(binding, "python3 cli.py 7"))
+        self.assertFalse(_typed_reproducer_matches(binding, "python3 cli.py 8"))
 
     def test_recovery_boundary_splits_provider_usage_at_shared_snapshot(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -979,6 +1024,51 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
         self.assertFalse(
             too_many_report["checks"]["maximum_one_recovery_executed"]
+        )
+
+    def test_a14_a6_types_c05_reproducer_and_freezes_cli_only_smoke(self):
+        tasks = build_a14_a6_tasks()
+        task = next(
+            row
+            for row in tasks["cases"]
+            if row["case_id"] == "phase6-main-c05-task-01"
+        )
+        self.assertEqual(
+            task["completion_contract"]["fix_reproducer_command"],
+            "python3 cli.py 7",
+        )
+        adapters = build_a14_a6_adapters()["adapters"]
+        before = next(
+            row
+            for row in adapters
+            if row["adapter_id"].startswith("before-after-before--phase6-cell-05")
+        )
+        after = next(
+            row
+            for row in adapters
+            if row["adapter_id"].startswith("before-after-after--phase6-cell-05")
+        )
+        self.assertEqual(before["a14_role"], "precondition")
+        self.assertEqual(after["a14_role"], "final_success")
+        self.assertEqual(before["executor"]["kind"], "fixture_hash_command")
+        self.assertEqual(
+            before["executor"]["registered_fixture"],
+            after["executor"]["registered_fixture"],
+        )
+        contract = build_a14_a6_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertFalse(contract["smoke"]["require_browser_oracle_executability"])
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 3)
+        self.assertEqual(
+            contract["smoke"]["typed_fix_reproducer_commands"][
+                "phase6-main-c05-task-10--pair-01"
+            ],
+            "python3 cli.py 16",
         )
 
     def test_registered_browser_process_records_execution(self):

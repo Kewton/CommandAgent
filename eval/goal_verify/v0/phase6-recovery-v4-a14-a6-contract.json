@@ -1,0 +1,310 @@
+{
+  "analysis": {
+    "attribution_requires_executed_recovery_runs": 1,
+    "attribution_requires_shared_initial_history": true,
+    "blocked_browser_oracle_excluded_from_effect_evidence": true,
+    "bootstrap_iterations": 2000,
+    "browser_executability_preflight_source": "frozen reference workspace, never candidate artifact",
+    "candidate_server_failure_is_product_outcome_not_instrument_failure": true,
+    "confidence_interval": 0.95,
+    "configured_one_but_executed_zero": "arm differences are initial-attempt divergence, not Recovery effect",
+    "cost_deltas": [
+      "wall_time_ms",
+      "input_tokens",
+      "output_tokens",
+      "total_tokens"
+    ],
+    "current_success_is_not_improvement": true,
+    "current_success_mutation_forbidden": true,
+    "exclusion_rules_change_after_collection": "forbidden",
+    "external_oracle_passed_to_product_or_recovery": false,
+    "initial_resolution_and_recovery_effect_reported_separately": true,
+    "initial_success_attributed_as_improvement": false,
+    "oracle_semantics_validation_population": "runtime_recovery_eligible_pairs_only",
+    "oracle_semantics_validation_required": true,
+    "preregistered_exclusion_gate": "ineligible_recovery_not_executed",
+    "primary_transition": "fail to pass by frozen external oracle",
+    "recovery_treatment_promotion_requires_non_regression": true,
+    "runtime_exclusion_allows_configured_one_executed_zero": true,
+    "safety_transitions": [
+      "pass to non-pass",
+      "regression pass to fail"
+    ],
+    "smoke_readiness_requires_live_recovery_execution": false,
+    "typed_reproducer_candidate_visible": true,
+    "typed_reproducer_is_external_oracle": false
+  },
+  "artifact_policy": {
+    "candidate_visible_manifest_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+    "existing_artifact_harm": "initial_only external oracle pass and recovery_one external oracle non-pass",
+    "full_snapshot_identity_retained": true,
+    "generated_cache_entries_excluded_from_artifact_delta": true,
+    "regression_introduced": "initial_only frozen regression pass and recovery_one frozen regression fail"
+  },
+  "authorization": {
+    "approved_at": null,
+    "approved_by": null,
+    "full_collection_authorized": false,
+    "implementation_authorized": true,
+    "smoke_collection_authorized": false
+  },
+  "code_sha": "",
+  "contract_id": "phase6-recovery-v4-20260830-a14-a6-live-01",
+  "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": "",
+  "execution_root_policy": {
+    "internal_disk_execution_forbidden": true,
+    "required_root": "/Volumes/SSD_NX/tmp/commandagent_trial"
+  },
+  "external_oracle_policy": {
+    "dependency_blocked_is_third_state": true,
+    "fix_before_failure_never_used_as_final_success": true,
+    "passed_to_product_or_recovery": false,
+    "product_observation_boundary_failures": [
+      "server_not_ready",
+      "timeout",
+      "playwright_unavailable_or_failed"
+    ],
+    "self_report_used_for_success": false,
+    "semantic_roles_required": [
+      "precondition",
+      "final_success"
+    ],
+    "source": "frozen host-owned adapters",
+    "timing": "pre-Recovery snapshot and post-Recovery snapshot in one run",
+    "typed_negative_assertions_required": true,
+    "unverified_or_error": "unusable, never pass"
+  },
+  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6.json",
+  "frozen_input_sha256": {
+    "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a6.json": "120637bb6f6592488ed6afc19fe5254e2fefb11ba88b78863a2bc9488790f3b7",
+    "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
+    "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6.json": "521578f987d8a57a1b9963b457b82a014ef77b5dfbfc6a00b54cc010576c4b5f",
+    "tests/fixtures/goal_verify_v3/fix-reproduced-after-regression/before/tests/test_cli.py": "c6f161537a60849a1858d8ee8e92d2253fe20d964e6a6a591d8fa434f66e2497"
+  },
+  "integrity": {
+    "append_only_records": true,
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl"
+  },
+  "measurements": {
+    "missing_resource_values": "record null; never impute",
+    "required": [
+      "initial and recovery attempt status",
+      "external oracle transition",
+      "existing artifact harm",
+      "regression introduced",
+      "source/config artifact delta",
+      "wall_time_ms",
+      "input_tokens",
+      "output_tokens",
+      "total_tokens"
+    ]
+  },
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "paired_run_contract": {
+    "arm_order": [
+      "initial_only",
+      "recovery_one"
+    ],
+    "estimand": "within-run change from the captured pre-Recovery snapshot to the post-Recovery snapshot, with at most one Recovery Plan",
+    "execution_action": "ultra_plan_run",
+    "independent_workspace_copies": false,
+    "initial_only": {
+      "execution": "captured pre-Recovery control; no second LLM invocation",
+      "recovery_plan_auto_runs": 0
+    },
+    "maximum_recovery_runs": 1,
+    "pairing_unit": "shared_pre_recovery_snapshot",
+    "recovery_one": {
+      "execution": "same-run post-Recovery treatment",
+      "recovery_plan_auto_runs": 1
+    },
+    "same_execution_action_required": true,
+    "same_input_snapshot_sha256_required": true,
+    "same_physical_initial_attempt_required": true
+  },
+  "pre_live_amendments": [
+    {
+      "amendment_id": "v4-A14-A2",
+      "historical_run_policy": "A14 and A14-A1 runs remain immutable diagnostic evidence and are never rescored as Recovery-effect evidence",
+      "product_findings": [
+        "Next.js ExistingPlainJavaScript entrypoints were absent from lint",
+        "CLI profile reintroduced unregistered README/help obligations",
+        "fix final-success oracle had reversed exit-code polarity",
+        "independent arms did not share the treatment boundary"
+      ],
+      "reason": "A14-A1 used independent stochastic initial attempts, a before-failure oracle as final success, and profile/contract checks that could trigger unnecessary Recovery"
+    },
+    {
+      "amendment_id": "v4-A14-A3",
+      "historical_run_policy": "A14-A2 smoke-01 remains immutable NO-GO evidence and is not rescored with the corrected report",
+      "reason": "A14-A2 applied before/after fix-oracle polarity validation to the preregistered dependency-unavailable exclusion sentinel, which has no Recovery treatment by design",
+      "scope_correction": "Recovery-effect oracle semantics apply only to pairs eligible for a Recovery treatment; excluded pairs remain governed by ineligible_recovery_not_executed"
+    },
+    {
+      "amendment_id": "v4-A14-A4",
+      "historical_run_policy": "A14-A3 smoke-01 remains immutable diagnostic evidence and is never rescored as evidence for the corrected safety boundary",
+      "inference_role": "safety and oracle-executability diagnostic only; no Recovery success-rate or retry-count effect claim",
+      "product_findings": [
+        "shell_control_split discarded an || fallback and reversed polarity",
+        "fallback_true_stripped reversed a negative assertion",
+        "step plans lack a typed file-content absent predicate",
+        "recover intent did not inherit fix-runtime temporal roles",
+        "expected-fail steps could edit source artifacts",
+        "verify repair could impose write_required on expected-fail steps",
+        "expected-fail Python exceptions could never pass because traceback was fatal",
+        "last-wins Recovery candidate selection lost failed-step checks",
+        "F2 after-passes was not observed at the Recovery boundary",
+        "generic completion added unregistered README and test targets",
+        "the Recovery harness did not provision frozen playwright-core",
+        "Next.js route-bound fallback language leaked into generic tasks"
+      ],
+      "reason": "A14-A3 proved that a host-rewritten negative assertion and an internal false failure could trigger Recovery that damaged an already passing deliverable"
+    },
+    {
+      "amendment_id": "v4-A14-A5",
+      "historical_run_policy": "A14-A4 smoke-01 remains immutable NO-GO evidence and is never rescored into A14-A5 evidence",
+      "inference_role": "measurement-instrument correction only; effect claim remains forbidden",
+      "instrument_findings": [
+        "browser executability was checked on the candidate artifact instead of a frozen reference workspace",
+        "the inherited reference route /play did not match the A14 registered route /play-01",
+        "the A14 adapter dropped the browser-normalized rgb(0, 0, 255) expected value",
+        "the registered browser command omitted executed=true after an actual process execution",
+        "runtime dependency exclusion can only be known after a preregistered configured-one shared run starts",
+        "maximum-one execution was incorrectly aliased to configuration validity"
+      ],
+      "reason": "A14-A4 kept Recovery harm at zero but conflated candidate server failure with browser-oracle executability and rejected a preregistered configured-one/runtime-excluded executed-zero pair"
+    },
+    {
+      "amendment_id": "v4-A14-A6",
+      "historical_run_policy": "A14-A5 smoke-01 and both A14-A6 design diagnostics remain immutable; none are rescored into A14-A6",
+      "inference_role": "typed reproducer and initial-resolution readiness; Recovery effect is conditional on a naturally executed Recovery run",
+      "instrument_findings": [
+        "known candidate-visible reproducer argv lacked a typed completion field",
+        "model planning and sanitizer expansion changed one F1 command into seven verifies",
+        "typed F1 made design diagnostic task-01 pass the frozen final oracle without Recovery"
+      ],
+      "reason": "a candidate-visible known fix reproducer expanded into seven model verify commands and prevented the valid F1 expected-failure boundary"
+    }
+  ],
+  "product_timeout_sec": 900,
+  "recovery_eligibility": {
+    "free_form_stderr_used_for_classification": false,
+    "ineligible_pairs_retained": "retain with recovery_one not run; never relabel or drop from the reported task denominator",
+    "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+    "pre_run_categories": [
+      "dependency_or_provisioning",
+      "capability_unavailable"
+    ],
+    "preregistered_smoke_cases": {
+      "phase6-main-c05-task-01": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-05": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-10": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      }
+    },
+    "runtime_excluded_categories": [
+      "dependency_or_provisioning",
+      "capability_unavailable",
+      "profile_or_completion_contract",
+      "sandbox_or_policy",
+      "task_information_missing",
+      "instrumentation_unavailable",
+      "recovery_candidate_unavailable"
+    ],
+    "structured_terminal_event_required": true
+  },
+  "recovery_safety_policy": {
+    "candidate_selection": "step-specific handoff outranks later phase-only handoff",
+    "current_success": "suppress automatic Recovery, preserve artifacts, and retain honest terminal",
+    "historical_failure": "immutable evidence; never converted into a current must-fail obligation",
+    "maximum_automatic_recovery_runs": 1,
+    "mutation_isolation": "run Recovery in a boundary-derived treatment workspace; promote source/config to the product workspace only after registered post-Recovery observations pass",
+    "pre_recovery_observation": "read-only product-visible completion contract only",
+    "semantic_rewrite": "reject commands whose sanitizer rewrite would change fallback or polarity"
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "runner_sources": [
+    "scripts/eval-goal-verify-recovery-v4-report.py",
+    "scripts/eval-goal-verify-recovery-v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_manifest_visibility_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_experiment_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_live_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_report_v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a1.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a2.py",
+    "scripts/eval_lib/goal_verify_executors_v3.py",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a3.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a6.py"
+  ],
+  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a14_a6",
+  "smoke": {
+    "browser_oracle_gate_source": "not_applicable_cli_only_smoke",
+    "effect_claim_allowed": false,
+    "expected_pair_count": 3,
+    "includes_dependency_exclusion_sentinel": false,
+    "includes_next_manifest_regression": false,
+    "inference_role": "typed reproducer and initial-resolution diagnostic; conditional Recovery 0-vs-1 evidence only when executed",
+    "minimum_current_success_suppressions": 0,
+    "minimum_executed_recovery_pairs": 0,
+    "require_browser_oracle_executability": false,
+    "require_executed_recovery_for_attribution": false,
+    "require_isolated_treatment_workspace": true,
+    "require_recovery_capable_execution_action": true,
+    "require_recovery_handoff_fidelity": true,
+    "require_separate_browser_oracle_preflight": false,
+    "require_transaction_control_retention": true,
+    "required_readiness_checks": [
+      "typed_fix_reproducer_binding",
+      "fix_before_and_after_polarity_distinct",
+      "frozen_external_oracle_post_execution",
+      "internal_external_outcome_matrix_recorded",
+      "maximum_one_recovery_executed"
+    ],
+    "selected_pair_ids": [
+      "phase6-main-c05-task-01--pair-01",
+      "phase6-main-c05-task-05--pair-01",
+      "phase6-main-c05-task-10--pair-01"
+    ],
+    "typed_fix_reproducer_commands": {
+      "phase6-main-c05-task-01--pair-01": "python3 cli.py 7",
+      "phase6-main-c05-task-05--pair-01": "python3 cli.py 11",
+      "phase6-main-c05-task-10--pair-01": "python3 cli.py 16"
+    }
+  },
+  "smoke_run_id": "phase6-recovery-v4-20260830-a14-a6-smoke-01",
+  "status": "draft",
+  "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
+  "supersedes": "phase6-main-v4-20260829-live-02",
+  "supersedes_contract": "phase6-recovery-v4-20260830-a14-a5-live-01",
+  "supersedes_smoke_run": "phase6-recovery-v4-20260830-a14-a5-smoke-01",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6.json",
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json"
+}

@@ -153,6 +153,7 @@ def run_current_product_baseline(
             ),
             "terminal_status": _product_terminal_status(product_run_dir),
             "recovery_boundary": _recovery_boundary(product_run_dir),
+            "fix_reproducer_binding": _fix_reproducer_binding(product_run_dir),
             **completion_verify,
         }
     run_dirs = _product_run_dirs(workspace)
@@ -177,6 +178,7 @@ def run_current_product_baseline(
         ),
         "terminal_status": _product_terminal_status(product_run_dir),
         "recovery_boundary": _recovery_boundary(product_run_dir),
+        "fix_reproducer_binding": _fix_reproducer_binding(product_run_dir),
         "completion_contract_bound": completion_contract is not None,
         "completion_contract_sha256": completion_contract_sha256,
         **_completion_verify_status(product_run_dir),
@@ -237,6 +239,65 @@ def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
     return {
         "completion_verify_attempt_recorded": bool(attempts),
         "completion_verify_passed": any(row.get("ok") is True for row in attempts),
+    }
+
+
+def _fix_reproducer_binding(run_dir: Path | None) -> dict[str, Any]:
+    empty = {
+        "observed": False,
+        "synthesized_event_count": 0,
+        "r_bases": [],
+        "reproduce_before_step_counts": [],
+        "before_evidence_count": 0,
+        "executed_before_failure_count": 0,
+        "binding_ids": [],
+    }
+    if run_dir is None:
+        return empty
+    events_path = run_dir / "events.jsonl"
+    if not events_path.is_file():
+        return empty
+    rows = _json_rows(events_path)
+    synthesized = [row for row in rows if row.get("event") == "fix_plan_synthesized"]
+    before = [
+        row
+        for row in rows
+        if row.get("event") == "fix_evidence_recorded"
+        and row.get("requirement_id") == "before_fails"
+        and row.get("stage") == "before"
+    ]
+    return {
+        "observed": bool(synthesized),
+        "synthesized_event_count": len(synthesized),
+        "r_bases": sorted(
+            {
+                basis
+                for row in synthesized
+                if isinstance((basis := row.get("r_basis")), str) and basis
+            }
+        ),
+        "reproduce_before_step_counts": [
+            row["step_count"]
+            for row in rows
+            if row.get("event") == "ultra_phase_plan_validated"
+            and row.get("phase_id") == "reproduce-before"
+            and isinstance(row.get("step_count"), int)
+            and not isinstance(row.get("step_count"), bool)
+        ],
+        "before_evidence_count": len(before),
+        "executed_before_failure_count": sum(
+            row.get("executed") is True
+            and row.get("expected_polarity") == "failure"
+            and row.get("outcome") == "failure"
+            for row in before
+        ),
+        "binding_ids": sorted(
+            {
+                binding
+                for row in before
+                if isinstance((binding := row.get("binding_id")), str) and binding
+            }
+        ),
     }
 
 

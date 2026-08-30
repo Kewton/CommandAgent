@@ -35,6 +35,10 @@ def build_recovery_report(
     transaction_control_violations = []
     handoff_fidelity_violations = []
     treatment_isolation_violations = []
+    typed_reproducer_violations = []
+    typed_reproducer_commands = contract.get("smoke", {}).get(
+        "typed_fix_reproducer_commands", {}
+    )
     deltas: dict[str, list[int]] = {
         "wall_time_ms": [],
         "input_tokens": [],
@@ -74,6 +78,15 @@ def build_recovery_report(
                 )
             continue
         recovery_result = recovery.get("result", {})
+        expected_reproducer = (
+            typed_reproducer_commands.get(pair_id)
+            if isinstance(typed_reproducer_commands, dict)
+            else None
+        )
+        if isinstance(expected_reproducer, str) and not _typed_reproducer_matches(
+            recovery_result.get("fix_reproducer_binding"), expected_reproducer
+        ):
+            typed_reproducer_violations.append(str(pair_id))
         recovery_attempts = recovery_result.get("recovery_plan_attempts", {})
         executed_recovery_runs = recovery_attempts.get("executed_recovery_runs")
         if (
@@ -279,6 +292,7 @@ def build_recovery_report(
             smoke.get("require_isolated_treatment_workspace") is not True
             or not treatment_isolation_violations
         ),
+        "typed_fix_reproducer_binding": not typed_reproducer_violations,
     }
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
@@ -360,10 +374,23 @@ def build_recovery_report(
             "transaction_control_violations": transaction_control_violations,
             "handoff_fidelity_violations": handoff_fidelity_violations,
             "treatment_isolation_violations": treatment_isolation_violations,
+            "typed_reproducer_violations": typed_reproducer_violations,
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
             ),
         },
+    }
+
+
+def _typed_reproducer_matches(value: Any, expected_command: str) -> bool:
+    return isinstance(value, dict) and value == {
+        "observed": True,
+        "synthesized_event_count": 1,
+        "r_bases": ["completion_contract:fix_reproducer_command"],
+        "reproduce_before_step_counts": [1],
+        "before_evidence_count": 1,
+        "executed_before_failure_count": 1,
+        "binding_ids": [expected_command],
     }
 
 
