@@ -1,6 +1,6 @@
 # Issue 399 A15 real data / Next.js Recovery design
 
-Status: draft inputs implemented; live collection not started
+Status: exact-SHA smoke contract frozen; live collection not started
 
 Repository: `/Users/maenokota/share/work/github_kewton/CommandAgent-develop`
 
@@ -68,7 +68,8 @@ An “all profiles improve” claim requires all of the following:
   sentinel Recovery occurs;
 - wall-time and token budgets pass both overall and per profile.
 
-The full contract remains draft. It cannot be frozen until the A15 smoke is GO
+The smoke contract is frozen against product SHA `34493ca7` after exact-SHA CI
+and acceptance both succeeded. The full contract remains draft. It cannot be frozen until the A15 smoke is GO
 and profile-specific wall/token budgets are fixed without observing full-run
 outcomes.
 

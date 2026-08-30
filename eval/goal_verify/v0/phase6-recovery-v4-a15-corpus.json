@@ -2873,5 +2873,5 @@
   ],
   "design": "12 matrix cells x 10 substantively parameterized source tasks; each source task is run three times",
   "schema_version": "commandagent.goal_verify.recovery_corpus.v4_a15",
-  "status": "draft"
+  "status": "frozen"
 }
