@@ -80,6 +80,8 @@ use super::{
 mod effects;
 #[path = "phase/flow.rs"]
 mod flow;
+#[path = "phase/intent_completion.rs"]
+mod intent_completion;
 #[path = "phase/plan_step_events.rs"]
 mod plan_step_events;
 #[path = "phase/state.rs"]

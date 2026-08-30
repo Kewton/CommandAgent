@@ -39,6 +39,7 @@ def build_recovery_report(
     recovery_verify_command_source_violations = []
     inner_recovery_verify_command_violations = []
     fix_contract_continuity_violations = []
+    recovery_fix_terminal_completion_violations = []
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -185,6 +186,12 @@ def build_recovery_report(
                     resumptions, expected_reproducer
                 ):
                     fix_contract_continuity_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get(
+                "require_recovery_fix_terminal_completion"
+            ) is True and not _valid_recovery_fix_terminal_completion(
+                recovery_result, recovery_attempts
+            ):
+                recovery_fix_terminal_completion_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
             if not (
                 isinstance(treatment_path, str)
@@ -332,6 +339,10 @@ def build_recovery_report(
         )
     if smoke.get("require_fix_contract_continuity") is True:
         checks["fix_contract_continuity"] = not fix_contract_continuity_violations
+    if smoke.get("require_recovery_fix_terminal_completion") is True:
+        checks["recovery_fix_terminal_completion"] = (
+            not recovery_fix_terminal_completion_violations
+        )
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -444,6 +455,15 @@ def build_recovery_report(
                 if smoke.get("require_fix_contract_continuity") is True
                 else {}
             ),
+            **(
+                {
+                    "recovery_fix_terminal_completion_violations": (
+                        recovery_fix_terminal_completion_violations
+                    )
+                }
+                if smoke.get("require_recovery_fix_terminal_completion") is True
+                else {}
+            ),
         },
     }
 
@@ -463,6 +483,34 @@ def _valid_fix_contract_continuity(value: Any, expected_reproducer: Any) -> bool
         and row.get("reproducer_command") == expected_reproducer
         and row.get("source") == "host_owned_recovery_fix_origin"
         and row.get("external_oracle_used") is False
+    )
+
+
+def _valid_recovery_fix_terminal_completion(
+    result: dict[str, Any], attempts: dict[str, Any]
+) -> bool:
+    recovery_attempt = next(
+        (
+            row
+            for row in attempts.get("attempts", [])
+            if row.get("attempt_index") == 1
+        ),
+        {},
+    )
+    promotion_decisions = attempts.get("promotion_decisions")
+    terminal = result.get("terminal_status", {})
+    return (
+        result.get("status") == "completed"
+        and result.get("returncode") == 0
+        and result.get("completion_verify_passed") is True
+        and terminal.get("ok") is True
+        and terminal.get("status") == "completed"
+        and recovery_attempt.get("status") == "succeeded"
+        and recovery_attempt.get("stop_reason") == "recovery_succeeded"
+        and attempts.get("terminal_stop_reason") == "recovery_succeeded"
+        and isinstance(promotion_decisions, list)
+        and len(promotion_decisions) == 1
+        and promotion_decisions[0].get("decision") == "promoted"
     )
 
 

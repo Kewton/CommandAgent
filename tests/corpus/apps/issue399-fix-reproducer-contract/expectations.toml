@@ -44,7 +44,13 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"source\":\"host_owned_recovery_fix_origin\"",
   "\"event\":\"recovery_step_plan_verify_commands_bound\"",
   "\"binding_mode\":\"completion_contract_final_success\"",
-  "\"bound_verify_commands\":[\"python3 cli.py 7\"]"
+  "\"bound_verify_commands\":[\"python3 cli.py 7\"]",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"runtime_acceptance_passed\":true",
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"event\":\"recovery_promotion_decision\"",
+  "\"decision\":\"promoted\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\""
 ]
 
 [fixture_ordered]
@@ -62,5 +68,11 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_plan_auto_run_start\"",
   "\"event\":\"completion_contract_bound\"",
   "\"event\":\"recovery_fix_contract_resumed\"",
-  "\"event\":\"recovery_step_plan_verify_commands_bound\""
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"event\":\"ultra_plan_complete\"",
+  "\"observation_phase\":\"post_recovery\"",
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"event\":\"recovery_promotion_decision\"",
+  "\"event\":\"recovery_plan_auto_run_complete\""
 ]

@@ -116,7 +116,7 @@ impl PhaseMachine {
 
     pub(super) fn intent_finished(&mut self, success: bool) -> Result<(), InvalidTransition> {
         let observation = if success {
-            PhaseObservation::IntentFinalized
+            super::intent_completion::successful_observation(self.state)
         } else {
             PhaseObservation::Failed {
                 stage: PhaseFailureStage::from_label("intent_finalization"),

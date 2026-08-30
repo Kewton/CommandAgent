@@ -60,6 +60,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a10 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a11 import (
     _build_contract as build_a14_a11_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a12 import (
+    _build_contract as build_a14_a12_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -1260,6 +1263,31 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "fix-origin.json", contract["analysis"]["recovery_fix_origin_source"]
         )
 
+    def test_a14_a12_requires_recovery_fix_terminal_completion(self):
+        contract = build_a14_a12_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["supersedes_contract"],
+            "phase6-recovery-v4-20260830-a14-a11-live-01",
+        )
+        self.assertTrue(
+            contract["smoke"]["require_recovery_fix_terminal_completion"]
+        )
+        self.assertIn(
+            "recovery_fix_terminal_completion",
+            contract["smoke"]["required_readiness_checks"],
+        )
+        self.assertIn(
+            "AcceptancePassed",
+            contract["analysis"]["recovery_fix_phase_completion_policy"],
+        )
+
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
             outcome = _run_registered_browser_command(
@@ -1900,6 +1928,39 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         ]
         fixed_continuity = build_recovery_report(records=records, contract=contract)
         self.assertTrue(fixed_continuity["checks"]["fix_contract_continuity"])
+
+        contract["smoke"]["require_recovery_fix_terminal_completion"] = True
+        incomplete_recovery_fix = build_recovery_report(
+            records=records, contract=contract
+        )
+        self.assertFalse(
+            incomplete_recovery_fix["checks"][
+                "recovery_fix_terminal_completion"
+            ]
+        )
+        recovery_result = records[0]["recovery_one"]["result"]
+        recovery_result.update(
+            {
+                "status": "completed",
+                "returncode": 0,
+                "completion_verify_passed": True,
+                "terminal_status": {"ok": True, "status": "completed"},
+            }
+        )
+        recovery_attempts = recovery_result["recovery_plan_attempts"]
+        recovery_attempts["attempts"][0].update(
+            {"status": "succeeded", "stop_reason": "recovery_succeeded"}
+        )
+        recovery_attempts["terminal_stop_reason"] = "recovery_succeeded"
+        recovery_attempts["promotion_decisions"] = [{"decision": "promoted"}]
+        completed_recovery_fix = build_recovery_report(
+            records=records, contract=contract
+        )
+        self.assertTrue(
+            completed_recovery_fix["checks"][
+                "recovery_fix_terminal_completion"
+            ]
+        )
 
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "executed_recovery_runs"
