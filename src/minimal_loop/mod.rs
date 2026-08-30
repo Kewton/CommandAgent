@@ -31,6 +31,7 @@ pub(crate) mod rerun_consistency;
 pub mod route_unbound_recovery;
 pub mod stagnation_carryover;
 pub mod stagnation_escalation;
+pub(crate) mod test_command_evidence;
 pub mod tool_feedback;
 pub(crate) mod tool_parse_failure;
 pub(crate) mod tool_parse_repair;

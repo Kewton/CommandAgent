@@ -54,6 +54,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a8 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a9 import (
     _build_contract as build_a14_a9_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a10 import (
+    _build_contract as build_a14_a10_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -342,6 +345,17 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "recovery_plan_auto_runs": 1,
                     "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
                 },
+                {
+                    "event": "recovery_step_plan_verify_commands_bound",
+                    "phase_id": "inspect-current-state",
+                    "binding_mode": "read_only_inspection",
+                    "source": "product_visible_completion_contract",
+                    "external_oracle_used": False,
+                    "original_verify_commands": ["python3 cli.py 16"],
+                    "bound_verify_commands": [],
+                    "registered_verify_commands": ["python3 cli.py 16"],
+                    "removed_step_ids": ["reproduce-failure"],
+                },
             ]
             (run_dir / "events.jsonl").write_text(
                 "\n".join(json.dumps(row) for row in rows) + "\n",
@@ -362,6 +376,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(
             telemetry["attempts"][1]["recovery_verify_command_source"],
             "completion_contract",
+        )
+        self.assertEqual(
+            telemetry["step_plan_contract_bindings"][0]["binding_mode"],
+            "read_only_inspection",
         )
 
     def test_product_argv_makes_recovery_zero_and_one_explicit(self):
@@ -1175,6 +1193,33 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "CompletionContract.verify_commands",
         )
 
+    def test_a14_a10_requires_registered_inner_recovery_verify_commands(self):
+        contract = build_a14_a10_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["supersedes_contract"],
+            "phase6-recovery-v4-20260830-a14-a9-live-01",
+        )
+        self.assertTrue(
+            contract["smoke"][
+                "require_registered_inner_recovery_verify_commands"
+            ]
+        )
+        self.assertIn(
+            "registered_inner_recovery_verify_commands",
+            contract["smoke"]["required_readiness_checks"],
+        )
+        self.assertEqual(
+            contract["analysis"]["pytest_evidence_policy"],
+            "classify pytest invocation as Test only when a test artifact exists",
+        )
+
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
             outcome = _run_registered_browser_command(
@@ -1749,6 +1794,44 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         registered_source = build_recovery_report(records=records, contract=contract)
         self.assertTrue(
             registered_source["checks"]["registered_recovery_verify_commands"]
+        )
+
+        contract["smoke"][
+            "require_registered_inner_recovery_verify_commands"
+        ] = True
+        missing_inner_binding = build_recovery_report(
+            records=records, contract=contract
+        )
+        self.assertFalse(
+            missing_inner_binding["checks"][
+                "registered_inner_recovery_verify_commands"
+            ]
+        )
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "step_plan_contract_bindings"
+        ] = [
+            {
+                "binding_mode": "read_only_inspection",
+                "source": "product_visible_completion_contract",
+                "external_oracle_used": False,
+                "bound_verify_commands": [],
+                "registered_verify_commands": ["python3 cli.py 16"],
+            },
+            {
+                "binding_mode": "completion_contract_final_success",
+                "source": "product_visible_completion_contract",
+                "external_oracle_used": False,
+                "bound_verify_commands": ["python3 cli.py 16"],
+                "registered_verify_commands": ["python3 cli.py 16"],
+            },
+        ]
+        registered_inner_binding = build_recovery_report(
+            records=records, contract=contract
+        )
+        self.assertTrue(
+            registered_inner_binding["checks"][
+                "registered_inner_recovery_verify_commands"
+            ]
         )
 
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][

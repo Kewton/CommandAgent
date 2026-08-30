@@ -499,6 +499,20 @@ def _recovery_plan_attempts(
     """Project product events into explicit initial/recovery attempt telemetry."""
     events_path = run_dir / "events.jsonl" if run_dir is not None else None
     events = _json_rows(events_path) if events_path and events_path.is_file() else []
+    step_plan_contract_bindings = [
+        {
+            "phase_id": row.get("phase_id"),
+            "binding_mode": row.get("binding_mode"),
+            "source": row.get("source"),
+            "external_oracle_used": row.get("external_oracle_used"),
+            "original_verify_commands": row.get("original_verify_commands"),
+            "bound_verify_commands": row.get("bound_verify_commands"),
+            "registered_verify_commands": row.get("registered_verify_commands"),
+            "removed_step_ids": row.get("removed_step_ids"),
+        }
+        for row in events
+        if row.get("event") == "recovery_step_plan_verify_commands_bound"
+    ]
     rows = [
         row
         for row in events
@@ -634,6 +648,7 @@ def _recovery_plan_attempts(
         "control_restore_failed_count": sum(
             row.get("event") == "recovery_control_restore_failed" for row in rows
         ),
+        "step_plan_contract_bindings": step_plan_contract_bindings,
         "promotion_decisions": [
             {
                 "decision": row.get("decision"),

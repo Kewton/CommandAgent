@@ -37,6 +37,7 @@ def build_recovery_report(
     treatment_isolation_violations = []
     typed_reproducer_violations = []
     recovery_verify_command_source_violations = []
+    inner_recovery_verify_command_violations = []
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -167,6 +168,16 @@ def build_recovery_report(
                 != "completion_contract"
             ):
                 recovery_verify_command_source_violations.append(str(pair_id))
+            if (
+                contract.get("smoke", {}).get(
+                    "require_registered_inner_recovery_verify_commands"
+                )
+                is True
+                and not _valid_inner_recovery_bindings(
+                    recovery_attempts.get("step_plan_contract_bindings")
+                )
+            ):
+                inner_recovery_verify_command_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
             if not (
                 isinstance(treatment_path, str)
@@ -308,6 +319,10 @@ def build_recovery_report(
         checks["registered_recovery_verify_commands"] = (
             not recovery_verify_command_source_violations
         )
+    if smoke.get("require_registered_inner_recovery_verify_commands") is True:
+        checks["registered_inner_recovery_verify_commands"] = (
+            not inner_recovery_verify_command_violations
+        )
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -401,8 +416,45 @@ def build_recovery_report(
                 if smoke.get("require_registered_recovery_verify_commands") is True
                 else {}
             ),
+            **(
+                {
+                    "inner_recovery_verify_command_violations": (
+                        inner_recovery_verify_command_violations
+                    )
+                }
+                if smoke.get("require_registered_inner_recovery_verify_commands")
+                is True
+                else {}
+            ),
         },
     }
+
+
+def _valid_inner_recovery_bindings(value: Any) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    modes = set()
+    for row in value:
+        if not isinstance(row, dict):
+            return False
+        mode = row.get("binding_mode")
+        modes.add(mode)
+        if (
+            row.get("source") != "product_visible_completion_contract"
+            or row.get("external_oracle_used") is not False
+        ):
+            return False
+        bound = row.get("bound_verify_commands")
+        registered = row.get("registered_verify_commands")
+        if mode == "read_only_inspection":
+            if bound != []:
+                return False
+        elif mode == "completion_contract_final_success":
+            if not isinstance(registered, list) or not registered or bound != registered:
+                return False
+        else:
+            return False
+    return modes == {"read_only_inspection", "completion_contract_final_success"}
 
 
 def _typed_reproducer_matches(value: Any, expected_command: str) -> bool:

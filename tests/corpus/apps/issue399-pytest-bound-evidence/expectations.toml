@@ -1,0 +1,28 @@
+case_id = "issue399_pytest_bound_evidence"
+source = "Issue 399 A14-A10 pytest bound verification classification"
+required_paths = []
+verify_commands = ["python3 -m pytest -q tests"]
+required_capabilities = []
+required_evidence = ["bound_verify_command"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[evidence]
+bound_verify_command = "strong"
+
+[weak_evidence]
+contains = []
+absent = ["pytest_without_test_artifact"]
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"

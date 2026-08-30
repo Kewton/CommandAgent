@@ -2360,11 +2360,13 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
         }
         return VerifyCommandKind::Weak("node_test_without_test_artifact".to_string());
     }
-    if lower.starts_with("python3 -m unittest") || lower.starts_with("python -m unittest") {
+    if let Some(reason) =
+        crate::minimal_loop::test_command_evidence::missing_artifact_reason(&lower)
+    {
         if has_test_artifact(workspace) {
             return VerifyCommandKind::Test;
         }
-        return VerifyCommandKind::Weak("unittest_without_test_artifact".to_string());
+        return VerifyCommandKind::Weak(reason.to_string());
     }
     if lower.starts_with("node ") {
         if has_assertion_or_test_evidence(workspace) {
