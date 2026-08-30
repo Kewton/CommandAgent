@@ -576,11 +576,28 @@ fn recovery_preflight(
                 };
             }
         };
-    if !contract.required_capabilities.is_empty() {
+    let unsupported_capabilities = contract
+        .required_capabilities
+        .iter()
+        .filter(|capability| {
+            capability.as_str() != "input_output_contract"
+                || !contract
+                    .fix_reproducer_command
+                    .as_ref()
+                    .is_some_and(|command| {
+                        contract
+                            .verify_commands
+                            .iter()
+                            .any(|verify| verify == command)
+                    })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unsupported_capabilities.is_empty() {
         return RecoveryPreflight::Unavailable {
             reason: format!(
                 "required_capability_has_no_product_visible_read_only_observation:{}",
-                contract.required_capabilities.join(",")
+                unsupported_capabilities.join(",")
             ),
         };
     }
@@ -1428,6 +1445,53 @@ mod tests {
     }
 
     #[test]
+    fn preflight_observes_input_output_contract_with_bound_fix_reproducer() {
+        let root = tempfile::tempdir().unwrap();
+        let ready = root.path().join("ready.txt");
+        std::fs::write(&ready, "ready").unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"fix_reproducer_command":"test -f ready.txt","required_capabilities":["input_output_contract"],"profile":"generic"}"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+
+        assert!(matches!(
+            recovery_preflight(&config, &candidate("protected-input-output"), 0),
+            RecoveryPreflight::CurrentSuccess { .. }
+        ));
+
+        std::fs::remove_file(ready).unwrap();
+        assert!(matches!(
+            recovery_preflight(&config, &candidate("repairable-input-output"), 1),
+            RecoveryPreflight::Failed { .. }
+        ));
+    }
+
+    #[test]
+    fn preflight_rejects_unbound_input_output_contract_capability() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("ready.txt"), "ready").unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path.clone());
+
+        for contract in [
+            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"required_capabilities":["input_output_contract"],"profile":"generic"}"#,
+            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"fix_reproducer_command":"test -f other.txt","required_capabilities":["input_output_contract"],"profile":"generic"}"#,
+        ] {
+            std::fs::write(&contract_path, contract).unwrap();
+            assert!(matches!(
+                recovery_preflight(&config, &candidate("unbound-input-output"), 0),
+                RecoveryPreflight::Unavailable { reason }
+                    if reason.ends_with(":input_output_contract")
+            ));
+        }
+    }
+
+    #[test]
     fn preflight_rejects_and_restores_source_mutation() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -1458,7 +1522,7 @@ mod tests {
         let contract_path = root.path().join("completion-contract.json");
         std::fs::write(
             &contract_path,
-            r#"{"required_paths":[],"verify_commands":["true"],"required_capabilities":["browser_readiness"],"profile":"nextjs"}"#,
+            r#"{"required_paths":[],"verify_commands":["true"],"fix_reproducer_command":"true","required_capabilities":["input_output_contract","browser_readiness"],"profile":"nextjs"}"#,
         )
         .unwrap();
         let mut config = config(root.path(), 1);

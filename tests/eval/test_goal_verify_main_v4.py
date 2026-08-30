@@ -45,6 +45,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
     _build_tasks as build_a14_a6_tasks,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a7 import (
+    _build_contract as build_a14_a7_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -1088,6 +1091,29 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "phase6-main-c05-task-10--pair-01"
             ],
             "python3 cli.py 16",
+        )
+
+    def test_a14_a7_requires_a_naturally_executed_recovery_pair(self):
+        contract = build_a14_a7_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["task_contract_registry"],
+            "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a6-1.json",
+        )
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 1)
+        self.assertTrue(contract["smoke"]["require_executed_recovery_for_attribution"])
+        self.assertTrue(
+            contract["analysis"]["smoke_readiness_requires_live_recovery_execution"]
+        )
+        self.assertEqual(
+            contract["analysis"]["unsupported_required_capability_policy"],
+            "fail_closed",
         )
 
     def test_registered_browser_process_records_execution(self):

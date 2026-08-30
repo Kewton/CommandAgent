@@ -28,6 +28,14 @@ fixtures/typed-fix-reproducer.jsonl = [
   "\"expected_result\":\"fail\"",
   "\"verify\":[\"python3 cli.py 7\"]"
 ]
+fixtures/typed-reproducer-recovery-preflight.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"status\":\"fail\"",
+  "\"source\":\"product_visible_completion_contract\"",
+  "\"read_only\":true",
+  "\"external_oracle_used\":false",
+  "\"event\":\"recovery_plan_auto_run_start\""
+]
 
 [fixture_ordered]
 fixtures/typed-fix-reproducer.jsonl = [
@@ -36,4 +44,9 @@ fixtures/typed-fix-reproducer.jsonl = [
   "\"event\":\"step_plan_generated\"",
   "\"event\":\"fix_evidence_recorded\"",
   "\"event\":\"run_stop\""
+]
+fixtures/typed-reproducer-recovery-preflight.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"event\":\"recovery_boundary_snapshot\"",
+  "\"event\":\"recovery_plan_auto_run_start\""
 ]
