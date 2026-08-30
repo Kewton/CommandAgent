@@ -209,8 +209,9 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
             used,
         )
         .map_err(|_| CandidateStop::TreatmentPrepareFailed)?;
-        let mut treatment_config = self.config.clone();
-        treatment_config.workspace_root = treatment.clone();
+        let treatment_config =
+            crate::planner::recovery_contract_binding::bind_config(self.config, &treatment)
+                .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
         emit_with_candidate(
             self.config,
             "recovery_plan_auto_run_start",
@@ -734,6 +735,7 @@ enum CandidateStop {
     RecoveryNeedsReview,
     BoundaryCaptureFailed,
     TreatmentPrepareFailed,
+    TreatmentContractBindFailed,
     ResumeSafetyRejected,
     WorkspaceDrift,
 }
@@ -747,6 +749,7 @@ impl CandidateStop {
             Self::RecoveryNeedsReview => "recovery_needs_review",
             Self::BoundaryCaptureFailed => "boundary_capture_failed",
             Self::TreatmentPrepareFailed => "treatment_prepare_failed",
+            Self::TreatmentContractBindFailed => "treatment_contract_bind_failed",
             Self::ResumeSafetyRejected => "resume_safety_rejected",
             Self::WorkspaceDrift => "workspace_drift",
         }

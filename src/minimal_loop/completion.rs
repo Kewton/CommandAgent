@@ -66,18 +66,22 @@ pub struct DeferredVerifyRequirement {
 
 impl CompletionContract {
     pub fn load_for_config(config: &Config) -> anyhow::Result<Option<Self>> {
-        let path = config.completion_contract_path.clone().or_else(|| {
-            crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
-        });
-        let Some(path) = path else {
+        let Some(path) = Self::configured_path_for_config(config)? else {
             return Ok(None);
         };
-        let path = normalize_contract_file_path(&config.workspace_root, &path)?;
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read completion contract {}", path.display()))?;
         let contract: Self = serde_json::from_str(&text)
             .with_context(|| format!("invalid completion contract JSON {}", path.display()))?;
         Ok(Some(contract.validate(&config.workspace_root)?))
+    }
+
+    pub(crate) fn configured_path_for_config(config: &Config) -> anyhow::Result<Option<PathBuf>> {
+        let path = config.completion_contract_path.clone().or_else(|| {
+            crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
+        });
+        path.map(|path| normalize_contract_file_path(&config.workspace_root, &path))
+            .transpose()
     }
 
     pub fn validate(mut self, root: &Path) -> anyhow::Result<Self> {

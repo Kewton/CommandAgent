@@ -48,6 +48,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a6 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a7 import (
     _build_contract as build_a14_a7_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a8 import (
+    _build_contract as build_a14_a8_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -1114,6 +1117,29 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(
             contract["analysis"]["unsupported_required_capability_policy"],
             "fail_closed",
+        )
+
+    def test_a14_a8_freezes_treatment_owned_contract_binding(self):
+        contract = build_a14_a8_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["supersedes_contract"],
+            "phase6-recovery-v4-20260830-a14-a7-live-01",
+        )
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 1)
+        self.assertEqual(
+            contract["analysis"]["treatment_completion_contract_binding"],
+            "exact bytes copied by host to "
+            ".commandagent/recovery-runtime/completion-contract.json",
+        )
+        self.assertFalse(
+            contract["analysis"]["treatment_contract_source_in_promotion_manifest"]
         )
 
     def test_registered_browser_process_records_execution(self):

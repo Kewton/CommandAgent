@@ -34,7 +34,9 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"source\":\"product_visible_completion_contract\"",
   "\"read_only\":true",
   "\"external_oracle_used\":false",
-  "\"event\":\"recovery_plan_auto_run_start\""
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"completion_contract_bound\"",
+  "\"completion_contract_path\":\".commandagent/recovery-runtime/completion-contract.json\""
 ]
 
 [fixture_ordered]
@@ -48,5 +50,6 @@ fixtures/typed-fix-reproducer.jsonl = [
 fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_preflight_observation\"",
   "\"event\":\"recovery_boundary_snapshot\"",
-  "\"event\":\"recovery_plan_auto_run_start\""
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"completion_contract_bound\""
 ]
