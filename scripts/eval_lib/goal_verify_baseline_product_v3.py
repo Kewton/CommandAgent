@@ -569,6 +569,9 @@ def _recovery_plan_attempts(
             current_attempt["recovery_verify_command_count"] = row.get(
                 "recovery_verify_command_count"
             )
+            current_attempt["recovery_verify_command_source"] = row.get(
+                "recovery_verify_command_source"
+            )
         elif event == "recovery_plan_auto_run_complete":
             current_attempt["status"] = "succeeded"
             current_attempt["stop_reason"] = stop_reason

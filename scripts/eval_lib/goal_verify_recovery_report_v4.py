@@ -36,6 +36,7 @@ def build_recovery_report(
     handoff_fidelity_violations = []
     treatment_isolation_violations = []
     typed_reproducer_violations = []
+    recovery_verify_command_source_violations = []
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -157,6 +158,15 @@ def build_recovery_report(
                 )
             ):
                 handoff_fidelity_violations.append(str(pair_id))
+            if (
+                contract.get("smoke", {}).get(
+                    "require_registered_recovery_verify_commands"
+                )
+                is True
+                and recovery_attempt.get("recovery_verify_command_source")
+                != "completion_contract"
+            ):
+                recovery_verify_command_source_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
             if not (
                 isinstance(treatment_path, str)
@@ -294,6 +304,10 @@ def build_recovery_report(
         ),
         "typed_fix_reproducer_binding": not typed_reproducer_violations,
     }
+    if smoke.get("require_registered_recovery_verify_commands") is True:
+        checks["registered_recovery_verify_commands"] = (
+            not recovery_verify_command_source_violations
+        )
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -377,6 +391,15 @@ def build_recovery_report(
             "typed_reproducer_violations": typed_reproducer_violations,
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
+            ),
+            **(
+                {
+                    "recovery_verify_command_source_violations": (
+                        recovery_verify_command_source_violations
+                    )
+                }
+                if smoke.get("require_registered_recovery_verify_commands") is True
+                else {}
             ),
         },
     }

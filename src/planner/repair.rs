@@ -37,7 +37,7 @@ pub struct RepairContext {
     pub prompt_layout: PromptLayout,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecoveryHandoff {
     pub profile: String,
     pub original_goal: String,

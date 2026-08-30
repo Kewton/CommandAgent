@@ -17,9 +17,8 @@ use crate::tui::InteractionUi;
 pub(crate) struct RecoveryCandidate {
     path: PathBuf,
     plan: UltraPlan,
-    failure_kind: String,
-    failed_step: Option<String>,
-    verify_commands: Vec<String>,
+    handoff: crate::planner::repair::RecoveryHandoff,
+    verify_command_source: String,
 }
 
 #[derive(Debug)]
@@ -75,25 +74,36 @@ impl Drop for AttemptCaptureGuard {
     }
 }
 
-pub(crate) fn record_candidate(
+#[cfg(test)]
+fn record_candidate(
     path: PathBuf,
     plan: UltraPlan,
     failure_kind: String,
     failed_step: Option<String>,
     verify_commands: Vec<String>,
 ) {
+    let handoff = crate::planner::repair::RecoveryHandoff {
+        profile: plan.profile.clone(),
+        original_goal: plan.goal.clone(),
+        failed_step,
+        failure_kind,
+        verify_commands,
+        ..crate::planner::repair::RecoveryHandoff::default()
+    };
+    record_typed_candidate(RecoveryCandidate {
+        path,
+        plan,
+        handoff,
+        verify_command_source: "failure_handoff".to_string(),
+    });
+}
+
+fn record_typed_candidate(candidate: RecoveryCandidate) {
     ATTEMPT_CAPTURE.with(|capture| {
         let mut capture = capture.borrow_mut();
         if capture.active {
-            let candidate = RecoveryCandidate {
-                path,
-                plan,
-                failure_kind,
-                failed_step,
-                verify_commands,
-            };
             let replace = capture.candidate.as_ref().is_none_or(|current| {
-                candidate.failed_step.is_some() || current.failed_step.is_none()
+                candidate.handoff.failed_step.is_some() || current.handoff.failed_step.is_none()
             });
             if replace {
                 capture.candidate = Some(candidate);
@@ -107,13 +117,12 @@ pub(crate) fn record_handoff_candidate(
     plan: UltraPlan,
     handoff: &crate::planner::repair::RecoveryHandoff,
 ) {
-    record_candidate(
+    record_typed_candidate(RecoveryCandidate {
         path,
         plan,
-        handoff.failure_kind.clone(),
-        handoff.failed_step.clone(),
-        handoff.verify_commands.clone(),
-    );
+        handoff: handoff.clone(),
+        verify_command_source: "failure_handoff".to_string(),
+    });
 }
 
 fn capture_attempt(
@@ -449,7 +458,7 @@ fn drive(
             }
             AttemptFailure::Recoverable(candidate) => *candidate,
         };
-        match driver.preflight(&candidate) {
+        let preflight_failure_reason = match driver.preflight(&candidate) {
             RecoveryPreflight::NotConfigured => {
                 emit_preflight(
                     config,
@@ -458,9 +467,11 @@ fn drive(
                     "not_configured",
                     "no registered command",
                 );
+                None
             }
             RecoveryPreflight::Failed { reason } => {
                 emit_preflight(config, &candidate, "pre_recovery", "fail", &reason);
+                Some(reason)
             }
             RecoveryPreflight::CurrentSuccess { reason } => {
                 emit_preflight(config, &candidate, "pre_recovery", "pass", &reason);
@@ -492,7 +503,7 @@ fn drive(
                     "automatic Recovery Plan stopped: preflight unavailable: {reason}"
                 )));
             }
-        }
+        };
         let Some(used) = controller.next_run() else {
             emit(
                 config,
@@ -501,6 +512,25 @@ fn drive(
                 "limit_reached",
             );
             return Err(error);
+        };
+        let candidate = if let Some(reason) = preflight_failure_reason.as_deref() {
+            match bind_candidate_verify_commands(config, candidate, reason) {
+                Ok(candidate) => candidate,
+                Err(reason) => {
+                    emit(
+                        config,
+                        "recovery_plan_auto_run_stopped",
+                        used - 1,
+                        reason.code(),
+                    );
+                    return Err(error.context(format!(
+                        "automatic Recovery Plan stopped: {}",
+                        reason.code()
+                    )));
+                }
+            }
+        } else {
+            candidate
         };
         let prepared = match driver.prepare(&candidate) {
             Ok(prepared) => prepared,
@@ -660,6 +690,7 @@ fn recovery_preflight(
             reason: format!(
                 "registered_final_success_passed:{} commands",
                 candidate
+                    .handoff
                     .verify_commands
                     .len()
                     .max(contract.verify_commands.len())
@@ -676,6 +707,77 @@ fn recovery_preflight(
             reason: report.primary_reason(),
         }
     }
+}
+
+fn bind_candidate_verify_commands(
+    config: &Config,
+    mut candidate: RecoveryCandidate,
+    preflight_reason: &str,
+) -> Result<RecoveryCandidate, CandidateStop> {
+    let contract = crate::minimal_loop::completion::CompletionContract::load_for_config(config)
+        .map_err(|_| CandidateStop::ContractCommandBindFailed)?
+        .ok_or(CandidateStop::ContractCommandBindFailed)?;
+    if contract.verify_commands.is_empty() {
+        return Err(CandidateStop::ContractCommandBindFailed);
+    }
+
+    let original_commands = candidate.handoff.verify_commands.clone();
+    let original_commands_all_registered = original_commands
+        .iter()
+        .all(|command| contract.verify_commands.contains(command));
+    let plan_rewritten = original_commands != contract.verify_commands;
+    candidate.handoff.verify_commands = contract.verify_commands;
+    candidate.verify_command_source = "completion_contract".to_string();
+
+    if plan_rewritten {
+        candidate.handoff.failure_evidence = vec![format!(
+            "Registered final-success observation failed before automatic Recovery: {preflight_reason}"
+        )];
+        let plan = crate::planner::repair::build_recovery_ultra_plan(&candidate.handoff);
+        let scope = contract_bound_scope(candidate.handoff.failed_step.as_deref());
+        let path = crate::planner::repair::save_recovery_ultra_plan(
+            &config.workspace_root,
+            &scope,
+            &candidate.handoff,
+        )
+        .map_err(|_| CandidateStop::ContractCommandBindFailed)?;
+        candidate.path = path;
+        candidate.plan = plan;
+    }
+
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_candidate_verify_commands_bound",
+            "source": "product_visible_completion_contract",
+            "external_oracle_used": false,
+            "original_verify_command_count": original_commands.len(),
+            "registered_verify_command_count": candidate.handoff.verify_commands.len(),
+            "original_commands_all_registered": original_commands_all_registered,
+            "recovery_plan_rewritten": plan_rewritten,
+            "recovery_verify_command_source": candidate.verify_command_source,
+        }),
+    );
+    Ok(candidate)
+}
+
+fn contract_bound_scope(failed_step: Option<&str>) -> String {
+    let token = failed_step
+        .unwrap_or("phase")
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let token = token.trim_matches('-');
+    format!(
+        "contract-bound-{}",
+        if token.is_empty() { "phase" } else { token }
+    )
 }
 
 fn execute_initial(
@@ -736,6 +838,7 @@ enum CandidateStop {
     BoundaryCaptureFailed,
     TreatmentPrepareFailed,
     TreatmentContractBindFailed,
+    ContractCommandBindFailed,
     ResumeSafetyRejected,
     WorkspaceDrift,
 }
@@ -750,6 +853,7 @@ impl CandidateStop {
             Self::BoundaryCaptureFailed => "boundary_capture_failed",
             Self::TreatmentPrepareFailed => "treatment_prepare_failed",
             Self::TreatmentContractBindFailed => "treatment_contract_bind_failed",
+            Self::ContractCommandBindFailed => "contract_command_bind_failed",
             Self::ResumeSafetyRejected => "resume_safety_rejected",
             Self::WorkspaceDrift => "workspace_drift",
         }
@@ -826,9 +930,9 @@ fn emit_preflight(
             "source": "product_visible_completion_contract",
             "read_only": true,
             "external_oracle_used": false,
-            "recovery_handoff_kind": candidate.failure_kind,
-            "recovery_failed_step": candidate.failed_step,
-            "verify_command_count": candidate.verify_commands.len(),
+            "recovery_handoff_kind": candidate.handoff.failure_kind,
+            "recovery_failed_step": candidate.handoff.failed_step,
+            "verify_command_count": candidate.handoff.verify_commands.len(),
         }),
     );
 }
@@ -1007,10 +1111,11 @@ fn emit_with_candidate(
             "recovery_plan_auto_runs_used": used,
             "recovery_plan_auto_run_current": used,
             "recovery_plan_auto_run_stop_reason": "running",
-            "recovery_handoff_kind": candidate.failure_kind,
-            "recovery_candidate_scope": if candidate.failed_step.is_some() { "step" } else { "phase" },
-            "recovery_failed_step": candidate.failed_step,
-            "recovery_verify_command_count": candidate.verify_commands.len(),
+            "recovery_handoff_kind": candidate.handoff.failure_kind,
+            "recovery_candidate_scope": if candidate.handoff.failed_step.is_some() { "step" } else { "phase" },
+            "recovery_failed_step": candidate.handoff.failed_step,
+            "recovery_verify_command_count": candidate.handoff.verify_commands.len(),
+            "recovery_verify_command_source": candidate.verify_command_source,
             "recovery_ultra_plan_path": crate::planner::repair::workspace_relative_handoff_path(
                 &candidate.path
             ),
@@ -1084,9 +1189,15 @@ mod tests {
         RecoveryCandidate {
             path: PathBuf::from(format!("{goal}.yaml")),
             plan: plan(goal),
-            failure_kind: "verification_failed".to_string(),
-            failed_step: Some(goal.to_string()),
-            verify_commands: vec![format!("verify-{goal}")],
+            handoff: crate::planner::repair::RecoveryHandoff {
+                profile: "generic".to_string(),
+                original_goal: goal.to_string(),
+                failure_kind: "verification_failed".to_string(),
+                failed_step: Some(goal.to_string()),
+                verify_commands: vec![format!("verify-{goal}")],
+                ..crate::planner::repair::RecoveryHandoff::default()
+            },
+            verify_command_source: "failure_handoff".to_string(),
         }
     }
 
@@ -1247,9 +1358,11 @@ mod tests {
         let missing = RecoveryCandidate {
             path: root.path().join("missing.yaml"),
             plan: expected_plan.clone(),
-            failure_kind: "test".to_string(),
-            failed_step: None,
-            verify_commands: Vec::new(),
+            handoff: crate::planner::repair::RecoveryHandoff {
+                failure_kind: "test".to_string(),
+                ..crate::planner::repair::RecoveryHandoff::default()
+            },
+            verify_command_source: "failure_handoff".to_string(),
         };
         assert_eq!(
             prepare_candidate(&config, &missing).unwrap_err(),
@@ -1261,9 +1374,11 @@ mod tests {
         let invalid = RecoveryCandidate {
             path: invalid_path,
             plan: expected_plan.clone(),
-            failure_kind: "test".to_string(),
-            failed_step: None,
-            verify_commands: Vec::new(),
+            handoff: crate::planner::repair::RecoveryHandoff {
+                failure_kind: "test".to_string(),
+                ..crate::planner::repair::RecoveryHandoff::default()
+            },
+            verify_command_source: "failure_handoff".to_string(),
         };
         assert_eq!(
             prepare_candidate(&config, &invalid).unwrap_err(),
@@ -1282,9 +1397,11 @@ mod tests {
         let review = RecoveryCandidate {
             path: review_path,
             plan: expected_plan.clone(),
-            failure_kind: "test".to_string(),
-            failed_step: None,
-            verify_commands: Vec::new(),
+            handoff: crate::planner::repair::RecoveryHandoff {
+                failure_kind: "test".to_string(),
+                ..crate::planner::repair::RecoveryHandoff::default()
+            },
+            verify_command_source: "failure_handoff".to_string(),
         };
         assert_eq!(
             prepare_candidate(&config, &review).unwrap_err(),
@@ -1301,9 +1418,11 @@ mod tests {
         let escaped = RecoveryCandidate {
             path: outside_path,
             plan: expected_plan,
-            failure_kind: "test".to_string(),
-            failed_step: None,
-            verify_commands: Vec::new(),
+            handoff: crate::planner::repair::RecoveryHandoff {
+                failure_kind: "test".to_string(),
+                ..crate::planner::repair::RecoveryHandoff::default()
+            },
+            verify_command_source: "failure_handoff".to_string(),
         };
         assert_eq!(
             prepare_candidate(&config, &escaped).unwrap_err(),
@@ -1367,9 +1486,9 @@ mod tests {
             record_candidate(
                 recorded.path,
                 recorded.plan,
-                recorded.failure_kind,
-                recorded.failed_step,
-                recorded.verify_commands,
+                recorded.handoff.failure_kind,
+                recorded.handoff.failed_step,
+                recorded.handoff.verify_commands,
             );
             anyhow::bail!("unclassified failure")
         });
@@ -1406,8 +1525,83 @@ mod tests {
 
         let selected = capture.finish().expect("selected candidate");
         assert_eq!(selected.path, PathBuf::from("step.yaml"));
-        assert_eq!(selected.failed_step.as_deref(), Some("verify-output"));
-        assert_eq!(selected.verify_commands, vec!["test -f app.py"]);
+        assert_eq!(
+            selected.handoff.failed_step.as_deref(),
+            Some("verify-output")
+        );
+        assert_eq!(selected.handoff.verify_commands, vec!["test -f app.py"]);
+    }
+
+    #[test]
+    fn recovery_candidate_rebinds_unregistered_step_commands_to_contract() {
+        let root = tempfile::tempdir().unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{"required_paths":["cli.py"],"verify_commands":["python3 cli.py 16","python3 -m pytest -q tests"],"fix_reproducer_command":"python3 cli.py 16","required_capabilities":["input_output_contract"],"profile":"cli"}"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+
+        let mut original = candidate("reproduce-failure");
+        original.handoff.profile = "cli".to_string();
+        original.handoff.original_goal = "repair cli input 16".to_string();
+        original.handoff.failure_evidence =
+            vec!["command failed: [ $exit_code -eq 2 ]: unary operator expected".to_string()];
+        original.handoff.repair_targets = vec!["implementation".to_string()];
+        original.handoff.verify_commands = vec![
+            "python3 cli.py 16".to_string(),
+            "exit_code=$?".to_string(),
+            "[ $exit_code -eq 2 ]".to_string(),
+        ];
+        original.plan = crate::planner::repair::build_recovery_ultra_plan(&original.handoff);
+        let original_path = original.path.clone();
+
+        let rebound =
+            bind_candidate_verify_commands(&config, original, "command failed: python3 cli.py 16")
+                .unwrap();
+
+        assert_ne!(rebound.path, original_path);
+        assert_eq!(rebound.verify_command_source, "completion_contract");
+        assert_eq!(
+            rebound.handoff.verify_commands,
+            vec!["python3 cli.py 16", "python3 -m pytest -q tests"]
+        );
+        let rendered = std::fs::read_to_string(&rebound.path).unwrap();
+        assert!(rendered.contains("Preferred product-visible final-success check"));
+        assert!(rendered.contains("python3 cli.py 16"));
+        assert!(rendered.contains("python3 -m pytest -q tests"));
+        assert!(!rendered.contains("exit_code=$?"));
+        assert!(!rendered.contains("[ $exit_code -eq 2 ]"));
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("recovery_candidate_verify_commands_bound"));
+        assert!(events.contains("\"original_commands_all_registered\":false"));
+        assert!(events.contains("\"recovery_plan_rewritten\":true"));
+    }
+
+    #[test]
+    fn recovery_candidate_marks_exact_contract_match_without_rewriting_plan() {
+        let root = tempfile::tempdir().unwrap();
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"profile":"generic"}"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+        let mut original = candidate("exact");
+        original.handoff.verify_commands = vec!["test -f ready.txt".to_string()];
+        let original_path = original.path.clone();
+
+        let rebound =
+            bind_candidate_verify_commands(&config, original, "missing ready.txt").unwrap();
+
+        assert_eq!(rebound.path, original_path);
+        assert_eq!(rebound.verify_command_source, "completion_contract");
+        assert_eq!(rebound.handoff.verify_commands, vec!["test -f ready.txt"]);
+        assert!(!root.path().join(".commandagent/plans").exists());
     }
 
     #[test]

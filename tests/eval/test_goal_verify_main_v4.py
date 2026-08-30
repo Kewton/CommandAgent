@@ -51,6 +51,9 @@ from eval_lib.generate_goal_verify_recovery_v4_a14_a7 import (
 from eval_lib.generate_goal_verify_recovery_v4_a14_a8 import (
     _build_contract as build_a14_a8_contract,
 )
+from eval_lib.generate_goal_verify_recovery_v4_a14_a9 import (
+    _build_contract as build_a14_a9_contract,
+)
 from eval_lib.goal_verify_baseline_product_v3 import (
     _fix_reproducer_binding,
     _product_resource_usage,
@@ -331,6 +334,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "recovery_plan_auto_run_stop_reason": "running",
                     "recovery_handoff_kind": "verification_failed",
                     "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+                    "recovery_verify_command_source": "completion_contract",
                 },
                 {
                     "event": "recovery_plan_auto_run_complete",
@@ -355,6 +359,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             [("initial", "failed_recoverable"), ("recovery", "succeeded")],
         )
         self.assertEqual(telemetry["terminal_stop_reason"], "recovery_succeeded")
+        self.assertEqual(
+            telemetry["attempts"][1]["recovery_verify_command_source"],
+            "completion_contract",
+        )
 
     def test_product_argv_makes_recovery_zero_and_one_explicit(self):
         common = {
@@ -1142,6 +1150,31 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             contract["analysis"]["treatment_contract_source_in_promotion_manifest"]
         )
 
+    def test_a14_a9_requires_registered_recovery_verify_commands(self):
+        contract = build_a14_a9_contract(
+            status="draft",
+            code_sha="",
+            exact_sha_ci_evidence="",
+            live_collection_authorized=False,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["supersedes_contract"],
+            "phase6-recovery-v4-20260830-a14-a8-live-01",
+        )
+        self.assertTrue(
+            contract["smoke"]["require_registered_recovery_verify_commands"]
+        )
+        self.assertIn(
+            "registered_recovery_verify_commands",
+            contract["smoke"]["required_readiness_checks"],
+        )
+        self.assertEqual(
+            contract["analysis"]["recovery_verify_command_authority"],
+            "CompletionContract.verify_commands",
+        )
+
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
             outcome = _run_registered_browser_command(
@@ -1698,6 +1731,25 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertFalse(report["effect_claim_allowed"])
         self.assertEqual(report["counts"]["attributed_improved"], 1)
         self.assertEqual(report["median_resource_delta"]["wall_time_ms"], 50)
+        self.assertNotIn("registered_recovery_verify_commands", report["checks"])
+
+        contract["smoke"]["require_registered_recovery_verify_commands"] = True
+        missing_source = build_recovery_report(records=records, contract=contract)
+        self.assertFalse(
+            missing_source["checks"]["registered_recovery_verify_commands"]
+        )
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "attempts"
+        ] = [
+            {
+                "attempt_index": 1,
+                "recovery_verify_command_source": "completion_contract",
+            }
+        ]
+        registered_source = build_recovery_report(records=records, contract=contract)
+        self.assertTrue(
+            registered_source["checks"]["registered_recovery_verify_commands"]
+        )
 
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "executed_recovery_runs"
