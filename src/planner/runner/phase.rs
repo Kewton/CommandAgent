@@ -1161,7 +1161,9 @@ pub(super) fn run_step(
         config.resolved_intent(&prompt_context.overall_goal),
     ))
     .with_required_write_for_action_prompt(recovery_fix_write_required)
-    .with_required_mutation_before_short_circuit(synthesized_precheck);
+    .with_required_mutation_before_short_circuit(
+        synthesized_precheck || recovery_fix_write_required,
+    );
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
     let verify_first_applicable = host_owned_recovery_verify

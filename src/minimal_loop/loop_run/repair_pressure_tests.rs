@@ -1487,4 +1487,42 @@ export default function Page(){
             .unwrap();
         assert!(hidden_index < write_index, "{events:?}");
     }
+
+    #[test]
+    fn explicit_mutation_requirement_does_not_depend_on_action_prompt_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply::text("done")),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"pipeline/main.py","content":"FIXED = True\n"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply::text("done")),
+        ]);
+        let mut session = SessionSnapshot::new();
+        let cfg = config(dir.path().to_path_buf());
+        let outcome = run_session_with_outcome_with_options(
+            &mut fake,
+            &mut session,
+            "Repair the pipeline defect.",
+            &[],
+            &cfg,
+            &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement)
+                .with_required_write_for_action_prompt(true)
+                .with_required_mutation_before_short_circuit(true),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.final_text, "done");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("pipeline/main.py")).unwrap(),
+            "FIXED = True\n"
+        );
+    }
 }

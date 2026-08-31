@@ -1001,7 +1001,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
-                && looks_like_action_prompt(user_prompt)
+                && (options.require_mutation_before_contract_short_circuit
+                    || looks_like_action_prompt(user_prompt))
                 && !setup_step_policy::prompt_references_template_owned_artifacts(
                     &config.profile,
                     user_prompt,
@@ -4508,7 +4509,6 @@ fn looks_like_progress_without_tool(content: &str) -> bool {
         || lower.contains("実装します")
         || lower.contains("進めます")
 }
-
 fn looks_like_action_prompt(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     lower.contains("create")
