@@ -14,11 +14,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from eval_lib import generate_goal_verify_recovery_v4_a15_a1 as a15_a1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a1_1 as a15_a1_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a2 as a15_a2_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a3 as a15_a3_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
+    RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+    SMOKE_PROFILE_PATH_COVERAGE_POLICY,
     recovery_contract_errors,
     validate_a14_oracle_semantics,
 )
@@ -68,9 +71,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         )
 
     def test_a15_a1_1_only_removes_the_non_runtime_generator(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json")
         amended = a15_a1_1_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -121,19 +122,50 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(len(generic), 10)
         self.assertTrue(
             all(
-                row["completion_contract"]["required_obligations"]
-                == ["implementation"]
+                row["completion_contract"]["required_obligations"] == ["implementation"]
                 for row in generic
             )
         )
         self.assertEqual(task_contract_registry_errors(tasks), [])
 
+    def test_a15_a3_preregisters_honest_terminal_and_safety_path_coverage(self):
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a2-smoke-contract.json")
+        amended = a15_a3_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"]
+        )
+        self.assertEqual(
+            amended["smoke"]["recovery_fix_terminal_outcome_policy"],
+            RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+        )
+        self.assertEqual(
+            amended["smoke"]["real_profile_path_coverage_policy"],
+            SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+        )
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A3"
+        )
+        weakened = copy.deepcopy(amended)
+        weakened["smoke"]["recovery_fix_terminal_outcome_policy"][
+            "allowed_outcomes"
+        ].append("unclassified_failure")
+        self.assertIn(
+            "recovery_fix_terminal_outcome_policy_invalid",
+            recovery_contract_errors(weakened),
+        )
+
     def test_real_profile_contracts_bind_and_freeze_executable_oracles(self):
         corpus = load("eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json")
         tasks = load("eval/goal_verify/v0/phase6-task-contracts-v4-a15.json")
-        adapters = load(
-            "eval/goal_verify/v0/phase6-command-adapters-v4-a15.json"
-        )["adapters"]
+        adapters = load("eval/goal_verify/v0/phase6-command-adapters-v4-a15.json")[
+            "adapters"
+        ]
         self.assertEqual(len(corpus["cases"]), 60)
         self.assertEqual(len(tasks["cases"]), 60)
         self.assertEqual(task_contract_registry_errors(tasks), [])
@@ -216,11 +248,15 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             data_after = temporary_root / "fix-data-reconciliation/after"
             for workspace in (data_before, data_after):
                 self.assertEqual(
-                    run(workspace, sys.executable, "-m", "pytest", "-q", "tests").returncode,
+                    run(
+                        workspace, sys.executable, "-m", "pytest", "-q", "tests"
+                    ).returncode,
                     0,
                 )
                 self.assertEqual(
-                    run(workspace, sys.executable, "scripts/contract_check.py").returncode,
+                    run(
+                        workspace, sys.executable, "scripts/contract_check.py"
+                    ).returncode,
                     0,
                 )
             for workspace in (
@@ -325,9 +361,7 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
                         },
                     }
                 )
-        report = build_recovery_a15_smoke_report(
-            records=records, contract=contract
-        )
+        report = build_recovery_a15_smoke_report(records=records, contract=contract)
         self.assertEqual(report["go_no_go"], "GO")
         self.assertTrue(all(report["a15_profile_smoke_checks"].values()))
 
@@ -342,6 +376,48 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
         self.assertFalse(
             failed["a15_profile_smoke_checks"][
                 "recovery_executed_in_every_real_profile"
+            ]
+        )
+
+        current_success_covered = copy.deepcopy(no_next_recovery)
+        for index, record in enumerate(current_success_covered):
+            if record["profile"] != "nextjs":
+                continue
+            record["comparison"].update(
+                {
+                    "quality_transition": "no_recovery_needed",
+                    "initial_oracle_status": "pass",
+                    "recovery_oracle_status": "pass",
+                    "regression_introduced": False,
+                    "existing_artifact_harmed": False,
+                }
+            )
+            record["recovery_one"] = {
+                "result": {
+                    "recovery_plan_attempts": {
+                        "current_success_suppressed": index == 9,
+                        "terminal_stop_reason": (
+                            "current_success_protected"
+                            if index == 9
+                            else "initial_success"
+                        ),
+                    }
+                }
+            }
+        contract["smoke"]["real_profile_path_coverage_policy"] = copy.deepcopy(
+            SMOKE_PROFILE_PATH_COVERAGE_POLICY
+        )
+        protected = build_recovery_a15_smoke_report(
+            records=current_success_covered, contract=contract
+        )
+        self.assertEqual(protected["go_no_go"], "GO")
+        self.assertEqual(
+            protected["profile_readiness"]["nextjs"]["path_coverage_mode"],
+            "all_initial_oracle_pass_with_current_success_protection",
+        )
+        self.assertTrue(
+            protected["a15_profile_smoke_checks"][
+                "recovery_or_current_success_path_observed_in_every_real_profile"
             ]
         )
 
@@ -360,7 +436,9 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
         self.assertEqual(report["go_no_go"], "GO")
         self.assertTrue(report["all_profiles_quality_improved_claim_ready"])
         self.assertTrue(all(report["a15_profile_checks"].values()))
-        self.assertEqual(set(report["profile_effects"]), {"cli", "generic", "data", "nextjs"})
+        self.assertEqual(
+            set(report["profile_effects"]), {"cli", "generic", "data", "nextjs"}
+        )
 
         no_data_gain = copy.deepcopy(records)
         for record in no_data_gain:

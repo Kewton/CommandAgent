@@ -112,6 +112,7 @@ from eval_lib.goal_verify_main_report_v4 import (
     evaluate_main_semantic_review,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
+    RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
     artifact_delta,
     classify_case_recovery_eligibility,
     classify_initial_recovery_eligibility,
@@ -157,7 +158,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             workspace = root / "workspace"
             (toolchain / "playwright-core").mkdir(parents=True)
             (toolchain / "playwright-core/package.json").write_text(
-                '{}', encoding="utf-8"
+                "{}", encoding="utf-8"
             )
             workspace.mkdir()
 
@@ -166,12 +167,8 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             link = workspace / "node_modules/playwright-core"
             self.assertEqual(attached, ["node_modules/playwright-core"])
             self.assertTrue(link.is_symlink())
-            self.assertEqual(
-                link.resolve(), (toolchain / "playwright-core").resolve()
-            )
-            self.assertEqual(
-                _attach_frozen_browser_toolchain(toolchain, workspace), []
-            )
+            self.assertEqual(link.resolve(), (toolchain / "playwright-core").resolve())
+            self.assertEqual(_attach_frozen_browser_toolchain(toolchain, workspace), [])
 
     def test_generated_workspace_file_list_ignores_runtime_caches(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -212,7 +209,9 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 },
             )
 
-    def test_recovery_completion_requires_post_contract_pass_promotion_and_success(self):
+    def test_recovery_completion_requires_post_contract_pass_promotion_and_success(
+        self,
+    ):
         recovery_events = [
             {
                 "event": "recovery_preflight_observation",
@@ -220,8 +219,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "status": "pass",
                 "source": "product_visible_completion_contract",
                 "reason": (
-                    "registered_final_success_and_completion_contract_passed:"
-                    "1 commands"
+                    "registered_final_success_and_completion_contract_passed:1 commands"
                 ),
             },
             {
@@ -266,10 +264,9 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     encoding="utf-8",
                 )
                 self.assertFalse(
-                    _completion_verify_status(incomplete)[
-                        "completion_verify_passed"
-                    ]
+                    _completion_verify_status(incomplete)["completion_verify_passed"]
                 )
+
     def test_typed_fix_reproducer_binding_is_reduced_to_durable_fields(self):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
@@ -796,9 +793,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         tasks = build_a14_a2_tasks()
         adapters = build_a14_a2_adapters()["adapters"]
         cli = next(
-            row
-            for row in tasks["cases"]
-            if row["case_id"] == "phase6-main-c01-task-01"
+            row for row in tasks["cases"] if row["case_id"] == "phase6-main-c01-task-01"
         )["completion_contract"]
         self.assertEqual(
             contract["paired_run_contract"]["pairing_unit"],
@@ -833,9 +828,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 )["valid"],
                 case_id,
             )
-        c06 = [
-            row for row in adapters if row["case_id"].startswith("phase6-main-c06-")
-        ]
+        c06 = [row for row in adapters if row["case_id"].startswith("phase6-main-c06-")]
         self.assertTrue(c06)
         self.assertTrue(all(row["executor"].get("blocked_patterns") for row in c06))
         self.assertEqual(recovery_contract_errors(contract), [])
@@ -875,14 +868,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             1,
         )
         self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 0)
-        self.assertEqual(
-            contract["smoke"]["minimum_current_success_suppressions"], 1
-        )
+        self.assertEqual(contract["smoke"]["minimum_current_success_suppressions"], 1)
         self.assertTrue(contract["smoke"]["require_browser_oracle_executability"])
         self.assertTrue(contract["smoke"]["require_isolated_treatment_workspace"])
-        self.assertFalse(
-            contract["smoke"]["require_executed_recovery_for_attribution"]
-        )
+        self.assertFalse(contract["smoke"]["require_executed_recovery_for_attribution"])
         findings = contract["pre_live_amendments"][-1]["product_findings"]
         self.assertEqual(len(findings), 12)
         self.assertFalse(contract["authorization"]["smoke_collection_authorized"])
@@ -996,9 +985,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             exact_sha_ci_evidence="",
             live_collection_authorized=False,
         )
-        self.assertTrue(
-            contract["smoke"]["require_separate_browser_oracle_preflight"]
-        )
+        self.assertTrue(contract["smoke"]["require_separate_browser_oracle_preflight"])
         self.assertEqual(
             contract["analysis"]["browser_executability_preflight_source"],
             "frozen reference workspace, never candidate artifact",
@@ -1126,9 +1113,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
 
         self.assertTrue(
-            report["checks"][
-                "recovery_arm_configured_one_or_preregistered_not_run"
-            ]
+            report["checks"]["recovery_arm_configured_one_or_preregistered_not_run"]
         )
         self.assertTrue(report["checks"]["maximum_one_recovery_executed"])
         self.assertTrue(report["checks"]["ineligible_recovery_not_executed"])
@@ -1162,17 +1147,13 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "recovery_arm_configured_one_or_preregistered_not_run"
             ]
         )
-        self.assertFalse(
-            too_many_report["checks"]["maximum_one_recovery_executed"]
-        )
+        self.assertFalse(too_many_report["checks"]["maximum_one_recovery_executed"])
 
     def test_a14_a6_types_c05_reproducer_and_freezes_cli_only_smoke(self):
         tasks = build_a14_a6_tasks()
         self.assertEqual(task_contract_registry_errors(tasks), [])
         task = next(
-            row
-            for row in tasks["cases"]
-            if row["case_id"] == "phase6-main-c05-task-01"
+            row for row in tasks["cases"] if row["case_id"] == "phase6-main-c05-task-01"
         )
         self.assertEqual(
             task["completion_contract"]["fix_reproducer_command"],
@@ -1184,15 +1165,11 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             ("phase6-main-c05-task-05", "python3 cli.py 11"),
             ("phase6-main-c05-task-10", "python3 cli.py 16"),
         ):
-            source = next(
-                row for row in corpus["cases"] if row["case_id"] == case_id
-            )
+            source = next(row for row in corpus["cases"] if row["case_id"] == case_id)
             bound = bind_task_contract(source, tasks)
             self.assertEqual(bound["goal"], source["goal"])
             self.assertEqual(
-                bound["task_contract"]["completion_contract"][
-                    "fix_reproducer_command"
-                ],
+                bound["task_contract"]["completion_contract"]["fix_reproducer_command"],
                 command,
             )
         adapters = build_a14_a6_adapters()["adapters"]
@@ -1314,9 +1291,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "phase6-recovery-v4-20260830-a14-a9-live-01",
         )
         self.assertTrue(
-            contract["smoke"][
-                "require_registered_inner_recovery_verify_commands"
-            ]
+            contract["smoke"]["require_registered_inner_recovery_verify_commands"]
         )
         self.assertIn(
             "registered_inner_recovery_verify_commands",
@@ -1362,9 +1337,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             contract["supersedes_contract"],
             "phase6-recovery-v4-20260830-a14-a11-live-01",
         )
-        self.assertTrue(
-            contract["smoke"]["require_recovery_fix_terminal_completion"]
-        )
+        self.assertTrue(contract["smoke"]["require_recovery_fix_terminal_completion"])
         self.assertIn(
             "recovery_fix_terminal_completion",
             contract["smoke"]["required_readiness_checks"],
@@ -1418,9 +1391,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "phase6-main-c05-task-05--pair-03",
             contract["smoke"]["selected_pair_ids"],
         )
-        self.assertEqual(
-            len(contract["smoke"]["typed_fix_reproducer_commands"]), 9
-        )
+        self.assertEqual(len(contract["smoke"]["typed_fix_reproducer_commands"]), 9)
         self.assertFalse(
             contract["recovery_eligibility"]["preregistered_smoke_cases"][
                 "phase6-main-c06-task-01"
@@ -1456,9 +1427,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertTrue(
             all("c08" not in pair_id for pair_id in full["eligible_pair_ids"])
         )
-        self.assertTrue(
-            any("c08" in pair_id for pair_id in full["sentinel_pair_ids"])
-        )
+        self.assertTrue(any("c08" in pair_id for pair_id in full["sentinel_pair_ids"]))
         self.assertEqual(full["pairs_per_eligible_cluster"], 3)
         self.assertEqual(full["minimum_executed_recovery_pairs"], 30)
         self.assertEqual(full["bootstrap_samples"], 2000)
@@ -1508,9 +1477,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
         for case_id in ("phase6-main-c07-task-01", "phase6-main-c08-task-01"):
             completion = bound[case_id]["task_contract"]["completion_contract"]
-            constraints = bound[case_id]["task_contract"][
-                "operational_constraints"
-            ]
+            constraints = bound[case_id]["task_contract"]["operational_constraints"]
             self.assertEqual(
                 completion["fix_reproducer_command"],
                 shlex.join(constraints["reproducer"]["argv"]),
@@ -1525,9 +1492,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
 
         self.assertEqual(recovery_contract_errors(contract), [])
-        eligibility = contract["recovery_eligibility"][
-            "preregistered_smoke_cases"
-        ]
+        eligibility = contract["recovery_eligibility"]["preregistered_smoke_cases"]
         self.assertTrue(eligibility["phase6-main-c05-task-05"]["eligible"])
         self.assertTrue(eligibility["phase6-main-c07-task-01"]["eligible"])
         self.assertEqual(
@@ -1566,12 +1531,8 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "promote only after the registered final-success observation and "
             "the remaining product-visible completion contract both pass",
         )
-        self.assertTrue(
-            contract["smoke"]["require_recovery_fix_terminal_completion"]
-        )
-        self.assertFalse(
-            contract["authorization"]["smoke_collection_authorized"]
-        )
+        self.assertTrue(contract["smoke"]["require_recovery_fix_terminal_completion"])
+        self.assertFalse(contract["authorization"]["smoke_collection_authorized"])
 
     def test_registered_browser_process_records_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1666,12 +1627,8 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             },
             "terminal_status": {"status": "completed"},
         }
-        before = {
-            "entries": [{"path": "app.py", "kind": "file", "sha256": "a"}]
-        }
-        after = {
-            "entries": [{"path": "app.py", "kind": "file", "sha256": "b"}]
-        }
+        before = {"entries": [{"path": "app.py", "kind": "file", "sha256": "a"}]}
+        after = {"entries": [{"path": "app.py", "kind": "file", "sha256": "b"}]}
         blocked = compare_shared_recovery_boundary(
             treatment=treatment,
             control_oracles={"overall": "fail", "regression_status": "pass"},
@@ -1831,9 +1788,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 )
             )
             workspace = kwargs["workspace"]
-            relative = Path(
-                ".commandagent/recovery-boundaries/attempt-1/workspace"
-            )
+            relative = Path(".commandagent/recovery-boundaries/attempt-1/workspace")
             boundary = workspace / relative
             boundary.mkdir(parents=True)
             shutil.copy2(workspace / "app.py", boundary / "app.py")
@@ -1843,7 +1798,11 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             return {
                 "status": "completed",
                 "argv": ["commandagent", "--ultra-plan-run", "goal"],
-                "terminal_status": {"recorded": True, "ok": True, "status": "completed"},
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": True,
+                    "status": "completed",
+                },
                 "recovery_plan_attempts": {
                     "configured_recovery_runs": 1,
                     "executed_recovery_runs": 1,
@@ -1916,7 +1875,9 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             )
 
         self.assertEqual(calls, [(1, True)])
-        self.assertEqual(record["initial_only"]["status"], "captured_pre_recovery_control")
+        self.assertEqual(
+            record["initial_only"]["status"], "captured_pre_recovery_control"
+        )
         self.assertEqual(record["comparison"]["quality_transition"], "improved")
         self.assertTrue(record["comparison"]["effect_attribution_ready"])
         self.assertTrue(record["comparison"]["control_snapshot_matches_boundary"])
@@ -1947,14 +1908,10 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             records=[record, excluded], contract=contract
         )
         self.assertTrue(
-            report_with_exclusion["checks"][
-                "final_success_oracle_semantics_validated"
-            ]
+            report_with_exclusion["checks"]["final_success_oracle_semantics_validated"]
         )
         self.assertTrue(
-            report_with_exclusion["checks"][
-                "fix_before_and_after_polarity_distinct"
-            ]
+            report_with_exclusion["checks"]["fix_before_and_after_polarity_distinct"]
         )
         self.assertTrue(
             report_with_exclusion["checks"]["ineligible_recovery_not_executed"]
@@ -2136,9 +2093,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertFalse(
             missing_source["checks"]["registered_recovery_verify_commands"]
         )
-        records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
-            "attempts"
-        ] = [
+        records[0]["recovery_one"]["result"]["recovery_plan_attempts"]["attempts"] = [
             {
                 "attempt_index": 1,
                 "recovery_verify_command_source": "completion_contract",
@@ -2149,16 +2104,12 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             registered_source["checks"]["registered_recovery_verify_commands"]
         )
 
-        contract["smoke"][
-            "require_registered_inner_recovery_verify_commands"
-        ] = True
+        contract["smoke"]["require_registered_inner_recovery_verify_commands"] = True
         missing_inner_binding = build_recovery_report(
             records=records, contract=contract
         )
         self.assertFalse(
-            missing_inner_binding["checks"][
-                "registered_inner_recovery_verify_commands"
-            ]
+            missing_inner_binding["checks"]["registered_inner_recovery_verify_commands"]
         )
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "step_plan_contract_bindings"
@@ -2194,9 +2145,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         missing_fix_continuity = build_recovery_report(
             records=records, contract=contract
         )
-        self.assertFalse(
-            missing_fix_continuity["checks"]["fix_contract_continuity"]
-        )
+        self.assertFalse(missing_fix_continuity["checks"]["fix_contract_continuity"])
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "fix_contract_resumptions"
         ] = [
@@ -2219,9 +2168,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             records=records, contract=contract
         )
         self.assertFalse(
-            incomplete_recovery_fix["checks"][
-                "recovery_fix_terminal_completion"
-            ]
+            incomplete_recovery_fix["checks"]["recovery_fix_terminal_completion"]
         )
         recovery_result = records[0]["recovery_one"]["result"]
         recovery_result.update(
@@ -2242,10 +2189,72 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             records=records, contract=contract
         )
         self.assertTrue(
-            completed_recovery_fix["checks"][
-                "recovery_fix_terminal_completion"
-            ]
+            completed_recovery_fix["checks"]["recovery_fix_terminal_completion"]
         )
+
+        honest_failure_records = copy.deepcopy(records)
+        honest_result = honest_failure_records[0]["recovery_one"]["result"]
+        honest_result.update(
+            {
+                "status": "failed",
+                "returncode": 1,
+                "completion_verify_attempt_recorded": True,
+                "completion_verify_passed": False,
+                "terminal_status": {
+                    "recorded": True,
+                    "ok": False,
+                    "status": "failed",
+                },
+            }
+        )
+        honest_attempts = honest_result["recovery_plan_attempts"]
+        honest_attempts["attempts"][0].update(
+            {"status": "failed", "stop_reason": "not_recoverable"}
+        )
+        honest_attempts.update(
+            {
+                "terminal_stop_reason": "not_recoverable",
+                "promotion_decisions": [
+                    {
+                        "decision": "rejected",
+                        "reason": "recovery_execution_failed",
+                    }
+                ],
+                "control_retained_count": 1,
+                "control_restore_failed_count": 0,
+            }
+        )
+        honest_failure_records[0]["comparison"].update(
+            {
+                "quality_transition": "unchanged_fail",
+                "raw_oracle_transition": "unchanged_fail",
+                "initial_oracle_status": "fail",
+                "recovery_oracle_status": "fail",
+                "recovery_regression_status": "pass",
+                "regression_introduced": False,
+                "existing_artifact_harmed": False,
+                "control_snapshot_matches_boundary": True,
+                "shared_initial_history": True,
+            }
+        )
+        strict_failure = build_recovery_report(
+            records=honest_failure_records, contract=contract
+        )
+        self.assertFalse(strict_failure["checks"]["recovery_fix_terminal_completion"])
+        contract["smoke"]["recovery_fix_terminal_outcome_policy"] = copy.deepcopy(
+            RECOVERY_FIX_TERMINAL_OUTCOME_POLICY
+        )
+        admitted_honest_failure = build_recovery_report(
+            records=honest_failure_records, contract=contract
+        )
+        self.assertTrue(
+            admitted_honest_failure["checks"]["recovery_fix_terminal_completion"]
+        )
+        honest_failure_records[0]["comparison"]["existing_artifact_harmed"] = True
+        harmful_failure = build_recovery_report(
+            records=honest_failure_records, contract=contract
+        )
+        self.assertFalse(harmful_failure["checks"]["recovery_fix_terminal_completion"])
 
         records[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "executed_recovery_runs"

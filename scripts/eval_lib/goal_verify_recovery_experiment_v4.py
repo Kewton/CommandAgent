@@ -10,6 +10,33 @@ OracleExecutor = Callable[..., dict[str, Any]]
 
 POLICY_ID = "commandagent.goal_verify.recovery_eligibility.v4_a14"
 
+RECOVERY_FIX_TERMINAL_OUTCOME_POLICY = {
+    "allowed_outcomes": [
+        "promoted_success",
+        "honest_not_recoverable_control_retained",
+    ],
+    "honest_not_recoverable_control_retained_requires": [
+        "failed product terminal with a nonzero return code",
+        "recorded failed completion observation",
+        "one failed Recovery attempt ending as not_recoverable",
+        "one rejected promotion decision with recovery_execution_failed",
+        "exactly one retained control and zero restore failures",
+        "unchanged external failure with passing frozen regressions",
+        "zero regression introduction and zero existing-artifact harm",
+    ],
+}
+
+SMOKE_PROFILE_PATH_COVERAGE_POLICY = {
+    "allowed_paths": [
+        "executed_recovery",
+        "all_initial_oracle_pass_with_current_success_protection",
+    ],
+    "effect_limitation": (
+        "current-success-only coverage validates safety but does not establish "
+        "profile-specific Recovery repair effect"
+    ),
+}
+
 _RUNTIME_EXCLUSIONS = {
     "dependency_or_provisioning": (
         "dependency_setup",
@@ -74,6 +101,18 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
     if analysis.get("attribution_requires_executed_recovery_runs") != 1:
         errors.append("recovery_attribution_must_require_one_executed_run")
     smoke = contract.get("smoke", {})
+    terminal_policy = smoke.get("recovery_fix_terminal_outcome_policy")
+    if (
+        terminal_policy is not None
+        and terminal_policy != RECOVERY_FIX_TERMINAL_OUTCOME_POLICY
+    ):
+        errors.append("recovery_fix_terminal_outcome_policy_invalid")
+    profile_path_policy = smoke.get("real_profile_path_coverage_policy")
+    if (
+        profile_path_policy is not None
+        and profile_path_policy != SMOKE_PROFILE_PATH_COVERAGE_POLICY
+    ):
+        errors.append("smoke_profile_path_coverage_policy_invalid")
     pair_ids = smoke.get("selected_pair_ids")
     if not isinstance(pair_ids, list) or not pair_ids:
         errors.append("smoke_pair_ids_missing")
@@ -109,8 +148,7 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
             sentinel_pairs = full.get("sentinel_pair_ids")
             frozen_pairs = (
                 [*eligible_pairs, *sentinel_pairs]
-                if isinstance(eligible_pairs, list)
-                and isinstance(sentinel_pairs, list)
+                if isinstance(eligible_pairs, list) and isinstance(sentinel_pairs, list)
                 else None
             )
             if (
@@ -342,23 +380,25 @@ def validate_a14_oracle_semantics(
 ) -> dict[str, Any]:
     rows = [row for row in adapters if row.get("case_id") == case_id]
     final_rows = [row for row in rows if row.get("a14_role") == "final_success"]
-    precondition_rows = [
-        row for row in rows if row.get("a14_role") == "precondition"
-    ]
+    precondition_rows = [row for row in rows if row.get("a14_role") == "precondition"]
     errors = []
     if not final_rows:
         errors.append("final_success_oracle_missing")
-    if any(row.get("a14_role") not in {"final_success", "precondition"} for row in rows):
+    if any(
+        row.get("a14_role") not in {"final_success", "precondition"} for row in rows
+    ):
         errors.append("oracle_role_unregistered")
     for row in final_rows:
         executor = row.get("executor", {})
-        if executor.get("kind") == "fixture_hash_command" and executor.get(
-            "observation", {}
-        ).get("expected") != 0:
+        if (
+            executor.get("kind") == "fixture_hash_command"
+            and executor.get("observation", {}).get("expected") != 0
+        ):
             errors.append(f"final_fixture_not_success:{row.get('adapter_id')}")
-        if executor.get("kind") == "file_content" and executor.get(
-            "polarity"
-        ) not in {"present", "absent"}:
+        if executor.get("kind") == "file_content" and executor.get("polarity") not in {
+            "present",
+            "absent",
+        }:
             errors.append(f"typed_polarity_invalid:{row.get('adapter_id')}")
     if intent == "fix":
         if not precondition_rows:
@@ -428,9 +468,9 @@ def compare_shared_recovery_boundary(
         raw_transition = "unchanged_fail"
     else:
         raw_transition = "unusable"
-    precondition_valid = precondition_oracles is None or precondition_oracles.get(
-        "overall"
-    ) == "pass"
+    precondition_valid = (
+        precondition_oracles is None or precondition_oracles.get("overall") == "pass"
+    )
     attribution_ready = (
         executed == 1
         and control_snapshot_matches_boundary
@@ -440,9 +480,7 @@ def compare_shared_recovery_boundary(
     )
     transition = raw_transition if attribution_ready else "unattributed"
     boundary = treatment.get("recovery_boundary", {})
-    changed = artifact_delta(
-        control_artifact_manifest, treatment_artifact_manifest
-    )
+    changed = artifact_delta(control_artifact_manifest, treatment_artifact_manifest)
     return {
         "quality_transition": transition,
         "raw_oracle_transition": raw_transition,

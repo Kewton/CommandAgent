@@ -3,6 +3,10 @@ from __future__ import annotations
 import statistics
 from typing import Any
 
+from eval_lib.goal_verify_recovery_experiment_v4 import (
+    RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+)
+
 
 def build_recovery_report(
     *,
@@ -83,6 +87,9 @@ def build_recovery_report(
                 )
             continue
         recovery_result = recovery.get("result", {})
+        comparison_for_terminal = record.get("comparison")
+        if not isinstance(comparison_for_terminal, dict):
+            comparison_for_terminal = {}
         expected_reproducer = (
             typed_reproducer_commands.get(pair_id)
             if isinstance(typed_reproducer_commands, dict)
@@ -193,7 +200,15 @@ def build_recovery_report(
             if contract.get("smoke", {}).get(
                 "require_recovery_fix_terminal_completion"
             ) is True and not _valid_recovery_fix_terminal_completion(
-                recovery_result, recovery_attempts
+                recovery_result,
+                recovery_attempts,
+                comparison_for_terminal,
+                allow_honest_not_recoverable=(
+                    contract.get("smoke", {}).get(
+                        "recovery_fix_terminal_outcome_policy"
+                    )
+                    == RECOVERY_FIX_TERMINAL_OUTCOME_POLICY
+                ),
             ):
                 recovery_fix_terminal_completion_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
@@ -507,7 +522,11 @@ def _valid_fix_contract_continuity(
 
 
 def _valid_recovery_fix_terminal_completion(
-    result: dict[str, Any], attempts: dict[str, Any]
+    result: dict[str, Any],
+    attempts: dict[str, Any],
+    comparison: dict[str, Any],
+    *,
+    allow_honest_not_recoverable: bool = False,
 ) -> bool:
     recovery_attempt = next(
         (row for row in attempts.get("attempts", []) if row.get("attempt_index") == 1),
@@ -515,7 +534,7 @@ def _valid_recovery_fix_terminal_completion(
     )
     promotion_decisions = attempts.get("promotion_decisions")
     terminal = result.get("terminal_status", {})
-    return (
+    promoted_success = (
         result.get("status") == "completed"
         and result.get("returncode") == 0
         and result.get("completion_verify_passed") is True
@@ -527,6 +546,38 @@ def _valid_recovery_fix_terminal_completion(
         and isinstance(promotion_decisions, list)
         and len(promotion_decisions) == 1
         and promotion_decisions[0].get("decision") == "promoted"
+    )
+    if promoted_success:
+        return True
+    if not allow_honest_not_recoverable:
+        return False
+    return (
+        result.get("status") == "failed"
+        and isinstance(result.get("returncode"), int)
+        and not isinstance(result.get("returncode"), bool)
+        and result["returncode"] != 0
+        and result.get("completion_verify_attempt_recorded") is True
+        and result.get("completion_verify_passed") is False
+        and terminal.get("recorded") is True
+        and terminal.get("ok") is False
+        and terminal.get("status") == "failed"
+        and recovery_attempt.get("status") == "failed"
+        and recovery_attempt.get("stop_reason") == "not_recoverable"
+        and attempts.get("terminal_stop_reason") == "not_recoverable"
+        and isinstance(promotion_decisions, list)
+        and promotion_decisions
+        == [{"decision": "rejected", "reason": "recovery_execution_failed"}]
+        and attempts.get("control_retained_count") == 1
+        and attempts.get("control_restore_failed_count") == 0
+        and comparison.get("quality_transition") == "unchanged_fail"
+        and comparison.get("raw_oracle_transition") == "unchanged_fail"
+        and comparison.get("initial_oracle_status") == "fail"
+        and comparison.get("recovery_oracle_status") == "fail"
+        and comparison.get("recovery_regression_status") == "pass"
+        and comparison.get("regression_introduced") is False
+        and comparison.get("existing_artifact_harmed") is False
+        and comparison.get("control_snapshot_matches_boundary") is True
+        and comparison.get("shared_initial_history") is True
     )
 
 

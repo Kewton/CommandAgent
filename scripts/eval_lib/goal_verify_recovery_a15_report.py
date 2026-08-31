@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from eval_lib.goal_verify_recovery_experiment_v4 import (
+    SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+)
 from eval_lib.goal_verify_recovery_full_report_v4 import (
     _effect_delta,
     _resource_summary,
@@ -29,14 +32,15 @@ def build_recovery_a15_smoke_report(
     smoke = contract["smoke"]
     required_profiles = smoke["required_real_profiles"]
     minimum_pairs = int(smoke["minimum_pairs_per_real_profile"])
-    minimum_executed = int(
-        smoke["minimum_executed_recovery_pairs_per_real_profile"]
+    minimum_executed = int(smoke["minimum_executed_recovery_pairs_per_real_profile"])
+    allow_current_success_coverage = (
+        smoke.get("real_profile_path_coverage_policy")
+        == SMOKE_PROFILE_PATH_COVERAGE_POLICY
     )
     eligible = [
         row
         for row in records
-        if row.get("eligibility", {}).get("preregistered", {}).get("eligible")
-        is True
+        if row.get("eligibility", {}).get("preregistered", {}).get("eligible") is True
     ]
     profile_readiness = {}
     for profile in required_profiles:
@@ -46,26 +50,49 @@ def build_recovery_a15_smoke_report(
             for row in rows
             if (row.get("comparison") or {}).get("executed_recovery_runs") == 1
         ]
-        unusable = [row.get("pair_id") for row in rows if _instrumentation_unusable(row)]
+        unusable = [
+            row.get("pair_id") for row in rows if _instrumentation_unusable(row)
+        ]
+        minimum_executed_met = len(executed) >= minimum_executed
+        current_success_only_coverage = (
+            allow_current_success_coverage
+            and not minimum_executed_met
+            and _current_success_only_coverage(rows)
+        )
         profile_readiness[profile] = {
             "pair_count": len(rows),
             "executed_recovery_pairs": len(executed),
             "instrumentation_unusable_pair_ids": unusable,
             "minimum_pairs_met": len(rows) >= minimum_pairs,
-            "minimum_executed_recovery_met": len(executed) >= minimum_executed,
+            "minimum_executed_recovery_met": minimum_executed_met,
+            "current_success_only_coverage": current_success_only_coverage,
+            "path_coverage_mode": (
+                "executed_recovery"
+                if minimum_executed_met
+                else (
+                    "all_initial_oracle_pass_with_current_success_protection"
+                    if current_success_only_coverage
+                    else "missing"
+                )
+            ),
+            "path_coverage_met": minimum_executed_met or current_success_only_coverage,
             "external_oracles_usable": not unusable,
         }
     a15_checks = {
         "all_real_profiles_present": set(profile_readiness) == set(required_profiles)
         and all(row["minimum_pairs_met"] for row in profile_readiness.values()),
-        "recovery_executed_in_every_real_profile": all(
-            row["minimum_executed_recovery_met"]
-            for row in profile_readiness.values()
-        ),
         "external_oracles_usable_in_every_real_profile": all(
             row["external_oracles_usable"] for row in profile_readiness.values()
         ),
     }
+    if allow_current_success_coverage:
+        a15_checks[
+            "recovery_or_current_success_path_observed_in_every_real_profile"
+        ] = all(row["path_coverage_met"] for row in profile_readiness.values())
+    else:
+        a15_checks["recovery_executed_in_every_real_profile"] = all(
+            row["minimum_executed_recovery_met"] for row in profile_readiness.values()
+        )
     ready = base["instrument_ready"] and all(a15_checks.values())
     return {
         **base,
@@ -118,9 +145,7 @@ def build_recovery_a15_full_report(
             and isinstance(bootstrap.get("lower"), (int, float))
             and bootstrap["lower"] > 0
         )
-        resources = _resource_summary(
-            executed, budgets=design["resource_budgets"]
-        )
+        resources = _resource_summary(executed, budgets=design["resource_budgets"])
         profile_effects[profile] = {
             "cell_id": cell_id,
             "eligible_pairs": len(rows),
@@ -144,9 +169,7 @@ def build_recovery_a15_full_report(
         }
 
     instrumentation_unusable = [
-        row.get("pair_id")
-        for row in eligible_records
-        if _instrumentation_unusable(row)
+        row.get("pair_id") for row in eligible_records if _instrumentation_unusable(row)
     ]
     a15_checks = {
         "four_profiles_present": set(profile_effects)
@@ -169,9 +192,7 @@ def build_recovery_a15_full_report(
         "inference_role": (
             "preregistered four-profile fix-intent Recovery 0-vs-1 effect estimate"
         ),
-        "effect_claim_allowed": (
-            design.get("effect_claim_allowed") is True and ready
-        ),
+        "effect_claim_allowed": (design.get("effect_claim_allowed") is True and ready),
         "effect_claim_ready": ready,
         "all_profiles_quality_improved_claim_ready": ready,
         "go_no_go": "GO" if ready else "NO-GO",
@@ -198,3 +219,33 @@ def _instrumentation_unusable(record: dict[str, Any]) -> bool:
         if isinstance(oracle, dict) and oracle.get("overall") == "unusable":
             return True
     return False
+
+
+def _current_success_only_coverage(rows: list[dict[str, Any]]) -> bool:
+    if not rows:
+        return False
+    explicit_protection_observed = False
+    for row in rows:
+        comparison = row.get("comparison")
+        if not isinstance(comparison, dict):
+            return False
+        if (
+            comparison.get("executed_recovery_runs") != 0
+            or comparison.get("quality_transition") != "no_recovery_needed"
+            or comparison.get("initial_oracle_status") != "pass"
+            or comparison.get("recovery_oracle_status") != "pass"
+            or comparison.get("regression_introduced") is not False
+            or comparison.get("existing_artifact_harmed") is not False
+        ):
+            return False
+        attempts = (
+            row.get("recovery_one", {})
+            .get("result", {})
+            .get("recovery_plan_attempts", {})
+        )
+        if (
+            attempts.get("current_success_suppressed") is True
+            and attempts.get("terminal_stop_reason") == "current_success_protected"
+        ):
+            explicit_protection_observed = True
+    return explicit_protection_observed
