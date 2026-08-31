@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a6 as a15_a6_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a7 as a15_a7_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a8 as a15_a8_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a9 as a15_a9_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a10 as a15_a10_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -210,6 +212,69 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         for check in a15_a9_generator.READINESS_CHECKS:
             self.assertTrue(amended["smoke"][f"require_{check}"])
             self.assertIn(check, amended["smoke"]["required_readiness_checks"])
+
+    def test_a15_a10_freezes_full_effect_design_after_a15_a9_go(self):
+        smoke = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a9-smoke-contract.json"
+        )
+        old_full = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-full-contract.json"
+        )
+        report = {
+            "contract_id": smoke["contract_id"],
+            "record_count": 14,
+            "instrument_ready": True,
+            "go_no_go": "GO",
+            "effect_claim_allowed": False,
+            "checks": {
+                name: True for name in smoke["smoke"]["required_readiness_checks"]
+            },
+        }
+        report_path = ROOT / "a15-a9-generator-test-report.json"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        self.addCleanup(report_path.unlink, missing_ok=True)
+        report_sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        amended = a15_a10_generator.build_contract(
+            code_sha=smoke["code_sha"],
+            exact_sha_ci_evidence=smoke["exact_sha_ci_evidence"],
+            smoke_report=report,
+            smoke_report_path=report_path.name,
+            smoke_report_sha256=report_sha,
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"],
+            old_full["smoke"]["selected_pair_ids"],
+        )
+        for check in smoke["smoke"]["required_readiness_checks"]:
+            self.assertIn(check, amended["smoke"]["required_readiness_checks"])
+        self.assertEqual(amended["frozen_input_sha256"], smoke["frozen_input_sha256"])
+        for field in (
+            "eligible_pair_ids",
+            "sentinel_pair_ids",
+            "bootstrap_samples",
+            "bootstrap_seed",
+            "cluster_unit",
+            "stopping_rule",
+        ):
+            self.assertEqual(
+                amended["full_experiment"][field],
+                old_full["full_experiment"][field],
+            )
+        self.assertEqual(
+            amended["full_experiment"]["resource_budgets"],
+            a15_a10_generator.RESOURCE_BUDGETS,
+        )
+        self.assertIn(
+            "not every task or defect",
+            amended["full_experiment"]["claim_scope"],
+        )
+        self.assertTrue(amended["authorization"]["full_collection_authorized"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A10"
+        )
 
     def test_a15_a1_1_only_removes_the_non_runtime_generator(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json")
