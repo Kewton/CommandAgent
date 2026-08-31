@@ -1205,6 +1205,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             workspace_policy: crate::tools::workspace_policy::WorkspacePolicy::for_task_request(),
             eval_events_path: config.eval_events_path.clone(),
             expected_paths: tool_context_expected_paths(&required_paths, &options),
+            protected_paths: super::protected_paths::from_contract(completion_contract.as_ref()),
         };
         let mut names_seen = BTreeSet::new();
         let mut batch_had_edit = false;

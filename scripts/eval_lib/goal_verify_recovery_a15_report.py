@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+    SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
 )
 from eval_lib.goal_verify_recovery_full_report_v4 import (
     _effect_delta,
+    _percentile,
     _resource_summary,
     build_recovery_full_report,
 )
@@ -33,9 +36,13 @@ def build_recovery_a15_smoke_report(
     required_profiles = smoke["required_real_profiles"]
     minimum_pairs = int(smoke["minimum_pairs_per_real_profile"])
     minimum_executed = int(smoke["minimum_executed_recovery_pairs_per_real_profile"])
-    allow_current_success_coverage = (
-        smoke.get("real_profile_path_coverage_policy")
-        == SMOKE_PROFILE_PATH_COVERAGE_POLICY
+    profile_path_policy = smoke.get("real_profile_path_coverage_policy")
+    allow_current_success_coverage = profile_path_policy in (
+        SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+        SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
+    )
+    require_explicit_current_success_protection = (
+        profile_path_policy == SMOKE_PROFILE_PATH_COVERAGE_POLICY
     )
     eligible = [
         row
@@ -53,16 +60,24 @@ def build_recovery_a15_smoke_report(
         unusable = [
             row.get("pair_id") for row in rows if _instrumentation_unusable(row)
         ]
+        explicit_suppressions = [
+            row.get("pair_id") for row in rows if _explicit_current_success_suppressed(row)
+        ]
         minimum_executed_met = len(executed) >= minimum_executed
         current_success_only_coverage = (
             allow_current_success_coverage
             and not minimum_executed_met
-            and _current_success_only_coverage(rows)
+            and _current_success_only_coverage(
+                rows,
+                require_explicit_protection=require_explicit_current_success_protection,
+            )
         )
         profile_readiness[profile] = {
             "pair_count": len(rows),
             "executed_recovery_pairs": len(executed),
             "instrumentation_unusable_pair_ids": unusable,
+            "explicit_current_success_suppression_pair_ids": explicit_suppressions,
+            "explicit_current_success_suppression_count": len(explicit_suppressions),
             "minimum_pairs_met": len(rows) >= minimum_pairs,
             "minimum_executed_recovery_met": minimum_executed_met,
             "current_success_only_coverage": current_success_only_coverage,
@@ -70,7 +85,11 @@ def build_recovery_a15_smoke_report(
                 "executed_recovery"
                 if minimum_executed_met
                 else (
-                    "all_initial_oracle_pass_with_current_success_protection"
+                    (
+                        "all_initial_oracle_pass_with_current_success_protection"
+                        if require_explicit_current_success_protection
+                        else "all_initial_oracle_pass_without_recovery"
+                    )
                     if current_success_only_coverage
                     else "missing"
                 )
@@ -94,12 +113,14 @@ def build_recovery_a15_smoke_report(
             row["minimum_executed_recovery_met"] for row in profile_readiness.values()
         )
     ready = base["instrument_ready"] and all(a15_checks.values())
+    resource_analysis = _smoke_resource_analysis(records, required_profiles)
     return {
         **base,
         "schema_version": "commandagent.goal_verify.recovery_report.v4_a15_smoke",
         "instrument_ready": ready,
         "a15_profile_smoke_checks": a15_checks,
         "profile_readiness": profile_readiness,
+        "smoke_resource_analysis": resource_analysis,
         "go_no_go": "GO" if ready else "NO-GO",
     }
 
@@ -221,7 +242,67 @@ def _instrumentation_unusable(record: dict[str, Any]) -> bool:
     return False
 
 
-def _current_success_only_coverage(rows: list[dict[str, Any]]) -> bool:
+def _smoke_resource_analysis(
+    records: list[dict[str, Any]], required_profiles: list[str]
+) -> dict[str, Any]:
+    executed = [
+        row
+        for row in records
+        if (row.get("comparison") or {}).get("executed_recovery_runs") == 1
+    ]
+    improved = [
+        row
+        for row in executed
+        if (row.get("comparison") or {}).get("quality_transition") == "improved"
+    ]
+    non_improving = [row for row in executed if row not in improved]
+    return {
+        "all_selected_pairs": _resource_distribution(records),
+        "executed_recovery_pairs": _resource_distribution(executed),
+        "improved_pairs": _resource_distribution(improved),
+        "non_improving_executed_recovery_pairs": _resource_distribution(
+            non_improving
+        ),
+        "by_profile": {
+            profile: {
+                "all_pairs": _resource_distribution(
+                    [row for row in records if row.get("profile") == profile]
+                ),
+                "executed_recovery_pairs": _resource_distribution(
+                    [row for row in executed if row.get("profile") == profile]
+                ),
+            }
+            for profile in required_profiles
+        },
+    }
+
+
+def _resource_distribution(records: list[dict[str, Any]]) -> dict[str, Any]:
+    fields = ("wall_time_ms", "input_tokens", "output_tokens", "total_tokens")
+    values = {field: [] for field in fields}
+    for record in records:
+        resource_delta = (record.get("comparison") or {}).get("resource_delta", {})
+        for field in fields:
+            value = resource_delta.get(field)
+            if isinstance(value, int) and not isinstance(value, bool):
+                values[field].append(value)
+    return {
+        "pair_count": len(records),
+        "measurement_complete": bool(records)
+        and all(len(field_values) == len(records) for field_values in values.values()),
+        "observed": {
+            field: {
+                "p50": statistics.median(field_values) if field_values else None,
+                "p95": _percentile(field_values, 0.95) if field_values else None,
+            }
+            for field, field_values in values.items()
+        },
+    }
+
+
+def _current_success_only_coverage(
+    rows: list[dict[str, Any]], *, require_explicit_protection: bool
+) -> bool:
     if not rows:
         return False
     explicit_protection_observed = False
@@ -238,14 +319,16 @@ def _current_success_only_coverage(rows: list[dict[str, Any]]) -> bool:
             or comparison.get("existing_artifact_harmed") is not False
         ):
             return False
-        attempts = (
-            row.get("recovery_one", {})
-            .get("result", {})
-            .get("recovery_plan_attempts", {})
-        )
-        if (
-            attempts.get("current_success_suppressed") is True
-            and attempts.get("terminal_stop_reason") == "current_success_protected"
-        ):
+        if _explicit_current_success_suppressed(row):
             explicit_protection_observed = True
-    return explicit_protection_observed
+    return explicit_protection_observed or not require_explicit_protection
+
+
+def _explicit_current_success_suppressed(row: dict[str, Any]) -> bool:
+    attempts = (
+        row.get("recovery_one", {}).get("result", {}).get("recovery_plan_attempts", {})
+    )
+    return (
+        attempts.get("current_success_suppressed") is True
+        and attempts.get("terminal_stop_reason") == "current_success_protected"
+    )

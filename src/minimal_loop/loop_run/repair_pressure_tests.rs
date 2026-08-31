@@ -909,6 +909,7 @@ mod moved {
         let events = dir.path().join("events.jsonl");
         std::fs::write(dir.path().join("a.py"), "def broken(:\n    pass\n").unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["a.py".to_string()],
             verify_commands: vec!["python3 -m py_compile a.py".to_string()],
             fix_reproducer_command: None,
@@ -963,6 +964,7 @@ mod moved {
         .unwrap();
         let events = dir.path().join("events.jsonl");
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/main.rs".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -1022,6 +1024,7 @@ mod moved {
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         let events = dir.path().join("events.jsonl");
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,

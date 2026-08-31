@@ -2332,6 +2332,8 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
     if lower == "npm run build"
         || lower == "pnpm build"
         || lower == "yarn build"
+        || lower == "npx next build"
+        || lower.starts_with("npx next build ")
         || lower == "cargo build"
         || lower.starts_with("cargo build ")
     {
@@ -2458,17 +2460,8 @@ fn workspace_source_signal(
 
 fn has_nextjs_route_evidence(workspace: &WorkspaceEvidence) -> bool {
     route_bound_source_files(workspace).any(|file| {
-        let path = file.rel.to_ascii_lowercase();
-        matches!(
-            path.as_str(),
-            "src/app/page.tsx"
-                | "src/app/page.jsx"
-                | "app/page.tsx"
-                | "app/page.jsx"
-                | "pages/index.tsx"
-                | "pages/index.jsx"
-                | "pages/index.js"
-        ) && !file.content.trim().is_empty()
+        crate::planner::profiles::nextjs::is_canonical_entrypoint_path(&file.rel)
+            && !file.content.trim().is_empty()
     })
 }
 
@@ -4449,6 +4442,7 @@ export default function Page() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         let contract = crate::minimal_loop::completion::CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -4602,6 +4596,7 @@ export default function Page() {
         assert!(!without_hints.passed, "{without_hints:?}");
 
         let contract = crate::minimal_loop::completion::CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,

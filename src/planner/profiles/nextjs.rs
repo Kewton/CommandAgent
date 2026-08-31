@@ -1835,6 +1835,14 @@ fn find_entrypoint(root: &Path) -> Option<EntryPoint> {
     None
 }
 
+pub(crate) fn is_canonical_entrypoint_path(path: &str) -> bool {
+    knowledge::get()
+        .canonical
+        .entrypoint_files
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(path))
+}
+
 fn find_app_layout(root: &Path, app_dir: &str) -> Option<PathBuf> {
     ["layout.tsx", "layout.jsx", "layout.ts", "layout.js"]
         .iter()

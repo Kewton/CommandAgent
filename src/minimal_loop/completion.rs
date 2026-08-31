@@ -28,6 +28,8 @@ pub struct CompletionContract {
     #[serde(default)]
     pub required_paths: Vec<String>,
     #[serde(default)]
+    pub protected_paths: Vec<String>,
+    #[serde(default)]
     pub verify_commands: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix_reproducer_command: Option<String>,
@@ -104,6 +106,22 @@ impl CompletionContract {
             }
         }
         self.required_paths = paths;
+        let mut seen_protected_paths = BTreeSet::new();
+        let mut protected_paths = Vec::new();
+        for path in self.protected_paths {
+            validate_contract_path(root, &path)?;
+            if !self
+                .required_paths
+                .iter()
+                .any(|required| Path::new(required).starts_with(&path))
+            {
+                bail!("protected completion path is not required: {path}");
+            }
+            if seen_protected_paths.insert(path.clone()) {
+                protected_paths.push(path);
+            }
+        }
+        self.protected_paths = protected_paths;
         self.verify_commands = commands;
         if let Some(command) = self.fix_reproducer_command.take() {
             let mut normalized = normalize_planner_verify_command(&command)?;
@@ -2523,6 +2541,7 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_deduplicates_and_accepts_safe_verify() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/main.rs".to_string(), "src/main.rs".to_string()],
             verify_commands: vec!["cargo test".to_string(), "cargo test".to_string()],
             fix_reproducer_command: Some("python3 cli.py 7".to_string()),
@@ -2548,9 +2567,35 @@ export class SpaceInvadersEngine {\n\
     }
 
     #[test]
+    fn structured_contract_protects_only_declared_required_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid: CompletionContract = serde_json::from_str(
+            r#"{"required_paths":["scripts/repro.py","tests/test_app.py"],"protected_paths":["scripts/repro.py","tests"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            valid.validate(dir.path()).unwrap().protected_paths,
+            ["scripts/repro.py", "tests"]
+        );
+
+        let invalid: CompletionContract = serde_json::from_str(
+            r#"{"required_paths":["pipeline/main.py"],"protected_paths":["scripts/repro.py"]}"#,
+        )
+        .unwrap();
+        assert!(
+            invalid
+                .validate(dir.path())
+                .unwrap_err()
+                .to_string()
+                .contains("protected completion path is not required")
+        );
+    }
+
+    #[test]
     fn structured_contract_rejects_multiple_fix_reproducer_commands() {
         let dir = tempfile::tempdir().unwrap();
         let error = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
             fix_reproducer_command: Some("python3 cli.py 7\npython3 cli.py 8".to_string()),
@@ -2578,6 +2623,7 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_splits_multi_grep_verify_commands() {
         let dir = tempfile::tempdir().unwrap();
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: vec![
                 r#"grep -q "alpha" src/report.txt && grep -q "beta" src/report.txt"#.to_string(),
@@ -2606,6 +2652,7 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_deduplicates_capabilities_and_derives_evidence() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -2662,6 +2709,7 @@ export class SpaceInvadersEngine {\n\
     fn contract_derives_goal_evidence_hint_tokens() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -2703,6 +2751,7 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_normalizes_required_obligations() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -2728,6 +2777,7 @@ export class SpaceInvadersEngine {\n\
             vec!["implementation", "acceptance_evidence", "investigation"]
         );
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -2758,6 +2808,7 @@ export class SpaceInvadersEngine {\n\
             "target/debug/app",
         ] {
             let err = CompletionContract {
+                protected_paths: Vec::new(),
                 required_paths: vec![path.to_string()],
                 verify_commands: Vec::new(),
                 fix_reproducer_command: None,
@@ -2784,6 +2835,7 @@ export class SpaceInvadersEngine {\n\
         let dir = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/tmp", dir.path().join("out")).unwrap();
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["out/file.txt".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -2812,6 +2864,7 @@ export class SpaceInvadersEngine {\n\
             "next dev -p 3011",
         ] {
             let err = CompletionContract {
+                protected_paths: Vec::new(),
                 required_paths: Vec::new(),
                 verify_commands: vec![command.to_string()],
                 fix_reproducer_command: None,
@@ -2926,6 +2979,7 @@ export class SpaceInvadersEngine {\n\
     fn verify_feedback_anchors_gameplay_evidence_to_implementation_files() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec![
                 "package.json".to_string(),
                 "src/app/page.tsx".to_string(),
@@ -2995,6 +3049,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let report = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["test_repair_report.py".to_string()],
             verify_commands: vec!["python3 -m unittest test_repair_report.py".to_string()],
             fix_reproducer_command: None,
@@ -3043,6 +3098,7 @@ export class SpaceInvadersEngine {\n\
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -3081,6 +3137,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: vec!["npm run build".to_string()],
             fix_reproducer_command: None,
@@ -3117,6 +3174,7 @@ export class SpaceInvadersEngine {\n\
             "#!/bin/sh\nmkdir -p node_modules/.bin node_modules/next\ncat > node_modules/next/package.json <<'EOF'\n{\"version\":\"14.2.0\"}\nEOF\ncat > node_modules/.bin/next <<'EOF'\n#!/bin/sh\nexit 0\nEOF\ncat > node_modules/.bin/npm <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then exit 0; fi\nexit 1\nEOF\nchmod +x node_modules/.bin/next node_modules/.bin/npm\ntouch package-lock.json\nexit 0\n",
         );
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -3169,6 +3227,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,
@@ -3247,6 +3306,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec![
                 "package.json".to_string(),
                 "src/app/page.tsx".to_string(),
@@ -3310,6 +3370,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
             fix_reproducer_command: None,

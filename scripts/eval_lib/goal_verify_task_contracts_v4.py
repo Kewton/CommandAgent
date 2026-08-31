@@ -60,6 +60,7 @@ _A9_CONSTRAINT_FIELDS = {
 }
 _A9_COMPLETION_FIELDS = {
     "required_paths",
+    "protected_paths",
     "verify_commands",
     "fix_reproducer_command",
     "profile",
@@ -95,6 +96,7 @@ _STRING_CONSTRAINTS = {
 _SHELL_PROGRAMS = {"bash", "dash", "fish", "sh", "zsh"}
 _CANDIDATE_COMPLETION_FIELDS = {
     "profile",
+    "protected_paths",
     "required_paths",
     "verify_commands",
 }
@@ -343,13 +345,28 @@ def _completion_contract_errors(case_id: str, value: Any) -> list[str]:
     for field in string_list_fields:
         if not _nonempty_string_list(value.get(field), allow_empty=True):
             errors.append(f"completion_contract_type:{case_id}:{field}")
+    if "protected_paths" in value and not _nonempty_string_list(
+        value["protected_paths"], allow_empty=True
+    ):
+        errors.append(f"completion_contract_type:{case_id}:protected_paths")
     if not isinstance(value.get("deferred_verify_requirements"), list):
         errors.append(
             f"completion_contract_type:{case_id}:deferred_verify_requirements"
         )
-    for path in value.get("required_paths", []):
+    for path in [
+        *value.get("required_paths", []),
+        *value.get("protected_paths", []),
+    ]:
         if not _safe_relative(path):
             errors.append(f"completion_contract_path:{case_id}:{path}")
+    if any(
+        not any(
+            required == protected or required.startswith(protected.rstrip("/") + "/")
+            for required in value.get("required_paths", [])
+        )
+        for protected in value.get("protected_paths", [])
+    ):
+        errors.append(f"completion_contract_protected_path_not_required:{case_id}")
     if not all(_nonempty_string(item) for item in value.get("verify_commands", [])):
         errors.append(f"completion_contract_verify_commands:{case_id}")
     fix_reproducer = value.get("fix_reproducer_command")

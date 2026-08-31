@@ -59,6 +59,40 @@ pub(super) fn has_recognized_mutation(command: &str) -> bool {
         .any(|target| target.operation != "working directory")
 }
 
+pub(crate) fn protected_path_mutation(
+    command: &str,
+    root: &Path,
+    protected_paths: &[String],
+) -> Option<String> {
+    write_targets(command)
+        .into_iter()
+        .filter(|target| target.operation != "working directory")
+        .find_map(|target| {
+            let candidate = Path::new(&target.path);
+            let relative = if candidate.is_absolute() {
+                match candidate.strip_prefix(root) {
+                    Ok(relative) => relative,
+                    Err(_) => {
+                        return protected_paths
+                            .iter()
+                            .find(|protected| candidate.ends_with(protected))
+                            .cloned();
+                    }
+                }
+            } else {
+                candidate
+            };
+            protected_paths
+                .iter()
+                .find(|protected| path_matches(relative, Path::new(protected)))
+                .cloned()
+        })
+}
+
+fn path_matches(candidate: &Path, protected: &Path) -> bool {
+    candidate == protected || candidate.starts_with(protected) || protected.starts_with(candidate)
+}
+
 fn write_targets(command: &str) -> Vec<WriteTarget> {
     let Some(tokens) = shell_tokens(command) else {
         return Vec::new();

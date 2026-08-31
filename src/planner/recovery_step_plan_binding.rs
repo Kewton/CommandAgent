@@ -23,6 +23,20 @@ pub(crate) fn bind_generated(
     bind_contract(config, phase_id, step_plan)
 }
 
+pub(crate) fn is_host_owned_final_success_step(
+    config: &Config,
+    phase_id: Option<&str>,
+    step: &PlanStep,
+) -> bool {
+    phase_id.is_some_and(|phase_id| phase_id != INSPECTION_PHASE_ID)
+        && step.id.starts_with(CONTRACT_VERIFY_STEP_ID)
+        && step.step_kind() == StepKind::Verify
+        && crate::planner::recovery_contract_binding::load_fix_origin(config)
+            .ok()
+            .flatten()
+            .is_some()
+}
+
 fn bind_contract(
     config: &Config,
     phase_id: &str,
@@ -236,6 +250,63 @@ mod tests {
         assert!(!bind_generated(&config, Some("repair"), &mut plan).unwrap());
 
         assert_eq!(plan, original);
+    }
+
+    #[test]
+    fn final_contract_step_is_identified_as_host_owned_only_inside_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path());
+        let step = PlanStep {
+            id: CONTRACT_VERIFY_STEP_ID.to_string(),
+            kind: "verify".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "verify".to_string(),
+            expected_paths: vec!["cli.py".to_string()],
+            verify: vec!["python3 cli.py 16".to_string()],
+        };
+
+        assert!(!is_host_owned_final_success_step(
+            &config,
+            Some("repair"),
+            &step
+        ));
+
+        let runtime = root.path().join(".commandagent/recovery-runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let evidence = b"{}\n";
+        std::fs::write(runtime.join("fix-origin-evidence.json"), evidence).unwrap();
+        std::fs::write(
+            runtime.join("fix-origin.json"),
+            serde_json::to_vec(
+                &crate::planner::recovery_contract_binding::RecoveryFixOrigin {
+                    schema_version: "1".to_string(),
+                    original_intent: "fix".to_string(),
+                    contract_origin: crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN.to_string(),
+                    contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION
+                        .to_string(),
+                    contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF
+                        .to_string(),
+                    fix_run_id: "test".to_string(),
+                    evidence_path: ".commandagent/recovery-runtime/fix-origin-evidence.json"
+                        .to_string(),
+                    evidence_sha256: format!("{:x}", Sha256::digest(evidence)),
+                    reproducer_command: "python3 cli.py 16".to_string(),
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(is_host_owned_final_success_step(
+            &config,
+            Some("repair"),
+            &step
+        ));
+        assert!(!is_host_owned_final_success_step(
+            &config,
+            Some(INSPECTION_PHASE_ID),
+            &step
+        ));
     }
 
     #[test]

@@ -37,6 +37,17 @@ SMOKE_PROFILE_PATH_COVERAGE_POLICY = {
     ),
 }
 
+SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2 = {
+    "allowed_paths": [
+        "executed_recovery",
+        "all_initial_oracle_pass_without_recovery",
+    ],
+    "effect_limitation": (
+        "an all-pass natural completion or explicit current-success suppression validates "
+        "the no-mutation safety path but does not establish profile-specific Recovery repair effect"
+    ),
+}
+
 _RUNTIME_EXCLUSIONS = {
     "dependency_or_provisioning": (
         "dependency_setup",
@@ -110,7 +121,11 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
     profile_path_policy = smoke.get("real_profile_path_coverage_policy")
     if (
         profile_path_policy is not None
-        and profile_path_policy != SMOKE_PROFILE_PATH_COVERAGE_POLICY
+        and profile_path_policy
+        not in (
+            SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+            SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
+        )
     ):
         errors.append("smoke_profile_path_coverage_policy_invalid")
     pair_ids = smoke.get("selected_pair_ids")

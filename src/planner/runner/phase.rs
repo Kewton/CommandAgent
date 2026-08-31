@@ -1148,8 +1148,15 @@ pub(super) fn run_step(
     .with_required_mutation_before_short_circuit(synthesized_precheck);
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
-    let verify_first_applicable = data_pre_satisfied
-        .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
+    let host_owned_recovery_verify =
+        crate::planner::recovery_step_plan_binding::is_host_owned_final_success_step(
+            config,
+            phase_scope,
+            &runtime_step,
+        );
+    let verify_first_applicable = host_owned_recovery_verify
+        || data_pre_satisfied
+            .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
     if verify_first_applicable {
         let (report, build_lifecycles) = verify_step_completion_observed(
             config,
@@ -1169,6 +1176,18 @@ pub(super) fn run_step(
             );
         }
         if report.is_pass() {
+            if host_owned_recovery_verify {
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "recovery_host_final_success_verification_passed",
+                        "phase_id": phase_scope.unwrap_or(""),
+                        "step_id": runtime_step.id,
+                        "registered_verify_commands": runtime_step.verify,
+                        "model_execution_skipped": true,
+                    }),
+                );
+            }
             if data_pre_satisfied.is_some() {
                 crate::planner::profiles::data::pre_satisfied::emit_short_circuited(
                     config.eval_events_path.as_deref(),
@@ -1198,6 +1217,36 @@ pub(super) fn run_step(
             return Ok(StepRunOutcome {
                 stop_reason: Some("StepShortCircuited".to_string()),
                 ..StepRunOutcome::default()
+            });
+        }
+        if host_owned_recovery_verify {
+            let message = format!(
+                "host-owned Recovery final-success verification failed: {}",
+                report.primary_reason()
+            );
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_host_final_success_verification_failed",
+                    "phase_id": phase_scope.unwrap_or(""),
+                    "step_id": runtime_step.id,
+                    "reason": eval_events::body_snippet(&report.primary_reason()),
+                    "registered_verify_commands": runtime_step.verify,
+                    "model_execution_skipped": true,
+                }),
+            );
+            return Err(StepRunError {
+                message: message.clone(),
+                outcome: StepRunOutcome {
+                    primary_failure: Some(message),
+                    verify_failures: vec![report.primary_reason()],
+                    command_failures: command_failure_summaries(&report),
+                    stop_reason: Some(
+                        "recovery_host_final_success_verification_failed".to_string(),
+                    ),
+                    partial: true,
+                    ..StepRunOutcome::default()
+                },
             });
         }
     }

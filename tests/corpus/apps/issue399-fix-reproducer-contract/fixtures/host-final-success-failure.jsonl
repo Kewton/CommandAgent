@@ -1,0 +1,1 @@
+{"event":"recovery_host_final_success_verification_failed","phase_id":"repair-unknown","step_id":"recovery-contract-verify","reason":"command failed: npx next build --webpack","registered_verify_commands":["node scripts/repro.mjs fixture/task-01.json","node scripts/regression.mjs","npx next build --webpack"],"model_execution_skipped":true}

@@ -21,6 +21,7 @@ pub mod pipeline_probe;
 pub(crate) mod post_write_completion;
 pub mod probe_preflight;
 pub mod prompt;
+pub(crate) mod protected_paths;
 pub mod python_traceback;
 pub mod reachability;
 pub mod read_only_stagnation_feedback;

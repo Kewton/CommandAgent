@@ -332,6 +332,16 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                 emit_preflight(self.config, candidate, "post_recovery", "fail", &reason);
                 retain_control(self.config, used, snapshot, outcome, &reason, true)
             }
+            RecoveryPreflight::VerificationInconsistency { reason } => {
+                emit_preflight(
+                    self.config,
+                    candidate,
+                    "post_recovery",
+                    "verification_inconsistency",
+                    &reason,
+                );
+                retain_control(self.config, used, snapshot, outcome, &reason, false)
+            }
             RecoveryPreflight::Unavailable { reason } => {
                 emit_preflight(
                     self.config,
@@ -491,6 +501,30 @@ fn drive(
                     "automatic Recovery Plan suppressed: current final-success observations pass",
                 ));
             }
+            RecoveryPreflight::VerificationInconsistency { reason } => {
+                emit_preflight(
+                    config,
+                    &candidate,
+                    "pre_recovery",
+                    "verification_inconsistency",
+                    &reason,
+                );
+                emit(
+                    config,
+                    "recovery_suppressed_verification_inconsistency",
+                    controller.used,
+                    "verification_inconsistency",
+                );
+                emit(
+                    config,
+                    "recovery_plan_auto_run_stopped",
+                    controller.used,
+                    "verification_inconsistency",
+                );
+                return Err(error.context(format!(
+                    "automatic Recovery Plan suppressed: registered observations pass but completion evidence is inconsistent: {reason}"
+                )));
+            }
             RecoveryPreflight::Unavailable { reason } => {
                 emit_preflight(config, &candidate, "pre_recovery", "unavailable", &reason);
                 emit(
@@ -589,6 +623,7 @@ enum RecoveryPreflight {
     NotConfigured,
     CurrentSuccess { reason: String },
     Failed { reason: String },
+    VerificationInconsistency { reason: String },
     Unavailable { reason: String },
 }
 
@@ -748,9 +783,9 @@ fn recovery_preflight(
                     ),
                 }
             }
-            Ok(acceptance) => RecoveryPreflight::Failed {
+            Ok(acceptance) => RecoveryPreflight::VerificationInconsistency {
                 reason: format!(
-                    "completion_contract_acceptance_failed:{}",
+                    "registered_observations_passed_but_completion_contract_acceptance_failed:{}",
                     acceptance.primary_reason
                 ),
             },
@@ -1862,8 +1897,8 @@ mod tests {
         assert!(
             matches!(
                 &incomplete,
-                RecoveryPreflight::Failed { reason }
-                    if reason.starts_with("completion_contract_acceptance_failed:")
+                RecoveryPreflight::VerificationInconsistency { reason }
+                    if reason.starts_with("registered_observations_passed_but_completion_contract_acceptance_failed:")
             ),
             "{incomplete:?}"
         );

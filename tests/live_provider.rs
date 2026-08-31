@@ -288,6 +288,7 @@ fn provider_probe_tool_args_recovery_classification_by_provider() {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let recoverable = provider_write_call(provider, "provider-probe.txt", "ok")

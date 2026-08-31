@@ -1,9 +1,9 @@
 case_id = "issue399_nextjs_plain_js_mode"
 source = "Issue 399 A15-A4 plain JavaScript Next.js profile preservation"
 required_paths = ["app/layout.js", "app/page.js"]
-verify_commands = []
+verify_commands = ["npx next build --webpack"]
 required_capabilities = []
-required_evidence = ["implementation_artifact"]
+required_evidence = ["implementation_artifact", "bound_verify_command", "nextjs_route_evidence", "build_command_or_dependency_missing_boundary"]
 required_obligations = ["implementation"]
 deferred_verify_requirements = []
 evidence_hint_tokens = ["ready"]
@@ -16,6 +16,9 @@ exclude = []
 
 [evidence]
 implementation_artifact = "strong"
+bound_verify_command = "strong"
+nextjs_route_evidence = "strong"
+build_command_or_dependency_missing_boundary = "strong"
 
 [weak_evidence]
 contains = []

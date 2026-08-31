@@ -2,7 +2,7 @@ pub mod allow_policy;
 pub(crate) mod approval;
 pub mod args_recovery;
 pub mod bash;
-mod bash_write_guard;
+pub(crate) mod bash_write_guard;
 pub mod edit;
 pub mod extension;
 pub mod git_state;
