@@ -53,6 +53,10 @@ pub fn run(command: &str, root: &Path, offline: bool) -> anyhow::Result<String> 
     run_with_timeout(command, root, offline, DEFAULT_TIMEOUT)
 }
 
+pub(crate) fn has_recognized_workspace_mutation(command: &str) -> bool {
+    super::bash_write_guard::has_recognized_mutation(command)
+}
+
 pub fn run_with_cancel_and_force<F, G>(
     command: &str,
     root: &Path,

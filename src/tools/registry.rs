@@ -294,7 +294,23 @@ fn resolve_policy_checked_path(
     raw: &str,
     resolution: PathResolution,
 ) -> anyhow::Result<PathBuf> {
-    let normalized = normalize_path_arg(context, tool, raw)?;
+    let mut normalized = normalize_path_arg(context, tool, raw)?;
+    if matches!(resolution, PathResolution::Existing)
+        && !context.root.join(&normalized).exists()
+        && let Some(fallback) = required_path_suffix_fallback(&normalized, &context.expected_paths)
+        && context.root.join(&fallback).exists()
+    {
+        emit_path_fallback_evaluated(
+            context,
+            tool,
+            raw,
+            "existing_required_path",
+            true,
+            Some(&fallback),
+            Some(1),
+        );
+        normalized = fallback;
+    }
     super::hidden_path::ensure_reference_allowed(
         &context.root,
         &normalized,
@@ -1110,6 +1126,38 @@ mod tests {
         assert!(event_text.contains(r#""method":"required_path""#));
         assert!(event_text.contains(r#""accepted":true"#));
         assert!(event_text.contains(r#""normalized":"package.json""#));
+    }
+
+    #[test]
+    fn nonexistent_relative_read_falls_back_to_unique_existing_expected_suffix() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("lib")).unwrap();
+        std::fs::write(
+            dir.path().join("lib/label.mjs"),
+            "export const label = 'ok';\n",
+        )
+        .unwrap();
+        let events = dir.path().join("events.jsonl");
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: Some(events.clone()),
+            expected_paths: vec!["lib/label.mjs".to_string()],
+        };
+
+        let output = registry
+            .execute("Read", &json!({"path":"app/lib/label.mjs"}), &context)
+            .unwrap();
+
+        assert!(output.contains("export const label"));
+        let events = std::fs::read_to_string(events).unwrap();
+        assert!(events.contains(r#""method":"existing_required_path""#));
+        assert!(events.contains(r#""normalized":"lib/label.mjs""#));
     }
 
     #[test]

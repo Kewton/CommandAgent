@@ -44,7 +44,7 @@ impl ScaffoldMode {
 }
 
 pub(super) fn required_paths(root: &Path) -> Vec<String> {
-    match detect(root) {
+    let paths = match detect(root) {
         ScaffoldMode::CanonicalTypeScriptTailwind => knowledge::get()
             .canonical
             .scaffold_files
@@ -79,7 +79,44 @@ pub(super) fn required_paths(root: &Path) -> Vec<String> {
         .into_iter()
         .map(str::to_string)
         .collect(),
+    };
+    paths
+        .into_iter()
+        .map(|path| canonicalize_existing_app_path(root, &path))
+        .filter(|path| !optional_absent_globals_css(root, path))
+        .collect()
+}
+
+pub(super) fn canonicalize_existing_app_path(root: &Path, value: &str) -> String {
+    if root.join("app").is_dir() && !root.join("src/app").exists() {
+        value
+            .replace("src/app/", "app/")
+            .replace("src\\app\\", "app\\")
+    } else {
+        value.to_string()
     }
+}
+
+pub(super) fn optional_absent_globals_css(root: &Path, path: &str) -> bool {
+    if !path.replace('\\', "/").ends_with("app/globals.css") || root.join(path).exists() {
+        return false;
+    }
+    let layout = [
+        "src/app/layout.tsx",
+        "src/app/layout.jsx",
+        "src/app/layout.ts",
+        "src/app/layout.js",
+        "app/layout.tsx",
+        "app/layout.jsx",
+        "app/layout.ts",
+        "app/layout.js",
+    ]
+    .into_iter()
+    .find(|layout| root.join(layout).is_file());
+    layout.is_some_and(|layout| {
+        std::fs::read_to_string(root.join(layout))
+            .is_ok_and(|content| !content.contains("globals.css"))
+    })
 }
 
 pub(super) fn tailwind_config_rel(root: &Path) -> &'static str {
@@ -280,6 +317,61 @@ mod tests {
         let page = std::fs::read_to_string(dir.path().join("src/app/page.js")).unwrap();
         assert!(page.contains("data-anvil-state"), "{page}");
         assert!(page.contains("data-anvil-action=\"primary\""), "{page}");
+    }
+
+    #[test]
+    fn existing_root_app_router_tree_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"root-app","private":true}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/layout.js"),
+            "export default function Layout({children}){return children;}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/page.js"),
+            "export default function Page(){return null;}\n",
+        )
+        .unwrap();
+
+        let paths = setup_scaffold_paths(dir.path());
+
+        assert!(paths.contains(&"app/layout.js".to_string()), "{paths:?}");
+        assert!(paths.contains(&"app/page.js".to_string()), "{paths:?}");
+        assert!(!paths.contains(&"app/globals.css".to_string()), "{paths:?}");
+        assert!(!paths.iter().any(|path| path.starts_with("src/app/")));
+        assert!(complete_scaffold(dir.path(), &paths).unwrap().is_empty());
+        assert!(!dir.path().join("src/app").exists());
+    }
+
+    #[test]
+    fn imported_missing_globals_css_remains_required() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"root-app","private":true}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/layout.js"),
+            "import './globals.css';\nexport default function Layout({children}){return children;}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/page.js"),
+            "export default function Page(){return null;}\n",
+        )
+        .unwrap();
+
+        let paths = setup_scaffold_paths(dir.path());
+
+        assert!(paths.contains(&"app/globals.css".to_string()), "{paths:?}");
     }
 
     #[test]

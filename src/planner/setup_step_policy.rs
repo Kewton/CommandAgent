@@ -26,6 +26,21 @@ pub(crate) fn runtime_step_with_profile_checks(
     eval_events_path: Option<&Path>,
 ) -> (PlanStep, bool) {
     let mut candidate = step.clone();
+    if is_nextjs_profile(profile) {
+        crate::planner::profiles::nextjs::canonicalize_existing_app_router_references(
+            root,
+            &mut candidate,
+        );
+        if candidate.step_kind() == StepKind::Inspect {
+            if crate::planner::profiles::nextjs::remove_optional_absent_globals_css(
+                root,
+                &mut candidate,
+            ) {
+                candidate.instruction = "Confirm that the existing App Router intentionally has no global stylesheet import. Do not create or edit files during this inspection.".to_string();
+            }
+            return (candidate, false);
+        }
+    }
     if is_data_profile(profile) {
         let mut plan = StepPlan {
             goal: goal.to_string(),
@@ -653,5 +668,79 @@ mod tests {
 
         assert!(!synthesized);
         assert_eq!(runtime, step);
+    }
+
+    #[test]
+    fn nextjs_inspect_preserves_existing_root_app_tree_without_setup_repair() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"existing","private":true}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("app/layout.js"), "export default null;\n").unwrap();
+        let step = PlanStep {
+            id: "inspect-app-layout".to_string(),
+            kind: "inspect".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Read src/app/layout.js without changing it.".to_string(),
+            expected_paths: vec!["src/app/layout.js".to_string()],
+            verify: Vec::new(),
+        };
+
+        let (runtime, synthesized) = runtime_step_with_profile_checks(
+            dir.path(),
+            "nextjs",
+            "Inspect the existing Next.js app",
+            &step,
+            None,
+            None,
+        );
+
+        assert!(!synthesized);
+        assert_eq!(
+            runtime.instruction,
+            "Read app/layout.js without changing it."
+        );
+        assert_eq!(runtime.expected_paths, ["app/layout.js"]);
+        assert!(runtime.verify.is_empty());
+    }
+
+    #[test]
+    fn nextjs_inspect_does_not_require_unimported_absent_globals_css() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::write(
+            dir.path().join("app/layout.js"),
+            "export default function Layout({children}){return children;}\n",
+        )
+        .unwrap();
+        let step = PlanStep {
+            id: "inspect-globals-css".to_string(),
+            kind: "inspect".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Read src/app/globals.css.".to_string(),
+            expected_paths: vec!["src/app/globals.css".to_string()],
+            verify: Vec::new(),
+        };
+
+        let (runtime, synthesized) = runtime_step_with_profile_checks(
+            dir.path(),
+            "nextjs",
+            "Inspect the existing Next.js app",
+            &step,
+            None,
+            None,
+        );
+
+        assert!(!synthesized);
+        assert!(runtime.expected_paths.is_empty());
+        assert!(
+            runtime
+                .instruction
+                .contains("intentionally has no global stylesheet")
+        );
+        assert!(!dir.path().join("app/globals.css").exists());
     }
 }

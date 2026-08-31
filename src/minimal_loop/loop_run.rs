@@ -60,6 +60,8 @@ use super::repair_progress::{
 mod context;
 #[path = "loop_run/error.rs"]
 mod error;
+#[path = "loop_run/inspect_tool_policy.rs"]
+mod inspect_tool_policy;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -1222,6 +1224,37 @@ pub(crate) fn run_session_with_outcome_with_options(
             if ui.interrupted() {
                 bail!("interrupted by user");
             }
+            let bash_command = recovered_bash_command(&call.name, &call.arguments);
+            if let Some(reason) = inspect_tool_policy::mutation_rejection(
+                options.step_kind,
+                &call.name,
+                bash_command.as_deref(),
+            ) {
+                batch_had_recoverable_tool_error = true;
+                post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                last_blocking_reason = Some("inspect_mutation_rejected".to_string());
+                let error = anyhow::anyhow!(reason);
+                let repeats = recoverable_tool_error_state.record(&call.name, &error);
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "inspect_mutation_tool_rejected",
+                        "name": call.name.as_str(),
+                        "step_kind": "inspect",
+                        "reason": reason,
+                        "repeat_count": repeats,
+                    }),
+                );
+                if repeats > RECOVERABLE_TOOL_ERROR_REPEAT_LIMIT {
+                    bail!("inspect mutation tool request repeated: {reason}");
+                }
+                session.messages.push(ConversationMessage::tool_result(
+                    call.name,
+                    Some(call.id),
+                    format!("Tool rejected: {reason}. Continue with read-only inspection tools."),
+                ));
+                continue;
+            }
             if let Some(rejection) = write_required_state.reject_if_read_only_or_wrong_target(
                 &config.workspace_root,
                 config.eval_events_path.as_deref(),
@@ -1293,9 +1326,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             } else {
                 batch_non_edit_tools += 1;
             }
-            if !names_seen.insert(call.name.clone()) {
-                // Multiple same-tool calls are fine; this keeps clippy from seeing unused state.
-            }
+            let _ = names_seen.insert(call.name.clone());
             if !crate::tools::hidden_path::tool_arguments_reference_hidden(
                 &call.name,
                 &call.arguments,

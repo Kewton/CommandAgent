@@ -45,11 +45,14 @@ fixtures/recovery-safety-events.jsonl = [
   "\"event\":\"recovery_preflight_observation\"",
   "\"observation_phase\":\"pre_recovery\"",
   "\"source\":\"product_visible_completion_contract\"",
+  "\"observation_isolated\":true",
   "\"external_oracle_used\":false",
   "\"event\":\"recovery_suppressed_current_success\"",
   "\"recovery_plan_auto_run_stop_reason\":\"current_success_protected\"",
   "\"event\":\"recovery_treatment_rejected_regression\"",
   "\"event\":\"recovery_control_retained\"",
   "\"event\":\"recovery_promotion_decision\"",
-  "\"decision\":\"rejected\""
+  "\"decision\":\"rejected\"",
+  "\"event\":\"inspect_mutation_tool_rejected\"",
+  "\"step_kind\":\"inspect\""
 ]

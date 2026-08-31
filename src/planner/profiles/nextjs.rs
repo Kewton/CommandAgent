@@ -322,6 +322,31 @@ pub fn setup_scaffold_paths(root: &Path) -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn canonicalize_existing_app_router_references(
+    root: &Path,
+    step: &mut PlanStep,
+) -> usize {
+    let mut changes = 0;
+    let mut canonicalize = |value: &mut String| {
+        let canonical = scaffold_mode::canonicalize_existing_app_path(root, value);
+        if canonical != *value {
+            *value = canonical;
+            changes += 1;
+        }
+    };
+    canonicalize(&mut step.instruction);
+    step.expected_paths.iter_mut().for_each(&mut canonicalize);
+    step.verify.iter_mut().for_each(&mut canonicalize);
+    changes
+}
+
+pub(crate) fn remove_optional_absent_globals_css(root: &Path, step: &mut PlanStep) -> bool {
+    let original_len = step.expected_paths.len();
+    step.expected_paths
+        .retain(|path| !scaffold_mode::optional_absent_globals_css(root, path));
+    original_len != step.expected_paths.len()
+}
+
 pub fn setup_invariant_required_paths(root: &Path) -> Vec<String> {
     filter_setup_invariant_paths(root, setup_scaffold_paths(root))
 }
@@ -772,6 +797,15 @@ pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Resul
 }
 
 fn scaffold_file_content(project_root: &Path, project_rel: &str) -> Option<&'static str> {
+    let canonical_rel = if project_root.join("app").is_dir()
+        && !project_root.join("src/app").exists()
+        && let Some(suffix) = project_rel.strip_prefix("app/")
+    {
+        format!("src/app/{suffix}")
+    } else {
+        project_rel.to_string()
+    };
+    let project_rel = canonical_rel.as_str();
     let mode = scaffold_mode::detect(project_root);
     match mode {
         scaffold_mode::ScaffoldMode::ExistingPlainJavaScript => match project_rel {

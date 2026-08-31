@@ -73,6 +73,25 @@ pub(crate) fn current_source_sha256(root: &Path) -> anyhow::Result<String> {
     content_sha256(&root, &files)
 }
 
+/// Hash source/config state while ignoring runtime evidence emitted by a
+/// read-only Recovery observation. Evidence is intentionally retained in the
+/// observation workspace for audit, but it must not make an otherwise
+/// read-only check look like a source edit.
+pub(crate) fn current_preflight_source_sha256(root: &Path) -> anyhow::Result<String> {
+    let root = root
+        .canonicalize()
+        .context("Recovery preflight workspace root is unavailable")?;
+    let mut files = Vec::new();
+    collect_files(&root, &root, &mut files)?;
+    files.retain(|path| {
+        path.strip_prefix(&root)
+            .ok()
+            .and_then(|relative| relative.components().next())
+            .is_none_or(|component| component.as_os_str() != "evidence")
+    });
+    content_sha256(&root, &files)
+}
+
 pub(crate) fn restore_transaction(
     root: &Path,
     snapshot: &RecoveryBoundarySnapshot,
@@ -96,13 +115,38 @@ pub(crate) fn prepare_treatment(
     snapshot: &RecoveryBoundarySnapshot,
     recovery_attempt: u8,
 ) -> anyhow::Result<PathBuf> {
+    prepare_runtime_workspace(
+        root,
+        snapshot,
+        PathBuf::from(format!(
+            ".commandagent/recovery-treatments/attempt-{recovery_attempt}/workspace"
+        )),
+    )
+}
+
+pub(crate) fn prepare_preflight_observation(
+    root: &Path,
+    snapshot: &RecoveryBoundarySnapshot,
+    observation_attempt: u8,
+) -> anyhow::Result<PathBuf> {
+    prepare_runtime_workspace(
+        root,
+        snapshot,
+        PathBuf::from(format!(
+            ".commandagent/recovery-observations/attempt-{observation_attempt}/workspace"
+        )),
+    )
+}
+
+fn prepare_runtime_workspace(
+    root: &Path,
+    snapshot: &RecoveryBoundarySnapshot,
+    relative: PathBuf,
+) -> anyhow::Result<PathBuf> {
     let root = root
         .canonicalize()
         .context("Recovery treatment workspace root is unavailable")?;
     let snapshot_root = root.join(&snapshot.workspace_relative_path);
-    let relative = PathBuf::from(format!(
-        ".commandagent/recovery-treatments/attempt-{recovery_attempt}/workspace"
-    ));
     let treatment = root.join(&relative);
     if treatment.exists() {
         bail!("Recovery treatment workspace already exists");
@@ -437,6 +481,32 @@ mod tests {
         let boundary = dir.path().join(&captured.workspace_relative_path);
         assert_eq!(
             std::fs::read_to_string(boundary.join("app.py")).unwrap(),
+            "print('control')\n"
+        );
+    }
+
+    #[test]
+    fn isolated_preflight_ignores_evidence_but_detects_source_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.py"), "print('control')\n").unwrap();
+        let captured = capture_for_transaction(dir.path(), 1).unwrap();
+        let observation = prepare_preflight_observation(dir.path(), &captured, 1).unwrap();
+        let before = current_preflight_source_sha256(&observation).unwrap();
+
+        std::fs::create_dir_all(observation.join("evidence")).unwrap();
+        std::fs::write(observation.join("evidence/check.json"), "{}\n").unwrap();
+        assert_eq!(
+            current_preflight_source_sha256(&observation).unwrap(),
+            before
+        );
+
+        std::fs::write(observation.join("app.py"), "print('changed')\n").unwrap();
+        assert_ne!(
+            current_preflight_source_sha256(&observation).unwrap(),
+            before
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("app.py")).unwrap(),
             "print('control')\n"
         );
     }

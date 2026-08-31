@@ -607,23 +607,8 @@ fn recovery_preflight(
                 };
             }
         };
-    let unsupported_capabilities = contract
-        .required_capabilities
-        .iter()
-        .filter(|capability| {
-            capability.as_str() != "input_output_contract"
-                || !contract
-                    .fix_reproducer_command
-                    .as_ref()
-                    .is_some_and(|command| {
-                        contract
-                            .verify_commands
-                            .iter()
-                            .any(|verify| verify == command)
-                    })
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let (capability_commands, unsupported_capabilities) =
+        recovery_preflight_capability_commands(&contract);
     if !unsupported_capabilities.is_empty() {
         return RecoveryPreflight::Unavailable {
             reason: format!(
@@ -646,26 +631,62 @@ fn recovery_preflight(
             };
         }
     };
+    let observation = match crate::planner::recovery_snapshot::prepare_preflight_observation(
+        &config.workspace_root,
+        &checkpoint,
+        checkpoint_attempt,
+    ) {
+        Ok(observation) => observation,
+        Err(error) => {
+            return RecoveryPreflight::Unavailable {
+                reason: format!("preflight_observation_prepare_failed:{error}"),
+            };
+        }
+    };
+    let mut observation_config =
+        match crate::planner::recovery_contract_binding::bind_config(config, &observation) {
+            Ok(config) => config,
+            Err(error) => {
+                return RecoveryPreflight::Unavailable {
+                    reason: format!("preflight_observation_contract_bind_failed:{error}"),
+                };
+            }
+        };
+    observation_config.eval_events_path = None;
+    let observation_before =
+        match crate::planner::recovery_snapshot::current_preflight_source_sha256(&observation) {
+            Ok(hash) => hash,
+            Err(error) => {
+                return RecoveryPreflight::Unavailable {
+                    reason: format!("preflight_source_observation_failed:{error}"),
+                };
+            }
+        };
+    let mut verify_commands = contract.verify_commands.clone();
+    for command in capability_commands {
+        push_unique(&mut verify_commands, command);
+    }
     let step = crate::planner::step_plan::PlanStep {
         id: "recovery-boundary-final-success".to_string(),
         kind: "verify".to_string(),
         expected_result: "pass".to_string(),
         instruction: "Read-only Recovery boundary final-success observation.".to_string(),
         expected_paths: contract.required_paths.clone(),
-        verify: contract.verify_commands.clone(),
+        verify: verify_commands,
     };
-    let (report, _) =
-        crate::planner::verify::verify_step_with_profile_setup_observed_with_offline_and_events(
-            &config.workspace_root,
-            &step,
-            contract.profile.as_deref(),
-            crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority::None,
-            config.offline,
-            config.eval_events_path.as_deref(),
-        );
+    let (report, _) = crate::planner::verify::verify_step_with_context(
+        &observation,
+        &step,
+        contract.profile.as_deref(),
+        contract
+            .goal
+            .as_deref()
+            .or(Some(candidate.plan.goal.as_str())),
+        crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority::None,
+        config.offline,
+        None,
+    );
     let completion_acceptance = if report.is_pass() {
-        let mut observation_config = config.clone();
-        observation_config.eval_events_path = None;
         Some(
             crate::planner::runner::recovery_acceptance::runtime_acceptance_report(
                 &candidate.plan,
@@ -676,26 +697,37 @@ fn recovery_preflight(
         None
     };
     let observed_sha256 =
-        crate::planner::recovery_snapshot::current_source_sha256(&config.workspace_root);
+        crate::planner::recovery_snapshot::current_preflight_source_sha256(&observation);
     let source_mutated = observed_sha256
         .as_ref()
-        .is_ok_and(|value| value != &checkpoint.snapshot_sha256);
+        .is_ok_and(|value| value != &observation_before);
     if source_mutated {
-        let restore = crate::planner::recovery_snapshot::restore_transaction(
-            &config.workspace_root,
-            &checkpoint,
-        );
         return RecoveryPreflight::Unavailable {
-            reason: match restore {
-                Ok(_) => "preflight_source_mutation_rejected_and_restored".to_string(),
-                Err(error) => format!("preflight_source_mutation_restore_failed:{error}"),
-            },
+            reason: "preflight_source_mutation_rejected_and_restored".to_string(),
         };
     }
     if let Err(error) = observed_sha256 {
         return RecoveryPreflight::Unavailable {
             reason: format!("preflight_source_observation_failed:{error}"),
         };
+    }
+    match crate::planner::recovery_snapshot::current_source_sha256(&config.workspace_root) {
+        Ok(hash) if hash == checkpoint.snapshot_sha256 => {}
+        Ok(_) => {
+            let reason = match crate::planner::recovery_snapshot::restore_transaction(
+                &config.workspace_root,
+                &checkpoint,
+            ) {
+                Ok(_) => "preflight_control_source_mutation_rejected_and_restored".to_string(),
+                Err(error) => format!("preflight_control_source_restore_failed:{error}"),
+            };
+            return RecoveryPreflight::Unavailable { reason };
+        }
+        Err(error) => {
+            return RecoveryPreflight::Unavailable {
+                reason: format!("preflight_control_source_observation_failed:{error}"),
+            };
+        }
     }
     if report.is_pass() {
         return match completion_acceptance.expect("pass report records acceptance") {
@@ -737,6 +769,29 @@ fn recovery_preflight(
             reason: report.primary_reason(),
         }
     }
+}
+
+fn recovery_preflight_capability_commands(
+    contract: &crate::minimal_loop::completion::CompletionContract,
+) -> (Vec<String>, Vec<String>) {
+    let mut commands = Vec::new();
+    let mut unsupported = Vec::new();
+    let input_output_bound = has_registered_fix_reproducer(contract);
+    for capability in &contract.required_capabilities {
+        if capability == "input_output_contract" && input_output_bound {
+            continue;
+        }
+        if contract.profile.as_deref() == Some("data")
+            && crate::planner::profiles::data::manifest::is_manifest_check_id(capability)
+        {
+            commands.push(
+                crate::planner::profiles::data::step_policy::catalog_check_command(capability),
+            );
+            continue;
+        }
+        unsupported.push(capability.clone());
+    }
+    (commands, unsupported)
 }
 
 fn bind_candidate_verify_commands(
@@ -1075,6 +1130,7 @@ fn emit_preflight(
             "reason": crate::eval_events::body_snippet(reason),
             "source": "product_visible_completion_contract",
             "read_only": true,
+            "observation_isolated": true,
             "external_oracle_used": false,
             "recovery_handoff_kind": candidate.handoff.failure_kind,
             "recovery_failed_step": candidate.handoff.failed_step,
@@ -1346,6 +1402,19 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+        }
+    }
+
+    fn copy_fixture_tree(source: &Path, target: &Path) {
+        std::fs::create_dir_all(target).unwrap();
+        for entry in std::fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let destination = target.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_fixture_tree(&entry.path(), &destination);
+            } else {
+                std::fs::copy(entry.path(), destination).unwrap();
+            }
         }
     }
 
@@ -1900,6 +1969,46 @@ mod tests {
             matches!(&missing, RecoveryPreflight::Failed { .. }),
             "{missing:?}"
         );
+    }
+
+    #[test]
+    fn preflight_observes_typed_data_capabilities_in_isolation() {
+        let root = tempfile::tempdir().unwrap();
+        copy_fixture_tree(
+            Path::new("tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/after"),
+            root.path(),
+        );
+        let contract_path = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract_path,
+            r#"{
+              "required_paths":["pipeline/main.py","data/task-01.csv","output/inspection.json","output/results.json","output/report.md"],
+              "verify_commands":["python3 pipeline/main.py data/task-01.csv"],
+              "required_capabilities":["data_reconciliation","data_claims_binding","data_rerun_consistency","data_results_schema"],
+              "profile":"data",
+              "goal":"Summarize data/task-01.csv and reconcile every input row."
+            }"#,
+        )
+        .unwrap();
+        let mut config = config(root.path(), 1);
+        config.completion_contract_path = Some(contract_path);
+        let mut recovery = candidate("data-capability-preflight");
+        recovery.plan.profile = "data".to_string();
+        recovery.handoff.profile = "data".to_string();
+        let source_before =
+            crate::planner::recovery_snapshot::current_source_sha256(root.path()).unwrap();
+
+        let observed = recovery_preflight(&config, &recovery, 0);
+
+        assert!(
+            matches!(&observed, RecoveryPreflight::CurrentSuccess { .. }),
+            "{observed:?}"
+        );
+        assert_eq!(
+            crate::planner::recovery_snapshot::current_source_sha256(root.path()).unwrap(),
+            source_before
+        );
+        assert!(!root.path().join("evidence").exists());
     }
 
     #[test]
