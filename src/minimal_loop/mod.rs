@@ -25,6 +25,7 @@ pub(crate) mod protected_paths;
 pub mod python_traceback;
 pub mod reachability;
 pub mod read_only_stagnation_feedback;
+pub(crate) mod recovery_handoff_fidelity;
 pub mod repair_pressure;
 pub mod repair_progress;
 pub mod repair_target;

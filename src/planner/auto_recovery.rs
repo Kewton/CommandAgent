@@ -289,6 +289,7 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                 false,
             );
         };
+        emit_treatment_delta(self.config, used, &snapshot, &treatment);
         if outcome.result.is_err() {
             return retain_control(
                 self.config,
@@ -353,6 +354,39 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                 retain_control(self.config, used, snapshot, outcome, &reason, false)
             }
         }
+    }
+}
+
+fn emit_treatment_delta(
+    config: &Config,
+    used: u8,
+    snapshot: &crate::planner::recovery_snapshot::RecoveryBoundarySnapshot,
+    treatment: &Path,
+) {
+    match crate::planner::recovery_snapshot::treatment_delta(
+        &config.workspace_root,
+        snapshot,
+        treatment,
+    ) {
+        Ok(delta) => crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "recovery_treatment_delta",
+                "recovery_plan_auto_run_current": used,
+                "status": "observed",
+                "attempted_product_delta": delta.product,
+                "treatment_runtime_evidence_delta": delta.runtime_evidence,
+            }),
+        ),
+        Err(error) => crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "recovery_treatment_delta",
+                "recovery_plan_auto_run_current": used,
+                "status": "unavailable",
+                "reason": crate::eval_events::body_snippet(&error.to_string()),
+            }),
+        ),
     }
 }
 
@@ -841,6 +875,13 @@ fn bind_candidate_verify_commands(
         return Err(CandidateStop::ContractCommandBindFailed);
     }
 
+    let contract_goal = contract
+        .goal
+        .as_deref()
+        .map(str::trim)
+        .filter(|goal| !goal.is_empty())
+        .ok_or(CandidateStop::ContractHandoffBindFailed)?;
+
     let original_commands = candidate.handoff.verify_commands.clone();
     let original_commands_all_registered = original_commands
         .iter()
@@ -848,6 +889,24 @@ fn bind_candidate_verify_commands(
     let commands_rewritten = original_commands != contract.verify_commands;
     candidate.handoff.verify_commands = contract.verify_commands.clone();
     candidate.verify_command_source = "completion_contract".to_string();
+    let goal_rewritten = candidate.handoff.original_goal != contract_goal;
+    candidate.handoff.original_goal = contract_goal.to_string();
+    let original_target_count = candidate.handoff.repair_targets.len();
+    for path in candidate
+        .handoff
+        .missing_paths
+        .iter()
+        .chain(candidate.handoff.changed_paths.iter())
+        .chain(contract.required_paths.iter())
+    {
+        if !is_protected_repair_path(path, &contract.protected_paths) {
+            push_unique(&mut candidate.handoff.repair_targets, path.clone());
+        }
+    }
+    if candidate.handoff.repair_targets.is_empty() {
+        return Err(CandidateStop::ContractHandoffBindFailed);
+    }
+    let targets_rewritten = candidate.handoff.repair_targets.len() != original_target_count;
     if commands_rewritten {
         candidate.handoff.failure_evidence = vec![format!(
             "Registered final-success observation failed before automatic Recovery: {preflight_reason}"
@@ -855,7 +914,8 @@ fn bind_candidate_verify_commands(
     }
     let completion_requirements_added =
         bind_candidate_completion_requirements(config, &contract, &mut candidate)?;
-    let plan_rewritten = commands_rewritten || completion_requirements_added;
+    let plan_rewritten =
+        commands_rewritten || completion_requirements_added || goal_rewritten || targets_rewritten;
 
     if plan_rewritten {
         if !commands_rewritten {
@@ -891,7 +951,29 @@ fn bind_candidate_verify_commands(
             "recovery_verify_command_source": candidate.verify_command_source,
         }),
     );
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_handoff_fidelity_bound",
+            "source": "product_visible_completion_contract",
+            "external_oracle_used": false,
+            "goal_source": "completion_contract",
+            "contract_bound": true,
+            "verify_command_count": candidate.handoff.verify_commands.len(),
+            "repair_target_count": candidate.handoff.repair_targets.len(),
+            "protected_path_count": contract.protected_paths.len(),
+            "fidelity_ok": true,
+        }),
+    );
     Ok(candidate)
+}
+
+fn is_protected_repair_path(path: &str, protected_paths: &[String]) -> bool {
+    let path = path.trim_matches('/');
+    protected_paths.iter().any(|protected| {
+        let protected = protected.trim_matches('/');
+        path == protected || path.starts_with(&format!("{protected}/"))
+    })
 }
 
 fn bind_candidate_completion_requirements(
@@ -1073,6 +1155,7 @@ enum CandidateStop {
     TreatmentPrepareFailed,
     TreatmentContractBindFailed,
     ContractCommandBindFailed,
+    ContractHandoffBindFailed,
     ContractAcceptanceBindFailed,
     ResumeSafetyRejected,
     WorkspaceDrift,
@@ -1089,6 +1172,7 @@ impl CandidateStop {
             Self::TreatmentPrepareFailed => "treatment_prepare_failed",
             Self::TreatmentContractBindFailed => "treatment_contract_bind_failed",
             Self::ContractCommandBindFailed => "contract_command_bind_failed",
+            Self::ContractHandoffBindFailed => "contract_handoff_bind_failed",
             Self::ContractAcceptanceBindFailed => "contract_acceptance_bind_failed",
             Self::ResumeSafetyRejected => "resume_safety_rejected",
             Self::WorkspaceDrift => "workspace_drift",
@@ -1790,7 +1874,7 @@ mod tests {
         let contract_path = root.path().join("completion-contract.json");
         std::fs::write(
             &contract_path,
-            r#"{"required_paths":["cli.py"],"verify_commands":["python3 cli.py 16","python3 -m pytest -q tests"],"fix_reproducer_command":"python3 cli.py 16","required_capabilities":["input_output_contract"],"profile":"cli"}"#,
+            r#"{"goal":"Fix the registered CLI behavior","required_paths":["cli.py"],"verify_commands":["python3 cli.py 16","python3 -m pytest -q tests"],"fix_reproducer_command":"python3 cli.py 16","required_capabilities":["input_output_contract"],"profile":"cli"}"#,
         )
         .unwrap();
         let mut config = config(root.path(), 1);
@@ -1820,6 +1904,16 @@ mod tests {
             rebound.handoff.verify_commands,
             vec!["python3 cli.py 16", "python3 -m pytest -q tests"]
         );
+        assert_eq!(
+            rebound.handoff.original_goal,
+            "Fix the registered CLI behavior"
+        );
+        assert!(
+            rebound
+                .handoff
+                .repair_targets
+                .contains(&"cli.py".to_string())
+        );
         let rendered = std::fs::read_to_string(&rebound.path).unwrap();
         assert!(rendered.contains("Preferred product-visible final-success check"));
         assert!(rendered.contains("python3 cli.py 16"));
@@ -1828,6 +1922,7 @@ mod tests {
         assert!(!rendered.contains("[ $exit_code -eq 2 ]"));
         let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
         assert!(events.contains("recovery_candidate_verify_commands_bound"));
+        assert!(events.contains("recovery_handoff_fidelity_bound"));
         assert!(events.contains("\"original_commands_all_registered\":false"));
         assert!(events.contains("\"recovery_plan_rewritten\":true"));
     }
@@ -1842,7 +1937,7 @@ mod tests {
         let contract_path = root.path().join("completion-contract.json");
         std::fs::write(
             &contract_path,
-            r#"{"required_paths":["app.py","fixture/task-01.json","fixture/control.json"],"verify_commands":["python3 app.py fixture/task-01.json"],"fix_reproducer_command":"python3 app.py fixture/task-01.json","required_evidence":["implementation_artifact","bound_verify_command"],"required_obligations":["implementation","verification","acceptance_evidence"],"profile":"generic"}"#,
+            r#"{"goal":"Fix app.py without changing frozen fixtures","required_paths":["app.py","fixture/task-01.json","fixture/control.json"],"protected_paths":["fixture"],"verify_commands":["python3 app.py fixture/task-01.json"],"fix_reproducer_command":"python3 app.py fixture/task-01.json","required_evidence":["implementation_artifact","bound_verify_command"],"required_obligations":["implementation","verification","acceptance_evidence"],"profile":"generic"}"#,
         )
         .unwrap();
         let mut config = config(root.path(), 1);
@@ -1866,6 +1961,18 @@ mod tests {
                 .handoff
                 .missing_paths
                 .contains(&"README.md".to_string())
+        );
+        assert!(
+            rebound
+                .handoff
+                .repair_targets
+                .contains(&"app.py".to_string())
+        );
+        assert!(
+            !rebound
+                .handoff
+                .repair_targets
+                .contains(&"fixture/task-01.json".to_string())
         );
         let rendered = std::fs::read_to_string(&rebound.path).unwrap();
         assert!(rendered.contains("tests/test_app.py"));
@@ -1917,12 +2024,12 @@ mod tests {
     }
 
     #[test]
-    fn recovery_candidate_marks_exact_contract_match_without_rewriting_plan() {
+    fn recovery_candidate_rewrites_an_incomplete_handoff_even_when_commands_match() {
         let root = tempfile::tempdir().unwrap();
         let contract_path = root.path().join("completion-contract.json");
         std::fs::write(
             &contract_path,
-            r#"{"required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"profile":"generic"}"#,
+            r#"{"goal":"Create ready.txt","required_paths":["ready.txt"],"verify_commands":["test -f ready.txt"],"profile":"generic"}"#,
         )
         .unwrap();
         let mut config = config(root.path(), 1);
@@ -1934,10 +2041,12 @@ mod tests {
         let rebound =
             bind_candidate_verify_commands(&config, original, "missing ready.txt").unwrap();
 
-        assert_eq!(rebound.path, original_path);
+        assert_ne!(rebound.path, original_path);
         assert_eq!(rebound.verify_command_source, "completion_contract");
         assert_eq!(rebound.handoff.verify_commands, vec!["test -f ready.txt"]);
-        assert!(!root.path().join(".commandagent/plans").exists());
+        assert_eq!(rebound.handoff.original_goal, "Create ready.txt");
+        assert_eq!(rebound.handoff.repair_targets, vec!["ready.txt"]);
+        assert!(root.path().join(".commandagent/plans").exists());
     }
 
     #[test]

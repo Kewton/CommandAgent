@@ -41,6 +41,7 @@ pub mod profile_manifest;
 pub(crate) mod profile_preset;
 pub(crate) mod python_cli_plan_synthesis;
 pub(crate) mod recovery_contract_binding;
+pub(crate) mod recovery_fix_safety;
 pub(crate) mod recovery_snapshot;
 pub(crate) mod recovery_step_plan_binding;
 pub(crate) mod recovery_validation;

@@ -526,7 +526,44 @@ pub(crate) fn save_read_only_write_required_handoff(
     no_write_attempts: usize,
 ) -> Option<ReadOnlyRecoveryPaths> {
     let failure_kind = READ_ONLY_STAGNATION_REASON;
-    let target_path = selected_targets
+    let fidelity = match super::recovery_handoff_fidelity::RecoveryHandoffFidelity::resolve(
+        config,
+        objective,
+        selected_targets,
+        changed_paths,
+    ) {
+        Ok(fidelity) => fidelity,
+        Err(err) => {
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_handoff_fidelity_failed",
+                    "recovery_handoff_kind": failure_kind,
+                    "reason": eval_events::body_snippet(&err.to_string()),
+                    "status": "incomplete",
+                }),
+            );
+            return None;
+        }
+    };
+    if !fidelity.is_complete() {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "recovery_handoff_fidelity_failed",
+                "recovery_handoff_kind": failure_kind,
+                "goal_source": fidelity.goal_source,
+                "contract_bound": fidelity.contract_bound,
+                "required_for_fix_recovery": fidelity.required_for_fix_recovery,
+                "verify_command_count": fidelity.verify_commands.len(),
+                "repair_target_count": fidelity.repair_targets.len(),
+                "status": "incomplete",
+            }),
+        );
+        return None;
+    }
+    let target_path = fidelity
+        .repair_targets
         .first()
         .map(String::as_str)
         .unwrap_or_default();
@@ -537,7 +574,7 @@ pub(crate) fn save_read_only_write_required_handoff(
     };
     let handoff = crate::planner::repair::RecoveryHandoff {
         profile: profile.to_string(),
-        original_goal: objective.to_string(),
+        original_goal: fidelity.original_goal.clone(),
         failed_phase: phase_scope
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string)
@@ -553,14 +590,14 @@ pub(crate) fn save_read_only_write_required_handoff(
             ),
             format!(
                 "write_required selected_targets={}; selection_reason={selection_reason}",
-                selected_targets.join(",")
+                fidelity.repair_targets.join(",")
             ),
         ],
         missing_paths: Vec::new(),
         missing_capabilities: Vec::new(),
-        verify_commands: Vec::new(),
+        verify_commands: fidelity.verify_commands.clone(),
         changed_paths: changed_paths.to_vec(),
-        repair_targets: selected_targets.to_vec(),
+        repair_targets: fidelity.repair_targets.clone(),
     };
     let prompt_path = match crate::planner::repair::save_ultra_recovery_prompt(
         &config.workspace_root,
@@ -624,6 +661,11 @@ pub(crate) fn save_read_only_write_required_handoff(
             "recovery_profile": profile,
             "local_repair_exhausted": true,
             "failure_kind": failure_kind,
+            "recovery_goal_source": fidelity.goal_source,
+            "recovery_contract_bound": fidelity.contract_bound,
+            "recovery_handoff_fidelity_ok": true,
+            "recovery_verify_command_count": fidelity.verify_commands.len(),
+            "recovery_repair_target_count": fidelity.repair_targets.len(),
             "status": "incomplete",
         }),
     );
@@ -1180,5 +1222,42 @@ mod tests {
                     == Some("model_stagnation:read_only_loop")
                 && event.get("recovery_yaml_missing").and_then(Value::as_bool) == Some(false)
         }));
+    }
+
+    #[test]
+    fn read_only_recovery_handoff_binds_contract_goal_commands_and_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.py"), "print('ok')\n").unwrap();
+        let contract = dir.path().join("completion-contract.json");
+        std::fs::write(
+            &contract,
+            r#"{"goal":"Top-level recovery goal","required_paths":["src/main.py"],"verify_commands":["python3 -m py_compile src/main.py"]}"#,
+        )
+        .unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.completion_contract_path = Some(contract);
+
+        let paths = save_read_only_write_required_handoff(
+            &cfg,
+            "Execute exactly one StepPlan step",
+            "plan-run-step",
+            "implement",
+            Some("repair"),
+            &[],
+            "none",
+            &[],
+            5,
+            2,
+        )
+        .unwrap();
+        let yaml = std::fs::read_to_string(dir.path().join(paths.yaml_path)).unwrap();
+        assert!(yaml.contains("Top-level recovery goal"), "{yaml}");
+        assert!(yaml.contains("python3 -m py_compile src/main.py"), "{yaml}");
+        assert!(yaml.contains("src/main.py"), "{yaml}");
+        assert!(
+            !yaml.contains("Execute exactly one StepPlan step"),
+            "{yaml}"
+        );
     }
 }

@@ -44,6 +44,11 @@ def build_recovery_report(
     inner_recovery_verify_command_violations = []
     fix_contract_continuity_violations = []
     recovery_fix_terminal_completion_violations = []
+    recovery_handoff_fidelity_v2_violations = []
+    recovery_product_mutation_observation_violations = []
+    recovery_fix_safety_verification_violations = []
+    recovery_treatment_delta_violations = []
+    recovery_bounded_local_repair_violations = []
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -211,6 +216,37 @@ def build_recovery_report(
                 ),
             ):
                 recovery_fix_terminal_completion_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get(
+                "require_recovery_handoff_fidelity_v2"
+            ) is True and not _valid_recovery_handoff_fidelity_v2(
+                recovery_attempts.get("handoff_fidelity")
+            ):
+                recovery_handoff_fidelity_v2_violations.append(str(pair_id))
+            mutation_observations = recovery_attempts.get(
+                "product_mutation_observations"
+            )
+            if contract.get("smoke", {}).get(
+                "require_recovery_product_mutation_observation"
+            ) is True and not _valid_product_mutation_observations(
+                mutation_observations
+            ):
+                recovery_product_mutation_observation_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get(
+                "require_recovery_fix_safety_verification"
+            ) is True and not _valid_fix_safety_verifications(
+                recovery_attempts.get("fix_safety_verifications")
+            ):
+                recovery_fix_safety_verification_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get(
+                "require_recovery_bounded_local_repair_max_one"
+            ) is True and not _bounded_local_repair_at_most_one(mutation_observations):
+                recovery_bounded_local_repair_violations.append(str(pair_id))
+            if contract.get("smoke", {}).get(
+                "require_recovery_treatment_delta"
+            ) is True and not _valid_recovery_treatment_delta(
+                recovery_attempts.get("treatment_deltas")
+            ):
+                recovery_treatment_delta_violations.append(str(pair_id))
             treatment_path = recovery_attempt.get("recovery_treatment_path")
             if not (
                 isinstance(treatment_path, str)
@@ -364,6 +400,26 @@ def build_recovery_report(
         checks[
             "recovery_fix_terminal_completion"
         ] = not recovery_fix_terminal_completion_violations
+    if smoke.get("require_recovery_handoff_fidelity_v2") is True:
+        checks[
+            "recovery_handoff_fidelity_v2"
+        ] = not recovery_handoff_fidelity_v2_violations
+    if smoke.get("require_recovery_product_mutation_observation") is True:
+        checks[
+            "recovery_product_mutation_observation"
+        ] = not recovery_product_mutation_observation_violations
+    if smoke.get("require_recovery_fix_safety_verification") is True:
+        checks[
+            "recovery_fix_safety_verification"
+        ] = not recovery_fix_safety_verification_violations
+    if smoke.get("require_recovery_bounded_local_repair_max_one") is True:
+        checks[
+            "recovery_bounded_local_repair_max_one"
+        ] = not recovery_bounded_local_repair_violations
+    if smoke.get("require_recovery_treatment_delta") is True:
+        checks[
+            "recovery_treatment_delta"
+        ] = not recovery_treatment_delta_violations
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -485,8 +541,122 @@ def build_recovery_report(
                 if smoke.get("require_recovery_fix_terminal_completion") is True
                 else {}
             ),
+            **(
+                {
+                    "recovery_handoff_fidelity_v2_violations": (
+                        recovery_handoff_fidelity_v2_violations
+                    )
+                }
+                if smoke.get("require_recovery_handoff_fidelity_v2") is True
+                else {}
+            ),
+            **(
+                {
+                    "recovery_product_mutation_observation_violations": (
+                        recovery_product_mutation_observation_violations
+                    )
+                }
+                if smoke.get("require_recovery_product_mutation_observation") is True
+                else {}
+            ),
+            **(
+                {
+                    "recovery_fix_safety_verification_violations": (
+                        recovery_fix_safety_verification_violations
+                    )
+                }
+                if smoke.get("require_recovery_fix_safety_verification") is True
+                else {}
+            ),
+            **(
+                {
+                    "recovery_bounded_local_repair_violations": (
+                        recovery_bounded_local_repair_violations
+                    )
+                }
+                if smoke.get("require_recovery_bounded_local_repair_max_one") is True
+                else {}
+            ),
+            **(
+                {
+                    "recovery_treatment_delta_violations": (
+                        recovery_treatment_delta_violations
+                    )
+                }
+                if smoke.get("require_recovery_treatment_delta") is True
+                else {}
+            ),
         },
     }
+
+
+def _valid_recovery_handoff_fidelity_v2(value: Any) -> bool:
+    if not isinstance(value, list) or len(value) != 1:
+        return False
+    row = value[0]
+    return (
+        isinstance(row, dict)
+        and row.get("event") == "recovery_handoff_fidelity_bound"
+        and row.get("fidelity_ok") is True
+        and row.get("goal_source") == "completion_contract"
+        and row.get("contract_bound") is True
+        and isinstance(row.get("verify_command_count"), int)
+        and not isinstance(row.get("verify_command_count"), bool)
+        and row["verify_command_count"] > 0
+        and isinstance(row.get("repair_target_count"), int)
+        and not isinstance(row.get("repair_target_count"), bool)
+        and row["repair_target_count"] > 0
+    )
+
+
+def _valid_product_mutation_observations(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(row, dict)
+        and row.get("stage") in {"initial", "bounded_local_repair"}
+        and isinstance(row.get("reported_changed_paths"), list)
+        and isinstance(row.get("observed_changed_paths"), list)
+        and isinstance(row.get("no_op_reported_paths"), list)
+        and isinstance(row.get("unreported_mutation_paths"), list)
+        and isinstance(row.get("mutation_observed"), bool)
+        for row in value
+    )
+
+
+def _bounded_local_repair_at_most_one(value: Any) -> bool:
+    return _valid_product_mutation_observations(value) and sum(
+        row.get("stage") == "bounded_local_repair" for row in value
+    ) <= 1
+
+
+def _valid_fix_safety_verifications(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(row, dict)
+        and isinstance(row.get("registered_verify_commands"), list)
+        and bool(row["registered_verify_commands"])
+        and isinstance(row.get("referenced_api_surface_count"), int)
+        and not isinstance(row.get("referenced_api_surface_count"), bool)
+        and row["referenced_api_surface_count"] >= 0
+        and isinstance(row.get("referenced_api_violations"), list)
+        and isinstance(row.get("changed_paths"), list)
+        and isinstance(row.get("ok"), bool)
+        for row in value
+    )
+
+
+def _valid_recovery_treatment_delta(value: Any) -> bool:
+    if not isinstance(value, list) or len(value) != 1:
+        return False
+    row = value[0]
+    if not isinstance(row, dict) or row.get("status") != "observed":
+        return False
+    return all(
+        isinstance(row.get(field), dict)
+        and all(
+            isinstance(row[field].get(path_field), list)
+            for path_field in ("changed_paths", "added_paths", "removed_paths")
+        )
+        for field in ("attempted_product_delta", "treatment_runtime_evidence_delta")
+    )
 
 
 def _valid_fix_contract_continuity(

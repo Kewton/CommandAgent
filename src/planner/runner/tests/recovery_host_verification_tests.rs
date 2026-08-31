@@ -224,12 +224,135 @@ fn recovery_fix_origin_requires_write_for_implement_step_only() {
         expected_paths: vec!["pipeline/main.py".to_string()],
         verify: Vec::new(),
     };
-    assert!(recovery_fix_implement_requires_write(&cfg, &step).unwrap());
+    assert!(super::phase::recovery_fix::requires_write(&cfg, &step).unwrap());
 
     let mut verify_step = step.clone();
     verify_step.kind = "verify".to_string();
-    assert!(!recovery_fix_implement_requires_write(&cfg, &verify_step).unwrap());
+    assert!(!super::phase::recovery_fix::requires_write(&cfg, &verify_step).unwrap());
 
     std::fs::remove_file(runtime.join("fix-origin.json")).unwrap();
-    assert!(!recovery_fix_implement_requires_write(&cfg, &step).unwrap());
+    assert!(!super::phase::recovery_fix::requires_write(&cfg, &step).unwrap());
+}
+
+#[test]
+fn recovery_fix_repairs_removed_caller_api_once_inside_same_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/corpus/apps/issue399-phase6-ab-uat/fixtures/recovery-api-preservation");
+    std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+    std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
+    std::fs::copy(
+        fixture.join("pipeline/main.py"),
+        dir.path().join("pipeline/main.py"),
+    )
+    .unwrap();
+    std::fs::copy(
+        fixture.join("scripts/repro.py"),
+        dir.path().join("scripts/repro.py"),
+    )
+    .unwrap();
+    let contract_path = dir.path().join("completion-contract.json");
+    std::fs::write(
+        &contract_path,
+        r#"{"goal":"Repair the existing pipeline without breaking callers","required_paths":["pipeline/main.py","scripts/repro.py"],"verify_commands":["python3 scripts/repro.py"],"fix_reproducer_command":"python3 scripts/repro.py","profile":"generic","verify_repair_cap":1}"#,
+    )
+    .unwrap();
+    let runtime = dir.path().join(".commandagent/recovery-runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let evidence = b"{}\n";
+    std::fs::write(runtime.join("fix-origin-evidence.json"), evidence).unwrap();
+    std::fs::write(
+        runtime.join("fix-origin.json"),
+        serde_json::to_vec(
+            &crate::planner::recovery_contract_binding::RecoveryFixOrigin {
+                schema_version: "1".to_string(),
+                original_intent: "fix".to_string(),
+                contract_origin: crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN.to_string(),
+                contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION
+                    .to_string(),
+                contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF.to_string(),
+                fix_run_id: "recovery-api-preservation".to_string(),
+                evidence_path: ".commandagent/recovery-runtime/fix-origin-evidence.json"
+                    .to_string(),
+                evidence_sha256: format!("{:x}", Sha256::digest(evidence)),
+                reproducer_command: "python3 scripts/repro.py".to_string(),
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let events = dir.path().join("events.jsonl");
+    let mut cfg = config(dir.path().to_path_buf());
+    cfg.eval_events_path = Some(events.clone());
+    cfg.completion_contract_path = Some(contract_path);
+    cfg.max_iterations = 6;
+    let step = PlanStep {
+        id: "repair-pipeline".to_string(),
+        kind: "implement".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: "Make the smallest bounded pipeline repair.".to_string(),
+        expected_paths: vec!["pipeline/main.py".to_string()],
+        verify: Vec::new(),
+    };
+    let plan = StepPlan {
+        goal: "Repair the existing pipeline without breaking callers".to_string(),
+        steps: vec![step.clone()],
+    };
+    let context = StepPromptContext {
+        overall_goal: plan.goal.clone(),
+        completion_contract_path: cfg.completion_contract_path.clone(),
+        ..StepPromptContext::default()
+    };
+    let broken = std::fs::read_to_string(fixture.join("pipeline/broken-main.py")).unwrap();
+    let repaired = std::fs::read_to_string(fixture.join("pipeline/main.py")).unwrap();
+    let mut fake = FakeClient::new(vec![
+        AssistantReply {
+            content: String::new(),
+            tool_calls: vec![crate::state::ToolCall::new(
+                "Write",
+                serde_json::json!({"path":"pipeline/main.py","content":broken}),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        },
+        AssistantReply {
+            content: String::new(),
+            tool_calls: vec![crate::state::ToolCall::new(
+                "Write",
+                serde_json::json!({"path":"pipeline/main.py","content":repaired}),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        },
+    ]);
+    let mut session = SessionSnapshot::new();
+
+    let outcome = run_step(
+        &mut fake,
+        &mut session,
+        &plan,
+        &step,
+        &context,
+        &cfg,
+        &NOOP_UI,
+        "test",
+        ContractEnforcement::Observe,
+        Some("repair-repair"),
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(outcome.repair_attempts, 1);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("pipeline/main.py")).unwrap(),
+        std::fs::read_to_string(fixture.join("pipeline/main.py")).unwrap()
+    );
+    assert_eq!(fake.messages().len(), 2);
+    let event_text = std::fs::read_to_string(events).unwrap();
+    assert!(
+        event_text.contains("\"referenced_api_violations\":[{\"caller_paths\":[\"scripts/repro.py\"],\"owner_path\":\"pipeline/main.py\",\"symbol\":\"write_outputs\"}]"),
+        "{event_text}"
+    );
+    assert!(event_text.contains("\"event\":\"step_verify_repair\""));
+    assert!(event_text.contains("\"attempt\":1"));
 }

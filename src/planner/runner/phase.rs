@@ -76,6 +76,9 @@ use super::{
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
 
+#[path = "phase/recovery_fix.rs"]
+pub(super) mod recovery_fix;
+
 #[path = "phase/effects.rs"]
 mod effects;
 #[path = "phase/flow.rs"]
@@ -1145,11 +1148,9 @@ pub(super) fn run_step(
     let setup_authority = step_verify_setup_authority(plan, step, run_authority);
     let contract_setup_authority =
         step_contract_setup_authority(plan, step, phase_scope, run_authority);
-    let recovery_fix_write_required =
-        recovery_fix_implement_requires_write(config, step).map_err(|err| StepRunError {
-            message: format!("Recovery fix origin validation failed: {err}"),
-            outcome: StepRunOutcome::default(),
-        })?;
+    let recovery_fix = recovery_fix::bind(&step_config, step, prompt_context, setup_authority)
+        .map_err(|err| *err)?;
+    let local_repair_turns = recovery_fix.local_repair_turns(STEP_REPAIR_MAX_TURNS);
     let step_options = step_run_session_options(
         plan,
         step,
@@ -1160,9 +1161,9 @@ pub(super) fn run_step(
     .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
         config.resolved_intent(&prompt_context.overall_goal),
     ))
-    .with_required_write_for_action_prompt(recovery_fix_write_required)
+    .with_required_write_for_action_prompt(recovery_fix.requires_write())
     .with_required_mutation_before_short_circuit(
-        synthesized_precheck || recovery_fix_write_required,
+        synthesized_precheck || recovery_fix.requires_write(),
     );
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
@@ -1327,7 +1328,9 @@ pub(super) fn run_step(
         outcome.partial = true;
         return Err(StepRunError { message, outcome });
     }
-    let (report, build_lifecycles) = verify_step_completion_observed(
+    let initial_changed_paths = recovery_fix.observed_changes_from_start(&initial.changed_paths);
+    outcome.changed_paths = initial_changed_paths.clone();
+    let (mut report, build_lifecycles) = verify_step_completion_observed(
         config,
         &prompt_context.overall_goal,
         &runtime_step,
@@ -1335,6 +1338,7 @@ pub(super) fn run_step(
         phase_scope,
         setup_authority,
     );
+    recovery_fix.merge_verification(&mut report, &initial_changed_paths);
     apply_runtime_command_normalizations(&mut runtime_step, &report);
     for lifecycle in &build_lifecycles {
         emit_dependency_build_lifecycle(
@@ -1361,7 +1365,7 @@ pub(super) fn run_step(
     let repair_policy = crate::planner::profiles::data::repair_policy::StepRepairPolicy::new(
         &config.profile,
         &step.id,
-        STEP_REPAIR_MAX_TURNS,
+        local_repair_turns,
         config.eval_events_path.as_deref(),
     );
     let mut current_reachability =
@@ -1398,15 +1402,16 @@ pub(super) fn run_step(
         expected_paths: merge_repair_target_paths(&report, &runtime_step.expected_paths),
         verify_commands: runtime_step.verify.clone(),
         expected_result: Some(step_expected_result(step).to_string()),
-        max_repair_turns: Some(STEP_REPAIR_MAX_TURNS),
+        max_repair_turns: Some(local_repair_turns),
         missing_paths: report.missing_paths.clone(),
-        changed_files: initial.changed_paths.clone(),
+        changed_files: initial_changed_paths,
         initial_stop_reason: Some(format!("{:?}", initial.stop_reason)),
         workspace_root: Some(config.workspace_root.clone()),
         eval_events_path: config.eval_events_path.clone(),
         prompt_layout: config.prompt_layout,
         ..RepairContext::default()
     };
+    recovery_fix.merge_verify_commands(&mut context.verify_commands);
     let mut current_report = report;
     let mut previous_missing = current_report.missing_paths.len();
     let mut repair_stop_reason = None;
@@ -1435,7 +1440,7 @@ pub(super) fn run_step(
         );
     }
     if current_reachability.reachable {
-        for attempt in 1..=STEP_REPAIR_MAX_TURNS {
+        for attempt in 1..=local_repair_turns {
             let repair_session_mode =
                 if no_change_repairs > 0 && !current_report.compile_errors.is_empty() {
                     RepairSessionMode::Compact
@@ -1465,6 +1470,7 @@ pub(super) fn run_step(
                 &mut hook_snapshot_feedback_given,
                 repair_prompt,
             );
+            let mutation_checkpoint = recovery_fix.mutation_checkpoint();
             let repair_result = match repair_session_mode {
                 RepairSessionMode::Appended => run_session_with_outcome_with_options(
                     client,
@@ -1528,9 +1534,10 @@ pub(super) fn run_step(
             outcome.repair_attempts = attempt;
             repair_stop_reason = Some(format!("{:?}", repair.stop_reason));
             let changed_paths_before_repair = context.changed_files.clone();
-            let mut repair_turn_changed_paths = repair.changed_paths.clone();
-            merge_changed_files(&mut context, &repair.changed_paths);
-            merge_unique_strings(&mut outcome.changed_paths, &repair.changed_paths);
+            let mut repair_turn_changed_paths =
+                recovery_fix.observed_changes_since(&mutation_checkpoint, &repair.changed_paths);
+            merge_changed_files(&mut context, &repair_turn_changed_paths);
+            merge_unique_strings(&mut outcome.changed_paths, &repair_turn_changed_paths);
             merge_unique_strings(
                 &mut outcome.observed_missing_capabilities,
                 &repair.missing_capabilities,
@@ -1543,7 +1550,10 @@ pub(super) fn run_step(
                 &mut outcome.observed_missing_obligations,
                 &repair.missing_obligations,
             );
-            merge_unique_strings(&mut outcome.repair_changed_paths, &repair.changed_paths);
+            merge_unique_strings(
+                &mut outcome.repair_changed_paths,
+                &repair_turn_changed_paths,
+            );
             match runtime.post_step_repair(&config.workspace_root, overall_goal) {
                 Ok(true) => {
                     if let Some(state) = run_setup_authority.as_deref_mut() {
@@ -1598,7 +1608,7 @@ pub(super) fn run_step(
                 outcome.partial = true;
                 return Err(StepRunError { message, outcome });
             }
-            let (retry, retry_lifecycles) = verify_step_with_context(
+            let (mut retry, retry_lifecycles) = verify_step_with_context(
                 &config.workspace_root,
                 &runtime_step,
                 Some(&config.profile),
@@ -1607,8 +1617,10 @@ pub(super) fn run_step(
                 config.offline,
                 config.eval_events_path.as_deref(),
             );
+            recovery_fix.merge_verification(&mut retry, &context.changed_files);
             apply_runtime_command_normalizations(&mut runtime_step, &retry);
             context.verify_commands = runtime_step.verify.clone();
+            recovery_fix.merge_verify_commands(&mut context.verify_commands);
             for lifecycle in &retry_lifecycles {
                 emit_dependency_build_lifecycle(
                     config.eval_events_path.as_deref(),
@@ -2321,14 +2333,6 @@ pub(super) fn run_step(
     outcome.stop_reason = Some(final_failure_kind.to_string());
     outcome.partial = true;
     Err(StepRunError { message, outcome })
-}
-
-pub(super) fn recovery_fix_implement_requires_write(
-    config: &Config,
-    step: &PlanStep,
-) -> anyhow::Result<bool> {
-    Ok(step.step_kind() == StepKind::Implement
-        && crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_some())
 }
 
 pub(super) fn step_verify_setup_authority(

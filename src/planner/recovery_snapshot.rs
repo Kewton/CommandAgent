@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const EXCLUDED_DIRECTORIES: &[&str] = &[
@@ -55,6 +56,19 @@ pub(crate) struct RecoveryRestoreReport {
     pub(crate) restored_file_count: usize,
     pub(crate) removed_file_count: usize,
     pub(crate) snapshot_sha256: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct RecoveryArtifactDelta {
+    pub(crate) changed_paths: Vec<String>,
+    pub(crate) added_paths: Vec<String>,
+    pub(crate) removed_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct RecoveryTreatmentDelta {
+    pub(crate) product: RecoveryArtifactDelta,
+    pub(crate) runtime_evidence: RecoveryArtifactDelta,
 }
 
 pub(crate) fn capture_for_transaction(
@@ -201,6 +215,77 @@ pub(crate) fn retain_control(
         });
     }
     restore_transaction(root, snapshot)
+}
+
+pub(crate) fn treatment_delta(
+    root: &Path,
+    snapshot: &RecoveryBoundarySnapshot,
+    treatment: &Path,
+) -> anyhow::Result<RecoveryTreatmentDelta> {
+    let root = root
+        .canonicalize()
+        .context("Recovery delta workspace root is unavailable")?;
+    let before = root.join(&snapshot.workspace_relative_path);
+    let before = before
+        .canonicalize()
+        .context("Recovery delta boundary snapshot is unavailable")?;
+    let treatment = treatment
+        .canonicalize()
+        .context("Recovery delta treatment workspace is unavailable")?;
+    if !before.starts_with(root.join(".commandagent/recovery-boundaries"))
+        || !treatment.starts_with(root.join(".commandagent/recovery-treatments"))
+    {
+        bail!("Recovery delta workspace escaped its evidence namespace");
+    }
+    let before_files = files_by_relative_path(&before)?;
+    let after_files = files_by_relative_path(&treatment)?;
+    let mut delta = RecoveryTreatmentDelta::default();
+    for (relative, before_path) in &before_files {
+        let target = delta_bucket(&mut delta, relative);
+        match after_files.get(relative) {
+            Some(after_path) if !same_file_bytes(before_path, after_path)? => {
+                target.changed_paths.push(display_relative(relative));
+            }
+            None => target.removed_paths.push(display_relative(relative)),
+            Some(_) => {}
+        }
+    }
+    for relative in after_files.keys() {
+        if !before_files.contains_key(relative) {
+            delta_bucket(&mut delta, relative)
+                .added_paths
+                .push(display_relative(relative));
+        }
+    }
+    Ok(delta)
+}
+
+fn delta_bucket<'a>(
+    delta: &'a mut RecoveryTreatmentDelta,
+    relative: &Path,
+) -> &'a mut RecoveryArtifactDelta {
+    if relative
+        .components()
+        .next()
+        .is_some_and(|component| component.as_os_str() == "evidence")
+    {
+        &mut delta.runtime_evidence
+    } else {
+        &mut delta.product
+    }
+}
+
+fn same_file_bytes(left: &Path, right: &Path) -> anyhow::Result<bool> {
+    let left_metadata = left.metadata()?;
+    let right_metadata = right.metadata()?;
+    if left_metadata.len() != right_metadata.len() {
+        return Ok(false);
+    }
+    Ok(std::fs::read(left)? == std::fs::read(right)?)
+}
+
+fn display_relative(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn sync_source_tree(
@@ -483,6 +568,34 @@ mod tests {
             std::fs::read_to_string(boundary.join("app.py")).unwrap(),
             "print('control')\n"
         );
+    }
+
+    #[test]
+    fn treatment_delta_separates_attempted_product_and_runtime_evidence_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.py"), "print('control')\n").unwrap();
+        std::fs::write(dir.path().join("removed.py"), "pass\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("evidence")).unwrap();
+        std::fs::write(dir.path().join("evidence/before.json"), "{}\n").unwrap();
+        let captured = capture_for_transaction(dir.path(), 1).unwrap();
+        let treatment = prepare_treatment(dir.path(), &captured, 1).unwrap();
+        std::fs::write(treatment.join("app.py"), "print('treatment')\n").unwrap();
+        std::fs::remove_file(treatment.join("removed.py")).unwrap();
+        std::fs::write(treatment.join("added.py"), "pass\n").unwrap();
+        std::fs::write(treatment.join("evidence/before.json"), "{\"ok\":true}\n").unwrap();
+        std::fs::write(treatment.join("evidence/after.json"), "{}\n").unwrap();
+
+        let delta = treatment_delta(dir.path(), &captured, &treatment).unwrap();
+
+        assert_eq!(delta.product.changed_paths, ["app.py"]);
+        assert_eq!(delta.product.added_paths, ["added.py"]);
+        assert_eq!(delta.product.removed_paths, ["removed.py"]);
+        assert_eq!(
+            delta.runtime_evidence.changed_paths,
+            ["evidence/before.json"]
+        );
+        assert_eq!(delta.runtime_evidence.added_paths, ["evidence/after.json"]);
+        assert!(delta.runtime_evidence.removed_paths.is_empty());
     }
 
     #[test]

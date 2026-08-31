@@ -456,6 +456,45 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "source": "host_owned_recovery_fix_origin",
                     "external_oracle_used": False,
                 },
+                {
+                    "event": "recovery_handoff_fidelity_bound",
+                    "fidelity_ok": True,
+                    "goal_source": "completion_contract",
+                    "contract_bound": True,
+                    "verify_command_count": 1,
+                    "repair_target_count": 1,
+                },
+                {
+                    "event": "recovery_product_mutation_observed",
+                    "stage": "initial",
+                    "reported_changed_paths": ["app.py"],
+                    "observed_changed_paths": ["app.py"],
+                    "no_op_reported_paths": [],
+                    "unreported_mutation_paths": [],
+                    "mutation_observed": True,
+                },
+                {
+                    "event": "recovery_fix_safety_verification",
+                    "registered_verify_commands": ["python3 app.py"],
+                    "referenced_api_surface_count": 1,
+                    "referenced_api_violations": [],
+                    "changed_paths": ["app.py"],
+                    "ok": True,
+                },
+                {
+                    "event": "recovery_treatment_delta",
+                    "status": "observed",
+                    "attempted_product_delta": {
+                        "changed_paths": ["app.py"],
+                        "added_paths": [],
+                        "removed_paths": [],
+                    },
+                    "treatment_runtime_evidence_delta": {
+                        "changed_paths": [],
+                        "added_paths": ["evidence/verify.json"],
+                        "removed_paths": [],
+                    },
+                },
             ]
             (run_dir / "events.jsonl").write_text(
                 "\n".join(json.dumps(row) for row in rows) + "\n",
@@ -484,6 +523,18 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(
             telemetry["fix_contract_resumptions"][0]["fix_run_id"],
             "01a-test-fix",
+        )
+        self.assertTrue(telemetry["handoff_fidelity"][0]["fidelity_ok"])
+        self.assertEqual(
+            telemetry["product_mutation_observations"][0]["observed_changed_paths"],
+            ["app.py"],
+        )
+        self.assertTrue(telemetry["fix_safety_verifications"][0]["ok"])
+        self.assertEqual(
+            telemetry["treatment_deltas"][0]["attempted_product_delta"][
+                "changed_paths"
+            ],
+            ["app.py"],
         )
 
     def test_product_argv_makes_recovery_zero_and_one_explicit(self):
@@ -2190,6 +2241,101 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         )
         self.assertTrue(
             completed_recovery_fix["checks"]["recovery_fix_terminal_completion"]
+        )
+
+        contract["smoke"].update(
+            {
+                "require_recovery_handoff_fidelity_v2": True,
+                "require_recovery_product_mutation_observation": True,
+                "require_recovery_fix_safety_verification": True,
+                "require_recovery_bounded_local_repair_max_one": True,
+                "require_recovery_treatment_delta": True,
+            }
+        )
+        recovery_attempts.update(
+            {
+                "handoff_fidelity": [
+                    {
+                        "event": "recovery_handoff_fidelity_bound",
+                        "fidelity_ok": True,
+                        "goal_source": "completion_contract",
+                        "contract_bound": True,
+                        "verify_command_count": 1,
+                        "repair_target_count": 1,
+                    }
+                ],
+                "product_mutation_observations": [
+                    {
+                        "stage": "initial",
+                        "reported_changed_paths": ["app.py"],
+                        "observed_changed_paths": ["app.py"],
+                        "no_op_reported_paths": [],
+                        "unreported_mutation_paths": [],
+                        "mutation_observed": True,
+                    },
+                    {
+                        "stage": "bounded_local_repair",
+                        "reported_changed_paths": ["app.py"],
+                        "observed_changed_paths": ["app.py"],
+                        "no_op_reported_paths": [],
+                        "unreported_mutation_paths": [],
+                        "mutation_observed": True,
+                    },
+                ],
+                "fix_safety_verifications": [
+                    {
+                        "registered_verify_commands": ["python3 app.py"],
+                        "referenced_api_surface_count": 1,
+                        "referenced_api_violations": [],
+                        "changed_paths": ["app.py"],
+                        "ok": True,
+                    }
+                ],
+                "treatment_deltas": [
+                    {
+                        "status": "observed",
+                        "attempted_product_delta": {
+                            "changed_paths": ["app.py"],
+                            "added_paths": [],
+                            "removed_paths": [],
+                        },
+                        "treatment_runtime_evidence_delta": {
+                            "changed_paths": [],
+                            "added_paths": ["evidence/final.json"],
+                            "removed_paths": [],
+                        },
+                    }
+                ],
+            }
+        )
+        fidelity_report = build_recovery_report(records=records, contract=contract)
+        for check in (
+            "recovery_handoff_fidelity_v2",
+            "recovery_product_mutation_observation",
+            "recovery_fix_safety_verification",
+            "recovery_bounded_local_repair_max_one",
+            "recovery_treatment_delta",
+        ):
+            self.assertTrue(fidelity_report["checks"][check], fidelity_report)
+
+        two_local_repairs = copy.deepcopy(records)
+        two_local_repairs[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "product_mutation_observations"
+        ].append(
+            {
+                "stage": "bounded_local_repair",
+                "reported_changed_paths": [],
+                "observed_changed_paths": [],
+                "no_op_reported_paths": [],
+                "unreported_mutation_paths": [],
+                "mutation_observed": False,
+            }
+        )
+        bounded_report = build_recovery_report(
+            records=two_local_repairs, contract=contract
+        )
+        self.assertFalse(
+            bounded_report["checks"]["recovery_bounded_local_repair_max_one"]
         )
 
         honest_failure_records = copy.deepcopy(records)

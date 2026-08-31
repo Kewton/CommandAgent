@@ -557,6 +557,63 @@ def _recovery_plan_attempts(
         for row in events
         if row.get("event") == "recovery_fix_contract_resumed"
     ]
+    handoff_fidelity = [
+        {
+            "event": row.get("event"),
+            "fidelity_ok": row.get(
+                "fidelity_ok", row.get("recovery_handoff_fidelity_ok")
+            ),
+            "goal_source": row.get("recovery_goal_source", row.get("goal_source")),
+            "contract_bound": row.get(
+                "recovery_contract_bound", row.get("contract_bound")
+            ),
+            "verify_command_count": row.get(
+                "recovery_verify_command_count", row.get("verify_command_count")
+            ),
+            "repair_target_count": row.get(
+                "recovery_repair_target_count", row.get("repair_target_count")
+            ),
+        }
+        for row in events
+        if row.get("event")
+        in {"recovery_handoff_fidelity_bound", "recovery_handoff_fidelity_failed"}
+    ]
+    product_mutation_observations = [
+        {
+            "stage": row.get("stage"),
+            "reported_changed_paths": row.get("reported_changed_paths"),
+            "observed_changed_paths": row.get("observed_changed_paths"),
+            "no_op_reported_paths": row.get("no_op_reported_paths"),
+            "unreported_mutation_paths": row.get("unreported_mutation_paths"),
+            "mutation_observed": row.get("mutation_observed"),
+        }
+        for row in events
+        if row.get("event") == "recovery_product_mutation_observed"
+    ]
+    fix_safety_verifications = [
+        {
+            "registered_verify_commands": row.get("registered_verify_commands"),
+            "referenced_api_surface_count": row.get(
+                "referenced_api_surface_count"
+            ),
+            "referenced_api_violations": row.get("referenced_api_violations"),
+            "changed_paths": row.get("changed_paths"),
+            "ok": row.get("ok"),
+        }
+        for row in events
+        if row.get("event") == "recovery_fix_safety_verification"
+    ]
+    treatment_deltas = [
+        {
+            "status": row.get("status"),
+            "attempted_product_delta": row.get("attempted_product_delta"),
+            "treatment_runtime_evidence_delta": row.get(
+                "treatment_runtime_evidence_delta"
+            ),
+        }
+        for row in events
+        if row.get("event") == "recovery_treatment_delta"
+    ]
     rows = [
         row
         for row in events
@@ -571,6 +628,12 @@ def _recovery_plan_attempts(
             "recovery_plan_auto_run_complete",
             "recovery_plan_auto_run_stopped",
             "recovery_suppressed_current_success",
+            "recovery_handoff_fidelity_failed",
+            "recovery_handoff_fidelity_bound",
+            "recovery_fix_safety_verification",
+            "recovery_product_mutation_observed",
+            "recovery_prompt_saved",
+            "recovery_treatment_delta",
             "recovery_treatment_rejected_regression",
         }
     ]
@@ -692,6 +755,10 @@ def _recovery_plan_attempts(
         ),
         "step_plan_contract_bindings": step_plan_contract_bindings,
         "fix_contract_resumptions": fix_contract_resumptions,
+        "handoff_fidelity": handoff_fidelity,
+        "product_mutation_observations": product_mutation_observations,
+        "fix_safety_verifications": fix_safety_verifications,
+        "treatment_deltas": treatment_deltas,
         "promotion_decisions": [
             {
                 "decision": row.get("decision"),
