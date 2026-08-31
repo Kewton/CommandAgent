@@ -1,6 +1,6 @@
 # Issue 399 A15 real data / Next.js Recovery design
 
-Status: exact-SHA smoke contract frozen; live collection not started
+Status: A15 smoke is immutable NO-GO evidence; A15-A1 corrected smoke is frozen
 
 Repository: `/Users/maenokota/share/work/github_kewton/CommandAgent-develop`
 
@@ -68,10 +68,28 @@ An “all profiles improve” claim requires all of the following:
   sentinel Recovery occurs;
 - wall-time and token budgets pass both overall and per profile.
 
-The smoke contract is frozen against product SHA `34493ca7` after exact-SHA CI
-and acceptance both succeeded. The full contract remains draft. It cannot be frozen until the A15 smoke is GO
-and profile-specific wall/token budgets are fixed without observing full-run
-outcomes.
+The original smoke contract was frozen against product SHA `34493ca7` after
+exact-SHA CI and acceptance both succeeded. It completed as immutable NO-GO
+instrument evidence: Recovery was not exercised in every real profile, typed
+data capabilities were rejected, and Next.js inspection did not preserve the
+existing application tree.
+
+A15-A1 repeats the same 14 selected pairs with the same external oracles,
+thresholds, exclusions, resource budgets, and Recovery 0-vs-1 treatment. It
+changes only the product instrument identified by the original smoke:
+
+- Recovery preflight observations run in an isolated copy;
+- registered typed data capabilities execute through their existing catalog
+  checks;
+- Next.js preserves an existing root `app/` tree and optional absent CSS;
+- Inspect rejects source-mutating tool calls;
+- a nonexistent read path may use only a unique, registered, existing-path
+  suffix match.
+
+The corrected product SHA is `45d9d916893e775f99dfabc2d2f4823fb56914f7`.
+Its exact-SHA CI and acceptance runs succeeded. The full contract remains
+draft. It cannot be frozen until the A15-A1 smoke is GO and profile-specific
+wall/token budgets are fixed without observing full-run outcomes.
 
 ## Local verification completed
 
@@ -94,6 +112,9 @@ outcomes.
 - `eval/goal_verify/v0/phase6-real-workspaces-v4-a15.json`
 - `eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json`
 - `eval/goal_verify/v0/phase6-recovery-v4-a15-full-contract.json`
+- `eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json`
+- `eval/goal_verify/v0/exact-sha-ci-45d9d916.json`
 - `tests/fixtures/goal_verify_v4/a15/`
 - `scripts/eval_lib/generate_goal_verify_recovery_v4_a15.py`
+- `scripts/eval_lib/generate_goal_verify_recovery_v4_a15_a1.py`
 - `scripts/eval_lib/goal_verify_recovery_a15_report.py`

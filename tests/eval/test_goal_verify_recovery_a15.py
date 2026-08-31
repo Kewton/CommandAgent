@@ -11,6 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from eval_lib.generate_goal_verify_recovery_v4_a15_a1 import build_contract
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -37,6 +38,33 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a15_a1_inherits_the_frozen_smoke_without_changing_design(self):
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json")
+        evidence = base["exact_sha_ci_evidence"]
+        amended = build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=evidence,
+            authorized=True,
+        )
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"],
+            base["smoke"]["selected_pair_ids"],
+        )
+        for field in (
+            "expected_pair_count",
+            "minimum_executed_recovery_pairs",
+            "minimum_executed_recovery_pairs_per_real_profile",
+            "required_real_profiles",
+            "typed_fix_reproducer_commands",
+        ):
+            self.assertEqual(amended["smoke"][field], base["smoke"][field])
+        self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A1"
+        )
+
     def test_real_profile_contracts_bind_and_freeze_executable_oracles(self):
         corpus = load("eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json")
         tasks = load("eval/goal_verify/v0/phase6-task-contracts-v4-a15.json")
