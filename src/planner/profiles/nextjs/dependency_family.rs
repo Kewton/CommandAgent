@@ -32,7 +32,7 @@ pub(super) fn ensure_type_dependencies(
     ensure_major(dependencies, "@types/react-dom", family.1, family.0);
 }
 
-pub(super) fn coherence_failure(package: &Value) -> Option<String> {
+pub(super) fn coherence_failure(package: &Value, typescript_required: bool) -> Option<String> {
     let Some(next) = version(package, "next") else {
         return Some("next dependency must declare a parseable version".to_string());
     };
@@ -42,7 +42,9 @@ pub(super) fn coherence_failure(package: &Value) -> Option<String> {
     let Some(react_dom) = version(package, "react-dom") else {
         return Some("react-dom dependency must declare a parseable version".to_string());
     };
-    if needs_repair("typescript", version(package, "typescript").unwrap_or("")) {
+    if typescript_required
+        && needs_repair("typescript", version(package, "typescript").unwrap_or(""))
+    {
         return Some(
             "typescript dependency must use a deterministic 5.x range such as ^5.5.0".to_string(),
         );
@@ -170,6 +172,28 @@ mod tests {
 
         assert_eq!(ensure_runtime_dependencies(dependencies), None);
         assert_eq!(dependencies["next"], "17.0.0");
-        assert!(coherence_failure(&package).unwrap().contains("Next 17"));
+        assert!(
+            coherence_failure(&package, true)
+                .unwrap()
+                .contains("Next 17")
+        );
+    }
+
+    #[test]
+    fn plain_javascript_does_not_require_typescript() {
+        let package = json!({
+            "dependencies": {
+                "next": "16.3.1",
+                "react": "19.2.8",
+                "react-dom": "19.2.8"
+            }
+        });
+
+        assert_eq!(coherence_failure(&package, false), None);
+        assert!(
+            coherence_failure(&package, true)
+                .unwrap()
+                .contains("typescript dependency")
+        );
     }
 }

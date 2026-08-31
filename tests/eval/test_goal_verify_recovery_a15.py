@@ -15,6 +15,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a1 as a15_a1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a1_1 as a15_a1_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a2 as a15_a2_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a3 as a15_a3_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a4 as a15_a4_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -159,6 +160,40 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             "recovery_fix_terminal_outcome_policy_invalid",
             recovery_contract_errors(weakened),
         )
+
+    def test_a15_a4_aligns_nextjs_obligations_to_registered_observations(self):
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a3-smoke-contract.json")
+        tasks = a15_a4_generator.build_tasks()
+        amended = a15_a4_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            authorized=True,
+            tasks=tasks,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"]
+        )
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A4"
+        )
+        nextjs = [
+            row
+            for row in tasks["cases"]
+            if row["case_id"].startswith("phase6-main-c14-task-")
+        ]
+        self.assertEqual(len(nextjs), 10)
+        self.assertTrue(
+            all(
+                row["completion_contract"]["required_obligations"] == ["implementation"]
+                and "test_artifact"
+                not in row["completion_contract"]["required_evidence"]
+                for row in nextjs
+            )
+        )
+        self.assertEqual(task_contract_registry_errors(tasks), [])
 
     def test_real_profile_contracts_bind_and_freeze_executable_oracles(self):
         corpus = load("eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json")

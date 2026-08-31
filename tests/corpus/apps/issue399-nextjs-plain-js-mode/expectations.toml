@@ -1,0 +1,27 @@
+case_id = "issue399_nextjs_plain_js_mode"
+source = "Issue 399 A15-A4 plain JavaScript Next.js profile preservation"
+required_paths = ["app/layout.js", "app/page.js"]
+verify_commands = []
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = ["implementation"]
+deferred_verify_requirements = []
+evidence_hint_tokens = ["ready"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = ["app/page.js"]
+exclude = []
+
+[evidence]
+implementation_artifact = "strong"
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"

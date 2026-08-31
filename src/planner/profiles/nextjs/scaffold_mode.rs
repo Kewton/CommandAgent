@@ -269,7 +269,8 @@ mod tests {
     use serde_json::Value;
 
     use super::super::{
-        complete_scaffold, package_has_dependency, repair_manifest_coherence, setup_scaffold_paths,
+        auto_repair, complete_scaffold, package_has_dependency, repair_manifest_coherence,
+        setup_scaffold_paths, verify,
     };
 
     fn package_script(root: &Path, name: &str) -> Option<String> {
@@ -347,6 +348,17 @@ mod tests {
         assert!(!paths.iter().any(|path| path.starts_with("src/app/")));
         assert!(complete_scaffold(dir.path(), &paths).unwrap().is_empty());
         assert!(!dir.path().join("src/app").exists());
+
+        let report = crate::planner::profile::profile_failure("dev script missing");
+        assert!(auto_repair(dir.path(), "port 4185", &report).unwrap());
+        assert!(!dir.path().join("src/app").exists());
+        assert!(!dir.path().join("tsconfig.json").exists());
+        let package: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(!package_has_dependency(&package, "typescript"));
+        assert!(verify(dir.path(), "port 4185").is_pass());
     }
 
     #[test]
