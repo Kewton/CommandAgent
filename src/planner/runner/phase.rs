@@ -1101,13 +1101,23 @@ pub(super) fn run_step(
     mut run_setup_authority: Option<&mut UltraRunSetupAuthorityState>,
 ) -> Result<StepRunOutcome, StepRunError> {
     let runtime = resolve_profile_runtime(&config.profile);
-    let (mut runtime_step, synthesized_precheck) = runtime.runtime_step_with_profile_checks(
-        &config.workspace_root,
-        &prompt_context.overall_goal,
-        step,
-        phase_scope,
-        config.eval_events_path.as_deref(),
-    );
+    let host_owned_recovery_verify =
+        crate::planner::recovery_step_plan_binding::is_host_owned_final_success_step(
+            config,
+            phase_scope,
+            step,
+        );
+    let (mut runtime_step, synthesized_precheck) = if host_owned_recovery_verify {
+        (step.clone(), false)
+    } else {
+        runtime.runtime_step_with_profile_checks(
+            &config.workspace_root,
+            &prompt_context.overall_goal,
+            step,
+            phase_scope,
+            config.eval_events_path.as_deref(),
+        )
+    };
     runtime
         .inject_step_material(config, &mut runtime_step)
         .map_err(|err| StepRunError {
@@ -1148,12 +1158,6 @@ pub(super) fn run_step(
     .with_required_mutation_before_short_circuit(synthesized_precheck);
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
-    let host_owned_recovery_verify =
-        crate::planner::recovery_step_plan_binding::is_host_owned_final_success_step(
-            config,
-            phase_scope,
-            &runtime_step,
-        );
     let verify_first_applicable = host_owned_recovery_verify
         || data_pre_satisfied
             .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));

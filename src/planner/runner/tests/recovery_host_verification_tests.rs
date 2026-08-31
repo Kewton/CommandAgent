@@ -85,3 +85,103 @@ fn recovery_contract_final_verification_fails_without_model_command_rewrite() {
     );
     assert!(event_text.contains("\"model_execution_skipped\":true"));
 }
+
+#[test]
+fn data_profile_preserves_all_bound_host_recovery_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("events.jsonl");
+    for path in ["scripts", "data", "tests"] {
+        std::fs::create_dir_all(dir.path().join(path)).unwrap();
+    }
+    std::fs::write(
+        dir.path().join("scripts/repro.py"),
+        "raise SystemExit(1)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("scripts/contract_check.py"),
+        "raise SystemExit(0)\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("data/task.csv"), "value\n1\n").unwrap();
+    std::fs::write(
+        dir.path().join("tests/test_ok.py"),
+        "def test_ok():\n    pass\n",
+    )
+    .unwrap();
+    let runtime = dir.path().join(".commandagent/recovery-runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let evidence = b"{}\n";
+    std::fs::write(runtime.join("fix-origin-evidence.json"), evidence).unwrap();
+    std::fs::write(
+        runtime.join("fix-origin.json"),
+        serde_json::to_vec(
+            &crate::planner::recovery_contract_binding::RecoveryFixOrigin {
+                schema_version: "1".to_string(),
+                original_intent: "fix".to_string(),
+                contract_origin: crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN.to_string(),
+                contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION
+                    .to_string(),
+                contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF.to_string(),
+                fix_run_id: "data-host-verify-test".to_string(),
+                evidence_path: ".commandagent/recovery-runtime/fix-origin-evidence.json"
+                    .to_string(),
+                evidence_sha256: format!("{:x}", Sha256::digest(evidence)),
+                reproducer_command: "python3 scripts/repro.py data/task.csv".to_string(),
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut cfg = config(dir.path().to_path_buf());
+    cfg.profile = "data".to_string();
+    cfg.eval_events_path = Some(events.clone());
+    let commands = vec![
+        "python3 scripts/repro.py data/task.csv".to_string(),
+        "python3 -m pytest -q tests".to_string(),
+        "python3 scripts/contract_check.py".to_string(),
+    ];
+    let step = PlanStep {
+        id: "recovery-contract-verify".to_string(),
+        kind: "verify".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: "Run every bound registered command".to_string(),
+        expected_paths: vec!["scripts/repro.py".to_string()],
+        verify: commands.clone(),
+    };
+    let plan = StepPlan {
+        goal: "recover data pipeline".to_string(),
+        steps: vec![step.clone()],
+    };
+    let context = StepPromptContext {
+        overall_goal: plan.goal.clone(),
+        ..StepPromptContext::default()
+    };
+    let mut fake = FakeClient::new(Vec::new());
+    let mut session = SessionSnapshot::new();
+
+    let error = run_step(
+        &mut fake,
+        &mut session,
+        &plan,
+        &step,
+        &context,
+        &cfg,
+        &NOOP_UI,
+        "test",
+        ContractEnforcement::Enforce,
+        Some("verify-recovery"),
+        None,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error.outcome.stop_reason.as_deref(),
+        Some("recovery_host_final_success_verification_failed")
+    );
+    assert!(fake.messages().is_empty());
+    let event_text = std::fs::read_to_string(events).unwrap();
+    for command in commands {
+        assert!(event_text.contains(&command), "{event_text}");
+    }
+}
