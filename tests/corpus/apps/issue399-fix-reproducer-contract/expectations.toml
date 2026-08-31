@@ -85,6 +85,16 @@ fixtures/protected-verification-input.jsonl = [
   "\"protected_path\":\"scripts/repro.py\"",
   "\"policy_source\":\"completion_contract\""
 ]
+fixtures/recovery-implement-write-required.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"plan_step_started\"",
+  "\"step_kind\":\"implement\"",
+  "\"event\":\"no_progress_feedback\"",
+  "no Write/Edit tool call has happened yet",
+  "\"event\":\"tool_execute\"",
+  "\"name\":\"Write\"",
+  "\"event\":\"plan_step_completed\""
+]
 
 [fixture_ordered]
 fixtures/typed-fix-reproducer.jsonl = [
@@ -109,4 +119,12 @@ fixtures/typed-reproducer-recovery-preflight.jsonl = [
   "\"event\":\"recovery_treatment_promoted\"",
   "\"event\":\"recovery_promotion_decision\"",
   "\"event\":\"recovery_plan_auto_run_complete\""
+]
+fixtures/recovery-implement-write-required.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"plan_step_started\"",
+  "\"event\":\"tool_execute\",\"name\":\"Bash\"",
+  "\"event\":\"no_progress_feedback\"",
+  "\"event\":\"tool_execute\",\"name\":\"Write\"",
+  "\"event\":\"plan_step_completed\""
 ]

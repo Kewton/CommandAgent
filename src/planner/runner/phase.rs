@@ -1145,6 +1145,11 @@ pub(super) fn run_step(
     let setup_authority = step_verify_setup_authority(plan, step, run_authority);
     let contract_setup_authority =
         step_contract_setup_authority(plan, step, phase_scope, run_authority);
+    let recovery_fix_write_required =
+        recovery_fix_implement_requires_write(config, step).map_err(|err| StepRunError {
+            message: format!("Recovery fix origin validation failed: {err}"),
+            outcome: StepRunOutcome::default(),
+        })?;
     let step_options = step_run_session_options(
         plan,
         step,
@@ -1155,6 +1160,7 @@ pub(super) fn run_step(
     .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
         config.resolved_intent(&prompt_context.overall_goal),
     ))
+    .with_required_write_for_action_prompt(recovery_fix_write_required)
     .with_required_mutation_before_short_circuit(synthesized_precheck);
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
@@ -2313,6 +2319,14 @@ pub(super) fn run_step(
     outcome.stop_reason = Some(final_failure_kind.to_string());
     outcome.partial = true;
     Err(StepRunError { message, outcome })
+}
+
+pub(super) fn recovery_fix_implement_requires_write(
+    config: &Config,
+    step: &PlanStep,
+) -> anyhow::Result<bool> {
+    Ok(step.step_kind() == StepKind::Implement
+        && crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_some())
 }
 
 pub(super) fn step_verify_setup_authority(

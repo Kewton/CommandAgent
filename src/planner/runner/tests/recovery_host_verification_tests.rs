@@ -185,3 +185,51 @@ fn data_profile_preserves_all_bound_host_recovery_commands() {
         assert!(event_text.contains(&command), "{event_text}");
     }
 }
+
+#[test]
+fn recovery_fix_origin_requires_write_for_implement_step_only() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+    std::fs::write(dir.path().join("pipeline/main.py"), "BROKEN = True\n").unwrap();
+    let runtime = dir.path().join(".commandagent/recovery-runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let evidence = b"{}\n";
+    std::fs::write(runtime.join("fix-origin-evidence.json"), evidence).unwrap();
+    std::fs::write(
+        runtime.join("fix-origin.json"),
+        serde_json::to_vec(
+            &crate::planner::recovery_contract_binding::RecoveryFixOrigin {
+                schema_version: "1".to_string(),
+                original_intent: "fix".to_string(),
+                contract_origin: crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN.to_string(),
+                contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION
+                    .to_string(),
+                contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF.to_string(),
+                fix_run_id: "recovery-write-test".to_string(),
+                evidence_path: ".commandagent/recovery-runtime/fix-origin-evidence.json"
+                    .to_string(),
+                evidence_sha256: format!("{:x}", Sha256::digest(evidence)),
+                reproducer_command: "python3 pipeline/main.py".to_string(),
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let cfg = config(dir.path().to_path_buf());
+    let step = PlanStep {
+        id: "repair-pipeline".to_string(),
+        kind: "implement".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: "Update pipeline/main.py with the repaired implementation.".to_string(),
+        expected_paths: vec!["pipeline/main.py".to_string()],
+        verify: Vec::new(),
+    };
+    assert!(recovery_fix_implement_requires_write(&cfg, &step).unwrap());
+
+    let mut verify_step = step.clone();
+    verify_step.kind = "verify".to_string();
+    assert!(!recovery_fix_implement_requires_write(&cfg, &verify_step).unwrap());
+
+    std::fs::remove_file(runtime.join("fix-origin.json")).unwrap();
+    assert!(!recovery_fix_implement_requires_write(&cfg, &step).unwrap());
+}
