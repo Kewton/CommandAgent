@@ -83,6 +83,7 @@ def build_contract(
     contract.update(
         {
             "contract_id": CONTRACT_ID,
+            "smoke_run_id": CONTRACT_ID,
             "code_sha": code_sha,
             "exact_sha_ci_evidence": exact_sha_ci_evidence,
             "status": "frozen",
