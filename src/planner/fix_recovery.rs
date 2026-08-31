@@ -110,6 +110,8 @@ fn resume_fix(plan: &UltraPlan, config: &Config) -> anyhow::Result<Option<FixRun
             "fix_run_id": origin.fix_run_id,
             "reproducer_command": origin.reproducer_command,
             "before_epoch": before.epoch,
+            "origin_evidence_path": origin.evidence_path,
+            "origin_evidence_sha256": origin.evidence_sha256,
             "source": "host_owned_recovery_fix_origin",
             "external_oracle_used": false,
         }),
@@ -218,10 +220,17 @@ mod tests {
             contract_version: FIX_CONTRACT_VERSION.to_string(),
             contract_ref: FIX_CONTRACT_REF.to_string(),
             fix_run_id: run_id.clone(),
-            evidence_path,
+            evidence_path: ".commandagent/recovery-runtime/fix-origin-evidence.json".to_string(),
             evidence_sha256: format!("{:x}", Sha256::digest(&evidence)),
             reproducer_command: "test -f fixed.marker".to_string(),
         };
+        std::fs::write(
+            treatment
+                .path()
+                .join(".commandagent/recovery-runtime/fix-origin-evidence.json"),
+            &evidence,
+        )
+        .unwrap();
         std::fs::write(
             treatment
                 .path()
@@ -241,6 +250,10 @@ mod tests {
         };
         let recovery_config = config(treatment.path());
         let resumed = resume(None, &recovery_plan, &recovery_config)
+            .unwrap()
+            .unwrap();
+        assert!(!resumed.is_before_phase(0));
+        let resumed = resume(Some(resumed), &recovery_plan, &recovery_config)
             .unwrap()
             .unwrap();
         assert_eq!(resumed.run_id, run_id);
@@ -263,5 +276,6 @@ mod tests {
             "{events}"
         );
         assert!(events.contains("\"contract_origin\":\"fix_intent_v0\""));
+        assert_eq!(events.matches("recovery_fix_contract_resumed").count(), 1);
     }
 }

@@ -68,11 +68,14 @@ pub fn tool_arguments_reference_hidden(name: &str, arguments: &Value, root: &Pat
 pub fn referenced_path(root: &Path, text: &str) -> Option<String> {
     text.split(is_shell_boundary).find_map(|token| {
         let token = token.trim_matches(is_token_wrapper);
-        if token.is_empty() || !has_private_component(Path::new(token)) {
+        if token.is_empty() {
             return None;
         }
         let path = Path::new(token);
         let relative = path.strip_prefix(root).unwrap_or(path);
+        if !has_private_component(relative) {
+            return None;
+        }
         Some(normalize_display_path(relative))
     })
 }
@@ -140,5 +143,25 @@ mod tests {
             &json!({"pattern":"data/**/*.csv"}),
             root
         ));
+    }
+
+    #[test]
+    fn private_parent_of_workspace_does_not_make_workspace_paths_private() {
+        let root = Path::new("/tmp/control/.commandagent/recovery-treatments/run-01/workspace");
+        assert_eq!(
+            referenced_path(root, &format!("ls {}", root.display())),
+            None
+        );
+        assert_eq!(
+            referenced_path(root, &format!("cat {}/data/input.csv", root.display())),
+            None
+        );
+        assert_eq!(
+            referenced_path(
+                root,
+                &format!("cat {}/.commandagent/runs/private.json", root.display())
+            ),
+            Some(".commandagent/runs/private.json".to_string())
+        );
     }
 }

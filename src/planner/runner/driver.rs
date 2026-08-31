@@ -496,12 +496,19 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         config.eval_events_path.as_deref(),
                     )
                 };
+                let recovery_contract_bound =
+                    crate::planner::recovery_step_plan_binding::bind_generated(
+                        config,
+                        phase_label,
+                        &mut plan,
+                    )?;
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
                     || step_checks_converted > 0
                     || preset_converted > 0
-                    || python_cli_canonicalized > 0;
+                    || python_cli_canonicalized > 0
+                    || recovery_contract_bound;
                 emit_planner_plan_sanitized(
                     config,
                     client.label(),
@@ -700,6 +707,7 @@ pub(super) fn deterministic_step_plan_for_phase(
     );
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+    crate::planner::recovery_step_plan_binding::bind_generated(config, phase_label, &mut plan)?;
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
     let mut lint_report =
         crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));

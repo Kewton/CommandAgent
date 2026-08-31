@@ -259,6 +259,11 @@ fn lint_report_internal(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintRe
                     verify_rejection: Some(*failure.rejection),
                 });
             }
+            if let Some(message) = crate::planner::verify_assertion::existing_input_absence_failure(
+                command, &plan.goal, work_root,
+            ) {
+                report.push("verify_semantics", message);
+            }
         }
     }
     for offense in diagnose_step_plan_dependency_order(plan, work_root) {

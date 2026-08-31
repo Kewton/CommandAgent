@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib import generate_goal_verify_recovery_v4_a15_a1 as a15_a1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a1_1 as a15_a1_1_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a2 as a15_a2_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -93,6 +94,39 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(
             amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A1.1"
         )
+
+    def test_a15_a2_aligns_generic_obligations_without_changing_smoke_pairs(self):
+        base = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a1-1-smoke-contract.json"
+        )
+        tasks = a15_a2_generator.build_tasks()
+        amended = a15_a2_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            authorized=True,
+            tasks=tasks,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(amended["smoke"], base["smoke"])
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A2"
+        )
+        generic = [
+            row
+            for row in tasks["cases"]
+            if row["case_id"].startswith("phase6-main-c07-task-")
+        ]
+        self.assertEqual(len(generic), 10)
+        self.assertTrue(
+            all(
+                row["completion_contract"]["required_obligations"]
+                == ["implementation"]
+                for row in generic
+            )
+        )
+        self.assertEqual(task_contract_registry_errors(tasks), [])
 
     def test_real_profile_contracts_bind_and_freeze_executable_oracles(self):
         corpus = load("eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json")

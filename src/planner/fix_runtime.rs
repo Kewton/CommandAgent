@@ -165,7 +165,7 @@ impl FixRuntime {
     }
 
     pub(crate) const fn is_before_phase(&self, index: usize) -> bool {
-        index == 0
+        index == 0 && self.before.is_none()
     }
 
     pub(crate) fn repair_diagnostic(

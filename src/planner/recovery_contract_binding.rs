@@ -13,6 +13,7 @@ use crate::minimal_loop::completion::CompletionContract;
 
 const TREATMENT_CONTRACT_PATH: &str = ".commandagent/recovery-runtime/completion-contract.json";
 const FIX_ORIGIN_PATH: &str = ".commandagent/recovery-runtime/fix-origin.json";
+const FIX_ORIGIN_EVIDENCE_PATH: &str = ".commandagent/recovery-runtime/fix-origin-evidence.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RecoveryFixOrigin {
@@ -80,7 +81,9 @@ pub(crate) fn bind_config(config: &Config, treatment: &Path) -> anyhow::Result<C
     let contract = CompletionContract::load_for_config(&bound)
         .context("validate rebound Recovery treatment completion contract")?
         .context("rebound Recovery treatment completion contract is missing")?;
-    bind_fix_origin(config, &treatment, &contract)?;
+    if !inherit_fix_origin(config, &treatment, &contract)? {
+        bind_fix_origin(config, &treatment, &contract)?;
+    }
     Ok(bound)
 }
 
@@ -138,11 +141,11 @@ fn bind_fix_origin(
         .fix_reproducer_command
         .as_deref()
         .context("fix Recovery requires a bound fix_reproducer_command")?;
-    let evidence_path = format!("evidence/fix-{fix_run_id}-adjudication.json");
-    let source = config.workspace_root.join(&evidence_path);
+    let adjudication_path = format!("evidence/fix-{fix_run_id}-adjudication.json");
+    let source = config.workspace_root.join(&adjudication_path);
     let evidence = std::fs::read(&source).context("read failed fix adjudication evidence")?;
     validate_fix_evidence(&evidence, fix_run_id, reproducer_command)?;
-    let treatment_evidence = std::fs::read(treatment.join(&evidence_path))
+    let treatment_evidence = std::fs::read(treatment.join(&adjudication_path))
         .context("Recovery treatment is missing failed fix adjudication evidence")?;
     if treatment_evidence != evidence {
         bail!("Recovery treatment fix adjudication evidence changed during snapshot");
@@ -154,11 +157,39 @@ fn bind_fix_origin(
         contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION.to_string(),
         contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF.to_string(),
         fix_run_id: fix_run_id.to_string(),
-        evidence_path,
+        evidence_path: FIX_ORIGIN_EVIDENCE_PATH.to_string(),
         evidence_sha256: format!("{:x}", Sha256::digest(&evidence)),
         reproducer_command: reproducer_command.to_string(),
     };
+    write_read_only_bytes(
+        &treatment.join(FIX_ORIGIN_EVIDENCE_PATH),
+        &evidence,
+        "Recovery fix origin evidence",
+    )?;
     write_read_only_json(&treatment.join(FIX_ORIGIN_PATH), &origin)
+}
+
+fn inherit_fix_origin(
+    config: &Config,
+    treatment: &Path,
+    contract: &CompletionContract,
+) -> anyhow::Result<bool> {
+    let Some(origin) = load_fix_origin(config)? else {
+        return Ok(false);
+    };
+    if contract.fix_reproducer_command.as_deref() != Some(origin.reproducer_command.as_str()) {
+        bail!("Recovery continuation changed the bound fix reproducer");
+    }
+    let evidence = std::fs::read(config.workspace_root.join(&origin.evidence_path))
+        .context("read inherited Recovery fix origin evidence")?;
+    validate_fix_evidence(&evidence, &origin.fix_run_id, &origin.reproducer_command)?;
+    write_read_only_bytes(
+        &treatment.join(&origin.evidence_path),
+        &evidence,
+        "inherited Recovery fix origin evidence",
+    )?;
+    write_read_only_json(&treatment.join(FIX_ORIGIN_PATH), &origin)?;
+    Ok(true)
 }
 
 fn latest_final_acceptance(config: &Config) -> anyhow::Result<Option<Value>> {
@@ -214,32 +245,35 @@ fn validate_fix_evidence(
 }
 
 fn write_read_only_json(path: &Path, value: &impl Serialize) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec_pretty(value).context("serialize Recovery fix origin")?;
+    let mut bytes = bytes;
+    bytes.push(b'\n');
+    write_read_only_bytes(path, &bytes, "Recovery fix origin")
+}
+
+fn write_read_only_bytes(path: &Path, bytes: &[u8], label: &str) -> anyhow::Result<()> {
     if path.exists() {
-        bail!("Recovery fix origin already exists");
+        bail!("{label} already exists");
     }
     let parent = path
         .parent()
-        .context("Recovery fix origin parent is unavailable")?;
-    std::fs::create_dir_all(parent).context("create Recovery fix origin directory")?;
-    let bytes = serde_json::to_vec_pretty(value).context("serialize Recovery fix origin")?;
+        .context(format!("{label} parent is unavailable"))?;
+    std::fs::create_dir_all(parent).with_context(|| format!("create {label} directory"))?;
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
-        .context("create Recovery fix origin")?;
+        .with_context(|| format!("create {label}"))?;
     output
-        .write_all(&bytes)
-        .context("write Recovery fix origin")?;
-    output
-        .write_all(b"\n")
-        .context("finish Recovery fix origin")?;
-    output.sync_all().context("sync Recovery fix origin")?;
+        .write_all(bytes)
+        .with_context(|| format!("write {label}"))?;
+    output.sync_all().with_context(|| format!("sync {label}"))?;
     let mut permissions = output
         .metadata()
-        .context("read Recovery fix origin permissions")?
+        .with_context(|| format!("read {label} permissions"))?
         .permissions();
     permissions.set_readonly(true);
-    std::fs::set_permissions(path, permissions).context("protect Recovery fix origin")?;
+    std::fs::set_permissions(path, permissions).with_context(|| format!("protect {label}"))?;
     Ok(())
 }
 
@@ -363,12 +397,123 @@ mod tests {
 
         assert_eq!(origin.fix_run_id, run_id);
         assert_eq!(origin.reproducer_command, "python3 cli.py 11");
-        assert_eq!(origin.evidence_path, evidence_path);
+        assert_eq!(origin.evidence_path, FIX_ORIGIN_EVIDENCE_PATH);
+        assert_eq!(
+            std::fs::read(treatment.join(FIX_ORIGIN_EVIDENCE_PATH)).unwrap(),
+            evidence
+        );
         assert!(
             std::fs::metadata(treatment.join(FIX_ORIGIN_PATH))
                 .unwrap()
                 .permissions()
                 .readonly()
+        );
+    }
+
+    #[test]
+    fn inherits_immutable_fix_origin_after_recovery_acceptance_succeeds() {
+        let root = tempfile::tempdir().unwrap();
+        let source_contract = root.path().join("completion-contract.json");
+        std::fs::write(
+            &source_contract,
+            r#"{"required_paths":["cli.py"],"verify_commands":["python3 cli.py 11"],"fix_reproducer_command":"python3 cli.py 11","profile":"cli"}"#,
+        )
+        .unwrap();
+        let run_id = "01a-continuation";
+        let evidence = serde_json::to_vec(&serde_json::json!({
+            "schema_version": "1",
+            "intent": "fix",
+            "contract_version": "v0",
+            "contract_ref": "docs/fix-intent-contract.md",
+            "run_id": run_id,
+            "adjudication": {
+                "assurance": "failed",
+                "requirement_statuses": {"before_fails": "passed"}
+            },
+            "evidence": {
+                "before": {
+                    "binding_id": "python3 cli.py 11",
+                    "outcome": "failure"
+                }
+            }
+        }))
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(".commandagent/recovery-runtime")).unwrap();
+        std::fs::write(root.path().join(FIX_ORIGIN_EVIDENCE_PATH), &evidence).unwrap();
+        let origin = RecoveryFixOrigin {
+            schema_version: "1".to_string(),
+            original_intent: "fix".to_string(),
+            contract_origin: crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN.to_string(),
+            contract_version: crate::planner::adjudication::contract::FIX_CONTRACT_VERSION
+                .to_string(),
+            contract_ref: crate::planner::adjudication::contract::FIX_CONTRACT_REF.to_string(),
+            fix_run_id: run_id.to_string(),
+            evidence_path: FIX_ORIGIN_EVIDENCE_PATH.to_string(),
+            evidence_sha256: format!("{:x}", Sha256::digest(&evidence)),
+            reproducer_command: "python3 cli.py 11".to_string(),
+        };
+        std::fs::write(
+            root.path().join(FIX_ORIGIN_PATH),
+            serde_json::to_vec(&origin).unwrap(),
+        )
+        .unwrap();
+        let events = root.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "event": "ultra_final_acceptance",
+                    "intent": "fix",
+                    "ok": true,
+                    "fix_run_id": run_id
+                })
+            ),
+        )
+        .unwrap();
+        let observation = root.path().join("observation");
+        std::fs::create_dir(&observation).unwrap();
+        let mut source_config = config(root.path());
+        source_config.completion_contract_path = Some(source_contract);
+        source_config.eval_events_path = Some(events);
+
+        let bound = bind_config(&source_config, &observation).unwrap();
+        let inherited = load_fix_origin(&bound).unwrap().unwrap();
+
+        assert_eq!(inherited, origin);
+        assert_eq!(
+            std::fs::read(observation.join(FIX_ORIGIN_EVIDENCE_PATH)).unwrap(),
+            evidence
+        );
+    }
+
+    #[test]
+    fn successful_acceptance_without_fix_origin_cannot_start_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let contract = root.path().join("completion-contract.json");
+        std::fs::write(
+            &contract,
+            r#"{"required_paths":["cli.py"],"verify_commands":["python3 cli.py 11"],"fix_reproducer_command":"python3 cli.py 11","profile":"cli"}"#,
+        )
+        .unwrap();
+        let events = root.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            "{\"event\":\"ultra_final_acceptance\",\"intent\":\"fix\",\"ok\":true,\"fix_run_id\":\"01a-success\"}\n",
+        )
+        .unwrap();
+        let treatment = root.path().join("treatment");
+        std::fs::create_dir(&treatment).unwrap();
+        let mut source_config = config(root.path());
+        source_config.completion_contract_path = Some(contract);
+        source_config.eval_events_path = Some(events);
+
+        let error = bind_config(&source_config, &treatment).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("successful fix acceptance must not enter automatic Recovery")
         );
     }
 }

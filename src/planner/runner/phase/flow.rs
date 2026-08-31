@@ -308,6 +308,7 @@ pub fn run_ultra_plan_with_ui(
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
+    fix_runtime = crate::planner::fix_recovery::resume(fix_runtime, plan, config)?;
     let mut investigation_runtime =
         crate::planner::investigation_runtime::InvestigationRuntime::for_plan(plan, config);
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
@@ -401,7 +402,6 @@ pub fn run_ultra_plan_with_ui(
                 render_failure_stop_reason(format!("phase scaffold failed: {message}"), handoff,)
             )
         })?;
-        crate::planner::recovery_step_plan_binding::bind(config, plan, phase, &mut step_plan)?;
         phase_machine.plan_resolved()?;
         crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_mut(), phase, &mut step_plan);
         emit_ultra_phase_event(
@@ -786,7 +786,6 @@ pub fn run_ultra_plan_with_ui(
         )?;
         phase_machine.phase_committed(true, &plan.intent)?;
     }
-    fix_runtime = crate::planner::fix_recovery::resume(fix_runtime, plan, config)?;
     if let Some(runtime) = fix_runtime {
         let result = runtime.finish(config, plan);
         phase_machine.intent_finished(result.is_ok())?;

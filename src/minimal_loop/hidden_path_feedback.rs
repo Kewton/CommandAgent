@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::eval_events;
 
-pub const ENGINE_PRIVATE_GUIDANCE: &str = ".anvil はエンジン私有のメタデータであり、タスクツールから参照できない。現在のフェーズと計画はプロンプトに含まれている。";
+pub const ENGINE_PRIVATE_GUIDANCE: &str = "作業対象は現在の workspace からの相対パスで参照すること。.anvil はエンジン私有のメタデータであり、タスクツールから参照できない。.commandagent も同じくエンジン私有であり、絶対パスを含め参照してはならない。現在のフェーズと計画はプロンプトに含まれている。";
 
 pub(crate) fn emit_for_error(
     events_path: Option<&Path>,

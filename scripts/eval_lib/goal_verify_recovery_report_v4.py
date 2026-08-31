@@ -56,9 +56,10 @@ def build_recovery_report(
         initial_attempts = initial_result.get("recovery_plan_attempts", {})
         configured_zero.append(initial_attempts.get("configured_recovery_runs") == 0)
         _check_oracle_source(initial, pair_id, oracle_source_violations)
-        if contract.get("smoke", {}).get(
-            "require_separate_browser_oracle_preflight"
-        ) is not True:
+        if (
+            contract.get("smoke", {}).get("require_separate_browser_oracle_preflight")
+            is not True
+        ):
             _check_browser_oracle_executability(
                 initial, pair_id, browser_oracle_unavailable
             )
@@ -94,16 +95,13 @@ def build_recovery_report(
         recovery_attempts = recovery_result.get("recovery_plan_attempts", {})
         executed_recovery_runs = recovery_attempts.get("executed_recovery_runs")
         if (
-            recovery_attempts.get("terminal_stop_reason")
-            == "current_success_protected"
+            recovery_attempts.get("terminal_stop_reason") == "current_success_protected"
             or recovery_attempts.get("current_success_suppressed") is True
         ):
             current_success_suppressions.append(pair_id)
         if recovery_attempts.get("control_restore_failed_count", 0) != 0:
             transaction_control_violations.append(f"restore_failed:{pair_id}")
-        rejected_count = recovery_attempts.get(
-            "treatment_regression_rejected_count", 0
-        )
+        rejected_count = recovery_attempts.get("treatment_regression_rejected_count", 0)
         retained_count = recovery_attempts.get("control_retained_count", 0)
         if (
             isinstance(rejected_count, int)
@@ -153,12 +151,11 @@ def build_recovery_report(
                 ),
                 {},
             )
-            if (
-                recovery_attempt.get("recovery_candidate_scope")
-                not in {"step", "phase"}
-                or not isinstance(
-                    recovery_attempt.get("recovery_verify_command_count"), int
-                )
+            if recovery_attempt.get("recovery_candidate_scope") not in {
+                "step",
+                "phase",
+            } or not isinstance(
+                recovery_attempt.get("recovery_verify_command_count"), int
             ):
                 handoff_fidelity_violations.append(str(pair_id))
             if (
@@ -170,20 +167,27 @@ def build_recovery_report(
                 != "completion_contract"
             ):
                 recovery_verify_command_source_violations.append(str(pair_id))
-            if (
-                contract.get("smoke", {}).get(
-                    "require_registered_inner_recovery_verify_commands"
-                )
-                is True
-                and not _valid_inner_recovery_bindings(
-                    recovery_attempts.get("step_plan_contract_bindings")
-                )
+            if contract.get("smoke", {}).get(
+                "require_registered_inner_recovery_verify_commands"
+            ) is True and not _valid_inner_recovery_bindings(
+                recovery_attempts.get("step_plan_contract_bindings"),
+                require_pre_lint=(
+                    contract.get("analysis", {}).get(
+                        "recovery_generated_step_binding_timing"
+                    )
+                    == "before StepPlan lint"
+                ),
             ):
                 inner_recovery_verify_command_violations.append(str(pair_id))
             if contract.get("smoke", {}).get("require_fix_contract_continuity") is True:
                 resumptions = recovery_attempts.get("fix_contract_resumptions")
                 if not _valid_fix_contract_continuity(
-                    resumptions, expected_reproducer
+                    resumptions,
+                    expected_reproducer,
+                    require_immutable_origin=(
+                        "recovery_fix_origin_evidence_policy"
+                        in contract.get("analysis", {})
+                    ),
                 ):
                     fix_contract_continuity_violations.append(str(pair_id))
             if contract.get("smoke", {}).get(
@@ -206,9 +210,10 @@ def build_recovery_report(
         ).get("snapshot_sha256"):
             snapshot_mismatches.append(pair_id)
         _check_oracle_source(recovery, pair_id, oracle_source_violations)
-        if contract.get("smoke", {}).get(
-            "require_separate_browser_oracle_preflight"
-        ) is not True:
+        if (
+            contract.get("smoke", {}).get("require_separate_browser_oracle_preflight")
+            is not True
+        ):
             _check_browser_oracle_executability(
                 recovery, pair_id, browser_oracle_unavailable
             )
@@ -265,9 +270,10 @@ def build_recovery_report(
             runtime_category = (
                 record.get("eligibility", {}).get("runtime", {}).get("category")
             )
-            if runtime_category == "initial_success" and comparison.get(
-                "success_improved"
-            ) is True:
+            if (
+                runtime_category == "initial_success"
+                and comparison.get("success_improved") is True
+            ):
                 initial_success_attribution_violations.append(str(pair_id))
         for field, values in deltas.items():
             value = comparison.get("resource_delta", {}).get(field)
@@ -330,24 +336,26 @@ def build_recovery_report(
         "typed_fix_reproducer_binding": not typed_reproducer_violations,
     }
     if smoke.get("require_registered_recovery_verify_commands") is True:
-        checks["registered_recovery_verify_commands"] = (
-            not recovery_verify_command_source_violations
-        )
+        checks[
+            "registered_recovery_verify_commands"
+        ] = not recovery_verify_command_source_violations
     if smoke.get("require_registered_inner_recovery_verify_commands") is True:
-        checks["registered_inner_recovery_verify_commands"] = (
-            not inner_recovery_verify_command_violations
-        )
+        checks[
+            "registered_inner_recovery_verify_commands"
+        ] = not inner_recovery_verify_command_violations
     if smoke.get("require_fix_contract_continuity") is True:
         checks["fix_contract_continuity"] = not fix_contract_continuity_violations
     if smoke.get("require_recovery_fix_terminal_completion") is True:
-        checks["recovery_fix_terminal_completion"] = (
-            not recovery_fix_terminal_completion_violations
-        )
+        checks[
+            "recovery_fix_terminal_completion"
+        ] = not recovery_fix_terminal_completion_violations
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
     if shared_pairing:
-        require_attributed = smoke.get("require_executed_recovery_for_attribution", True)
+        require_attributed = smoke.get(
+            "require_executed_recovery_for_attribution", True
+        )
         checks.update(
             {
                 "recovery_attribution_requires_shared_initial_history": (
@@ -389,9 +397,7 @@ def build_recovery_report(
         "checks": checks,
         "instrument_ready": all(checks.values()),
         "effect_attribution_ready": (
-            all(checks.values())
-            and bool(attribution_ready)
-            and all(attribution_ready)
+            all(checks.values()) and bool(attribution_ready) and all(attribution_ready)
         ),
         "counts": {
             "attributed_improved": transitions.count("improved"),
@@ -468,11 +474,16 @@ def build_recovery_report(
     }
 
 
-def _valid_fix_contract_continuity(value: Any, expected_reproducer: Any) -> bool:
+def _valid_fix_contract_continuity(
+    value: Any,
+    expected_reproducer: Any,
+    *,
+    require_immutable_origin: bool = False,
+) -> bool:
     if not isinstance(value, list) or len(value) != 1:
         return False
     row = value[0]
-    return (
+    valid = (
         isinstance(row, dict)
         and row.get("original_intent") == "fix"
         and row.get("contract_origin") == "fix_intent_v0"
@@ -484,17 +495,22 @@ def _valid_fix_contract_continuity(value: Any, expected_reproducer: Any) -> bool
         and row.get("source") == "host_owned_recovery_fix_origin"
         and row.get("external_oracle_used") is False
     )
+    if not require_immutable_origin:
+        return valid
+    return (
+        valid
+        and row.get("origin_evidence_path")
+        == ".commandagent/recovery-runtime/fix-origin-evidence.json"
+        and isinstance(row.get("origin_evidence_sha256"), str)
+        and len(row["origin_evidence_sha256"]) == 64
+    )
 
 
 def _valid_recovery_fix_terminal_completion(
     result: dict[str, Any], attempts: dict[str, Any]
 ) -> bool:
     recovery_attempt = next(
-        (
-            row
-            for row in attempts.get("attempts", [])
-            if row.get("attempt_index") == 1
-        ),
+        (row for row in attempts.get("attempts", []) if row.get("attempt_index") == 1),
         {},
     )
     promotion_decisions = attempts.get("promotion_decisions")
@@ -514,7 +530,9 @@ def _valid_recovery_fix_terminal_completion(
     )
 
 
-def _valid_inner_recovery_bindings(value: Any) -> bool:
+def _valid_inner_recovery_bindings(
+    value: Any, *, require_pre_lint: bool = False
+) -> bool:
     if not isinstance(value, list) or not value:
         return False
     modes = set()
@@ -526,6 +544,7 @@ def _valid_inner_recovery_bindings(value: Any) -> bool:
         if (
             row.get("source") != "product_visible_completion_contract"
             or row.get("external_oracle_used") is not False
+            or (require_pre_lint and row.get("binding_stage") != "pre_lint")
         ):
             return False
         bound = row.get("bound_verify_commands")
@@ -534,7 +553,11 @@ def _valid_inner_recovery_bindings(value: Any) -> bool:
             if bound != []:
                 return False
         elif mode == "completion_contract_final_success":
-            if not isinstance(registered, list) or not registered or bound != registered:
+            if (
+                not isinstance(registered, list)
+                or not registered
+                or bound != registered
+            ):
                 return False
         else:
             return False
@@ -611,8 +634,7 @@ def _browser_preflight_errors(
         outcome = row.get("outcome", {}) if isinstance(row, dict) else {}
         if outcome.get("executed") is not True or outcome.get("result") != "pass":
             errors.append(
-                f"separate_preflight:{adapter_id}:"
-                f"{outcome.get('reason', 'unknown')}"
+                f"separate_preflight:{adapter_id}:{outcome.get('reason', 'unknown')}"
             )
     return errors
 

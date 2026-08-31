@@ -530,6 +530,7 @@ def _recovery_plan_attempts(
         {
             "phase_id": row.get("phase_id"),
             "binding_mode": row.get("binding_mode"),
+            "binding_stage": row.get("binding_stage"),
             "source": row.get("source"),
             "external_oracle_used": row.get("external_oracle_used"),
             "original_verify_commands": row.get("original_verify_commands"),
@@ -548,6 +549,8 @@ def _recovery_plan_attempts(
             "contract_ref": row.get("contract_ref"),
             "fix_run_id": row.get("fix_run_id"),
             "reproducer_command": row.get("reproducer_command"),
+            "origin_evidence_path": row.get("origin_evidence_path"),
+            "origin_evidence_sha256": row.get("origin_evidence_sha256"),
             "source": row.get("source"),
             "external_oracle_used": row.get("external_oracle_used"),
         }
@@ -676,12 +679,10 @@ def _recovery_plan_attempts(
         "attempts": [attempts[index] for index in sorted(attempts)],
         "terminal_stop_reason": terminal_reason,
         "current_success_suppressed": any(
-            row.get("event") == "recovery_suppressed_current_success"
-            for row in rows
+            row.get("event") == "recovery_suppressed_current_success" for row in rows
         ),
         "treatment_regression_rejected_count": sum(
-            row.get("event") == "recovery_treatment_rejected_regression"
-            for row in rows
+            row.get("event") == "recovery_treatment_rejected_regression" for row in rows
         ),
         "control_retained_count": sum(
             row.get("event") == "recovery_control_retained" for row in rows

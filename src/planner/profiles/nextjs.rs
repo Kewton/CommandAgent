@@ -1,3 +1,4 @@
+mod dependency_family;
 mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
@@ -70,7 +71,7 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure(format!("dependency missing: {dep}"));
         }
     }
-    if let Some(reason) = dependency_coherence_failure(&package) {
+    if let Some(reason) = dependency_family::coherence_failure(&package) {
         return profile_failure(reason);
     }
     let scripts = package.get("scripts").and_then(Value::as_object);
@@ -163,7 +164,7 @@ pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure(format!("dependency missing: {dep}"));
         }
     }
-    if let Some(reason) = dependency_coherence_failure(&package) {
+    if let Some(reason) = dependency_family::coherence_failure(&package) {
         return profile_failure(reason);
     }
     let scripts = package.get("scripts").and_then(Value::as_object);
@@ -1173,10 +1174,10 @@ fn ensure_package_json(root: &Path, goal: &str) -> anyhow::Result<()> {
     package
         .entry("private")
         .or_insert_with(|| Value::Bool(true));
-    let deps = object_entry(&mut package, "dependencies");
-    ensure_dependency(deps, "next", "^14.2.0");
-    ensure_dependency(deps, "react", "^18.3.0");
-    ensure_dependency(deps, "react-dom", "^18.3.0");
+    let react_family = {
+        let deps = object_entry(&mut package, "dependencies");
+        dependency_family::ensure_runtime_dependencies(deps)
+    };
     let mode = scaffold_mode::detect(root);
     let tailwind_used = mode.uses_tailwind();
     let typescript_used = mode.uses_typescript();
@@ -1185,8 +1186,9 @@ fn ensure_package_json(root: &Path, goal: &str) -> anyhow::Result<()> {
         if typescript_used {
             ensure_dependency(dev_deps, "typescript", "^5.5.0");
             ensure_dependency(dev_deps, "@types/node", "^20.14.0");
-            ensure_dependency(dev_deps, "@types/react", "^18.3.0");
-            ensure_dependency(dev_deps, "@types/react-dom", "^18.3.0");
+            if let Some(family) = react_family {
+                dependency_family::ensure_type_dependencies(dev_deps, family);
+            }
         }
         if tailwind_used {
             ensure_dependency(dev_deps, "tailwindcss", "^3.4.19");
@@ -1227,7 +1229,7 @@ fn ensure_dependency(deps: &mut Map<String, Value>, name: &str, version: &str) {
     let needs_update = deps
         .get(name)
         .and_then(Value::as_str)
-        .is_none_or(|current| dependency_version_needs_repair(name, current));
+        .is_none_or(|current| dependency_family::needs_repair(name, current));
     if needs_update {
         deps.insert(name.to_string(), Value::String(version.to_string()));
     }
@@ -2322,85 +2324,6 @@ fn package_has_dependency(package: &Value, name: &str) -> bool {
         .any(|deps| deps.contains_key(name))
 }
 
-fn dependency_coherence_failure(package: &Value) -> Option<String> {
-    let next = dependency_version(package, "next")?;
-    let react = dependency_version(package, "react")?;
-    let react_dom = dependency_version(package, "react-dom")?;
-    if dependency_version_needs_repair(
-        "typescript",
-        dependency_version(package, "typescript").unwrap_or(""),
-    ) {
-        return Some(
-            "typescript dependency must use a deterministic 5.x range such as ^5.5.0".to_string(),
-        );
-    }
-    let next_major = semver_major(next)?;
-    let react_major = semver_major(react)?;
-    let react_dom_major = semver_major(react_dom)?;
-    if next_major >= 15 && (react_major < 19 || react_dom_major < 19) {
-        return Some("Next 15+ requires React/React DOM 19.x compatibility".to_string());
-    }
-    if next_major <= 14 && (react_major != 18 || react_dom_major != 18) {
-        return Some("Next 14 profile expects React/React DOM 18.x compatibility".to_string());
-    }
-    if let Some(types_react) = dependency_version(package, "@types/react")
-        && let Some(types_major) = semver_major(types_react)
-        && ((react_major >= 19 && types_major < 19) || (react_major == 18 && types_major != 18))
-    {
-        return Some("@types/react major must match React major".to_string());
-    }
-    if let Some(types_react_dom) = dependency_version(package, "@types/react-dom")
-        && let Some(types_major) = semver_major(types_react_dom)
-        && ((react_dom_major >= 19 && types_major < 19)
-            || (react_dom_major == 18 && types_major != 18))
-    {
-        return Some("@types/react-dom major must match React DOM major".to_string());
-    }
-    None
-}
-
-fn dependency_version<'a>(package: &'a Value, name: &str) -> Option<&'a str> {
-    ["dependencies", "devDependencies"]
-        .iter()
-        .filter_map(|key| package.get(*key).and_then(Value::as_object))
-        .find_map(|deps| deps.get(name).and_then(Value::as_str))
-}
-
-fn dependency_version_needs_repair(name: &str, version: &str) -> bool {
-    if version.trim().is_empty() {
-        return true;
-    }
-    match name {
-        "typescript" => {
-            let Some(major) = semver_major(version) else {
-                return false;
-            };
-            major != 5 || version.trim() == "5.0.0"
-        }
-        "@types/node" => semver_major(version).is_none_or(|major| major != 20),
-        "@types/react" | "@types/react-dom" => {
-            semver_major(version).is_none_or(|major| major != 18)
-        }
-        "next" => semver_major(version).is_none_or(|major| major != 14),
-        "react" | "react-dom" => semver_major(version).is_none_or(|major| major != 18),
-        _ => false,
-    }
-}
-
-fn semver_major(version: &str) -> Option<u64> {
-    let trimmed = version.trim();
-    let digits = trimmed
-        .trim_start_matches(['^', '~', '=', 'v'])
-        .split(|ch: char| !ch.is_ascii_digit())
-        .next()
-        .unwrap_or_default();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse().ok()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2412,6 +2335,10 @@ mod tests {
 
     fn package_json() -> &'static str {
         r#"{"dependencies":{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"^5.5.0","@types/node":"^20.14.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#
+    }
+
+    fn dependency_version<'a>(package: &'a Value, name: &str) -> Option<&'a str> {
+        dependency_family::version(package, name)
     }
 
     #[test]
@@ -3167,7 +3094,7 @@ Phase task: Scaffold the Next.js app";
         let dir = complete_app();
         std::fs::write(
             dir.path().join("package.json"),
-            r#"{"dependencies":{"next":"^15.0.0","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"5.0.0","@types/node":"^18.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#,
+            r#"{"dependencies":{"next":"16.3.1","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"5.0.0","@types/node":"^18.0.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#,
         )
         .unwrap();
 
@@ -3176,11 +3103,11 @@ Phase task: Scaffold the Next.js app";
             &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(dependency_version(&package, "next"), Some("^14.2.0"));
-        assert_eq!(dependency_version(&package, "react"), Some("^18.3.0"));
+        assert_eq!(dependency_version(&package, "next"), Some("16.3.1"));
+        assert_eq!(dependency_version(&package, "react"), Some("^19.2.0"));
         assert_eq!(
             dependency_version(&package, "@types/react"),
-            Some("^18.3.0")
+            Some("^19.2.0")
         );
         assert_eq!(dependency_version(&package, "typescript"), Some("^5.5.0"));
         assert!(verify(dir.path(), "3011").is_pass());

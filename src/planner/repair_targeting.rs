@@ -10,6 +10,7 @@ use crate::planner::runner::StepRunOutcome;
 mod fix;
 pub(crate) use fix::fix_profile_invariant_target_guidance;
 mod cli;
+mod fallback;
 mod priority;
 pub(crate) use priority::RepairTargetPriority;
 mod testimony;
@@ -217,6 +218,10 @@ pub(crate) fn default_repair_target_candidates(root: &Path, profile: &str) -> Ve
     let mut out = Vec::new();
     for path in route_bound_source_candidates(root, profile) {
         push_unique_trimmed(&mut out, &path);
+    }
+    if !is_nextjs_profile(profile) {
+        merge_unique_strings(&mut out, &fallback::non_next_candidates(root, profile));
+        return out;
     }
     for path in nextjs_route_entry_candidates(root) {
         push_unique_trimmed(&mut out, &path);
