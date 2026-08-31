@@ -1,6 +1,6 @@
 # Issue 399 A15 real data / Next.js Recovery design
 
-Status: A15 smoke is immutable NO-GO evidence; A15-A1 corrected smoke is frozen
+Status: A15 smoke is immutable NO-GO evidence; A15-A1.1 corrected smoke is frozen
 
 Repository: `/Users/maenokota/share/work/github_kewton/CommandAgent-develop`
 
@@ -74,7 +74,7 @@ instrument evidence: Recovery was not exercised in every real profile, typed
 data capabilities were rejected, and Next.js inspection did not preserve the
 existing application tree.
 
-A15-A1 repeats the same 14 selected pairs with the same external oracles,
+A15-A1.1 repeats the same 14 selected pairs with the same external oracles,
 thresholds, exclusions, resource budgets, and Recovery 0-vs-1 treatment. It
 changes only the product instrument identified by the original smoke:
 
@@ -88,8 +88,14 @@ changes only the product instrument identified by the original smoke:
 
 The corrected product SHA is `45d9d916893e775f99dfabc2d2f4823fb56914f7`.
 Its exact-SHA CI and acceptance runs succeeded. The full contract remains
-draft. It cannot be frozen until the A15-A1 smoke is GO and profile-specific
+draft. It cannot be frozen until the A15-A1.1 smoke is GO and profile-specific
 wall/token budgets are fixed without observing full-run outcomes.
+
+The first A15-A1 contract listed its contract-generation-only script as a
+runtime runner source. Frozen-input validation rejected that mismatch before a
+run directory, record, or product invocation was created. A15-A1.1 removes
+only that non-runtime source; the product SHA and experimental design are
+unchanged.
 
 ## Local verification completed
 
@@ -113,8 +119,10 @@ wall/token budgets are fixed without observing full-run outcomes.
 - `eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json`
 - `eval/goal_verify/v0/phase6-recovery-v4-a15-full-contract.json`
 - `eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json`
+- `eval/goal_verify/v0/phase6-recovery-v4-a15-a1-1-smoke-contract.json`
 - `eval/goal_verify/v0/exact-sha-ci-45d9d916.json`
 - `tests/fixtures/goal_verify_v4/a15/`
 - `scripts/eval_lib/generate_goal_verify_recovery_v4_a15.py`
 - `scripts/eval_lib/generate_goal_verify_recovery_v4_a15_a1.py`
+- `scripts/eval_lib/generate_goal_verify_recovery_v4_a15_a1_1.py`
 - `scripts/eval_lib/goal_verify_recovery_a15_report.py`

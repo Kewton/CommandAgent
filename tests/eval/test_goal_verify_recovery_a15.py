@@ -11,7 +11,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from eval_lib.generate_goal_verify_recovery_v4_a15_a1 import build_contract
+from eval_lib import generate_goal_verify_recovery_v4_a15_a1 as a15_a1_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a1_1 as a15_a1_1_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -41,7 +42,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
     def test_a15_a1_inherits_the_frozen_smoke_without_changing_design(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json")
         evidence = base["exact_sha_ci_evidence"]
-        amended = build_contract(
+        amended = a15_a1_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=evidence,
             authorized=True,
@@ -63,6 +64,34 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(amended["supersedes_contract"], base["contract_id"])
         self.assertEqual(
             amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A1"
+        )
+
+    def test_a15_a1_1_only_removes_the_non_runtime_generator(self):
+        base = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json"
+        )
+        amended = a15_a1_1_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            authorized=True,
+        )
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(amended["smoke"], base["smoke"])
+        self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
+        self.assertNotIn(
+            a15_a1_1_generator.NON_RUNTIME_GENERATOR, amended["runner_sources"]
+        )
+        self.assertEqual(
+            amended["runner_sources"],
+            [
+                source
+                for source in base["runner_sources"]
+                if source != a15_a1_1_generator.NON_RUNTIME_GENERATOR
+            ],
+        )
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A1.1"
         )
 
     def test_real_profile_contracts_bind_and_freeze_executable_oracles(self):
