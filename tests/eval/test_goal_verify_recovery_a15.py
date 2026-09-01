@@ -25,6 +25,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a9 as a15_a9_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10 as a15_a10_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_1 as a15_a10_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_2 as a15_a10_2_generator
+from eval_lib import generate_goal_verify_recovery_v4_a16 as a16_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -54,6 +55,46 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a16_freezes_focused_contract_bound_recovery_smoke(self):
+        base = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-2-full-contract.json"
+        )
+        amended = a16_generator.build_contract(
+            code_sha="cdf400da8eb834b74b734afc4262f00827d1c984",
+            exact_sha_ci_evidence="eval/goal_verify/v0/exact-sha-ci-cdf400da.json",
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertNotIn("full_experiment", amended)
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"],
+            a16_generator.SELECTED_PAIR_IDS,
+        )
+        self.assertEqual(amended["smoke"]["expected_pair_count"], 6)
+        self.assertEqual(amended["smoke"]["minimum_pairs_per_real_profile"], 1)
+        self.assertEqual(
+            amended["smoke"]["minimum_executed_recovery_pairs_per_real_profile"],
+            1,
+        )
+        self.assertNotIn(
+            "real_profile_path_coverage_policy",
+            amended["smoke"],
+        )
+        self.assertTrue(
+            amended["smoke"]["require_discarded_valid_treatment_zero"]
+        )
+        self.assertIn(
+            a16_generator.READINESS_CHECK,
+            amended["smoke"]["required_readiness_checks"],
+        )
+        self.assertFalse(amended["smoke"]["effect_claim_allowed"])
+        self.assertFalse(amended["authorization"]["full_collection_authorized"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16"
+        )
+
     def test_a15_a1_inherits_the_frozen_smoke_without_changing_design(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json")
         evidence = base["exact_sha_ci_evidence"]
