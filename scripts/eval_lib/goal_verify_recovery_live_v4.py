@@ -677,17 +677,16 @@ def run_recovery_smoke(
                     commandagent_bin=commandagent_bin,
                     adapters=adapters,
                 )
-                _atomic_json(
-                    record_path,
-                    {
-                        **record,
-                        "source_case_id": case_id,
-                        "source_task_id": case["source_task_id"],
-                        "cell_id": case["cell_id"],
-                        "sample_index": sample_index,
-                        "record_path": reference,
-                    },
-                )
+                record_document = {
+                    **record,
+                    "source_case_id": case_id,
+                    "source_task_id": case["source_task_id"],
+                    "cell_id": case["cell_id"],
+                    "sample_index": sample_index,
+                    "record_path": reference,
+                }
+                _require_json_safe(record_document)
+                _atomic_json(record_path, record_document)
                 ledger_head = _append_record_ledger(
                     ledger_path=ledger_path,
                     entries=entries,
@@ -730,6 +729,35 @@ def bind_selected_recovery_cases(
         if case_id not in bound:
             bound[case_id] = bind_task_contract(corpus_by_id[case_id], task_registry)
     return bound
+
+
+def _require_json_safe(value: Any) -> None:
+    error = _json_type_error(value, path="$")
+    if error is not None:
+        path, type_name = error
+        raise TypeError(
+            f"recovery record is not JSON serializable at {path}: {type_name}"
+        )
+
+
+def _json_type_error(value: Any, *, path: str) -> tuple[str, str] | None:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return None
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            error = _json_type_error(item, path=f"{path}[{index}]")
+            if error is not None:
+                return error
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return f"{path}.<key>", type(key).__name__
+            error = _json_type_error(item, path=f"{path}.{key}")
+            if error is not None:
+                return error
+        return None
+    return path, type(value).__name__
 
 
 def _ensure_oracle_executability_preflight(

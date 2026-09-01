@@ -4,9 +4,11 @@ import copy
 import json
 import shlex
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from eval_lib.generate_goal_verify_main_v4 import _tracked_files
 from eval_lib.generate_goal_verify_main_v4_a13 import (
@@ -96,6 +98,7 @@ from eval_lib.goal_verify_baseline_product_v3 import (
     _recovery_boundary,
     _recovery_plan_attempts,
     build_product_argv,
+    run_current_product_baseline,
 )
 from eval_lib.goal_verify_blind_v4 import (
     build_blind_report,
@@ -125,6 +128,7 @@ from eval_lib.goal_verify_recovery_experiment_v4 import (
 from eval_lib.goal_verify_recovery_live_v4 import (
     _attach_frozen_browser_toolchain,
     _ensure_oracle_executability_preflight,
+    _require_json_safe,
     _snapshot_content_sha256,
     bind_selected_recovery_cases,
     parse_recovery_pair_id,
@@ -142,6 +146,7 @@ from eval_lib.goal_verify_task_contracts_v4 import (
 )
 from eval_lib.goal_verify_workspaces_v3 import workspace_by_case
 from eval_lib.goal_verify_workspaces_v4 import load_v4_workspace_registry
+from eval_lib.subprocess_capture import normalize_subprocess_capture
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -562,6 +567,74 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertNotIn("--plan-run", ultra)
         with self.assertRaisesRegex(ValueError, "unsupported execution_action"):
             build_product_argv(**common, execution_action="unknown")
+
+    def test_product_timeout_capture_is_bounded_utf8_and_json_safe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            timeout = subprocess.TimeoutExpired(
+                cmd=["commandagent"],
+                timeout=900,
+                output=b"partial-\xffstdout",
+                stderr=b"partial-stderr",
+            )
+            with mock.patch(
+                "eval_lib.goal_verify_baseline_product_v3.subprocess.run",
+                side_effect=timeout,
+            ):
+                result = run_current_product_baseline(
+                    commandagent_bin=Path(temporary) / "commandagent",
+                    workspace=Path(temporary),
+                    case={"intent": "fix", "profile": "data", "goal": "repair"},
+                    model="model",
+                    timeout_sec=900,
+                )
+
+        self.assertEqual(result["status"], "baseline_unavailable")
+        self.assertEqual(result["reason"], "timeout")
+        self.assertIsInstance(result["stdout"], str)
+        self.assertIsInstance(result["stderr"], str)
+        self.assertIn("\ufffd", result["stdout"])
+        self.assertFalse(result["output_truncated"])
+        json.dumps(result)
+
+    def test_timeout_capture_truncates_bytes_without_hiding_invalid_types(self):
+        normalized, truncated = normalize_subprocess_capture(b"abcd", max_bytes=3)
+        self.assertEqual(normalized, "abc")
+        self.assertTrue(truncated)
+        self.assertEqual(normalize_subprocess_capture(None), ("", False))
+        with self.assertRaisesRegex(TypeError, "unsupported subprocess capture type"):
+            normalize_subprocess_capture(object())  # type: ignore[arg-type]
+
+    def test_recovery_record_json_guard_reports_the_field_path(self):
+        _require_json_safe({"recovery_one": {"result": {"stdout": "ok"}}})
+        with self.assertRaisesRegex(
+            TypeError,
+            r"\$\.recovery_one\.result\.stdout: bytes",
+        ):
+            _require_json_safe(
+                {"recovery_one": {"result": {"stdout": b"partial"}}}
+            )
+
+    def test_registered_browser_timeout_capture_is_json_safe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            timeout = subprocess.TimeoutExpired(
+                cmd=["node"],
+                timeout=60,
+                output=b"partial-stdout",
+                stderr=b"partial-\xffstderr",
+            )
+            with mock.patch(
+                "eval_lib.goal_verify_executors_v3.subprocess.run",
+                side_effect=timeout,
+            ):
+                result = _run_registered_browser_command(
+                    ["node", "-e", ""], Path(temporary), 60_000
+                )
+
+        self.assertTrue(result["timed_out"])
+        self.assertIsInstance(result["stdout"], str)
+        self.assertIsInstance(result["stderr"], str)
+        self.assertIn("\ufffd", result["stderr"])
+        json.dumps(result)
 
     def test_a14_case_eligibility_excludes_missing_dependency_and_oracle(self):
         tasks = load("eval/goal_verify/v0/phase6-task-contracts-v4-a13-main.json")

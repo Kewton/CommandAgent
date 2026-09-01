@@ -1,0 +1,36 @@
+{
+  "bindings": {
+    "campaign_manifest_sha256": "6bcadab72622ae14c8df693784a6978e2e4778d88318db17a90f6e585c9dfe3d",
+    "campaign_summary_sha256": "207045ce1669de132083155f73446d204004c11ec574685eff994dcacd917d41",
+    "commandagent_binary_sha256": "91e511715854f953ce7384fb79ad5f445d92ad385fb11cdb75da4858dc65df22",
+    "contract_sha256": "fcee31cf3bb7bb9f703cc20d5ce7591aec90fb7c7960ad952c99f93d5b06d8b0",
+    "last_record_sha256": "b1c214aefd0ad7daa7734c56bc042f17002475ccd189faf9342b9ce1bfc7be29",
+    "record_ledger_head_sha256": "139d92502314527bf69df1f4bc60f073b578b2ce60e0561adc429c01787dc451",
+    "record_ledger_sha256": "7367b77e930eb0e06f13edced444ac736080d7b91eb9323de7440482d0eb631b"
+  },
+  "code_sha": "a346e33b57f4027cb20a4cbff3e5d83e01222f55",
+  "completed_pairs": 73,
+  "contract_id": "phase6-recovery-v4-20260901-a15-a10-1-live-01",
+  "failure": {
+    "exception_message": "Object of type bytes is not JSON serializable",
+    "exception_type": "TypeError",
+    "ledger_entry_created": false,
+    "phase": "raw_record_serialization",
+    "product_timeout_sec": 900,
+    "raw_record_created": false,
+    "source_fields": [
+      "subprocess.TimeoutExpired.stdout",
+      "subprocess.TimeoutExpired.stderr"
+    ],
+    "trigger": "product_timeout",
+    "uncommitted_pair_id": "phase6-main-c13-task-05--pair-02"
+  },
+  "historical_run_policy": "The 73 committed records and their append-only ledger remain immutable partial instrument evidence. The run is never resumed, completed with a different runner, pooled into an effect estimate, or rescored.",
+  "inference_role": "instrumentation-unusable partial collection only",
+  "last_completed_pair_id": "phase6-main-c13-task-05--pair-01",
+  "run_directory": "dev-reports/issue-399/runs/phase6-recovery-v4-20260901-a15-a10-1-live-01",
+  "run_id": "phase6-recovery-v4-20260901-a15-a10-1-live-01",
+  "schema_version": "commandagent.goal_verify.recovery_partial_failure.v1",
+  "status": "instrumentation_unusable",
+  "target_pairs": 140
+}

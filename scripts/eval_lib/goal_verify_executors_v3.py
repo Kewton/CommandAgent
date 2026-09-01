@@ -13,6 +13,7 @@ from typing import Any
 
 from eval_lib.goal_verify_sandbox import run_macos_sandbox
 from eval_lib.goal_verify_v2 import _plan_hash
+from eval_lib.subprocess_capture import normalize_subprocess_capture
 
 CommandRunner = Callable[[list[str], Path, int], dict[str, Any]]
 
@@ -392,11 +393,14 @@ def _run_registered_browser_command(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        stdout, stdout_truncated = normalize_subprocess_capture(error.stdout)
+        stderr, stderr_truncated = normalize_subprocess_capture(error.stderr)
         return {
             "executed": True,
             "timed_out": True,
-            "stdout": error.stdout or "",
-            "stderr": error.stderr or "",
+            "stdout": stdout,
+            "stderr": stderr,
+            "output_truncated": stdout_truncated or stderr_truncated,
             "runtime_ms": (time.monotonic_ns() - started) // 1_000_000,
         }
     return {

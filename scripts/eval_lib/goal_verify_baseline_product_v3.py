@@ -10,6 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from eval_lib.subprocess_capture import normalize_subprocess_capture
+
 Replay = Callable[[list[str], Path, int], dict[str, Any]]
 
 
@@ -128,6 +130,8 @@ def run_current_product_baseline(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        stdout, stdout_truncated = normalize_subprocess_capture(error.stdout)
+        stderr, stderr_truncated = normalize_subprocess_capture(error.stderr)
         run_dirs = _product_run_dirs(workspace)
         product_run_dir = run_dirs[-1] if run_dirs else None
         completion_verify = _completion_verify_status(product_run_dir)
@@ -136,8 +140,9 @@ def run_current_product_baseline(
             "reason": "timeout",
             "argv": argv,
             "wall_time_ms": (time.monotonic_ns() - started) // 1_000_000,
-            "stdout": error.stdout or "",
-            "stderr": error.stderr or "",
+            "stdout": stdout,
+            "stderr": stderr,
+            "output_truncated": stdout_truncated or stderr_truncated,
             "recovery_plan_auto_runs": recovery_plan_auto_runs,
             "operational_constraints_bound": operational_constraints is not None,
             "operational_constraints_sha256": operational_constraints_sha256,

@@ -24,6 +24,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a8 as a15_a8_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a9 as a15_a9_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10 as a15_a10_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_1 as a15_a10_1_generator
+from eval_lib import generate_goal_verify_recovery_v4_a15_a10_2 as a15_a10_2_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -296,6 +297,63 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(
             amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A10.1"
         )
+
+    def test_a15_a10_2_restarts_all_pairs_after_typed_timeout_capture_fix(self):
+        base = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-1-full-contract.json"
+        )
+        partial_path = (
+            "eval/goal_verify/v0/"
+            "phase6-recovery-v4-a15-a10-1-partial-failure.json"
+        )
+        partial = load(partial_path)
+        amended = a15_a10_2_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            partial_failure=partial,
+            partial_failure_path=partial_path,
+            partial_failure_sha256=hashlib.sha256(
+                (ROOT / partial_path).read_bytes()
+            ).hexdigest(),
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(amended["contract_id"], amended["smoke_run_id"])
+        self.assertEqual(amended["smoke"], base["smoke"])
+        self.assertEqual(amended["full_experiment"], base["full_experiment"])
+        self.assertEqual(
+            amended["paired_run_contract"], base["paired_run_contract"]
+        )
+        self.assertEqual(amended["product_timeout_sec"], 900)
+        self.assertEqual(amended["partial_run_evidence"]["completed_pairs"], 73)
+        self.assertEqual(
+            amended["partial_run_evidence"]["status"],
+            "instrumentation_unusable",
+        )
+        self.assertIn(
+            a15_a10_2_generator.TIMEOUT_CAPTURE_SOURCE,
+            amended["runner_sources"],
+        )
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"],
+            "v4-A15-A10.2",
+        )
+        invalid = copy.deepcopy(partial)
+        invalid["completed_pairs"] = 74
+        with self.assertRaisesRegex(
+            ValueError, "unexpected A15-A10.1 partial-run identity or count"
+        ):
+            a15_a10_2_generator.build_contract(
+                code_sha=base["code_sha"],
+                exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+                partial_failure=invalid,
+                partial_failure_path=partial_path,
+                partial_failure_sha256=hashlib.sha256(
+                    (ROOT / partial_path).read_bytes()
+                ).hexdigest(),
+                authorized=True,
+            )
 
     def test_a15_a1_1_only_removes_the_non_runtime_generator(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a1-smoke-contract.json")
