@@ -13,7 +13,6 @@ use crate::planner::adjudication::fix::{
     BEFORE_FAILS_ID, FixAdjudication, FixAssurance, FixEvidenceBundle, ProbeOutcome,
 };
 use crate::planner::fix_runtime::{FixRuntime, ReproducerBinding, regression_binding_lineage};
-use crate::planner::profile::resolve_profile_runtime;
 use crate::planner::ultra_plan::UltraPlan;
 
 #[derive(Debug, Deserialize)]
@@ -73,8 +72,10 @@ fn resume_fix(plan: &UltraPlan, config: &Config) -> anyhow::Result<Option<FixRun
     {
         anyhow::bail!("Recovery fix before observation is not admissible");
     }
-    let regression_bindings = resolve_profile_runtime(&plan.profile)
-        .fix_regression_bindings(&config.workspace_root, &plan.goal);
+    let regression_contract = crate::planner::fix_regression_contract::resolve(plan, config);
+    let regression_source = regression_contract.source;
+    let omitted_supplemental_ids = regression_contract.omitted_supplemental_ids;
+    let regression_bindings = regression_contract.bindings;
     let regression_ids = regression_bindings
         .iter()
         .map(|binding| binding.id.clone())
@@ -113,6 +114,10 @@ fn resume_fix(plan: &UltraPlan, config: &Config) -> anyhow::Result<Option<FixRun
             "origin_evidence_path": origin.evidence_path,
             "origin_evidence_sha256": origin.evidence_sha256,
             "source": "host_owned_recovery_fix_origin",
+            "regression_source": regression_source,
+            "registered_regression_count": regression_ids.len(),
+            "bound_regression_ids": regression_ids,
+            "omitted_supplemental_ids": omitted_supplemental_ids,
             "external_oracle_used": false,
         }),
     );
@@ -162,6 +167,26 @@ mod tests {
         config
     }
 
+    fn config_with_completion_contract(root: &Path) -> Config {
+        let path = root.join("completion-contract.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "verify_commands": [
+                    "test -f fixed.marker",
+                    "test -f stable.marker"
+                ],
+                "fix_reproducer_command": "test -f fixed.marker",
+                "profile": "generic"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut config = config(root);
+        config.completion_contract_path = Some(path);
+        config
+    }
+
     fn fix_plan() -> UltraPlan {
         UltraPlan {
             goal: "fix missing marker".to_string(),
@@ -192,7 +217,7 @@ mod tests {
     #[test]
     fn resumes_the_same_fix_run_and_reuses_before_lineage() {
         let control = tempfile::tempdir().unwrap();
-        let control_config = config(control.path());
+        let control_config = config_with_completion_contract(control.path());
         let fix_plan = fix_plan();
         let mut initial = FixRuntime::for_plan(&fix_plan, &control_config).unwrap();
         initial
@@ -208,6 +233,7 @@ mod tests {
         drop(initial);
 
         let treatment = tempfile::tempdir().unwrap();
+        std::fs::write(treatment.path().join("stable.marker"), "stable\n").unwrap();
         std::fs::create_dir_all(treatment.path().join("evidence")).unwrap();
         std::fs::create_dir_all(treatment.path().join(".commandagent/recovery-runtime")).unwrap();
         let evidence_path = format!("evidence/fix-{run_id}-adjudication.json");
@@ -248,7 +274,7 @@ mod tests {
                 prompt: "Verify the repair".to_string(),
             }],
         };
-        let recovery_config = config(treatment.path());
+        let recovery_config = config_with_completion_contract(treatment.path());
         let resumed = resume(None, &recovery_plan, &recovery_config)
             .unwrap()
             .unwrap();
@@ -276,6 +302,8 @@ mod tests {
             "{events}"
         );
         assert!(events.contains("\"contract_origin\":\"fix_intent_v0\""));
+        assert!(events.contains("\"regression_source\":\"completion_contract\""));
+        assert!(events.contains("\"bound_regression_ids\":[\"completion_contract_verify_2\"]"));
         assert_eq!(events.matches("recovery_fix_contract_resumed").count(), 1);
     }
 }
