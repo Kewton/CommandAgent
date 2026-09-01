@@ -27,6 +27,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a10_1 as a15_a10_1_gen
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_2 as a15_a10_2_generator
 from eval_lib import generate_goal_verify_recovery_v4_a16 as a16_generator
 from eval_lib import generate_goal_verify_recovery_v4_a16_1 as a16_1_generator
+from eval_lib import generate_goal_verify_recovery_v4_a17 as a17_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -56,6 +57,37 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a17_freezes_regression_lineage_smoke_without_weakening_gates(self):
+        base = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a16-1-smoke-contract.json"
+        )
+        amended = a17_generator.build_contract(
+            code_sha="acd2068faca1e9bef0fec36c5e2aad8dc5f4aee5",
+            exact_sha_ci_evidence="eval/goal_verify/v0/exact-sha-ci-acd2068f.json",
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(amended["supersedes_contract"], base["contract_id"])
+        self.assertEqual(amended["smoke"]["expected_pair_count"], 9)
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"], a17_generator.SELECTED_PAIR_IDS
+        )
+        for field in (
+            "required_real_profiles",
+            "minimum_executed_recovery_pairs_per_real_profile",
+            "require_discarded_valid_treatment_zero",
+            "required_readiness_checks",
+        ):
+            self.assertEqual(amended["smoke"][field], base["smoke"][field])
+        self.assertNotIn("real_profile_path_coverage_policy", amended["smoke"])
+        self.assertEqual(amended["runner_sources"], base["runner_sources"])
+        self.assertFalse(amended["smoke"]["effect_claim_allowed"])
+        self.assertFalse(amended["authorization"]["full_collection_authorized"])
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A17"
+        )
+
     def test_a16_1_only_corrects_pre_collection_runner_source_metadata(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a16-smoke-contract.json")
         amended = a16_1_generator.build_contract(
