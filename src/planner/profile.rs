@@ -1370,13 +1370,15 @@ impl DomainProfile for DataProfile {
                         },
                         reason: if passed == Some(true) {
                             String::new()
-                        } else {
+                        } else if passed == Some(false) {
                             summary
                                 .reasons
                                 .iter()
                                 .find(|reason| reason.contains(&binding.id))
                                 .cloned()
-                                .unwrap_or_else(|| format!("{}:check_unavailable", binding.id))
+                                .unwrap_or_else(|| format!("{}:check_failed", binding.id))
+                        } else {
+                            format!("{}:check_unavailable", binding.id)
                         },
                     }
                 })
@@ -2064,6 +2066,27 @@ mod tests {
             binding.adapter,
             ProfileFixRegressionAdapter::DataManifestCheck
         )));
+    }
+
+    #[test]
+    fn executed_data_regression_failure_is_not_labeled_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+        std::fs::write(
+            dir.path().join("pipeline/main.py"),
+            "import sys\nraise SystemExit(0 if len(sys.argv) == 2 else 2)\n",
+        )
+        .unwrap();
+        let bindings = [ProfileFixRegressionBinding {
+            id: "pipeline_probe".to_string(),
+            adapter: ProfileFixRegressionAdapter::DataManifestCheck,
+        }];
+
+        let observations =
+            run_profile_fix_regressions(dir.path(), "data", "fix pipeline", &bindings, true);
+
+        assert_eq!(observations[0].outcome, ProbeOutcome::Failure);
+        assert_eq!(observations[0].reason, "pipeline_probe:check_failed");
     }
 
     #[test]

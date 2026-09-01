@@ -722,8 +722,26 @@ fn recovery_preflight(
             }
         };
     observation_config.eval_events_path = None;
+    let effect_policy =
+        crate::planner::recovery_observation_policy::RecoveryObservationPolicy::for_contract(
+            &contract,
+        );
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_observation_effect_policy_bound",
+            "source": "product_visible_completion_contract",
+            "allowed_generated_paths": &effect_policy.allowed_generated_paths,
+            "protected_change_disposition": "reject_and_retain_control",
+            "registered_data_input_fixture": crate::planner::recovery_observation_policy::registered_data_input_fixture(&contract),
+            "external_oracle_used": false,
+        }),
+    );
     let observation_before =
-        match crate::planner::recovery_snapshot::current_preflight_source_sha256(&observation) {
+        match crate::planner::recovery_snapshot::current_preflight_source_sha256(
+            &observation,
+            &effect_policy.allowed_generated_paths,
+        ) {
             Ok(hash) => hash,
             Err(error) => {
                 return RecoveryPreflight::Unavailable {
@@ -765,8 +783,10 @@ fn recovery_preflight(
     } else {
         None
     };
-    let observed_sha256 =
-        crate::planner::recovery_snapshot::current_preflight_source_sha256(&observation);
+    let observed_sha256 = crate::planner::recovery_snapshot::current_preflight_source_sha256(
+        &observation,
+        &effect_policy.allowed_generated_paths,
+    );
     let source_mutated = observed_sha256
         .as_ref()
         .is_ok_and(|value| value != &observation_before);
@@ -851,11 +871,32 @@ fn recovery_preflight_capability_commands(
             continue;
         }
         if contract.profile.as_deref() == Some("data")
-            && crate::planner::profiles::data::manifest::is_manifest_check_id(capability)
+            && crate::planner::profiles::data::manifest::check_ids()
+                .iter()
+                .any(|id| id == capability)
         {
-            commands.push(
-                crate::planner::profiles::data::step_policy::catalog_check_command(capability),
-            );
+            if matches!(
+                capability.as_str(),
+                "pipeline_probe" | "data_rerun_consistency"
+            ) {
+                let Some(input) =
+                    crate::planner::recovery_observation_policy::registered_data_input_fixture(
+                        contract,
+                    )
+                else {
+                    unsupported.push(format!("{capability}:registered_input_not_bound"));
+                    continue;
+                };
+                commands.push(
+                    crate::planner::profiles::data::step_policy::catalog_check_command_with_input(
+                        capability, &input,
+                    ),
+                );
+            } else {
+                commands.push(
+                    crate::planner::profiles::data::step_policy::catalog_check_command(capability),
+                );
+            }
             continue;
         }
         unsupported.push(capability.clone());
@@ -2126,11 +2167,11 @@ mod tests {
         std::fs::write(
             &contract_path,
             r#"{
-              "required_paths":["pipeline/main.py","data/task-01.csv","output/inspection.json","output/results.json","output/report.md"],
-              "verify_commands":["python3 pipeline/main.py data/task-01.csv"],
-              "required_capabilities":["data_reconciliation","data_claims_binding","data_rerun_consistency","data_results_schema"],
+              "required_paths":["pipeline/main.py","data/task-02.csv","output/inspection.json","output/results.json","output/report.md"],
+              "verify_commands":["python3 pipeline/main.py data/task-02.csv"],
+              "required_capabilities":["pipeline_probe","data_reconciliation","data_claims_binding","data_rerun_consistency","data_results_schema"],
               "profile":"data",
-              "goal":"Summarize data/task-01.csv and reconcile every input row."
+              "goal":"Summarize data/task-02.csv and reconcile every input row."
             }"#,
         )
         .unwrap();
@@ -2153,6 +2194,34 @@ mod tests {
             source_before
         );
         assert!(!root.path().join("evidence").exists());
+        let contract =
+            crate::minimal_loop::completion::CompletionContract::load_for_config(&config)
+                .unwrap()
+                .unwrap();
+        let (commands, unsupported) = recovery_preflight_capability_commands(&contract);
+        assert!(unsupported.is_empty(), "{unsupported:?}");
+        assert!(commands.contains(
+            &crate::planner::profiles::data::step_policy::catalog_check_command_with_input(
+                "pipeline_probe",
+                "data/task-02.csv",
+            )
+        ));
+        assert!(!commands.contains(
+            &crate::planner::profiles::data::step_policy::catalog_check_command("pipeline_probe",)
+        ));
+        let probe: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(
+                root.path().join(
+                    ".commandagent/recovery-observations/attempt-0/workspace/evidence/pipeline-run.json",
+                ),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            probe["command"],
+            serde_json::json!(["python3", "-B", "pipeline/main.py", "data/task-02.csv"])
+        );
     }
 
     #[test]

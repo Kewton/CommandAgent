@@ -241,6 +241,9 @@ def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
     events_path = run_dir / "events.jsonl"
     events = _json_rows(events_path) if events_path.is_file() else []
     attempts = [row for row in events if row.get("event") == "completion_verify"]
+    final_acceptances = [
+        row for row in events if row.get("event") == "ultra_final_acceptance"
+    ]
     post_recovery_contract_passed = any(
         row.get("event") == "recovery_preflight_observation"
         and row.get("observation_phase") == "post_recovery"
@@ -266,12 +269,24 @@ def _completion_verify_status(run_dir: Path | None) -> dict[str, Any]:
         and recovery_treatment_promoted
         and recovery_completed
     )
+    terminal_acceptance_passed = (
+        _final_acceptance_passed(final_acceptances[-1])
+        if final_acceptances
+        else any(row.get("ok") is True for row in attempts)
+    )
     return {
         "completion_verify_attempt_recorded": bool(attempts)
+        or bool(final_acceptances)
         or recovery_completion_verified,
-        "completion_verify_passed": any(row.get("ok") is True for row in attempts)
+        "completion_verify_passed": terminal_acceptance_passed
         or recovery_completion_verified,
     }
+
+
+def _final_acceptance_passed(event: dict[str, Any]) -> bool:
+    if isinstance(event.get("ok"), bool):
+        return event["ok"]
+    return event.get("final_acceptance_status") in {"full_success", "pass", "passed"}
 
 
 def _fix_reproducer_binding(run_dir: Path | None) -> dict[str, Any]:
@@ -403,6 +418,15 @@ def _product_terminal_status(run_dir: Path | None) -> dict[str, Any]:
         and isinstance(event.get("failure_kind"), str)
     ]
     recovery = recovery_events[-1] if recovery_events else {}
+    recovery_terminal_events = [
+        event
+        for event in rows
+        if event.get("event") == "recovery_plan_auto_run_stopped"
+        and isinstance(event.get("recovery_plan_auto_run_stop_reason"), str)
+    ]
+    recovery_terminal = (
+        recovery_terminal_events[-1] if recovery_terminal_events else {}
+    )
     contract_events = [
         event for event in rows if event.get("event") == "plan_final_contract"
     ]
@@ -414,7 +438,9 @@ def _product_terminal_status(run_dir: Path | None) -> dict[str, Any]:
         "ok": row.get("ok") if isinstance(row.get("ok"), bool) else None,
         "status": row.get("status"),
         "failure_kind": row.get("failure_kind"),
-        "recovery_failure_kind": recovery.get("failure_kind"),
+        "recovery_failure_kind": recovery_terminal.get(
+            "recovery_plan_auto_run_stop_reason", recovery.get("failure_kind")
+        ),
         "recovery_handoff_kind": contract.get("recovery_handoff_kind"),
         "structured_blockers": structured_blockers,
         "stop_reason": row.get("stop_reason"),
@@ -735,6 +761,35 @@ def _recovery_plan_attempts(
         ),
         default=0,
     )
+    recovery_starts = [
+        index
+        for index, row in enumerate(events)
+        if row.get("event") == "recovery_plan_auto_run_start"
+    ]
+    discarded_valid_treatment_count = 0
+    for position, start in enumerate(recovery_starts):
+        end = (
+            recovery_starts[position + 1]
+            if position + 1 < len(recovery_starts)
+            else len(events)
+        )
+        attempt_events = events[start + 1 : end]
+        final_acceptances = [
+            row
+            for row in attempt_events
+            if row.get("event") == "ultra_final_acceptance"
+        ]
+        promoted = any(
+            row.get("event") == "recovery_promotion_decision"
+            and row.get("decision") == "promoted"
+            for row in attempt_events
+        )
+        if (
+            final_acceptances
+            and _final_acceptance_passed(final_acceptances[-1])
+            and not promoted
+        ):
+            discarded_valid_treatment_count += 1
     return {
         "configured_recovery_runs": configured_runs,
         "executed_recovery_runs": executed_runs,
@@ -749,6 +804,8 @@ def _recovery_plan_attempts(
         "current_success_suppressed": any(
             row.get("event") == "recovery_suppressed_current_success" for row in rows
         ),
+        "discarded_valid_treatment": discarded_valid_treatment_count > 0,
+        "discarded_valid_treatment_count": discarded_valid_treatment_count,
         "treatment_regression_rejected_count": sum(
             row.get("event") == "recovery_treatment_rejected_regression" for row in rows
         ),

@@ -95,6 +95,19 @@ fixtures/recovery-implement-write-required.jsonl = [
   "\"name\":\"Write\"",
   "\"event\":\"plan_step_completed\""
 ]
+fixtures/contract-bound-data-observation.jsonl = [
+  "\"event\":\"fix_regression_contract_bound\"",
+  "\"source\":\"completion_contract\"",
+  "\"registered_regression_count\":2",
+  "\"omitted_supplemental_ids\":[\"pipeline_probe\",\"data_reconciliation\",\"data_claims_binding\",\"data_rerun_consistency\",\"data_results_schema\"]",
+  "\"event\":\"recovery_observation_effect_policy_bound\"",
+  "\"allowed_generated_paths\":[\"output/inspection.json\",\"output/results.json\",\"output/report.md\"]",
+  "\"protected_change_disposition\":\"reject_and_retain_control\"",
+  "\"registered_data_input_fixture\":\"data/task-02.csv\"",
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"observation_phase\":\"post_recovery\"",
+  "\"status\":\"pass\""
+]
 
 [fixture_ordered]
 fixtures/typed-fix-reproducer.jsonl = [
@@ -127,4 +140,9 @@ fixtures/recovery-implement-write-required.jsonl = [
   "\"event\":\"no_progress_feedback\"",
   "\"event\":\"tool_execute\",\"name\":\"Write\"",
   "\"event\":\"plan_step_completed\""
+]
+fixtures/contract-bound-data-observation.jsonl = [
+  "\"event\":\"fix_regression_contract_bound\"",
+  "\"event\":\"recovery_observation_effect_policy_bound\"",
+  "\"event\":\"recovery_preflight_observation\""
 ]

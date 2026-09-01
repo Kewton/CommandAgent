@@ -144,13 +144,23 @@ impl FixRuntime {
         if !applies(plan) {
             return None;
         }
+        let regression_binding = crate::planner::fix_regression_contract::resolve(plan, config);
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "fix_regression_contract_bound",
+                "source": regression_binding.source,
+                "registered_regression_count": regression_binding.bindings.len(),
+                "omitted_supplemental_ids": &regression_binding.omitted_supplemental_ids,
+                "external_oracle_used": false,
+            }),
+        );
         Some(Self {
             terminal_config: config.clone(),
             run_id: uuid::Uuid::now_v7().to_string(),
             profile: plan.profile.clone(),
             goal: plan.goal.clone(),
-            regression_bindings: resolve_profile_runtime(&plan.profile)
-                .fix_regression_bindings(&config.workspace_root, &plan.goal),
+            regression_bindings: regression_binding.bindings,
             reproducer: None,
             before: None,
             after: None,

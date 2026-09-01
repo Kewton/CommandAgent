@@ -91,17 +91,27 @@ pub(crate) fn current_source_sha256(root: &Path) -> anyhow::Result<String> {
 /// read-only Recovery observation. Evidence is intentionally retained in the
 /// observation workspace for audit, but it must not make an otherwise
 /// read-only check look like a source edit.
-pub(crate) fn current_preflight_source_sha256(root: &Path) -> anyhow::Result<String> {
+pub(crate) fn current_preflight_source_sha256(
+    root: &Path,
+    allowed_generated_paths: &[String],
+) -> anyhow::Result<String> {
     let root = root
         .canonicalize()
         .context("Recovery preflight workspace root is unavailable")?;
     let mut files = Vec::new();
     collect_files(&root, &root, &mut files)?;
     files.retain(|path| {
-        path.strip_prefix(&root)
-            .ok()
-            .and_then(|relative| relative.components().next())
-            .is_none_or(|component| component.as_os_str() != "evidence")
+        let Ok(relative) = path.strip_prefix(&root) else {
+            return true;
+        };
+        let is_evidence = relative
+            .components()
+            .next()
+            .is_some_and(|component| component.as_os_str() == "evidence");
+        let is_allowed_generated = allowed_generated_paths
+            .iter()
+            .any(|allowed| relative.starts_with(allowed));
+        !is_evidence && !is_allowed_generated
     });
     content_sha256(&root, &files)
 }
@@ -599,23 +609,32 @@ mod tests {
     }
 
     #[test]
-    fn isolated_preflight_ignores_evidence_but_detects_source_mutation() {
+    fn isolated_preflight_allows_registered_outputs_but_detects_source_mutation() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("app.py"), "print('control')\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(dir.path().join("output/results.json"), "{\"value\":1}\n").unwrap();
         let captured = capture_for_transaction(dir.path(), 1).unwrap();
         let observation = prepare_preflight_observation(dir.path(), &captured, 1).unwrap();
-        let before = current_preflight_source_sha256(&observation).unwrap();
+        let allowed = ["output/results.json".to_string()];
+        let before = current_preflight_source_sha256(&observation, &allowed).unwrap();
 
         std::fs::create_dir_all(observation.join("evidence")).unwrap();
         std::fs::write(observation.join("evidence/check.json"), "{}\n").unwrap();
         assert_eq!(
-            current_preflight_source_sha256(&observation).unwrap(),
+            current_preflight_source_sha256(&observation, &allowed).unwrap(),
+            before
+        );
+
+        std::fs::write(observation.join("output/results.json"), "{\"value\":2}\n").unwrap();
+        assert_eq!(
+            current_preflight_source_sha256(&observation, &allowed).unwrap(),
             before
         );
 
         std::fs::write(observation.join("app.py"), "print('changed')\n").unwrap();
         assert_ne!(
-            current_preflight_source_sha256(&observation).unwrap(),
+            current_preflight_source_sha256(&observation, &allowed).unwrap(),
             before
         );
         assert_eq!(

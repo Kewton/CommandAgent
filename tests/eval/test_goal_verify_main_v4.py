@@ -272,6 +272,44 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     _completion_verify_status(incomplete)["completion_verify_passed"]
                 )
 
+    def test_completion_verify_status_is_bound_to_latest_final_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            failed = root / "failed"
+            failed.mkdir()
+            rows = [
+                {"event": "completion_verify", "ok": True},
+                {"event": "ultra_final_acceptance", "ok": False},
+            ]
+            (failed / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _completion_verify_status(failed),
+                {
+                    "completion_verify_attempt_recorded": True,
+                    "completion_verify_passed": False,
+                },
+            )
+
+            passed = root / "passed"
+            passed.mkdir()
+            rows = [
+                {"event": "completion_verify", "ok": False},
+                {
+                    "event": "ultra_final_acceptance",
+                    "final_acceptance_status": "full_success",
+                },
+            ]
+            (passed / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                _completion_verify_status(passed)["completion_verify_passed"]
+            )
+
     def test_typed_fix_reproducer_binding_is_reduced_to_durable_fields(self):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
@@ -378,6 +416,26 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                     "recovery_next_action": "fix_dependency_boundary",
                     "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
                 },
+                {
+                    "event": "recovery_plan_auto_run_stopped",
+                    "recovery_plan_auto_run_stop_reason": (
+                        "preflight_source_mutation_rejected_and_restored"
+                    ),
+                },
+                {
+                    "event": "recovery_plan_auto_run_start",
+                    "recovery_plan_auto_run_current": 2,
+                    "recovery_plan_auto_runs": 2,
+                },
+                {
+                    "event": "ultra_final_acceptance",
+                    "final_acceptance_status": "full_success",
+                },
+                {
+                    "event": "recovery_promotion_decision",
+                    "recovery_plan_auto_run_current": 2,
+                    "decision": "promoted",
+                },
             ]
             (run_dir / "events.jsonl").write_text(
                 "\n".join(json.dumps(row) for row in rows) + "\n",
@@ -390,7 +448,8 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(status["event"], "tui_command_stop")
         self.assertEqual(status["failure_kind"], "direct_cli_command_failed")
         self.assertEqual(
-            status["recovery_failure_kind"], "dependency_setup_blocked_offline"
+            status["recovery_failure_kind"],
+            "preflight_source_mutation_rejected_and_restored",
         )
         self.assertEqual(status["recovery_handoff_kind"], "release_gate_failed")
         self.assertIn(
@@ -567,6 +626,43 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertNotIn("--plan-run", ultra)
         with self.assertRaisesRegex(ValueError, "unsupported execution_action"):
             build_product_argv(**common, execution_action="unknown")
+
+    def test_recovery_attempts_marks_successful_unpromoted_treatment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            rows = [
+                {
+                    "event": "recovery_plan_auto_run_start",
+                    "recovery_plan_auto_run_current": 1,
+                    "recovery_plan_auto_runs": 1,
+                },
+                {"event": "ultra_final_acceptance", "ok": True},
+                {
+                    "event": "recovery_promotion_decision",
+                    "recovery_plan_auto_run_current": 1,
+                    "decision": "rejected",
+                    "reason": "preflight_source_mutation_rejected_and_restored",
+                },
+                {
+                    "event": "recovery_plan_auto_run_stopped",
+                    "recovery_plan_auto_run_current": 1,
+                    "recovery_plan_auto_runs": 1,
+                    "recovery_plan_auto_run_stop_reason": (
+                        "preflight_source_mutation_rejected_and_restored"
+                    ),
+                },
+            ]
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            telemetry = _recovery_plan_attempts(
+                run_dir, configured_runs=1, process_status="failed"
+            )
+
+        self.assertTrue(telemetry["discarded_valid_treatment"])
+        self.assertEqual(telemetry["discarded_valid_treatment_count"], 1)
 
     def test_product_timeout_capture_is_bounded_utf8_and_json_safe(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2323,6 +2419,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                 "require_recovery_fix_safety_verification": True,
                 "require_recovery_bounded_local_repair_max_one": True,
                 "require_recovery_treatment_delta": True,
+                "require_discarded_valid_treatment_zero": True,
             }
         )
         recovery_attempts.update(
@@ -2379,6 +2476,8 @@ class GoalVerifyMainV4Test(unittest.TestCase):
                         },
                     }
                 ],
+                "discarded_valid_treatment": False,
+                "discarded_valid_treatment_count": 0,
             }
         )
         fidelity_report = build_recovery_report(records=records, contract=contract)
@@ -2390,6 +2489,25 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "recovery_treatment_delta",
         ):
             self.assertTrue(fidelity_report["checks"][check], fidelity_report)
+        self.assertTrue(
+            fidelity_report["checks"]["discarded_valid_treatment_zero"]
+        )
+
+        discarded = copy.deepcopy(records)
+        discarded[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "discarded_valid_treatment"
+        ] = True
+        discarded[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "discarded_valid_treatment_count"
+        ] = 1
+        discarded_report = build_recovery_report(records=discarded, contract=contract)
+        self.assertFalse(
+            discarded_report["checks"]["discarded_valid_treatment_zero"]
+        )
+        self.assertEqual(
+            discarded_report["diagnostics"]["discarded_valid_treatment_pair_ids"],
+            ["eligible"],
+        )
 
         two_local_repairs = copy.deepcopy(records)
         two_local_repairs[0]["recovery_one"]["result"]["recovery_plan_attempts"][

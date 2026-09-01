@@ -284,6 +284,7 @@ fn verify_after(
             ProfileFixRegressionAdapter::DataManifestCheck => {
                 Ok(crate::planner::profiles::data::step_policy::catalog_check_command(&binding.id))
             }
+            ProfileFixRegressionAdapter::VerifyCommand(command) => Ok(command.clone()),
             other => anyhow::bail!(
                 "data fix synthesis received non-data F3 adapter for {}: {other:?}",
                 binding.id

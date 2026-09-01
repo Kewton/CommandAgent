@@ -49,6 +49,8 @@ def build_recovery_report(
     recovery_fix_safety_verification_violations = []
     recovery_treatment_delta_violations = []
     recovery_bounded_local_repair_violations = []
+    discarded_valid_treatments = []
+    discarded_valid_treatment_count = 0
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -105,6 +107,14 @@ def build_recovery_report(
         ):
             typed_reproducer_violations.append(str(pair_id))
         recovery_attempts = recovery_result.get("recovery_plan_attempts", {})
+        discarded_count = recovery_attempts.get("discarded_valid_treatment_count")
+        if not isinstance(discarded_count, int):
+            discarded_count = int(
+                recovery_attempts.get("discarded_valid_treatment") is True
+            )
+        if discarded_count > 0:
+            discarded_valid_treatments.append(str(pair_id))
+            discarded_valid_treatment_count += discarded_count
         executed_recovery_runs = recovery_attempts.get("executed_recovery_runs")
         if (
             recovery_attempts.get("terminal_stop_reason") == "current_success_protected"
@@ -420,6 +430,8 @@ def build_recovery_report(
         checks[
             "recovery_treatment_delta"
         ] = not recovery_treatment_delta_violations
+    if smoke.get("require_discarded_valid_treatment_zero") is True:
+        checks["discarded_valid_treatment_zero"] = not discarded_valid_treatments
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
         "shared_pre_recovery_snapshot"
     )
@@ -481,6 +493,7 @@ def build_recovery_report(
             "no_recovery_needed": transitions.count("no_recovery_needed"),
             "no_recovery_executed": transitions.count("no_recovery_executed"),
             "unusable": transitions.count("unusable"),
+            "discarded_valid_treatment": discarded_valid_treatment_count,
         },
         "median_resource_delta": {
             field: statistics.median(values) if values else None
@@ -501,6 +514,7 @@ def build_recovery_report(
             "handoff_fidelity_violations": handoff_fidelity_violations,
             "treatment_isolation_violations": treatment_isolation_violations,
             "typed_reproducer_violations": typed_reproducer_violations,
+            "discarded_valid_treatment_pair_ids": discarded_valid_treatments,
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
             ),
