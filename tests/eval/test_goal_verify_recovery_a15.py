@@ -26,6 +26,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a10 as a15_a10_generat
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_1 as a15_a10_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a15_a10_2 as a15_a10_2_generator
 from eval_lib import generate_goal_verify_recovery_v4_a16 as a16_generator
+from eval_lib import generate_goal_verify_recovery_v4_a16_1 as a16_1_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -55,6 +56,35 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a16_1_only_corrects_pre_collection_runner_source_metadata(self):
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a16-smoke-contract.json")
+        amended = a16_1_generator.build_contract(
+            code_sha=base["code_sha"],
+            exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(amended), [])
+        self.assertEqual(amended["smoke"], base["smoke"])
+        self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
+        self.assertEqual(
+            amended["task_contract_registry"], base["task_contract_registry"]
+        )
+        self.assertEqual(
+            amended["paired_run_contract"], base["paired_run_contract"]
+        )
+        self.assertNotIn(
+            a16_1_generator.GENERATOR_SOURCE,
+            amended["runner_sources"],
+        )
+        self.assertEqual(
+            amended["supersedes_contract"],
+            base["contract_id"],
+        )
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16.1"
+        )
+
     def test_a16_freezes_focused_contract_bound_recovery_smoke(self):
         base = load(
             "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-2-full-contract.json"
