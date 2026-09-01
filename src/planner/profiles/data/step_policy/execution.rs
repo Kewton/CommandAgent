@@ -75,7 +75,7 @@ fn execute_bound_check(
             let evidence = checks::check_rerun_consistency_with_args(
                 root,
                 &entry,
-                input.into_iter(),
+                input,
                 Duration::from_secs(timeout_seconds.into()),
             )?;
             (evidence.ok, evidence.failure_kinds)
