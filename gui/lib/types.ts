@@ -163,10 +163,26 @@ export type SessionProposal = {
 
 export type CreatedSession = {
   id: string;
+  process_generation: string | null;
   started_epoch_seconds: number;
   gate: "gate_2";
   status: "starting";
   events_path: string;
+};
+
+export type ConfirmedContinuation = {
+  directive_hash: string;
+  directive_round: number;
+  target_run_id: string;
+  continuation_plan: string;
+  process_generation: string;
+  status: "starting";
+};
+
+export type StopSessionResponse = {
+  session_id: string;
+  process_generation: string;
+  status: "stopping" | "already_stopping";
 };
 
 export type SessionPathProjection = {
@@ -350,6 +366,7 @@ export type FailureExplanation = {
 
 export type PolledSession = {
   id: string;
+  process_generation: string | null;
   started_epoch_seconds: number;
   average_duration_seconds: number | null;
   gate: "gate_2" | "gate_3" | "gate_4";

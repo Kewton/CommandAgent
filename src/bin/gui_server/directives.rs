@@ -9,7 +9,7 @@ use commandagent::tui::boundary_shell::BoundaryShell;
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
-use super::delegate::run_cli_continuation;
+use super::delegate::spawn_cli_continuation;
 use super::session_paths::SessionPaths;
 use super::sessions::{
     SessionError, bad_request, internal, not_found, require_current_terminal,
@@ -38,6 +38,7 @@ pub struct ConfirmedContinuation {
     directive_round: u32,
     target_run_id: String,
     continuation_plan: String,
+    process_generation: String,
     status: &'static str,
 }
 
@@ -120,21 +121,37 @@ pub async fn confirm(
         directive_round: continuation.directive_round,
         target_run_id: continuation.target_run_id.clone(),
         continuation_plan: continuation.plan_workspace_path.clone(),
+        process_generation: super::trial_process::TrialProcesses::new_generation(),
         status: "starting",
     };
+    let process_generation = response.process_generation.clone();
     let (started_tx, started_rx) = mpsc::channel();
     let lease = state.trial_workspace.clone();
     let lease_id = id.clone();
     let lease_events = events_path.clone();
     std::thread::spawn(move || {
-        let running_tx = started_tx.clone();
+        let mut process_tree_gone = false;
+        let error_tx = started_tx.clone();
         let result = shell.dispatch_directive(&continuation, || {
-            let _ = running_tx.send(Ok(()));
-            run_cli_continuation(&state, &paths, &identity, &continuation)
+            let (process, child) = spawn_cli_continuation(
+                &state,
+                &paths,
+                &identity,
+                &continuation,
+                &lease_id,
+                &process_generation,
+            )?;
+            let _ = started_tx.send(Ok(()));
+            let completion = state.trial_processes.wait(&process, child)?;
+            process_tree_gone = completion.process_tree_gone;
+            if !completion.status.success() {
+                anyhow::bail!("delegated CLI exited with {}", completion.status);
+            }
+            Ok("delegated directive completed".to_string())
         });
-        lease.complete_from_events(&lease_id, &lease_events);
+        lease.complete_after_process(&lease_id, &lease_events, process_tree_gone);
         if let Err(error) = result {
-            let _ = started_tx.send(Err(error.to_string()));
+            let _ = error_tx.send(Err(error.to_string()));
             eprintln!("GUI directive continuation failed: {error:#}");
         }
     });

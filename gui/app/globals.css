@@ -4005,6 +4005,71 @@ a.runtime-badge:focus-visible {
   display: block;
 }
 
+.trial-stop-control {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--danger) 4%, var(--surface));
+}
+
+.trial-stop-control > .danger-action {
+  margin-top: 0;
+}
+
+.trial-stop-confirmation,
+.trial-stop-error {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.trial-stop-confirmation strong,
+.trial-stop-error strong {
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.trial-stop-confirmation p,
+.trial-stop-error p,
+.trial-stop-control > [role="status"] {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.trial-stop-confirmation > div,
+.trial-stop-error {
+  align-items: center;
+}
+
+.trial-stop-confirmation > div {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.trial-stop-confirmation button:not(.danger-action),
+.trial-stop-error button {
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.trial-stop-confirmation .danger-action {
+  margin-top: 0;
+}
+
+.trial-stop-error {
+  border-left-width: 0.3rem;
+}
+
 .execution-feedback span {
   margin-bottom: 0.25rem;
   color: var(--muted);

@@ -26,7 +26,7 @@ type UseTrialTerminalProps = {
   created: CreatedSession | null;
   recordError: (reason: unknown) => void;
   rejectTrialToken: (reason: unknown, rejectedValue: string) => boolean;
-  resumeForDirective: () => void;
+  resumeForDirective: (processGeneration: string) => void;
   session: PolledSession | null;
   setBusy: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string | null>>;
@@ -116,11 +116,15 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     setError(null);
     setErrorReconnectSessionId(null);
     try {
-      await confirmSessionDirective(trialToken, created.id, directive.directive_hash);
+      const continuation = await confirmSessionDirective(
+        trialToken,
+        created.id,
+        directive.directive_hash,
+      );
       setDirective(null);
       setDirectiveText("");
       setWorkspaceLease(null);
-      resumeForDirective();
+      resumeForDirective(continuation.process_generation);
     } catch (reason) {
       recordError(reason);
     } finally {

@@ -18,7 +18,8 @@ import {
   retryDelay,
   unchangedPollDelay,
 } from "../lib/trial-monitor";
-import { fetchSession, fetchSessionPoll } from "../lib/trial-api";
+import { describeError } from "../lib/errors";
+import { fetchSession, fetchSessionPoll, stopSession } from "../lib/trial-api";
 import type { CreatedSession, PolledSession } from "../lib/types";
 import type { ScreenStage } from "./use-trial-compose";
 
@@ -30,6 +31,8 @@ type MonitorState = {
   status: MonitorStatus;
   summary: string | null;
 };
+
+export type TrialStopState = "idle" | "confirming" | "stopping" | "failed";
 
 type UseTrialMonitorProps = {
   reconnectSessionId: string;
@@ -67,6 +70,8 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
   const [sessionIndexRevision, setSessionIndexRevision] = useState(0);
+  const [stopState, setStopState] = useState<TrialStopState>("idle");
+  const [stopError, setStopError] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     const id = requestedSessionId();
@@ -181,6 +186,8 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     automaticReconnectAttempt.current = reconnectAttemptKey(value.id, trialToken);
     setSession(null);
     setMonitor(initialMonitor);
+    setStopState("idle");
+    setStopError(null);
     const startedAt = epochMilliseconds(value.started_epoch_seconds) ?? Date.now();
     setGateTwoStartedAt(startedAt);
     setElapsedSeconds(elapsedSince(startedAt));
@@ -206,6 +213,7 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
       setSession(value);
       setCreated({
         id: value.id,
+        process_generation: value.process_generation,
         started_epoch_seconds: value.started_epoch_seconds,
         gate: "gate_2",
         status: "starting",
@@ -239,8 +247,14 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     }
   }
 
-  function resumeForDirective() {
+  function resumeForDirective(processGeneration: string) {
+    setCreated((current) => current === null ? null : {
+      ...current,
+      process_generation: processGeneration,
+    });
     setSession(null);
+    setStopState("idle");
+    setStopError(null);
     setSessionIndexRevision((current) => current + 1);
     setStage("gate_2");
   }
@@ -250,6 +264,8 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     setSession(null);
     setGateTwoStartedAt(null);
     setElapsedSeconds(0);
+    setStopState("idle");
+    setStopError(null);
     automaticReconnectAttempt.current = null;
     clearSessionQuery();
   }
@@ -266,10 +282,39 @@ export function useTrialMonitor(props: UseTrialMonitorProps) {
     return { gate: created.gate, id: created.id, status: created.status };
   }, [created, session]);
 
+  function confirmStop() {
+    if (stage !== "gate_2" || created?.process_generation == null) return;
+    setStopError(null);
+    setStopState("confirming");
+  }
+
+  function cancelStop() {
+    if (stopState === "confirming" || stopState === "failed") {
+      setStopError(null);
+      setStopState("idle");
+    }
+  }
+
+  async function stopActiveSession() {
+    if (
+      stage !== "gate_2" || created === null ||
+      created.process_generation === null || stopState === "stopping"
+    ) return;
+    setStopState("stopping");
+    setStopError(null);
+    try {
+      await stopSession(trialToken, created.id, created.process_generation);
+    } catch (reason) {
+      rejectTrialToken(reason, trialToken);
+      setStopError(describeError(reason));
+      setStopState("failed");
+    }
+  }
+
   return {
-    acceptLaunch, created, currentPhase, elapsedSeconds, executionRef, monitor,
+    acceptLaunch, cancelStop, confirmStop, created, currentPhase, elapsedSeconds, executionRef, monitor,
     observedSession, reconnectExisting, resetForNewRun, resumeForDirective,
-    session, sessionIndexRevision,
+    session, sessionIndexRevision, stopActiveSession, stopError, stopState,
   };
 }
 

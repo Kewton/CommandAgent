@@ -362,6 +362,7 @@ mod tests {
     fn lm_studio_is_admitted_for_both_session_roles() {
         let spec = SessionSpec {
             goal: "Inspect the workspace".to_string(),
+            working_directory: None,
             profile: "generic".to_string(),
             intent: None,
             provider: "lm-studio".to_string(),

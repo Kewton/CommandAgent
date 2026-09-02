@@ -6,6 +6,7 @@ const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
 const SESSION_PATHS_MODULE: &str = "src/bin/gui_server/session_paths.rs";
 const SERVER_ROOT_MODULE: &str = "src/bin/gui_server.rs";
 const TRIAL_OPTIONS_MODULE: &str = "src/bin/gui_server/trial_options.rs";
+const TRIAL_PROCESS_MODULE: &str = "src/bin/gui_server/trial_process.rs";
 
 #[test]
 fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
@@ -59,10 +60,24 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
             }
         }
         if path != Path::new(DELEGATE_MODULE) {
-            for token in ["std::process", "Command::new", ".spawn("] {
+            let forbidden = if path == Path::new(TRIAL_PROCESS_MODULE) {
+                &["Command::new", ".spawn("][..]
+            } else {
+                &["std::process", "Command::new", ".spawn("][..]
+            };
+            for token in forbidden {
                 assert!(
                     !source.contains(token),
                     "{} can spawn outside the sole CLI delegate: {token:?}",
+                    path.display()
+                );
+            }
+        }
+        if path != Path::new(TRIAL_PROCESS_MODULE) {
+            for token in ["libc::kill(", "process_group(0)", "libc::SIGKILL"] {
+                assert!(
+                    !source.contains(token),
+                    "{} has GUI signal capability outside the stop module: {token:?}",
                     path.display()
                 );
             }
@@ -93,6 +108,7 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
     }
     assert_eq!(server_root.matches("std::fs::create_dir_all").count(), 1);
     assert_eq!(server_root.matches("std::fs::set_permissions").count(), 1);
+    assert!(server_root.contains(".route(\"/api/sessions/{id}/stop\", post(trial_process::stop))"));
 
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     for required in [
@@ -111,6 +127,8 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         ".output()",
         ".arg(\"--ultra-plan-run\")",
         ".arg(\"--run-ultra-plan\")",
+        "TrialProcesses::prepare_command(&mut command)",
+        ".register(session_id, generation, child, &paths.events_path())",
         "COMMANDAGENT_EVAL_EVENTS",
         ".arg(\"--extension-root\")",
         "apply_confirmed_pack(&mut command, state, identity)",
@@ -173,11 +191,46 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         "shell.confirm_directive(&hash)",
         ".prepare_confirmed_continuation(",
         "shell.dispatch_directive(&continuation, ||",
-        "run_cli_continuation(&state, &paths, &identity, &continuation)",
+        "spawn_cli_continuation(",
+        "state.trial_processes.wait(&process, child)",
     ] {
         assert!(
             directives.contains(required),
             "directive confirmation guard is missing {required:?}"
+        );
+    }
+
+    let trial_process = std::fs::read_to_string(TRIAL_PROCESS_MODULE).unwrap();
+    for required in [
+        "require_trial(&state, &headers, true)",
+        "require_session_id(&id)",
+        "require_current_active(&paths.events_path()).await",
+        ".require_running(&id)",
+        ".request_stop(&id, &request.generation)",
+        "process.identity.session_id != session_id",
+        "process.identity.generation != generation",
+        "libc::kill(-process_group, signal)",
+        "libc::kill(-process_group, 0)",
+        "Signal::Interrupt",
+        "Signal::Kill",
+        "gui_trial_stop_requested",
+        "gui_trial_stop_completed",
+        "process_tree_gone",
+    ] {
+        assert!(
+            trial_process.contains(required),
+            "GUI Trial stop ownership guard is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Command::new",
+        ".spawn(",
+        "provider_call",
+        "planner::runner",
+    ] {
+        assert!(
+            !trial_process.contains(forbidden),
+            "GUI Trial stop module exceeds its signal-only authority: {forbidden:?}"
         );
     }
 }
@@ -212,6 +265,72 @@ fn delegation_guard_negative_examples_are_rejected() {
         assert!(
             violates_delegation_guard(Path::new(path), source),
             "negative fixture unexpectedly passed: {path}: {source}"
+        );
+    }
+}
+
+#[test]
+fn gui_trial_stop_ui_is_gate_two_only_keyboard_operable_and_smoked_at_both_base_paths() {
+    let gate_two = std::fs::read_to_string("gui/components/trial-gate-two.tsx").unwrap();
+    for required in [
+        "if (stage !== \"gate_2\" || created === null) return null",
+        "created.process_generation !== null",
+        "data-testid=\"trial-stop-open\"",
+        "data-testid=\"trial-stop-confirmation\"",
+        "role=\"alertdialog\"",
+        "autoFocus",
+        "data-testid=\"trial-stop-pending\"",
+        "role=\"status\"",
+        "data-testid=\"trial-stop-error\"",
+        "role=\"alert\"",
+        "停止要求を完了できませんでした",
+    ] {
+        assert!(
+            gate_two.contains(required),
+            "Gate 2 stop UI is missing {required:?}"
+        );
+    }
+
+    let monitor = std::fs::read_to_string("gui/hooks/use-trial-monitor.ts").unwrap();
+    for required in [
+        "stage !== \"gate_2\"",
+        "created.process_generation === null",
+        "await stopSession(trialToken, created.id, created.process_generation)",
+        "setStopState(\"stopping\")",
+        "setStopState(\"failed\")",
+    ] {
+        assert!(
+            monitor.contains(required),
+            "Gate 2 stop state is missing {required:?}"
+        );
+    }
+
+    let api = std::fs::read_to_string("gui/lib/trial-api.ts").unwrap();
+    for required in [
+        "sessions/${encodeURIComponent(sessionId)}/stop",
+        "method: \"POST\"",
+        "trialAuthorizationHeaders(token, true)",
+        "JSON.stringify({ generation: processGeneration })",
+    ] {
+        assert!(
+            api.contains(required),
+            "stop API client is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
+    for required in [
+        "{ id: \"root\", buildBasePath: \"/\", serverBasePath: \"/\" }",
+        "buildBasePath: \"/proxy/commandagent/\"",
+        "data-testid='trial-stop-open'",
+        "data-testid='trial-stop-confirmation'",
+        "data-testid='trial-stop-error'",
+        "data-testid='trial-stop-pending'",
+        "stopRequestsBound",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "dual-base-path stop smoke is missing {required:?}"
         );
     }
 }
@@ -1551,11 +1670,12 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "section5:",
         "events_path:",
         "identity?:",
+        "process_generation:",
         "recovery_auto_run:",
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 25);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 26);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -2701,6 +2821,7 @@ fn violates_delegation_guard(path: &Path, source: &str) -> bool {
         || source.contains("Command::new(\"")
         || source.contains(".env(\"COMMANDAGENT_PACK_")
         || (path != Path::new(DELEGATE_MODULE)
+            && path != Path::new(TRIAL_PROCESS_MODULE)
             && ["std::process", "Command::new", ".spawn("]
                 .iter()
                 .any(|token| source.contains(token)))

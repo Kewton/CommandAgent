@@ -51,6 +51,8 @@ mod static_files;
 mod trial_access;
 #[path = "gui_server/trial_options.rs"]
 mod trial_options;
+#[path = "gui_server/trial_process.rs"]
+mod trial_process;
 #[path = "gui_server/workspace_policy.rs"]
 mod workspace_policy;
 
@@ -64,6 +66,7 @@ pub struct AppState {
     pub lm_studio_host: String,
     pub extension_root: Option<PathBuf>,
     pub trial_access: trial_access::TrialAccess,
+    pub trial_processes: trial_process::TrialProcesses,
     pub trial_workspace: workspace_policy::TrialWorkspace,
 }
 
@@ -201,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
         lm_studio_host,
         extension_root: extension_root.clone(),
         trial_access,
+        trial_processes: trial_process::TrialProcesses::new(),
         trial_workspace,
     };
     let dashboard = dashboard_router();
@@ -405,6 +409,7 @@ fn dashboard_router() -> Router<AppState> {
             get(session_index::list).post(delegate::create),
         )
         .route("/api/sessions/{id}", get(sessions::status))
+        .route("/api/sessions/{id}/stop", post(trial_process::stop))
         .route("/api/sessions/{id}/paths", get(session_paths::get))
         .route(
             "/api/sessions/{id}/artifacts",
