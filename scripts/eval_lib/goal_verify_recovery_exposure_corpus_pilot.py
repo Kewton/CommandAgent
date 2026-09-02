@@ -39,6 +39,20 @@ CASE_SPECS = (
         "required_delta_path": "app.py",
     },
     {
+        "case_id": "phase6-main-c07-task-06",
+        "workspace_case_id": "main-fix-generic-fixtures",
+        "profile": "generic",
+        "immutable_paths": ("fixture",),
+        "required_delta_path": "app.py",
+    },
+    {
+        "case_id": "phase6-main-c07-task-09",
+        "workspace_case_id": "main-fix-generic-fixtures",
+        "profile": "generic",
+        "immutable_paths": ("fixture",),
+        "required_delta_path": "app.py",
+    },
+    {
         "case_id": "phase6-main-c13-task-02",
         "workspace_case_id": "a15-fix-data-reconciliation",
         "profile": "data",
@@ -49,6 +63,56 @@ CASE_SPECS = (
             "tests",
         ),
         "required_delta_path": "pipeline/main.py",
+    },
+    {
+        "case_id": "phase6-main-c13-task-06",
+        "workspace_case_id": "a15-fix-data-reconciliation",
+        "profile": "data",
+        "immutable_paths": (
+            "data",
+            "scripts/repro.py",
+            "scripts/contract_check.py",
+            "tests",
+        ),
+        "required_delta_path": "pipeline/main.py",
+    },
+    {
+        "case_id": "phase6-main-c13-task-09",
+        "workspace_case_id": "a15-fix-data-reconciliation",
+        "profile": "data",
+        "immutable_paths": (
+            "data",
+            "scripts/repro.py",
+            "scripts/contract_check.py",
+            "tests",
+        ),
+        "required_delta_path": "pipeline/main.py",
+    },
+    {
+        "case_id": "phase6-main-c14-task-02",
+        "workspace_case_id": "a15-fix-nextjs-route-label",
+        "profile": "nextjs",
+        "immutable_paths": (
+            "fixture",
+            "scripts/repro.mjs",
+            "scripts/regression.mjs",
+            "package.json",
+            "package-lock.json",
+        ),
+        "required_delta_path": "lib/label.mjs",
+    },
+    {
+        "case_id": "phase6-main-c14-task-06",
+        "workspace_case_id": "a15-fix-nextjs-route-label",
+        "profile": "nextjs",
+        "immutable_paths": (
+            "fixture",
+            "scripts/repro.mjs",
+            "scripts/regression.mjs",
+            "package.json",
+            "package-lock.json",
+        ),
+        "required_delta_path": "lib/label.mjs",
     },
     {
         "case_id": "phase6-main-c14-task-08",
@@ -64,6 +128,9 @@ CASE_SPECS = (
         "required_delta_path": "lib/label.mjs",
     },
 )
+
+EXPECTED_CASE_IDS = frozenset(spec["case_id"] for spec in CASE_SPECS)
+EXPECTED_PROFILE_CASE_COUNTS = {"generic": 3, "data": 3, "nextjs": 3}
 
 GENERIC_REFERENCE_APP = """#!/usr/bin/env python3
 import json
@@ -301,11 +368,12 @@ def _prepare_case_workspaces(
     provisioned_root: Path,
 ) -> tuple[Path, Path]:
     profile = spec["profile"]
+    case_scratch = scratch / spec["case_id"]
     before = prepare_workspace_stage(
         root=root,
         workspace=workspace_contract,
         stage="before",
-        destination=scratch / profile / "before",
+        destination=case_scratch / "before",
         provisioned_root=provisioned_root,
     )
     if profile == "generic":
@@ -313,7 +381,7 @@ def _prepare_case_workspaces(
             root=root,
             workspace=workspace_contract,
             stage="before",
-            destination=scratch / profile / "reference",
+            destination=case_scratch / "reference",
             provisioned_root=provisioned_root,
         )
         (reference / "app.py").write_text(GENERIC_REFERENCE_APP, encoding="utf-8")
@@ -322,7 +390,7 @@ def _prepare_case_workspaces(
             root=root,
             workspace=workspace_contract,
             stage="after",
-            destination=scratch / profile / "reference",
+            destination=case_scratch / "reference",
             provisioned_root=provisioned_root,
         )
     return before, reference
@@ -455,9 +523,19 @@ def build_report(
     provisioning_sha256: str,
 ) -> dict[str, Any]:
     profiles = {case.get("profile") for case in cases}
+    case_ids = [case.get("case_id") for case in cases]
+    profile_case_counts = {
+        profile: sum(case.get("profile") == profile for case in cases)
+        for profile in EXPECTED_PROFILE_CASE_COUNTS
+    }
     checks = {
-        "exactly_one_case_per_target_profile": len(cases) == 3
-        and profiles == {"generic", "data", "nextjs"},
+        "all_preselected_case_ids_present_once": len(case_ids) == len(EXPECTED_CASE_IDS)
+        and len(set(case_ids)) == len(case_ids)
+        and set(case_ids) == EXPECTED_CASE_IDS,
+        "exactly_three_cases_per_target_profile": (
+            profile_case_counts == EXPECTED_PROFILE_CASE_COUNTS
+            and profiles == set(EXPECTED_PROFILE_CASE_COUNTS)
+        ),
         "every_case_candidate_visible_before_failure": all(
             case.get("checks", {}).get("before_reproducer_failed_with_registered_exit")
             is True
@@ -476,18 +554,18 @@ def build_report(
             and case.get("checks", {}).get("immutable_inputs_unchanged") is True
             for case in cases
         ),
-        "nextjs_route_polarity_is_distinct": any(
-            case.get("profile") == "nextjs"
-            and case.get("checks", {}).get("route_render_before_fail_reference_pass")
+        "every_nextjs_route_polarity_is_distinct": all(
+            case.get("checks", {}).get("route_render_before_fail_reference_pass")
             is True
             for case in cases
+            if case.get("profile") == "nextjs"
         ),
         "all_cases_ready": all(case.get("corpus_ready") is True for case in cases),
     }
     ready = all(checks.values())
     return {
         "schema_version": (
-            "commandagent.goal_verify.recovery_exposure_corpus_pilot.v1"
+            "commandagent.goal_verify.recovery_exposure_corpus_pilot.v2"
         ),
         "inference_role": "candidate_visible_failure_corpus_qualification_only",
         "effect_claim_allowed": False,
@@ -496,7 +574,13 @@ def build_report(
         "workspace_registry_sha256": workspace_registry_sha256,
         "provisioning_sha256": provisioning_sha256,
         "case_count": len(cases),
+        "case_ids": sorted(case_id for case_id in case_ids if isinstance(case_id, str)),
+        "profile_case_counts": profile_case_counts,
         "profiles": sorted(profile for profile in profiles if isinstance(profile, str)),
+        "selection_policy": {
+            "all_preselected_cases_remain_in_denominator": True,
+            "runtime_case_exclusion_allowed": False,
+        },
         "checks": checks,
         "corpus_ready_for_preregistration": ready,
         "go_no_go": "GO" if ready else "NO-GO",
@@ -526,8 +610,9 @@ def run_pilot(
         raise ValueError("workspace registry is not frozen")
     tasks = _task_by_id(task_registry)
     workspaces = workspace_by_case(workspace_registry)
+    selected_workspace_ids = sorted({spec["workspace_case_id"] for spec in CASE_SPECS})
     selected_workspaces = {
-        "workspaces": [workspaces[spec["workspace_case_id"]] for spec in CASE_SPECS]
+        "workspaces": [workspaces[case_id] for case_id in selected_workspace_ids]
     }
     workspace_errors = validate_workspace_registry(
         root=ROOT, registry=selected_workspaces, require_frozen=True
