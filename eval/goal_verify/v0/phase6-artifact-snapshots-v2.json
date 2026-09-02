@@ -1,0 +1,51 @@
+{
+  "schema_version": "commandagent.goal_verify.artifact_snapshots.v2",
+  "status": "frozen_contract_integration_preflight",
+  "contract_id": "phase6-preflight-v2-20260826",
+  "frozen_at": "2026-08-26",
+  "interpretation": "Synthetic reviewed snapshots for contract integration; not live product evidence and not task-success evidence.",
+  "cases": [
+    {
+      "case_id": "create-build-only-functional",
+      "artifact": {"counter": {"initial": 0, "after_clicks": [1, 2]}},
+      "files": []
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "artifact": {"route": "/play", "heading": "開始", "computed_background": "blue", "port": 4173, "http_status": 200},
+      "files": []
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "artifact": {"interface": "argv", "known_examples": [{"argv": ["2", "3"], "stdout": "5\n"}, {"argv": ["-1", "1"], "stdout": "0\n"}]},
+      "files": [
+        {"source": "tests/fixtures/goal_verify_v2/create-cli-known-multiple-inputs/sum_cli.py", "destination": "sum_cli.py", "sha256": "53fe35e701e1f478cf3e6c3a629aee76436582386b3606fd1c4fe98f0eecc71d"}
+      ]
+    },
+    {
+      "case_id": "create-negative-constraint-injection",
+      "artifact": {"outbound_requests": []},
+      "files": []
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "artifact": {"before": {"exit_code": 2, "executed": true}, "after": {"exit_code": 0, "executed": true}, "regression_ids": ["profile-contract", "cargo-test"], "regression_passed": true},
+      "files": []
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "artifact": {"registered_fixture": "fixture/a.json", "executed_fixture": "fixture/b.json", "same_hash": false, "baseline_reproduced": false},
+      "files": []
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "artifact": {"after_executed": false, "registered_regression_ids": ["profile-contract", "cargo-test"], "executed_regression_ids": ["profile-contract"]},
+      "files": []
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "artifact": {"old_tests_passed": true, "reproducer_dependency_available": false, "bug_reproducer_executed": false},
+      "files": []
+    }
+  ]
+}

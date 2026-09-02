@@ -288,6 +288,7 @@ fn provider_probe_tool_args_recovery_classification_by_provider() {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let recoverable = provider_write_call(provider, "provider-probe.txt", "ok")
@@ -402,6 +403,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 64,
         max_iterations: 1,
+        recovery_plan_auto_runs: 0,
         chat_timeout_secs: 30,
         chat_timeout_source: "override:test".to_string(),
         field_sources: commandagent::config::ConfigFieldSources::default(),
@@ -692,6 +694,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 64,
         max_iterations: 1,
+        recovery_plan_auto_runs: 0,
         chat_timeout_secs: 30,
         chat_timeout_source: "override:test".to_string(),
         field_sources: commandagent::config::ConfigFieldSources::default(),
@@ -953,6 +956,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 512,
         max_iterations: 1,
+        recovery_plan_auto_runs: 0,
         chat_timeout_secs: 60,
         chat_timeout_source: "override:test".to_string(),
         field_sources: commandagent::config::ConfigFieldSources::default(),

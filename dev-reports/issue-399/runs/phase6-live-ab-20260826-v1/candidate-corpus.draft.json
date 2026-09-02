@@ -1,0 +1,581 @@
+{
+  "annotation_protocol": {
+    "disagreements": [],
+    "label_author": "phase6-live-runner",
+    "method": "provider generation projected mechanically; variant-blind review pending",
+    "reviewed_at": "pending",
+    "reviewer": "pending-blind-review",
+    "status": "pending"
+  },
+  "cases": [
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-01",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 1396,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-01.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 87741
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-02",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [
+          "shrunk-regression-success"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 788,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-02.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 99073
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-03",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 800,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-03.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 91030
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-04",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 799,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-04.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 86304
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-05",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 800,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-05.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 97670
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-06",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [
+          "shrunk-regression-success"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 788,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-06.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 84890
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-07",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [
+          "before-fails-claim",
+          "after-passes-claim"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 1392,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-07.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 106859
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-08",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 800,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-08.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 89619
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    },
+    {
+      "allowed_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "case_id": "fix-after-not-run-regression-shrunk--pair-09",
+      "forbidden_verdicts": [
+        "full"
+      ],
+      "goal": "修正後のreproducerを実行せず、回帰集合を1件に縮小して成功扱いする。",
+      "intent": "fix",
+      "language": "ja",
+      "observation": {
+        "claimed_claim_ids": [
+          "before-fails-claim",
+          "after-passes-claim"
+        ],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          false,
+          true
+        ],
+        "input_tokens": 955,
+        "output_tokens": 1396,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": true,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v1/raw/fix-after-not-run-regression-shrunk/pair-09.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 101371
+      },
+      "optional_claims": [],
+      "polarity": "negative",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "after-executed",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "after command executed with same reproducer hash",
+            "kind": "event_lineage"
+          }
+        },
+        {
+          "id": "full-regression-set",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "all pre-registered regression IDs executed",
+            "kind": "manifest_test_set"
+          }
+        }
+      ],
+      "size": "large",
+      "tags": [
+        "after_not_run",
+        "regression_set_shrunk"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.corpus.v0"
+}

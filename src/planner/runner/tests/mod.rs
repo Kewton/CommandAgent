@@ -12,6 +12,7 @@ mod final_acceptance_tests;
 #[path = "ultra_plan_flow_tests.rs"]
 mod ultra_plan_flow_tests;
 
+include!("recovery_host_verification_tests.rs");
 #[path = "data_pre_satisfied_tests.rs"]
 mod data_pre_satisfied_tests;
 

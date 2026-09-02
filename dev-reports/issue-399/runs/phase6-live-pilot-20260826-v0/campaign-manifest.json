@@ -1,0 +1,18 @@
+{
+  "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539",
+  "contract": "eval/goal_verify/v0/phase6-paired-contract.json",
+  "contract_sha256": "586b032a594373dbd64415c276d44a920a3aa0a13cb596a65e3bba27eccdbb18",
+  "corpus": "eval/goal_verify/v0/corpus.json",
+  "corpus_sha256": "4b61f3d77a7d448d6d9ceb19b206751e213f7c382514b8e97fa10a0e85b86845",
+  "exclusion_rules": [
+    "abort the campaign, without excluding a row, when a result record cannot be persisted",
+    "timeouts, provider errors, malformed JSON, schema rejection, empty claims, and policy rejection remain included as candidate failures",
+    "no exclusion rule may be changed after the first candidate response is persisted"
+  ],
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "prompt_sha256": "5097c22466b43adf3326080c2856248f4c774530782f88f6f2a9c0c2784cba47",
+  "samples_per_cell": 30,
+  "schema_sha256": "c08838d8bdf9d2d1caa6426b79c3ccfbcb2234b4ecab0a1ab6e01a126a4b188a",
+  "schema_version": "commandagent.goal_verify.phase6_live_manifest.v0"
+}

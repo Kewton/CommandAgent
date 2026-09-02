@@ -15,14 +15,14 @@ use super::FixRuntime;
 const ROLE_HEADING: &str = "Data fix phase-role boundary (runtime-bound):";
 
 #[derive(Debug, Default)]
-pub(super) struct DataRolePolicy {
+pub(crate) struct DataRolePolicy {
     enabled: bool,
     repair_phase_id: Option<String>,
     deferred_steps: Vec<PlanStep>,
 }
 
 impl DataRolePolicy {
-    pub(super) fn for_plan(plan: &UltraPlan) -> Self {
+    pub(crate) fn for_plan(plan: &UltraPlan) -> Self {
         let enabled = crate::planner::profile::resolve_profile_runtime(&plan.profile)
             .synthesizes_fix_plan()
             && is_fix_intent(&plan.intent);

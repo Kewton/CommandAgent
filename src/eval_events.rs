@@ -10,9 +10,11 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+pub mod failure_explanation;
 mod human_summary;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;
+mod timing;
 pub(crate) mod typed;
 
 const SNIPPET_LIMIT: usize = 500;
@@ -136,6 +138,7 @@ pub fn is_eval_events_override() -> bool {
 }
 
 pub fn emit(path: Option<&Path>, mut event: Value) {
+    timing::stamp_phase_boundary(&mut event);
     crate::tui::status_bus::publish_eval_projection(&event);
     crate::tui::presentation::project_event(&event);
     let Some(path) = path else {
@@ -153,6 +156,7 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
 
 pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> anyhow::Result<()> {
     let path = path.ok_or_else(|| anyhow::anyhow!("eval events path is unavailable"))?;
+    timing::stamp_phase_boundary(&mut event);
     if let Value::Object(ref mut object) = event {
         object
             .entry("schema_version")
@@ -1049,6 +1053,14 @@ fn latest_persistence_fields(events: &[Value]) -> PersistenceFields {
 fn latest_recovery_fields(events: &[Value]) -> RecoveryFields {
     let mut fields = RecoveryFields::default();
     for event in events.iter().rev() {
+        if event.get("event").and_then(Value::as_str) == Some("recovery_plan_auto_run_complete")
+            && event
+                .get("recovery_plan_auto_run_stop_reason")
+                .and_then(Value::as_str)
+                == Some("recovery_succeeded")
+        {
+            break;
+        }
         if fields.recovery_prompt_path.is_empty()
             && let Some(value) = non_empty_event_field(event, "recovery_prompt_path")
         {
@@ -3709,6 +3721,69 @@ mod tests {
         assert_eq!(
             snapshot.suggested_recovery_yaml_command,
             "/run-ultra-plan .anvil/plans/new.yaml"
+        );
+    }
+
+    #[test]
+    fn successful_auto_recovery_clears_prior_handoff_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        emit(
+            Some(&path),
+            json!({
+                "event": "recovery_prompt_saved",
+                "recovery_prompt_path": ".anvil/repairs/old.md",
+                "recovery_ultra_plan_path": ".anvil/plans/old.yaml",
+                "suggested_recovery_command": "manual old prompt",
+                "suggested_recovery_yaml_command": "manual old yaml",
+            }),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "recovery_plan_auto_run_complete",
+                "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+                "recovery_plan_auto_runs": 2,
+                "recovery_plan_auto_runs_used": 1,
+            }),
+        );
+
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert!(snapshot.recovery_prompt_path.is_empty());
+        assert!(snapshot.recovery_ultra_plan_path.is_empty());
+        assert!(snapshot.suggested_recovery_command.is_empty());
+        assert!(snapshot.suggested_recovery_yaml_command.is_empty());
+    }
+
+    #[test]
+    fn manual_recovery_after_auto_success_remains_visible() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        emit(
+            Some(&path),
+            json!({
+                "event": "recovery_plan_auto_run_complete",
+                "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+            }),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "recovery_prompt_saved",
+                "recovery_prompt_path": ".anvil/repairs/later.md",
+                "recovery_ultra_plan_path": ".anvil/plans/later.yaml",
+                "suggested_recovery_command": "manual later prompt",
+                "suggested_recovery_yaml_command": "manual later yaml",
+            }),
+        );
+
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert_eq!(snapshot.recovery_prompt_path, ".anvil/repairs/later.md");
+        assert_eq!(snapshot.recovery_ultra_plan_path, ".anvil/plans/later.yaml");
+        assert_eq!(snapshot.suggested_recovery_command, "manual later prompt");
+        assert_eq!(
+            snapshot.suggested_recovery_yaml_command,
+            "manual later yaml"
         );
     }
 

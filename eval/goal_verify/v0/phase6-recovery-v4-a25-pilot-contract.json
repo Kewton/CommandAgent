@@ -1,0 +1,1239 @@
+{
+  "analysis": {
+    "a15_a10_1_historical_run_policy": "The 73 committed records and their append-only ledger remain immutable partial instrument evidence. The run is never resumed, completed with a different runner, pooled into an effect estimate, or rescored.",
+    "a15_a10_2_historical_run_policy": "A15-A10.2 remains immutable NO-GO evidence and is never resumed, rescored, or pooled with A16",
+    "a15_a5_partial_run_policy": "A15-A5 stopped after 7 of 14 records when data profile runtime canonicalization shrank a three-command host final-success step to pytest; the partial ledger remains immutable and is never resumed or rescored",
+    "a15_a6_historical_run_policy": "A15-A6 remains immutable instrument evidence: two data Recovery plans targeted pipeline/main.py but performed no Write or Edit, host verification rejected both treatments, and the run is never rescored",
+    "a15_a7_historical_run_policy": "A15-A7 remains immutable instrument-GO evidence with three improvements and zero harms, but it is not evidence that the typed mutation gate fired: data pair-03 used a Repair instruction, performed only Read/Bash actions, and was safely rejected by host final verification",
+    "a15_a8_historical_run_policy": "A15-A8 remains immutable instrument-GO evidence; its data pair-01 and pair-02 treatments corrected used_rows but removed caller-required write_outputs and were safely rejected, so adopted delta zero must not be read as no mutation",
+    "a15_a9_historical_run_policy": "A15-A9 remains immutable 14-pair instrument-GO evidence; it is not pooled into the A15-A10 effect estimate or rescored",
+    "a16_1_historical_run_policy": "A16.1 remains immutable six-pair NO-GO evidence and is never resumed, rescored, or pooled with A17",
+    "a16_historical_run_policy": "A16 stopped before manifest creation, model invocation, pair execution, or raw record persistence; its frozen contract remains unchanged and is never resumed",
+    "a17_historical_run_policy": "A17 remains immutable nine-pair NO-GO evidence and is never resumed, rescored, or pooled with A21",
+    "a20_candidate_exposure_policy": "two independent model-free runs qualified the same nine frozen cases; each registered before reproducer failed, each reference repair and regression set passed, immutable inputs matched, and every Next.js route observation had distinct before/reference polarity",
+    "a21_authoritative_report_command": "scripts/eval-goal-verify-recovery-a15-report.py; the generic v4 report does not evaluate the preregistered per-profile pair and task-cluster gates",
+    "a21_denominator_policy": "all 27 preregistered pairs remain in the denominator; runtime case exclusion, pair substitution, duplication, and post-collection selection are forbidden",
+    "a21_effect_limitation": "A21 qualifies natural model failure exposure and instrument usability; it does not authorize a Recovery effect or cross-family generalization claim",
+    "a21_exposure_gate": "require at least 12 executed Recoveries overall, at least three per profile, and at least two source-task clusters per profile",
+    "a21_historical_run_policy": "A21 remains immutable 27-pair natural-exposure NO-GO evidence and is never resumed, rescored, or pooled with A23",
+    "a22_regression_role": "A22 proves the corrected generic fix transaction path only and is not a natural-model effect or exposure sample",
+    "a23_effect_limitation": "A23 informs exposure design only and cannot authorize an effect or generalization claim",
+    "a23_historical_run_policy": "A23 remains immutable six-pair INVALID pilot evidence and is never rescored, resumed, or pooled with A24",
+    "a23_model_policy": "qwen3.5:9b digest-pinned exploratory pilot; any later confirmatory run must separately freeze its model, cases, repetitions, and thresholds",
+    "a23_pilot_denominator_policy": "all six preregistered pilot pairs remain in the denominator; runtime exclusion, replacement, duplication, and post-collection selection within A23 are forbidden",
+    "a24_attempt_evidence_policy": "separate promoted safety success, rejected mutated treatment evidence, rejected pre-mutation scaffold failure, and bounded repair count",
+    "a24_effect_limitation": "A24 informs exposure design only and cannot authorize an effect or generalization claim",
+    "a24_historical_run_policy": "A24 remains immutable six-pair INVALID pilot evidence and is never rescored, resumed, or pooled with A25",
+    "a24_pilot_denominator_policy": "all six preregistered A17/A21/A23-unseen pilot pairs remain in the denominator; exclusion, replacement, duplication, and post-collection selection within A24 are forbidden",
+    "a24_read_only_inspection_policy": "a Recovery fix-origin inspect step suppresses profile post-step repair; ordinary and implement-step profile repair remain unchanged",
+    "a25_effect_limitation": "A25 informs exposure design only and cannot authorize an effect or generalization claim",
+    "a25_inner_binding_policy": "read-only-only binding is valid solely for a typed pre-mutation rejection with an empty attempted product delta and retained control",
+    "a25_pilot_denominator_policy": "all six preregistered A17/A21/A23/A24-unseen pilot pairs remain in the denominator; exclusion, replacement, duplication, and post-collection selection within A25 are forbidden",
+    "attribution_requires_executed_recovery_runs": 1,
+    "attribution_requires_shared_initial_history": true,
+    "blocked_browser_oracle_excluded_from_effect_evidence": true,
+    "bootstrap_iterations": 2000,
+    "bootstrap_method": "stratified hierarchical paired percentile: resample task clusters within profile cells, then repetitions within task; 2,000 samples",
+    "browser_executability_preflight_source": "frozen reference workspace, never candidate artifact",
+    "candidate_failure_sampling_policy": "retain the prior known generic failure pairs and all three repetitions of the prior Next.js task-08 failure to observe at least one Recovery path per real profile without changing any oracle",
+    "candidate_server_failure_is_product_outcome_not_instrument_failure": true,
+    "completion_obligation_handoff_policy": "bind missing product-visible obligations and their deterministic repair target paths before generating the Recovery plan",
+    "confidence_interval": 0.95,
+    "configured_one_but_executed_zero": "arm differences are initial-attempt divergence, not Recovery effect",
+    "cost_deltas": [
+      "wall_time_ms",
+      "input_tokens",
+      "output_tokens",
+      "total_tokens"
+    ],
+    "current_success_is_not_improvement": true,
+    "current_success_mutation_forbidden": true,
+    "data_failure_interpretation": "unchanged data failures remain honest capability observations and are not converted into Recovery improvements",
+    "default_rollout_policy": "forbidden unless the frozen full-experiment GO rule passes",
+    "discarded_valid_treatment_policy": "a treatment satisfying every registered oracle must not be discarded; the smoke gate requires zero such attempts",
+    "exclusion_rules_change_after_collection": "forbidden",
+    "existing_frozen_input_absence_assertion_policy": "reject unless the task explicitly requires deleting that path",
+    "external_oracle_passed_to_product_or_recovery": false,
+    "full_effect_claim_scope": "the preregistered offline-executable fix-task families in this corpus; not every task or defect that can select the same product profile",
+    "full_effect_task_family_limitation": "within-profile variants can share a defect template; source_task_id is the frozen bootstrap cluster, but cross-family generalization requires a later corpus with additional independent defect families",
+    "full_experiment_dependency": "do not freeze or collect the full effect experiment until this stratified instrument smoke passes without amendment",
+    "full_experiment_redesign_required": "A14-A14 must remove cell-08 from the eligible effect population and retain it as a non-Recovery profile-contract sentinel before freeze",
+    "full_resource_budget_policy": "fixed before full collection from A15-A9 executed-Recovery profile maxima: total-token p50 47,882 and p95 48,068.3; wall-time p50 145,470 ms and p95 162,478.2 ms; apply 25% headroom and round upward to 10,000 tokens or 30,000 ms; use the resulting conservative budgets for every profile",
+    "generic_cli_probe_policy": "unchanged for create/generic CLI acceptance; it is not disabled or weakened to admit root-level cli.py fix tasks",
+    "generic_fix_obligation_policy": "implementation artifact plus exact registered bound reproducer; no unregistered README or synthetic test-file obligation",
+    "hidden_path_workspace_policy": "engine-private components are evaluated after stripping the treatment workspace root; a private parent directory does not taint product paths",
+    "host_owned_recovery_verify_profile_policy": "after Recovery StepPlan binding, host-owned final-success steps bypass profile runtime command canonicalization and execute the complete bound registered command list without shrinkage, substitution, or model rewrite",
+    "initial_resolution_and_recovery_effect_reported_separately": true,
+    "initial_success_attributed_as_improvement": false,
+    "inner_recovery_verify_command_authority": "CompletionContract.verify_commands via host-owned StepPlan binding",
+    "input_output_contract_observation_binding": "normalized fix_reproducer_command must equal one registered verify_commands entry",
+    "nextjs_fix_obligation_policy": "implementation artifact plus the exact registered reproducer, frozen Node regression, production build, and route evidence; no synthetic README or test-file artifact obligation",
+    "nextjs_javascript_route_evidence_policy": "app/page.js and src/app/page.js are route evidence on the same terms as the registered JSX and TSX App Router entrypoints",
+    "nextjs_language_mode_policy": "preserve an existing JavaScript or TypeScript App Router mode; profile repair must not introduce a second app tree or a new language toolchain",
+    "nextjs_registered_runtime_families": [
+      "Next 14 / React 18",
+      "Next 16 / React 19"
+    ],
+    "oracle_semantics_validation_population": "runtime_recovery_eligible_pairs_only",
+    "oracle_semantics_validation_required": true,
+    "preregistered_exclusion_gate": "ineligible_recovery_not_executed",
+    "primary_population": "preregistered eligible fix tasks in cli and generic; dependency and explicit profile-contract sentinels are retained but excluded from the effect denominator by frozen role",
+    "primary_transition": "fail to pass by frozen external oracle",
+    "profile_contract_exclusion_policy": "if the selected product profile is explicitly named in the task's do_not_convert_to constraints, configure and execute zero Recoveries",
+    "protected_verification_input_policy": "candidate-visible protected_paths may be read or executed but never created, edited, moved, or deleted; only unprotected implementation and generated output paths are repair targets",
+    "pytest_evidence_policy": "classify pytest invocation as Test only when a test artifact exists",
+    "real_profile_smoke_path_semantics": "executed Recovery establishes repair-path coverage; all-pass natural completion or explicit current-success suppression establishes only no-mutation safety-path coverage",
+    "recovery_api_preservation_policy": "after a Recovery mutation, host-owned deterministic analysis preserves only existing caller- or registered-contract-referenced API surface; violations receive at most one bounded local repair using the failed command and stderr",
+    "recovery_completion_evidence_policy": "completion requires the post-Recovery contract pass, treatment promotion, and recovery_succeeded events as a conjunction",
+    "recovery_final_success_execution_policy": "the host executes the exact registered CompletionContract commands; a failed final-success observation terminates Recovery without a model rewrite of the command",
+    "recovery_fix_contract_policy": "copy the exact failed fix run identity and before evidence hash into the isolated treatment, then rerun after and the same frozen profile regression bindings before registered CompletionContract preflight",
+    "recovery_fix_implement_mutation_policy": "an automatic Recovery implement step carrying the immutable fix-origin binding may not complete successfully before a Write or Edit tool call; a read-only completion receives bounded host feedback and must either perform the repair or terminate honestly",
+    "recovery_fix_origin_evidence_policy": "immutable failed-fix evidence is inherited across Recovery boundary observations; later adjudication writes cannot change its hash",
+    "recovery_fix_origin_source": "host-owned read-only .commandagent/recovery-runtime/fix-origin.json",
+    "recovery_fix_phase_completion_policy": "successful resumed fix runtime emits AcceptancePassed from the standard Recovery FinalAcceptance state; ordinary fix and investigation runtimes retain IntentFinalized",
+    "recovery_fix_promotion_gate": "require process success, completion verification pass, successful Recovery attempt telemetry, and exactly one promoted transaction",
+    "recovery_fix_runtime_resume_timing": "before the first Recovery phase",
+    "recovery_fix_terminal_gate_semantics": "a successful treatment must pass completion and be promoted; a failed treatment is instrument-valid only when it terminates honestly as not_recoverable, is rejected, and retains the unchanged control",
+    "recovery_fix_typed_mutation_gate_policy": "the immutable fix-origin plus implement-step binding explicitly activates the Write/Edit completion and mutation-before-short-circuit gates; this typed state does not depend on action words in model-generated instructions",
+    "recovery_generated_step_binding_timing": "before StepPlan lint",
+    "recovery_handoff_fidelity_v2_policy": "automatic fix Recovery must carry the top-level CompletionContract goal, registered verify commands, and deterministic repair targets; incomplete handoffs fail closed before another model run",
+    "recovery_inspection_phase_policy": "one host-owned read-only step using workspace-relative product paths only",
+    "recovery_product_mutation_measurement_policy": "mutation is measured by product-artifact bytes while runtime and cache paths are excluded; Write/Edit tool names are diagnostic only",
+    "recovery_promotion_policy": "promote only after the registered final-success observation and the remaining product-visible completion contract both pass",
+    "recovery_regression_lineage_policy": "initial fix and Recovery continuation resolve the identical registered completion-contract regression set and compare the same IDs and lineages",
+    "recovery_rejected_treatment_delta_policy": "the attempted product delta and treatment runtime-evidence delta are recorded before promotion or rejection and remain distinct from the adopted control delta",
+    "recovery_repair_phase_policy": "preserve inspect and implementation work, remove model verify steps, and append one host-owned final-success step with the complete registered set",
+    "recovery_runs_above_one": "out of scope and forbidden",
+    "recovery_treatment_promotion_requires_non_regression": true,
+    "recovery_verify_command_authority": "CompletionContract.verify_commands",
+    "registered_contract_probe_binding_policy": "profile probes use the registered reproducer fixture and argv; fix acceptance admits only registered completion-contract checks",
+    "registered_observation_scope": "an executed exact registered fix reproducer may satisfy only bound_verify_command; it cannot waive other missing or weak evidence",
+    "runtime_exclusion_allows_configured_one_executed_zero": true,
+    "safety_transitions": [
+      "pass to non-pass",
+      "regression pass to fail"
+    ],
+    "selected_task_binding_preflight": "bind and validate every selected case before manifest creation and before the first product invocation",
+    "smoke_cluster_design": "one task in each eligible fix profile repeated three times; one declared-offline dependency sentinel repeated once",
+    "smoke_readiness_requires_live_recovery_execution": true,
+    "stateful_shell_fragment_policy": "never carry unregistered fragments into automatic Recovery",
+    "subprocess_timeout_capture_policy": "normalize TimeoutExpired stdout and stderr to bounded UTF-8 strings at the subprocess boundary; preserve timeout as an honest baseline_unavailable result and reject any remaining non-JSON record value with its typed field path",
+    "treatment_completion_contract_binding": "exact bytes copied by host to .commandagent/recovery-runtime/completion-contract.json",
+    "treatment_contract_copy_failure_policy": "fail_closed_before_execution",
+    "treatment_contract_source_in_promotion_manifest": false,
+    "typed_recovery_observation_policy": "pre- and post-Recovery observations exclude only contract-declared generated outputs while continuing to reject protected source changes",
+    "typed_reproducer_candidate_visible": true,
+    "typed_reproducer_is_external_oracle": false,
+    "unregistered_handoff_command_policy": "replace plan before execution using registered commands and read-only preflight evidence; fail closed if rebinding fails",
+    "unsupported_required_capability_policy": "fail_closed",
+    "version_aware_next_build_evidence_policy": "a policy-approved direct npx next build invocation, including the frozen --webpack variant, is strong build and bound verification evidence"
+  },
+  "artifact_policy": {
+    "candidate_visible_manifest_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+    "existing_artifact_harm": "initial_only external oracle pass and recovery_one external oracle non-pass",
+    "full_snapshot_identity_retained": true,
+    "generated_cache_entries_excluded_from_artifact_delta": true,
+    "regression_introduced": "initial_only frozen regression pass and recovery_one frozen regression fail"
+  },
+  "authorization": {
+    "approved_at": "2026-09-02",
+    "approved_by": "repository owner",
+    "full_collection_authorized": false,
+    "implementation_authorized": true,
+    "smoke_collection_authorized": true
+  },
+  "code_sha": "f5f189c2316bbadbd90f64a08174bc2ee6096519",
+  "contract_id": "phase6-recovery-v4-20260902-a25-pilot-01",
+  "corpus": "eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-f5f189c2.json",
+  "execution_root_policy": {
+    "internal_disk_execution_forbidden": true,
+    "required_root": "/Volumes/SSD_NX/tmp/commandagent_trial"
+  },
+  "external_oracle_policy": {
+    "dependency_blocked_is_third_state": true,
+    "fix_before_failure_never_used_as_final_success": true,
+    "passed_to_product_or_recovery": false,
+    "product_observation_boundary_failures": [
+      "server_not_ready",
+      "timeout",
+      "playwright_unavailable_or_failed"
+    ],
+    "self_report_used_for_success": false,
+    "semantic_roles_required": [
+      "precondition",
+      "final_success"
+    ],
+    "source": "frozen host-owned adapters",
+    "timing": "pre-Recovery snapshot and post-Recovery snapshot in one run",
+    "typed_negative_assertions_required": true,
+    "unverified_or_error": "unusable, never pass"
+  },
+  "frozen_external_oracles": "eval/goal_verify/v0/phase6-command-adapters-v4-a15.json",
+  "frozen_input_sha256": {
+    "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a15.json": "e34fc7e9d4827801b6620b83433abf812fbecce4f75d9856f5377b92b6b8c448",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
+    "eval/goal_verify/v0/phase6-real-workspaces-v4-a15.json": "a85571e96c4c59ce6c2d4e2439dbf31676faab8f0a0abf5cb67236edccac82cf",
+    "eval/goal_verify/v0/phase6-recovery-v4-a15-corpus.json": "0c7a6c4c5d00c2584f060fb19bc89a3f6aacd02af47507f85dbff19ef25bd802",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a15-a5.json": "0e75a63bcf2b9f93dcb7564af62bdbdb7114b0a7ab1bb568d5e0eabb15ec5b1e"
+  },
+  "instrument_smoke_evidence": {
+    "contract_id": "phase6-recovery-v4-20260901-a15-a9-smoke-01",
+    "go_no_go": "GO",
+    "instrument_checks": 35,
+    "instrument_ready": true,
+    "record_count": 14,
+    "report_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260901-a15-a9-smoke-01/recovery-report-v4.json",
+    "report_sha256": "d18794a91f4753b88535ef8b205f26a10a26aa31978d4f17968f0fac4a70615c"
+  },
+  "integrity": {
+    "append_only_records": true,
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl"
+  },
+  "measurements": {
+    "missing_resource_values": "record null; never impute",
+    "required": [
+      "initial and recovery attempt status",
+      "external oracle transition",
+      "existing artifact harm",
+      "regression introduced",
+      "source/config artifact delta",
+      "wall_time_ms",
+      "input_tokens",
+      "output_tokens",
+      "total_tokens"
+    ]
+  },
+  "model": "qwen3.5:9b",
+  "model_digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+  "oracle_executability_preflight": {
+    "reference_overrides": {}
+  },
+  "paired_run_contract": {
+    "arm_order": [
+      "initial_only",
+      "recovery_one"
+    ],
+    "estimand": "within-run change from the captured pre-Recovery snapshot to the post-Recovery snapshot, with at most one Recovery Plan",
+    "execution_action": "ultra_plan_run",
+    "independent_workspace_copies": false,
+    "initial_only": {
+      "execution": "captured pre-Recovery control; no second LLM invocation",
+      "recovery_plan_auto_runs": 0
+    },
+    "maximum_recovery_runs": 1,
+    "pairing_unit": "shared_pre_recovery_snapshot",
+    "recovery_one": {
+      "execution": "same-run post-Recovery treatment",
+      "recovery_plan_auto_runs": 1
+    },
+    "same_execution_action_required": true,
+    "same_input_snapshot_sha256_required": true,
+    "same_physical_initial_attempt_required": true
+  },
+  "pilot_design": {
+    "allowed_uses": [
+      "estimate initial success and executed Recovery counts",
+      "select between natural-exposure and deterministic-fault designs",
+      "set a new confirmatory denominator before collection"
+    ],
+    "authoritative_report_command": "scripts/eval-goal-verify-recovery-a25-report.py --contract eval/goal_verify/v0/phase6-recovery-v4-a25-pilot-contract.json --run-dir dev-reports/issue-399/runs/phase6-recovery-v4-20260902-a25-pilot-01",
+    "authoritative_report_source_sha256": {
+      "scripts/eval-goal-verify-recovery-a25-report.py": "edfea57a40bf2e473107add0dac3fe982b494603a2af41e1d29175cda107c0f7",
+      "scripts/eval_lib/goal_verify_live.py": "5dada28bcf415be1f701e4f4b72723bb8454501ed11e87ce4ae30c60deda3399",
+      "scripts/eval_lib/goal_verify_recovery_a15_report.py": "a13cb995cb9431014e67ecf316538f1a8bade1a33372ab99a191f51375347840",
+      "scripts/eval_lib/goal_verify_recovery_a23_report.py": "e30288cb6c0cfba6401dc26d52d6db96b2620e23975330c2d6da996b7edb761a",
+      "scripts/eval_lib/goal_verify_recovery_a25_report.py": "c5dee68133b9cf265511dd9d2eeef65ae73e2b1e91df7572b0847e7781ed17b6",
+      "scripts/eval_lib/goal_verify_recovery_experiment_v4.py": "a46bf57fca7ebab3b5c6f70c8c1c46b87655fd22224129eb408eb518021b02c0",
+      "scripts/eval_lib/goal_verify_recovery_full_report_v4.py": "bcf19e2c284c35b5d5b72b8f5b4aebcb216a52b1f9a6fda1cce23c9507a5ad70",
+      "scripts/eval_lib/goal_verify_recovery_report_v4.py": "b8a35e41ed5e3e9bb096aeee84f1332bbf0aee1ce105cd6f71b34e498ac1ae06",
+      "scripts/eval_lib/goal_verify_stats_v2.py": "8ac5a92cd807165c4abcceedfc25149f660b7645a555594afe25226ab4e31ff6"
+    },
+    "effect_claim_allowed": false,
+    "fallback_when_threshold_not_met": "preregister a deterministic fault-boundary conditional Recovery experiment instead of enlarging this natural-exposure sample",
+    "forbidden_uses": [
+      "Recovery effect estimate",
+      "cross-profile generalization claim",
+      "pooling with A21, A23, A24, or a later confirmatory run",
+      "post-collection pair replacement within A25",
+      "rescoring A23 or A24 with the A25 report policy"
+    ],
+    "full_effect_execution_authorized": false,
+    "inference_role": "forward-only inner-binding instrument validation and natural-exposure design only",
+    "invalid_pilot_policy": "diagnose instrument failure without pair replacement, denominator resizing, effect estimation, or next-design selection",
+    "model_selection_basis": "retain the pre-A24 digest-pinned exploratory model without using A24 outcomes for model selection",
+    "natural_exposure_confirmation_threshold": {
+      "maximum_instrumentation_unusable_pairs": 0,
+      "maximum_safety_violations": 0,
+      "minimum_executed_recovery_clusters_per_profile": 1,
+      "minimum_profiles_meeting_threshold": 3,
+      "safety_check_names": [
+        "attributed_harm_zero",
+        "regression_introduced_zero",
+        "existing_artifact_harm_zero",
+        "discarded_valid_treatment_zero",
+        "transaction_control_retention",
+        "isolated_recovery_treatment",
+        "recovery_fix_safety_verification"
+      ]
+    },
+    "report_exit_semantics": "zero iff pilot instrumentation is valid; a valid pilot whose natural exposure threshold is not met exits zero and freezes the deterministic fault-boundary next-design decision",
+    "schema_version": "commandagent.goal_verify.recovery_natural_exposure_pilot.v3",
+    "selection_basis": "two A17/A21/A23/A24-unseen task clusters per profile, selected before the first A25 model invocation"
+  },
+  "pre_live_amendments": [
+    {
+      "amendment_id": "v4-A14-A2",
+      "historical_run_policy": "A14 and A14-A1 runs remain immutable diagnostic evidence and are never rescored as Recovery-effect evidence",
+      "product_findings": [
+        "Next.js ExistingPlainJavaScript entrypoints were absent from lint",
+        "CLI profile reintroduced unregistered README/help obligations",
+        "fix final-success oracle had reversed exit-code polarity",
+        "independent arms did not share the treatment boundary"
+      ],
+      "reason": "A14-A1 used independent stochastic initial attempts, a before-failure oracle as final success, and profile/contract checks that could trigger unnecessary Recovery"
+    },
+    {
+      "amendment_id": "v4-A14-A3",
+      "historical_run_policy": "A14-A2 smoke-01 remains immutable NO-GO evidence and is not rescored with the corrected report",
+      "reason": "A14-A2 applied before/after fix-oracle polarity validation to the preregistered dependency-unavailable exclusion sentinel, which has no Recovery treatment by design",
+      "scope_correction": "Recovery-effect oracle semantics apply only to pairs eligible for a Recovery treatment; excluded pairs remain governed by ineligible_recovery_not_executed"
+    },
+    {
+      "amendment_id": "v4-A14-A4",
+      "historical_run_policy": "A14-A3 smoke-01 remains immutable diagnostic evidence and is never rescored as evidence for the corrected safety boundary",
+      "inference_role": "safety and oracle-executability diagnostic only; no Recovery success-rate or retry-count effect claim",
+      "product_findings": [
+        "shell_control_split discarded an || fallback and reversed polarity",
+        "fallback_true_stripped reversed a negative assertion",
+        "step plans lack a typed file-content absent predicate",
+        "recover intent did not inherit fix-runtime temporal roles",
+        "expected-fail steps could edit source artifacts",
+        "verify repair could impose write_required on expected-fail steps",
+        "expected-fail Python exceptions could never pass because traceback was fatal",
+        "last-wins Recovery candidate selection lost failed-step checks",
+        "F2 after-passes was not observed at the Recovery boundary",
+        "generic completion added unregistered README and test targets",
+        "the Recovery harness did not provision frozen playwright-core",
+        "Next.js route-bound fallback language leaked into generic tasks"
+      ],
+      "reason": "A14-A3 proved that a host-rewritten negative assertion and an internal false failure could trigger Recovery that damaged an already passing deliverable"
+    },
+    {
+      "amendment_id": "v4-A14-A5",
+      "historical_run_policy": "A14-A4 smoke-01 remains immutable NO-GO evidence and is never rescored into A14-A5 evidence",
+      "inference_role": "measurement-instrument correction only; effect claim remains forbidden",
+      "instrument_findings": [
+        "browser executability was checked on the candidate artifact instead of a frozen reference workspace",
+        "the inherited reference route /play did not match the A14 registered route /play-01",
+        "the A14 adapter dropped the browser-normalized rgb(0, 0, 255) expected value",
+        "the registered browser command omitted executed=true after an actual process execution",
+        "runtime dependency exclusion can only be known after a preregistered configured-one shared run starts",
+        "maximum-one execution was incorrectly aliased to configuration validity"
+      ],
+      "reason": "A14-A4 kept Recovery harm at zero but conflated candidate server failure with browser-oracle executability and rejected a preregistered configured-one/runtime-excluded executed-zero pair"
+    },
+    {
+      "amendment_id": "v4-A14-A6.1",
+      "historical_run_policy": "A14-A6 smoke-01 remains an immutable zero-record pre-execution failure; its run ID and input files are never reused or rescored",
+      "inference_role": "typed reproducer and initial-resolution readiness; Recovery effect is conditional on a naturally executed Recovery run",
+      "instrument_findings": [
+        "the loader recognizes shared goal semantics by a closed schema-version set",
+        "A14-A6 changed the registry schema string without registering a migration",
+        "A14-A6.1 preserves v4_a14_a2 schema and adds the optional field to its closed validator"
+      ],
+      "reason": "A14-A6 stopped before product execution because the task registry changed to an unregistered schema version and bypassed shared-goal binding"
+    },
+    {
+      "amendment_id": "v4-A14-A7",
+      "historical_run_policy": "A14-A6.1 smoke-01 remains immutable typed-binding evidence; its three executed-zero records are not rescored as A14-A7",
+      "inference_role": "Recovery preflight integration and conditional 0-vs-1 effect diagnostic; no population effect claim",
+      "instrument_findings": [
+        "all three typed fix reproducers were bound and executed before failure",
+        "all three pairs stopped before Recovery with input_output_contract unavailable",
+        "the product used a blanket non-empty required-capability rejection",
+        "A14-A7 admits input_output_contract only when the typed reproducer exactly matches a registered verify command",
+        "unbound, mismatched, browser, and other unsupported capabilities remain unavailable"
+      ],
+      "reason": "A14-A6.1 bound the exact typed reproducer in 3/3 pairs but Recovery preflight rejected input_output_contract before running the registered read-only final-success suite"
+    },
+    {
+      "amendment_id": "v4-A14-A8",
+      "historical_run_policy": "A14-A7 smoke-01 remains immutable preflight-integration evidence; its two unchanged-fail treatments are not rescored as A14-A8",
+      "inference_role": "isolated treatment contract binding and conditional 0-vs-1 effect diagnostic; no population effect claim",
+      "instrument_findings": [
+        "A14-A7 naturally executed Recovery in two of three pairs",
+        "both treatment executions failed on an outside-workspace contract path",
+        "both controls were retained with zero promoted path changes",
+        "A14-A8 copies exact validated contract bytes into a treatment-owned runtime path",
+        "copy or validation failure remains a fail-closed treatment preparation stop"
+      ],
+      "reason": "A14-A7 executed one Recovery in two pairs but both isolated treatments retained the control workspace completion-contract path"
+    },
+    {
+      "amendment_id": "v4-A14-A9",
+      "historical_run_policy": "A14-A8 smoke-01 remains immutable contract-binding evidence; its unchanged-fail treatment is not rescored as A14-A9",
+      "inference_role": "registered Recovery verification-command provenance and conditional 0-vs-1 effect diagnostic; no population effect claim",
+      "instrument_findings": [
+        "A14-A8 loaded the treatment-owned contract and executed one Recovery",
+        "the selected handoff commands were python3 cli.py 16, exit_code=$?, and [ $exit_code -eq 2 ]",
+        "independent command execution left exit_code undefined and stopped Recovery",
+        "A14-A9 rebinds the automatic Recovery plan to exact CompletionContract commands",
+        "binding failure remains a fail-closed stop before treatment execution"
+      ],
+      "reason": "A14-A8 proved treatment-owned CompletionContract binding, but the executed step-level Recovery candidate inherited three LLM-authored shell fragments instead of the registered final-success commands"
+    },
+    {
+      "amendment_id": "v4-A14-A10",
+      "historical_run_policy": "A14-A9 smoke-01 remains immutable command-provenance evidence; its two unchanged-fail treatments are not rescored as A14-A10",
+      "inference_role": "inner Recovery plan-contract and pytest evidence diagnostic; conditional 0-vs-1 evidence only, with no population effect claim",
+      "instrument_findings": [
+        "A14-A9 passed all 27 instrument checks and executed two Recovery treatments",
+        "task-05 introduced an unregistered test-dollar-question-mark fragment inside repair-unknown",
+        "task-10 repaired the implementation and passed all three registered commands inside treatment",
+        "task-10 was rejected because python3 -m pytest was classified as Other and bound_verify_command remained absent",
+        "inspection-phase verification could trigger bounded mutation despite the read-only phase contract"
+      ],
+      "reason": "A14-A9 proved top-level Recovery command provenance, but inner Recovery StepPlans could introduce unregistered stateful shell fragments, and pytest was not classified as bound test evidence"
+    },
+    {
+      "amendment_id": "v4-A14-A11",
+      "historical_run_policy": "A14-A10 smoke-01 remains immutable 28-of-28 instrument evidence; task-05 is not rescored after contract-continuity repair",
+      "inference_role": "fix-contract continuity and isolated treatment diagnostic; conditional 0-vs-1 evidence only, with no population effect claim",
+      "instrument_findings": [
+        "A14-A10 passed all 28 instrument checks",
+        "task-10 became initial success after pytest evidence classification",
+        "task-05 removed all unregistered inner verification commands",
+        "task-05 then failed generic CLI behavior probing for absent cli/main.py",
+        "the initial task used fix_intent_v0 while Recovery final acceptance used contract_origin initial"
+      ],
+      "reason": "A14-A10 bound every inner Recovery check and removed the pytest false NG, but task-05 changed final acceptance from fix_intent_v0 to the generic CLI profile contract at the Recovery boundary"
+    },
+    {
+      "amendment_id": "v4-A14-A12",
+      "historical_run_policy": "A14-A11 smoke-01 remains immutable 29-of-29 instrument evidence; task-10 is not rescored after phase-transition repair",
+      "inference_role": "resumed-fix terminal-transition and transaction-promotion diagnostic; conditional 0-vs-1 evidence only, with no population effect claim",
+      "instrument_findings": [
+        "task-05 suppressed Recovery after frozen external success",
+        "task-10 emitted one valid fix-contract continuation",
+        "task-10 registered completion verification passed",
+        "task-10 treatment was rejected by an invalid host phase transition",
+        "task-10 external fail observed the retained control artifact"
+      ],
+      "reason": "A14-A11 resumed the exact fix contract and passed registered completion verification, but reported IntentFinalized from the standard Recovery FinalAcceptance state and rejected treatment"
+    },
+    {
+      "amendment_id": "v4-A14-A13",
+      "historical_run_policy": "A14-A12 smoke-01 remains immutable one-rescue diagnostic evidence; it is not pooled into the later population effect estimate",
+      "inference_role": "three-profile repeated-pair and dependency-sentinel instrument smoke; no population effect claim",
+      "reason": "A14-A12 demonstrated one CLI rescue but did not exercise repeated pairs or typed fix continuity for generic and nextjs profiles"
+    },
+    {
+      "amendment_id": "v4-A14-A13-1",
+      "historical_run_policy": "A14-A13 smoke-01 remains immutable early-terminated evidence at 3 of 10 pairs and is never resumed or pooled",
+      "inference_role": "corrected three-profile repeated-pair instrument smoke; no population effect claim",
+      "instrument_findings": [
+        "all three CLI repetitions completed before the binding failure",
+        "the first generic binding failed before its product invocation",
+        "selected-case binding was previously lazy and allowed partial collection"
+      ],
+      "reason": "A14-A13 added completion_contract.fix_reproducer_command for generic and nextjs but omitted the matching structured operational_constraints.reproducer binding"
+    },
+    {
+      "amendment_id": "v4-A14-A13-2",
+      "historical_run_policy": "A14-A13-1 smoke-01 remains immutable 10-pair NO-GO evidence and is never rescored after preregistered eligibility correction",
+      "inference_role": "profile-contract exclusion and zero-Recovery sentinel diagnostic; no population effect claim",
+      "instrument_findings": [
+        "A14-A13-1 completed all 10 frozen pairs and passed 27 of 30 checks",
+        "three nextjs pairs executed one Recovery and remained external fail",
+        "the nextjs product profile requested scaffold paths forbidden by the task",
+        "the rejected treatments caused zero external harm and zero regression",
+        "the dependency sentinel executed zero Recoveries"
+      ],
+      "reason": "A14-A13-1 correctly executed the nextjs-profile lane, but its task contract explicitly requires a Python project and forbids Next.js conversion; the product profile therefore demanded unavailable Next.js scaffolding before and during Recovery"
+    },
+    {
+      "amendment_id": "v4-A14-A13-3",
+      "historical_run_policy": "A14-A13-2 smoke-01 remains immutable 10-pair NO-GO evidence and is never rescored after Recovery handoff or promotion changes",
+      "inference_role": "completion-obligation handoff and promotion-safety diagnostic; no population effect claim",
+      "instrument_findings": [
+        "A14-A13-2 completed all 10 frozen pairs and passed 29 of 30 checks",
+        "profile-contract and dependency sentinels executed zero Recoveries",
+        "two CLI pairs improved with zero harm and zero regression",
+        "one generic pair was external pass before and after Recovery",
+        "the generic treatment was promoted with completion_verify_passed false"
+      ],
+      "reason": "A14-A13-2 passed 29 of 30 instrument checks, but one generic Recovery treatment passed its registered command and was promoted while the product-visible completion contract still lacked the verification and acceptance-evidence obligations"
+    },
+    {
+      "amendment_id": "v4-A14-A14",
+      "historical_run_policy": "all A14 through A14-A13-3 runs remain immutable instrument evidence and are excluded from this effect estimate",
+      "inference_role": "fixed 60-pair eligible fix population plus 20 dependency or profile-contract sentinels",
+      "reason": "pre-register the first population Recovery 0-vs-1 estimate after the corrected A14-A13-3 completion-safe Recovery smoke"
+    },
+    {
+      "amendment_id": "v4-A15",
+      "historical_run_policy": "A14-A14 remains immutable and is not pooled because its eligible population contains only cli and generic profiles",
+      "inference_role": "four-profile Recovery 0-vs-1 estimate with profile-specific claims",
+      "reason": "replace sentinel-only coverage with eligible, offline-executable real data and Next.js fix tasks while preserving sentinel roles"
+    },
+    {
+      "amendment_id": "v4-A15-A1",
+      "frozen_design_policy": "selected pairs, external oracles, thresholds, exclusions, resource budgets, and Recovery 0-vs-1 treatment remain unchanged",
+      "historical_run_policy": "A15 smoke-01 remains immutable NO-GO instrument evidence and is never rescored with the corrected product",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "product_findings": [
+        "Recovery preflight executed candidate-visible checks in the control workspace",
+        "typed data capabilities were rejected before their registered checks ran",
+        "Next.js inspection could replace an existing root app tree with src/app",
+        "Inspect tool calls could mutate source artifacts",
+        "a nonexistent app-prefixed read did not resolve to the unique registered existing path"
+      ],
+      "reason": "correct Recovery observation isolation, typed data capability preflight, Next.js existing-tree preservation, read-only inspect, and safe existing-read path resolution found by A15 smoke"
+    },
+    {
+      "amendment_id": "v4-A15-A1.1",
+      "frozen_design_policy": "product SHA, selected pairs, external oracles, thresholds, exclusions, resource budgets, and Recovery 0-vs-1 treatment remain unchanged",
+      "historical_run_policy": "A15-A1 remains an immutable pre-execution contract failure; no run directory, record, product invocation, or outcome was created",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "reason": "remove a contract-generation-only file from runner_sources after the A15-A1 frozen-input preflight rejected it before run creation"
+    },
+    {
+      "amendment_id": "v4-A15-A2",
+      "historical_run_policy": "A15-A1.1 smoke-01 remains immutable NO-GO evidence and is never rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "product_findings": [
+        "successful resumed fix evidence was mutable and rejected at promotion preflight",
+        "registered Recovery verification was bound after StepPlan lint",
+        "a .commandagent parent of the isolated workspace tainted valid product paths",
+        "Next 16/React 19 was coerced to Next 14/React 18",
+        "generic fix tasks declared unrequested verification and acceptance artifact obligations",
+        "generic repair fallback proposed Next.js entrypoints",
+        "a negative assertion could require an existing frozen input to disappear"
+      ],
+      "reason": "correct fix-origin continuity, pre-lint Recovery binding, treatment-root path semantics, registered Next.js version families, and generic fix obligations found by the A15-A1.1 smoke"
+    },
+    {
+      "amendment_id": "v4-A15-A3",
+      "frozen_design_policy": "selected pairs, model, prompts, task inputs, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A2 smoke-01 remains immutable NO-GO evidence and is never rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "reason": "A15-A2 omitted its prereviewed honest-terminal alternative and made instrument readiness depend on every executed Recovery succeeding; its per-profile repair-only coverage gate also conflicted with the mandatory current-success suppression path"
+    },
+    {
+      "amendment_id": "v4-A15-A4",
+      "frozen_design_policy": "selected pairs, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, and effect-claim prohibition remain unchanged; the product-visible Next.js completion contract is aligned to its already registered observations",
+      "historical_run_policy": "A15-A3 smoke-01 remains immutable NO-GO evidence and is never rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "product_findings": [
+        "plain JavaScript Next.js projects incorrectly required TypeScript",
+        "generic Next.js auto-repair introduced a second src/app TypeScript tree",
+        "Next.js fix tasks required unregistered synthetic test and README artifacts"
+      ],
+      "reason": "A15-A3 exposed a JavaScript/TypeScript profile-mode error and synthetic Next.js completion obligations that caused unnecessary or prematurely terminated Recovery attempts"
+    },
+    {
+      "amendment_id": "v4-A15-A5",
+      "frozen_design_policy": "selected pairs, tasks, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A4 smoke-01 remains immutable NO-GO evidence and is never rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke; no effect claim",
+      "product_findings": [
+        "plain-JavaScript App Router entrypoints were omitted from route evidence",
+        "the approved direct version-aware Next build command was not classified as strong evidence",
+        "a failed host-owned Recovery final verification could be reissued through model-authored shell syntax",
+        "natural successful completion was incorrectly excluded from safety-path coverage",
+        "data attempts could rewrite their registered reproducer and frozen regressions instead of repairing the pipeline"
+      ],
+      "reason": "A15-A4 exposed an internal false NG for a passing plain-JavaScript Next.js artifact and a smoke-report false negative for natural completion"
+    },
+    {
+      "amendment_id": "v4-A15-A6",
+      "frozen_design_policy": "selected pairs, tasks, task registry, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, profile path coverage, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A5 smoke-01 remains immutable incomplete diagnostic evidence at 7/14; it is never resumed, completed under a new binary, or rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke under a new run ID; no effect claim",
+      "product_findings": [
+        "Recovery binding recorded all three data commands correctly",
+        "data profile runtime canonicalization subsequently shrank the executable host step to pytest",
+        "the later F2 reproducer still failed, so promotion was safely rejected",
+        "host-owned Recovery steps must treat the bound command list as final authority"
+      ],
+      "reason": "A15-A5 live observation showed that data profile runtime canonicalization ran after Recovery binding and replaced three registered host checks with one pytest command"
+    },
+    {
+      "amendment_id": "v4-A15-A7",
+      "frozen_design_policy": "selected pairs, tasks, task registry, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, profile path coverage, report policy, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A6 smoke-01 remains immutable NO-GO diagnostic evidence and is not changed, resumed, or rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke under a new run ID; no effect claim",
+      "product_findings": [
+        "A15-A6 host final verification preserved all registered data commands",
+        "data pair-02 and pair-03 Recovery plans named the correct repair artifact",
+        "both Recovery implement steps used inspection tools but no Write or Edit",
+        "host final verification rejected both unchanged treatments without harm",
+        "automatic fix Recovery implement completion must require an actual mutation"
+      ],
+      "reason": "A15-A6 live observation showed that a semantically targeted Recovery plan could finish its implement step after inspection only, without mutating the broken artifact"
+    },
+    {
+      "amendment_id": "v4-A15-A8",
+      "frozen_design_policy": "selected pairs, tasks, task registry, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, profile path coverage, report policy, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A7 smoke-01 remains immutable instrument-GO evidence and is not changed, resumed, or rescored; its typed-mutation effect claim remains disallowed",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke under a new run ID; no effect claim",
+      "product_findings": [
+        "A15-A7 completed 14 of 14 records with instrument readiness GO",
+        "A15-A7 observed three attributed improvements and zero harms",
+        "A15-A7 data pair-03 retained control after a read-only Recovery failed",
+        "the action-word predicate did not recognize the generated Repair instruction",
+        "typed Recovery state must activate mutation enforcement without prompt parsing"
+      ],
+      "reason": "A15-A7 showed that the typed Recovery write policy was still gated by a legacy action-word heuristic, so a model-generated Repair instruction could avoid the intended completion feedback"
+    },
+    {
+      "amendment_id": "v4-A15-A9",
+      "frozen_design_policy": "selected pairs, tasks, task registry, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, exclusions, resource budgets, profile path coverage, report policy, and effect-claim prohibition remain unchanged",
+      "historical_run_policy": "A15-A8 smoke-01 remains immutable instrument-GO evidence and is not changed, resumed, or rescored",
+      "inference_role": "repeat the same frozen 14-pair instrument smoke under a new run ID; no Recovery-effect or all-profile quality claim",
+      "product_findings": [
+        "A15-A8 completed 14 of 14 records with instrument readiness GO",
+        "data pair-01 and pair-02 fixed used_rows but deleted caller-required write_outputs",
+        "promotion rejection retained control, making the adopted artifact delta zero",
+        "the Recovery handoff reused a nested step prompt and initially carried no commands or targets",
+        "one bounded local repair may restore the required API inside the same Recovery",
+        "a second automatic Recovery remains forbidden"
+      ],
+      "reason": "A15-A8 exposed semantically incomplete Recovery handoff data and destructive whole-file rewrites that fixed the focal defect while deleting a required API"
+    },
+    {
+      "amendment_id": "v4-A15-A10",
+      "frozen_design_policy": "reuse the already preregistered 120 eligible pairs and 20 sentinels; preserve task registry, model, prompts, source workspaces, external oracles, Recovery 0-vs-1 arms, maximum one Recovery, exclusions, and 2,000-sample task-cluster bootstrap",
+      "historical_run_policy": "A15-A9 smoke-01 remains immutable instrument evidence and is not changed, resumed, rescored, or included in the full estimate",
+      "inference_role": "profile-specific and pooled effect estimate for the frozen task families; no claim about unrepresented defect families",
+      "instrument_findings": [
+        "A15-A9 completed 14 of 14 records and all 35 instrument checks were true",
+        "three CLI pairs improved after exactly one Recovery",
+        "three data pairs remained failed without harm or regression",
+        "generic and Next.js selected pairs passed before Recovery and were not mutated",
+        "dependency and profile-contract sentinels executed zero Recoveries"
+      ],
+      "reason": "A15-A9 passed every instrument check after typed handoff, referenced-API preservation, one bounded local repair, byte-based mutation observation, and rejected-treatment delta recording",
+      "resource_budget_policy": "fixed before full collection from A15-A9 executed-Recovery profile maxima: total-token p50 47,882 and p95 48,068.3; wall-time p50 145,470 ms and p95 162,478.2 ms; apply 25% headroom and round upward to 10,000 tokens or 30,000 ms; use the resulting conservative budgets for every profile"
+    },
+    {
+      "amendment_id": "v4-A15-A10.1",
+      "correction_scope": "change only contract_id, smoke_run_id, code_sha, exact-SHA evidence, supersession metadata, and authorization timestamp",
+      "frozen_design_policy": "all 140 selected pairs, task registry, inputs, model, prompts, external oracles, Recovery 0-vs-1 arms, maximum one Recovery, exclusions, four resource budgets, stopping rule, and 2,000-sample bootstrap are unchanged",
+      "historical_run_policy": "the frozen A15-A10 contract remains immutable; its attempted collection created no run directory, manifest, ledger, raw record, or product outcome",
+      "inference_role": "pre-collection identifier correction with zero observed outcomes",
+      "reason": "A15-A10 inherited the A15-A9 smoke_run_id and was rejected before manifest creation or product execution because the requested run directory did not match that stale identifier"
+    },
+    {
+      "amendment_id": "v4-A15-A10.2",
+      "correction_scope": "normalize timeout stdout and stderr to bounded UTF-8 strings and add a field-path JSON-safety guard before raw-record persistence",
+      "frozen_design_policy": "restart all 140 pairs under one corrected exact-SHA runner; preserve every task, repetition, model, prompt, workspace, external oracle, Recovery 0-vs-1 arm, maximum one Recovery, exclusion, 900-second product timeout, four resource budgets, stopping rule, and 2,000-sample bootstrap without inspecting A15-A10.2 outcomes",
+      "historical_run_policy": "The 73 committed records and their append-only ledger remain immutable partial instrument evidence. The run is never resumed, completed with a different runner, pooled into an effect estimate, or rescored.",
+      "inference_role": "pre-collection instrument correction; A15-A10.1 partial records are excluded from the effect estimate",
+      "reason": "A15-A10.1 stopped after 73 committed records when pair 74 reached the unchanged 900-second product timeout and Python exposed captured output as bytes that the raw-record JSON writer rejected"
+    },
+    {
+      "amendment_id": "v4-A16",
+      "correction_scope": "bind data probes to the registered input, constrain fix regressions to the completion contract, type generated-output observation effects, and correct final acceptance telemetry",
+      "historical_run_policy": "A15-A10.2 manifest, summary, ledger, report, and raw records remain immutable and retain their frozen NO-GO result",
+      "inference_role": "six-pair instrument smoke only; no Recovery effect or generalization claim",
+      "reason": "A15-A10.2 identified registered-oracle-valid data treatments that product-internal probes and Recovery observations discarded",
+      "selected_pair_policy": "one prior candidate-visible failure per real profile, including the data preflight-blocked task-02 pair, plus two ineligible sentinels"
+    },
+    {
+      "amendment_id": "v4-A16.1",
+      "correction_scope": "change only contract/run identifiers, supersession metadata, and remove the non-runtime contract generator from runner_sources",
+      "frozen_design_policy": "preserve all six selected pairs, inputs, model and digest, prompts, external oracles, Recovery arms, gates, sentinels, and resource budgets",
+      "historical_run_policy": "A16 produced no manifest, ledger, raw record, product outcome, or model request and is not resumed",
+      "inference_role": "pre-collection metadata correction; six-pair instrument smoke only",
+      "reason": "A16 incorrectly listed its contract generator as an exact-SHA runner source even though the generator does not execute during collection"
+    },
+    {
+      "amendment_id": "v4-A17",
+      "correction_scope": "reuse the same completion-contract regression resolver during Recovery and record its source and IDs in additive telemetry",
+      "historical_run_policy": "A16.1 manifest, summary, ledger, report, and raw records remain immutable and retain their frozen NO-GO result",
+      "inference_role": "nine-pair instrument smoke only; no Recovery effect or generalization claim",
+      "reason": "A16.1 exposed that Recovery continuation recomputed profile-catalog regressions after the initial fix had bound registered contract checks",
+      "selected_pair_policy": "preserve the A16.1 CLI/data targets and sentinels; add the second known generic failure and all task-08 Next.js repetitions to reduce initial-pass sampling gaps while requiring one executed Recovery per real profile"
+    },
+    {
+      "amendment_id": "v4-A21",
+      "go_rule": "all instrument checks, exact 27-pair denominator, at least 12 executed Recoveries overall, at least three and two task clusters per profile, and zero discarded-valid treatment, harm, regression, or unusable record",
+      "historical_run_policy": "A17 and both A20 qualification runs remain immutable and are not pooled with A21 outcomes",
+      "inference_role": "natural Recovery exposure qualification only; no effect or generalization claim",
+      "reason": "A17 executed zero Recoveries because selected generic and Next.js tasks resolved initially, while the selected data failure did not expose a typed candidate; A20 independently qualified nine candidate-visible before/reference failure pairs",
+      "selected_pair_policy": "three frozen cases per generic, data, and Next.js profile with three replications each; all 27 pair IDs are fixed before collection"
+    },
+    {
+      "amendment_id": "v4-A23",
+      "go_rule": "GO means complete, safe, exact-denominator instrumentation only; the separate pilot threshold decides the next design",
+      "historical_run_policy": "A21 and A22 remain immutable and are not pooled with A23",
+      "inference_role": "exploratory exposure and model selection only",
+      "reason": "A21 showed a 27B-model ceiling effect: generic and Next.js usually resolved before an automatic Recovery boundary",
+      "selected_pair_policy": "two previously unused source-task clusters per generic, data, and Next.js profile, one pilot repetition each"
+    },
+    {
+      "amendment_id": "v4-A24",
+      "go_rule": "GO requires complete exact-denominator instrumentation, versioned honest rejection semantics, and zero adopted safety harm; the separate exposure threshold selects the next design",
+      "historical_run_policy": "A23 raw, ledger, contract, and INVALID report remain unchanged",
+      "inference_role": "independent corrected-instrument exposure and model-selection pilot only",
+      "reason": "A23 exposed report-policy conflation and a Recovery read-only inspect manifest mutation outside the fix-safety observation hook",
+      "selected_pair_policy": "two previously unused source-task clusters per generic, data, and Next.js profile, one pilot repetition each"
+    },
+    {
+      "amendment_id": "v4-A25",
+      "go_rule": "GO requires complete exact-denominator instrumentation, versioned inner-binding and honest-rejection semantics, and zero adopted safety harm; the separate exposure threshold selects the next design",
+      "historical_run_policy": "A23 and A24 raw, ledger, contract, and INVALID reports remain unchanged",
+      "inference_role": "independent forward-only instrument and exposure pilot only",
+      "reason": "A24 exposed an inner-binding validator that required a future final-success phase from an honest pre-mutation scaffold rejection",
+      "selected_pair_policy": "two previously unused source-task clusters per generic, data, and Next.js profile, one pilot repetition each"
+    }
+  ],
+  "product_timeout_sec": 900,
+  "recovery_eligibility": {
+    "free_form_stderr_used_for_classification": false,
+    "ineligible_pairs_retained": "retain with recovery_one not run; never relabel or drop from the reported task denominator",
+    "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+    "pre_run_categories": [
+      "dependency_or_provisioning",
+      "capability_unavailable",
+      "profile_or_completion_contract"
+    ],
+    "preregistered_smoke_cases": {
+      "phase6-main-c05-task-01": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-02": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-03": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-04": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-05": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-06": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-07": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-08": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-09": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c05-task-10": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c06-task-01": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-02": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-03": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-04": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-05": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-06": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-07": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-08": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-09": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c06-task-10": {
+        "category": "dependency_or_provisioning",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_contract_declares_unavailable_dependencies"
+      },
+      "phase6-main-c07-task-01": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-02": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-03": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-04": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-05": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-06": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-07": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-08": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-09": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c07-task-10": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c08-task-01": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-02": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-03": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-04": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-05": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-06": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-07": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-08": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-09": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c08-task-10": {
+        "category": "profile_or_completion_contract",
+        "eligible": false,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "product_profile_explicitly_forbidden_by_task_contract"
+      },
+      "phase6-main-c13-task-01": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-02": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-03": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-04": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-05": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-06": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-07": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-08": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-09": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c13-task-10": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-01": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-02": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-03": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-04": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-05": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-06": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-07": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-08": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-09": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      },
+      "phase6-main-c14-task-10": {
+        "category": "recoverable_candidate",
+        "eligible": true,
+        "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+        "reason": "task_inputs_and_frozen_external_oracles_available"
+      }
+    },
+    "runtime_excluded_categories": [
+      "dependency_or_provisioning",
+      "capability_unavailable",
+      "profile_or_completion_contract",
+      "sandbox_or_policy",
+      "task_information_missing",
+      "instrumentation_unavailable",
+      "recovery_candidate_unavailable"
+    ],
+    "structured_terminal_event_required": true
+  },
+  "recovery_safety_policy": {
+    "candidate_selection": "step-specific handoff outranks later phase-only handoff",
+    "current_success": "suppress automatic Recovery, preserve artifacts, and retain honest terminal",
+    "historical_failure": "immutable evidence; never converted into a current must-fail obligation",
+    "maximum_automatic_recovery_runs": 1,
+    "mutation_isolation": "run Recovery in a boundary-derived treatment workspace; promote source/config to the product workspace only after registered post-Recovery observations pass",
+    "pre_recovery_observation": "read-only product-visible completion contract only",
+    "semantic_rewrite": "reject commands whose sanitizer rewrite would change fallback or polarity"
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "runner_sources": [
+    "scripts/eval-goal-verify-recovery-v4-report.py",
+    "scripts/eval-goal-verify-recovery-v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_manifest_visibility_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_experiment_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_live_v4.py",
+    "scripts/eval_lib/goal_verify_recovery_report_v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a1.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a2.py",
+    "scripts/eval_lib/goal_verify_executors_v3.py",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a3.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a6.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a7.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a8.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a9.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a10.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a11.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a12.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13_1.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13_2.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a13_3.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a14.py",
+    "scripts/eval_lib/goal_verify_recovery_full_report_v4.py",
+    "scripts/eval_lib/goal_verify_stats_v2.py",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a15.py",
+    "scripts/eval_lib/goal_verify_recovery_a15_report.py",
+    "scripts/eval-goal-verify-recovery-a15-report.py",
+    "scripts/eval_lib/subprocess_capture.py"
+  ],
+  "schema_version": "commandagent.goal_verify.recovery_experiment.v4_a15",
+  "smoke": {
+    "browser_oracle_gate_source": "separate frozen-reference production-build and Chromium preflight",
+    "effect_claim_allowed": false,
+    "expected_pair_count": 6,
+    "includes_dependency_exclusion_sentinel": false,
+    "includes_next_manifest_regression": true,
+    "inference_role": "independent forward-only inner-binding Recovery exposure pilot",
+    "minimum_current_success_suppressions": 0,
+    "minimum_executed_recovery_clusters_per_real_profile": 0,
+    "minimum_executed_recovery_pairs": 0,
+    "minimum_executed_recovery_pairs_per_real_profile": 0,
+    "minimum_pairs_per_real_profile": 2,
+    "recovery_fix_attempt_evidence_policy": {
+      "bounded_local_repair": "counts bounded_local_repair observation stages independently from mutation schema completeness and requires at most one",
+      "promoted_success": "requires a non-empty product mutation observation and every recorded fix-safety verification to pass",
+      "rejected_after_product_mutation": "requires a non-empty schema-complete mutation observation and safety verification; failed safety is valid only with rejection and retained control",
+      "rejected_before_product_mutation": "permits empty mutation and safety observations only when the attempted product delta is empty, the treatment is rejected, and control is retained",
+      "schema_version": "commandagent.goal_verify.recovery_fix_attempt_evidence.v2"
+    },
+    "recovery_fix_terminal_outcome_policy": {
+      "allowed_outcomes": [
+        "promoted_success",
+        "honest_not_recoverable_control_retained"
+      ],
+      "honest_not_recoverable_control_retained_requires": [
+        "failed product terminal with a nonzero return code",
+        "recorded failed completion observation",
+        "one failed Recovery attempt ending as not_recoverable",
+        "one rejected promotion decision with recovery_execution_failed",
+        "exactly one retained control and zero restore failures",
+        "unchanged external failure after control retention",
+        "candidate regression status recorded as pass, fail, or not_applicable",
+        "zero adopted regression introduction and zero existing-artifact harm"
+      ],
+      "schema_version": "commandagent.goal_verify.recovery_fix_terminal_policy.v2"
+    },
+    "recovery_inner_verify_binding_policy": {
+      "promoted_or_product_mutating_attempt": "requires both read-only inspection and completion-contract final-success bindings",
+      "rejected_before_product_mutation": "permits read-only inspection bindings without a final-success binding only when the attempted product delta is empty, the treatment is rejected, and control is retained",
+      "schema_version": "commandagent.goal_verify.recovery_inner_verify_binding.v2"
+    },
+    "require_browser_oracle_executability": true,
+    "require_discarded_valid_treatment_zero": true,
+    "require_executed_recovery_for_attribution": true,
+    "require_fix_contract_continuity": true,
+    "require_isolated_treatment_workspace": true,
+    "require_preselected_pair_denominator_exact": true,
+    "require_recovery_bounded_local_repair_max_one": true,
+    "require_recovery_capable_execution_action": true,
+    "require_recovery_fix_safety_verification": true,
+    "require_recovery_fix_terminal_completion": true,
+    "require_recovery_handoff_fidelity": true,
+    "require_recovery_handoff_fidelity_v2": true,
+    "require_recovery_product_mutation_observation": true,
+    "require_recovery_safety_zero": true,
+    "require_recovery_treatment_delta": true,
+    "require_registered_inner_recovery_verify_commands": true,
+    "require_registered_recovery_verify_commands": true,
+    "require_separate_browser_oracle_preflight": true,
+    "require_transaction_control_retention": true,
+    "required_readiness_checks": [
+      "typed_fix_reproducer_binding",
+      "fix_before_and_after_polarity_distinct",
+      "frozen_external_oracle_post_execution",
+      "internal_external_outcome_matrix_recorded",
+      "maximum_one_recovery_executed",
+      "registered_recovery_verify_commands",
+      "registered_inner_recovery_verify_commands",
+      "fix_contract_continuity",
+      "recovery_fix_terminal_completion",
+      "recovery_handoff_fidelity_v2",
+      "recovery_product_mutation_observation",
+      "recovery_fix_safety_verification",
+      "recovery_bounded_local_repair_max_one",
+      "recovery_treatment_delta",
+      "discarded_valid_treatment_zero",
+      "preselected_pair_denominator_exact",
+      "attributed_harm_zero",
+      "regression_introduced_zero",
+      "existing_artifact_harm_zero",
+      "instrumentation_unusable_zero"
+    ],
+    "required_real_profiles": [
+      "generic",
+      "data",
+      "nextjs"
+    ],
+    "selected_pair_ids": [
+      "phase6-main-c07-task-01--pair-01",
+      "phase6-main-c07-task-05--pair-01",
+      "phase6-main-c13-task-01--pair-01",
+      "phase6-main-c13-task-05--pair-01",
+      "phase6-main-c14-task-01--pair-01",
+      "phase6-main-c14-task-05--pair-01"
+    ],
+    "typed_fix_reproducer_commands": {
+      "phase6-main-c07-task-01--pair-01": "python3 app.py fixture/task-01.json",
+      "phase6-main-c07-task-05--pair-01": "python3 app.py fixture/task-05.json",
+      "phase6-main-c13-task-01--pair-01": "python3 scripts/repro.py data/task-01.csv",
+      "phase6-main-c13-task-05--pair-01": "python3 scripts/repro.py data/task-05.csv",
+      "phase6-main-c14-task-01--pair-01": "node scripts/repro.mjs fixture/task-01.json",
+      "phase6-main-c14-task-05--pair-01": "node scripts/repro.mjs fixture/task-05.json"
+    }
+  },
+  "smoke_run_id": "phase6-recovery-v4-20260902-a25-pilot-01",
+  "status": "frozen",
+  "superseded_run_policy": "live-02 remains immutable early-terminated diagnostic evidence and is never resumed, rescored, or used for A14 effect inference",
+  "supersedes": "phase6-main-v4-20260829-live-02",
+  "supersedes_contract": "phase6-recovery-v4-20260902-a24-pilot-01",
+  "supersedes_smoke_run": "phase6-recovery-v4-20260902-a24-pilot-01",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a15-a5.json",
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-a15.json"
+}

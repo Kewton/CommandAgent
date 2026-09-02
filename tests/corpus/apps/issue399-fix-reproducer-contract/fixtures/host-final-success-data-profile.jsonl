@@ -1,0 +1,1 @@
+{"event":"recovery_host_final_success_verification_failed","phase_id":"verify-recovery","step_id":"recovery-contract-verify","reason":"registered data reproducer failed","registered_verify_commands":["python3 scripts/repro.py data/task.csv","python3 -m pytest -q tests","python3 scripts/contract_check.py"],"model_execution_skipped":true}

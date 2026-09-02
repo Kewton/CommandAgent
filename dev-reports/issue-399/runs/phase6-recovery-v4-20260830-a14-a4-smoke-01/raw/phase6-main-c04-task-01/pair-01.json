@@ -1,0 +1,2157 @@
+{
+  "case_id": "phase6-main-c04-task-01",
+  "comparison": {
+    "control_snapshot_matches_boundary": false,
+    "effect_attribution_ready": false,
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "fail",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "fail",
+        "internal": "failed"
+      },
+      "treatment": {
+        "external": "not_applicable",
+        "internal": "not_executed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "ui-copy-text--phase6-cell-04-source-task-01",
+        "ui-style-background--phase6-cell-04-source-task-01",
+        "port-path--phase6-cell-04-source-task-01"
+      ],
+      "precondition_adapter_ids": [],
+      "valid": true
+    },
+    "quality_transition": "no_recovery_executed",
+    "raw_oracle_transition": "unchanged_fail",
+    "recovery_changed_paths": {
+      "added": [],
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "recovery_oracle_status": "fail",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_ms": 0
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "excluded_failure_kind:dependency_setup_missing",
+      "run_recovery_one_arm": false,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 3,
+      "oracle_count": 3,
+      "outcomes": [
+        {
+          "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "port-path--phase6-cell-04-source-task-01",
+          "claim_id": "port-path",
+          "executor_kind": "http_get",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+          "size": 44
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316"
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "71314aef518e623f57f2ef63cc2831a6dd5fb6f91c5fc44b792432a12060fef2",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "8cd2a8ff3759d0a198f2878628f482a62c8ae24606ba8871b119c1a3109e9fb7"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".next/build-manifest.json",
+          "sha256": "f3ded70f97f57877e3340045062e7f9e555769d21005e760c11ae445f54cac41",
+          "size": 607
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.previewinfo",
+          "sha256": "e737d9aa7e1ec947d5d6ca6ba32860f01a7cd34867f922ae570b906f16797637",
+          "size": 262
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.rscinfo",
+          "sha256": "17276557b5ba89d9dd364907554ff154d136f17a4da2c8f5144964b3330caf65",
+          "size": 102
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000001.sst",
+          "sha256": "00a38e75fc268af16ce49524566ed61b5a5f861890d9bca15222b0389c2bc3d4",
+          "size": 5155437
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000002.sst",
+          "sha256": "9946e13f9e82aa5e18482dfafa3c7b0c80f34348709173090ef9f990b1016029",
+          "size": 1396089
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000003.sst",
+          "sha256": "03726c85470eda0ba0bc179043e0b1b1c410d8b7aed71ee07fcdbfdb9c1bb159",
+          "size": 18626567
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000004.sst",
+          "sha256": "04d729e7e54850b8772fdf32df214075ddc742ea7e8aee96f04024dbafa472ed",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000005.meta",
+          "sha256": "4128824947d86d5794e981e9c79260ead578ddb44df398e32c221745fb406460",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000006.meta",
+          "sha256": "f8c7d23f0ebc96f9e97d5258df2fe6db05c37f3c5830cec286747aad932ed3cc",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000007.meta",
+          "sha256": "6571d4c3a771c45a233f28e1bdfbbcc6b65f57583879945fc78a27453866b111",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000008.meta",
+          "sha256": "c57cea57c970ffe45d1af9f40a40e77dc9b799fd997b85238d8d1afb7ebff87f",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000009.sst",
+          "sha256": "d5291d12b79f8fa17311b7180be5f0a7476fc354eef1c6aa8e3a17742aceb02c",
+          "size": 25593
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000010.sst",
+          "sha256": "40ccc7bfaaaaba5d5dd76dd5a0e5d614499227c235fc95cf676ed2287084a62d",
+          "size": 1510520
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000011.sst",
+          "sha256": "c4e7061fe2545f219af5486316811d1b412759d28291132982acc82d89435fb9",
+          "size": 837538
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000012.sst",
+          "sha256": "f574c6fa4e7b6c28782a37f7c1d4f4bf2a175f8d4d810708c6276bbb3b996c61",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000013.meta",
+          "sha256": "6a2abbaa7f10329aa6fe2484dea6c27d0e621faa0eb484162f7757eada16c6ce",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000014.meta",
+          "sha256": "0d92be0f67427e552ea63e28677edad5bd7e4cc688eb0ce2318d59eae8411dda",
+          "size": 18873
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000015.meta",
+          "sha256": "3927fa9bf86258d769499a9e1401512f6b33d6677c6b94877457ade4c45ccdb3",
+          "size": 218842
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000016.meta",
+          "sha256": "cb0f040bfca1db74427e7aa8fd9450d86054c7c7346a42ca827862522b30decc",
+          "size": 228188
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/CURRENT",
+          "sha256": "0e856ba03dc5e3ed2c2b09300d64c018e15cea7e8a45c8de3275641d52367662",
+          "size": 71
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/LOG",
+          "sha256": "a825020f96092641e9aef90f0ef9aa23c63a7074df963eb4aeaa13608a0ef059",
+          "size": 1729
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/build-diagnostics.json",
+          "sha256": "60099f360cac022510b6b7483d2b019fc75b6ac721ef110251e1cbb65f8b2d09",
+          "size": 89
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/framework.json",
+          "sha256": "7288466fae0f8ede896171848660162adbe0686cc68cacdd671d2ee577afce11",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".next/fallback-build-manifest.json",
+          "sha256": "4fab91f963e5ce416df73289bd31d83d4433431d02ed9494a27955327d56c498",
+          "size": 366
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-minimal-server.js.nft.json",
+          "sha256": "ac3dcd7aad1ccc41cbba2f58116c2ed918ae0fb2685aeb4267185cb777175315",
+          "size": 7968
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-server.js.nft.json",
+          "sha256": "17efdd9eb88b8cebceef8f91cd1dcc5ecd7a48d3cd7ad4694f3ec37499ef833e",
+          "size": 92032
+        },
+        {
+          "kind": "file",
+          "path": ".next/package.json",
+          "sha256": "091a04fa67c7907b98e106fcff8b964e13129754fce72d24f3025b97c4887fa3",
+          "size": 20
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/app-paths-manifest.json",
+          "sha256": "67d788223a06e3479a7e8372879e18c1595dae22d20db1434676dfa06f2b154c",
+          "size": 56
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js",
+          "sha256": "b1a83a660d14f61c7c6ead8307f9bec0b5cc18330692b3a10810e50fc0989ab2",
+          "size": 556
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.nft.json",
+          "sha256": "aba8e1f79e4d1d6928c7db3af3758622b8a06facf3e11259762a5362d203a00f",
+          "size": 11406
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page_client-reference-manifest.js",
+          "sha256": "2832da263201224bb73fe370979ccf68467761756065e5daaf33b3a2d54343c3",
+          "size": 3748
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/app-paths-manifest.json",
+          "sha256": "e96e120dd8e4ae7f5c12a0e9695e528fd90b9b885af3e592cd2695ba972bebe1",
+          "size": 50
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js",
+          "sha256": "4f192e862f9f7e20780f6dd445a00062840af7878ea9e44852884a72a13f909d",
+          "size": 791
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.nft.json",
+          "sha256": "688587483ef89cc597baf9af9f2771a0f6172ce07b9ec1ed03e12cfd4dab7182",
+          "size": 11811
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page_client-reference-manifest.js",
+          "sha256": "0cf2c9862a84fe6f9de16e3a16546d311f53d3b6ab2ef9a95590e3ec0e1c3c18",
+          "size": 3999
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/app-paths-manifest.json",
+          "sha256": "e0be75c853555b01e1a9823abf81903c8d8934e5c7ca49e887afd6d00905d77a",
+          "size": 28
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js",
+          "sha256": "1e1bf7bcf1e1ae03a36c543f48b1232ce09640d8123b23e3cb7289bebbe28846",
+          "size": 842
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.nft.json",
+          "sha256": "bdd924ba0c0f093a99bbb312b1953f52a7b8629f7ec767d901f6680dd52b118a",
+          "size": 11649
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page_client-reference-manifest.js",
+          "sha256": "e8e543264e27c68e5f199dcbfab5eb59755edd768ac5a131637a021f3defddbd",
+          "size": 4597
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app-paths-manifest.json",
+          "sha256": "2b8b0a14cce392c718748dbb89b9225230070494ad896a18fccb74d029338eb5",
+          "size": 130
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js",
+          "sha256": "8dad95c555cbba81a79fcafdbd5da114212d1a78de4849234bb2c40df0aa78ff",
+          "size": 217483
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js.map",
+          "sha256": "36ada6778596383204fdf834e70759d8a22e150649c275a6544258dbe294290e",
+          "size": 1329148
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js",
+          "sha256": "d3f28d82a7dfcb03a40b22a87647bd7fd582bfd4182de9c3aac5867b1f7e38ee",
+          "size": 1492
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js.map",
+          "sha256": "196b86fd2f578673a1ee9972e77449ebe2bc485fdab4803b4ae3d65a43ddcf31",
+          "size": 2396
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js",
+          "sha256": "2bfe0a5ad86f83c23aa5597acd9e8cbb27b38c93f0ec4ab9f070ee5e1955b9de",
+          "size": 2858
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js.map",
+          "sha256": "c16d920661248e1a0669868a52ad0accab07d5219319d945d9fcecb3817c4e9b",
+          "size": 7063
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js",
+          "sha256": "958174fed72de1738a6ddc9b13194a49995f7ff9dab234f594bcf9b3f41dd8d0",
+          "size": 25157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js.map",
+          "sha256": "6284d845a4a210149233799423ea80f68ef0da352c19e62b4818c2a27e588cc3",
+          "size": 136967
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js",
+          "sha256": "9966b9fc7dc5eb642f5d14cfd0b447140afb50e9851e83736623709463b18097",
+          "size": 7944
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js.map",
+          "sha256": "21532a1d673d831427c6886da3bed14f7b38ab7583730f4d122cc3809036328d",
+          "size": 14470
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js",
+          "sha256": "fecc24d1f9639b12df3815314ef364d88371097c2c82b19a9d15bd016f761181",
+          "size": 32204
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js.map",
+          "sha256": "c2a20475e7a2e6065de472a0255a5a49d996efa4d11d771de84428b6be80da35",
+          "size": 55280
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1ifuc2d._.js",
+          "sha256": "4cdce35f60898408021f6faa02a3ebe9823bb8f65222317caecaf2fc7c72c300",
+          "size": 10948
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1ifuc2d._.js.map",
+          "sha256": "937f86e0e9dc3e78a25e363957b1b04ed4d586bb91982e09e75e00c72e7c69cc",
+          "size": 42587
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1t88sw-._.js",
+          "sha256": "52d2ad674c028c892ecb8e0aabc1a9db0c2d4a40fa5e743d8dafea37202960a2",
+          "size": 3472
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1t88sw-._.js.map",
+          "sha256": "5bfa1ff3423bc1b952985a01f33bc7f35e5998236b0b25a32087b6499cd0d3ec",
+          "size": 4877
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js",
+          "sha256": "c898e6139d76ae88f36ae1daa7cd2950dfd0eccaff3bea76692d9f4655d76914",
+          "size": 125
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js",
+          "sha256": "174b05d9df2550c3ea4fe731a2750d7e0e93465ab60d2fac0cc47f127c0de36b",
+          "size": 122
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js",
+          "sha256": "76f655a65309e9ac85bfa9199f012d77aad022a32973f49ab855a3c87e5fd6e9",
+          "size": 111
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js",
+          "sha256": "38e504b236c8c1cd0f80f1064b850817d62321d9a4c946d68cbd2f94b28fc175",
+          "size": 6521
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js.map",
+          "sha256": "57354b486ac9037775ae3bf661836d759ae975ec3ad3a602bd7e108d822e1b58",
+          "size": 12165
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js",
+          "sha256": "9c1a671a6f8d28c31c182a6d425472eb7dcd1ee155f3a1d3a57e38385591accd",
+          "size": 7559
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js.map",
+          "sha256": "86f238cafd6bfe32c4f2f6174b504796fc3160d4dcff546bb2b5fb5ef297f1e9",
+          "size": 11256
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js",
+          "sha256": "e23646f3d95558e9143a42953f5a7bb0fd8a61511d03950c97d6c9771e394639",
+          "size": 53029
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js.map",
+          "sha256": "ada417a441914fc433660b9be3f31ce68606f7775c107c61b2589e2eebf789e8",
+          "size": 993430
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_18ie-du._.js",
+          "sha256": "58fd23ea17cbb8128082a043777f718ed86f9c7fd2bd99198498352f6ac463d3",
+          "size": 3339
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_18ie-du._.js.map",
+          "sha256": "3d57a4c464e41e4c4c7b5fdecf2b9f2fa0b9686cae8fe7d18b2942a65b1a496e",
+          "size": 7418
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js",
+          "sha256": "b20ebf5e9d0d2c8c0b0b8088d45e1c5bb5efd8a00a4c8bd774e5c32f436aedb6",
+          "size": 2528
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js.map",
+          "sha256": "96cb29c4e3c207072bef0e90356b3af7b6d29d0aa2255291db66c815cfa55489",
+          "size": 4302
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js",
+          "sha256": "af7a0b3c069d876bfdbc11bb3fc88aa3cb0769688dcf9705debf15c2fd579201",
+          "size": 659
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js.map",
+          "sha256": "2279cece9800f751570cc3e4116b5b213722d5c5f40dec873553a7755f5617dd",
+          "size": 620
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js",
+          "sha256": "1511d90136b9b0f3a51642aa06f86d39dde4e0843ffde454674acadfa396b942",
+          "size": 343
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js.map",
+          "sha256": "88c737f8ad10d4b21739d74cb70b3addda2ce05624dac2c5b464f1243e2831b5",
+          "size": 3157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js",
+          "sha256": "31c82886e206a4ddfb028d86b19b036491c30eca465089fc6284754717f29f3a",
+          "size": 672
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js.map",
+          "sha256": "d07468167794147610d609b1e2cf04c68d844924a277b88685b4748bbb00947b",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/src_app_layout_tsx_0r5yz5t._.js",
+          "sha256": "0d08d6749f08adce41136c3e344e91b658e75f8297e2b2594af2b5f5ffc16174",
+          "size": 386
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/src_app_layout_tsx_0r5yz5t._.js.map",
+          "sha256": "7b3ae944a5eb801c3a507370a4e602d1247ea7e51293956de7f7d299e1d7ebc6",
+          "size": 752
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/interception-route-rewrite-manifest.js",
+          "sha256": "fc5133e40acf09e6517b073ddd7b5c0c218d09938848902210f2cc13f08e1c81",
+          "size": 48
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-build-manifest.js",
+          "sha256": "b704443ac77a5e3fce0974b4a9c1bfe121afcc898212a55a25f727d6f5c0287c",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-manifest.json",
+          "sha256": "3e662212864bc4c124cfc53fa5d428813c619852b447c9fd2d9926cd39d7a4a6",
+          "size": 83
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.js",
+          "sha256": "36feb6ff9eda2c958da55bdf3e7280596902cbaf7050cfaca0d5c68ee25d2be2",
+          "size": 135
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.json",
+          "sha256": "65f953122fe2fb5910d84495421ee32397b0be6321daa59118bd85d3cbc51d4d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.js",
+          "sha256": "02294681ca9c8410dd27aca71687fe5df6dec8e568e4349cbe052051b9d9fa94",
+          "size": 138
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.json",
+          "sha256": "094abf3d9adaddefa00e2afcfd9dde35f80b7b1e9747c659b5b39a9fd401842d",
+          "size": 97
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_buildManifest.js",
+          "sha256": "9476e0afd3f9da68a64e6ec58631191fd3eaca62c9f5a377e7517fe9a89e59ea",
+          "size": 219
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_clientMiddlewareManifest.js",
+          "sha256": "5483e3295dc35dfe29ea932efc85341c916f10ff78ff5b0e965e003710893a4a",
+          "size": 96
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_ssgManifest.js",
+          "sha256": "653f3e53e89b4f8548ff86c19e92bb3c6b84b6be7485a320b1e00893ed877479",
+          "size": 76
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/0cz1d0mv5g_q7.js",
+          "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+          "size": 112594
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/1ztgd4w04vhnt.js",
+          "sha256": "ca3b031489ba3bd0f7f7e24efb757d190044e6aa1dbd8fd5b55751ebe9aa60b2",
+          "size": 183261
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/261olwc-3mym3.css",
+          "sha256": "cd0b7d3c53f7ec360e91f7f1999118d4b93fa6f891a0f9ca7c897c57b7ac35c1",
+          "size": 196
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/2o4d5467xr-1l.js",
+          "sha256": "676da90831f8927470459f9b5ac4ee5b8028f26f1908a53c94913498d84e1bda",
+          "size": 12802
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3e4keds9ktjdu.js",
+          "sha256": "7e242e7d64eed143f65ed4e01c9e4cca500c41b6d28215a49e167e1cc2682a34",
+          "size": 229156
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3fntmmi971322.js",
+          "sha256": "34ed6abf4c6d0d1bb3dc56d3f133d2a5dbc3a3c89c791deab314e27143ac14ce",
+          "size": 14377
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3l04zcqx63h3y.js",
+          "sha256": "49cf866bf4d0282119e51835114325403f28e53fd0bccb63dde7ba3114a8e9fb",
+          "size": 16797
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/turbopack-3n-2l_h40r1k1.js",
+          "sha256": "eb49035b7af292e13bd1a163c4811a57f4b983e0a1437f04cf227bcdbebdc747",
+          "size": 9619
+        },
+        {
+          "kind": "file",
+          "path": ".next/trace",
+          "sha256": "5d9828cb5e52f9cfe32dd85faeb1bf4b164a83fabb3ea38c22864d19680c56de",
+          "size": 5629
+        },
+        {
+          "kind": "file",
+          "path": ".next/trace-build",
+          "sha256": "13e81e8fb86f327326c61847c7de78553c24b47f5b8ae2fd873a189024210173",
+          "size": 1497
+        },
+        {
+          "kind": "file",
+          "path": ".next/turbopack",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/cache-life.d.ts",
+          "sha256": "4f984436b10cfb43ccf7fc3114dcb851cbefa4d58b7d8ae741aaae0f6e330129",
+          "size": 5905
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/root-params.d.ts",
+          "sha256": "f3387dd7800eec3c34273f7a8efad13e864598c7e8f788d321e407390989bb59",
+          "size": 101
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/routes.d.ts",
+          "sha256": "a384610388221cd70cffb4503cee7853b8b076f2b4a55324b20a4bdbd25a3538",
+          "size": 1397
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/validator.ts",
+          "sha256": "f70e1e9104f989e63e8d2419a4b378ebf3fa951107b8f668ec6a4fbf138c0352",
+          "size": 2111
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "8cd2a8ff3759d0a198f2878628f482a62c8ae24606ba8871b119c1a3109e9fb7"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a4-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "nextjs",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"allowed_dependencies\":[\"next\",\"react\",\"react-dom\"],\"entry_paths\":[\"package.json\"],\"forbidden_dependencies\":[\"tailwindcss\",\"postcss plugins\",\"autoprefixer\",\"any network-installed package\"],\"framework\":\"nextjs\",\"language\":\"javascript_or_typescript\",\"network\":\"denied\",\"provisioning\":\"offline bundle only\",\"reserved_port\":4201,\"scored\":false,\"shell\":\"forbidden\",\"styling\":\"plain CSS\"}"
+      ],
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": "preflight_unavailable"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "no_recovery_boundary_reached"
+      },
+      "resource_usage": {
+        "input_tokens": 13720,
+        "output_tokens": 2227,
+        "total_tokens": 15947,
+        "wall_time_ms": 87072
+      },
+      "status": "failed",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "dependency_setup_missing",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-setup-project-01a05009-784f-7102-b010-dc14cc62e73a.yaml",
+        "status": "failed",
+        "stop_reason": "automatic Recovery Plan stopped: preflight unavailable: required_capability_has_no_product_visible_read_only_observation:browser_readiness,browser_interaction",
+        "structured_blockers": []
+      }
+    },
+    "status": "same_run_no_recovery_boundary"
+  },
+  "intent": "create",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "ui-copy-text--phase6-cell-04-source-task-01",
+      "ui-style-background--phase6-cell-04-source-task-01",
+      "port-path--phase6-cell-04-source-task-01"
+    ],
+    "precondition_adapter_ids": [],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c04-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "nextjs",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260830-a14-a4-smoke-01/raw/phase6-main-c04-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 3,
+      "oracle_count": 3,
+      "outcomes": [
+        {
+          "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "port-path--phase6-cell-04-source-task-01",
+          "claim_id": "port-path",
+          "executor_kind": "http_get",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "host_capability_attachments": [
+      "node_modules/playwright-core"
+    ],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+          "size": 44
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "next-env.d.ts",
+        "next.config.js",
+        "package-lock.json",
+        "src/app/global.d.ts",
+        "src/app/globals.css",
+        "src/app/layout.js",
+        "src/app/layout.tsx",
+        "src/app/page.js",
+        "src/app/page.tsx",
+        "tsconfig.json"
+      ],
+      "after_snapshot_sha256": "8cd2a8ff3759d0a198f2878628f482a62c8ae24606ba8871b119c1a3109e9fb7",
+      "before_snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316",
+      "change_count": 11,
+      "changed": [
+        "package.json"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "71314aef518e623f57f2ef63cc2831a6dd5fb6f91c5fc44b792432a12060fef2",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "8cd2a8ff3759d0a198f2878628f482a62c8ae24606ba8871b119c1a3109e9fb7"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".next/build-manifest.json",
+          "sha256": "f3ded70f97f57877e3340045062e7f9e555769d21005e760c11ae445f54cac41",
+          "size": 607
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.previewinfo",
+          "sha256": "e737d9aa7e1ec947d5d6ca6ba32860f01a7cd34867f922ae570b906f16797637",
+          "size": 262
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.rscinfo",
+          "sha256": "17276557b5ba89d9dd364907554ff154d136f17a4da2c8f5144964b3330caf65",
+          "size": 102
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000001.sst",
+          "sha256": "00a38e75fc268af16ce49524566ed61b5a5f861890d9bca15222b0389c2bc3d4",
+          "size": 5155437
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000002.sst",
+          "sha256": "9946e13f9e82aa5e18482dfafa3c7b0c80f34348709173090ef9f990b1016029",
+          "size": 1396089
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000003.sst",
+          "sha256": "03726c85470eda0ba0bc179043e0b1b1c410d8b7aed71ee07fcdbfdb9c1bb159",
+          "size": 18626567
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000004.sst",
+          "sha256": "04d729e7e54850b8772fdf32df214075ddc742ea7e8aee96f04024dbafa472ed",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000005.meta",
+          "sha256": "4128824947d86d5794e981e9c79260ead578ddb44df398e32c221745fb406460",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000006.meta",
+          "sha256": "f8c7d23f0ebc96f9e97d5258df2fe6db05c37f3c5830cec286747aad932ed3cc",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000007.meta",
+          "sha256": "6571d4c3a771c45a233f28e1bdfbbcc6b65f57583879945fc78a27453866b111",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000008.meta",
+          "sha256": "c57cea57c970ffe45d1af9f40a40e77dc9b799fd997b85238d8d1afb7ebff87f",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000009.sst",
+          "sha256": "d5291d12b79f8fa17311b7180be5f0a7476fc354eef1c6aa8e3a17742aceb02c",
+          "size": 25593
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000010.sst",
+          "sha256": "40ccc7bfaaaaba5d5dd76dd5a0e5d614499227c235fc95cf676ed2287084a62d",
+          "size": 1510520
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000011.sst",
+          "sha256": "c4e7061fe2545f219af5486316811d1b412759d28291132982acc82d89435fb9",
+          "size": 837538
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000012.sst",
+          "sha256": "f574c6fa4e7b6c28782a37f7c1d4f4bf2a175f8d4d810708c6276bbb3b996c61",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000013.meta",
+          "sha256": "6a2abbaa7f10329aa6fe2484dea6c27d0e621faa0eb484162f7757eada16c6ce",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000014.meta",
+          "sha256": "0d92be0f67427e552ea63e28677edad5bd7e4cc688eb0ce2318d59eae8411dda",
+          "size": 18873
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000015.meta",
+          "sha256": "3927fa9bf86258d769499a9e1401512f6b33d6677c6b94877457ade4c45ccdb3",
+          "size": 218842
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000016.meta",
+          "sha256": "cb0f040bfca1db74427e7aa8fd9450d86054c7c7346a42ca827862522b30decc",
+          "size": 228188
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/CURRENT",
+          "sha256": "0e856ba03dc5e3ed2c2b09300d64c018e15cea7e8a45c8de3275641d52367662",
+          "size": 71
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/LOG",
+          "sha256": "a825020f96092641e9aef90f0ef9aa23c63a7074df963eb4aeaa13608a0ef059",
+          "size": 1729
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/build-diagnostics.json",
+          "sha256": "60099f360cac022510b6b7483d2b019fc75b6ac721ef110251e1cbb65f8b2d09",
+          "size": 89
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/framework.json",
+          "sha256": "7288466fae0f8ede896171848660162adbe0686cc68cacdd671d2ee577afce11",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".next/fallback-build-manifest.json",
+          "sha256": "4fab91f963e5ce416df73289bd31d83d4433431d02ed9494a27955327d56c498",
+          "size": 366
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-minimal-server.js.nft.json",
+          "sha256": "ac3dcd7aad1ccc41cbba2f58116c2ed918ae0fb2685aeb4267185cb777175315",
+          "size": 7968
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-server.js.nft.json",
+          "sha256": "17efdd9eb88b8cebceef8f91cd1dcc5ecd7a48d3cd7ad4694f3ec37499ef833e",
+          "size": 92032
+        },
+        {
+          "kind": "file",
+          "path": ".next/package.json",
+          "sha256": "091a04fa67c7907b98e106fcff8b964e13129754fce72d24f3025b97c4887fa3",
+          "size": 20
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/app-paths-manifest.json",
+          "sha256": "67d788223a06e3479a7e8372879e18c1595dae22d20db1434676dfa06f2b154c",
+          "size": 56
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js",
+          "sha256": "b1a83a660d14f61c7c6ead8307f9bec0b5cc18330692b3a10810e50fc0989ab2",
+          "size": 556
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.nft.json",
+          "sha256": "aba8e1f79e4d1d6928c7db3af3758622b8a06facf3e11259762a5362d203a00f",
+          "size": 11406
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page_client-reference-manifest.js",
+          "sha256": "2832da263201224bb73fe370979ccf68467761756065e5daaf33b3a2d54343c3",
+          "size": 3748
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/app-paths-manifest.json",
+          "sha256": "e96e120dd8e4ae7f5c12a0e9695e528fd90b9b885af3e592cd2695ba972bebe1",
+          "size": 50
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js",
+          "sha256": "4f192e862f9f7e20780f6dd445a00062840af7878ea9e44852884a72a13f909d",
+          "size": 791
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.nft.json",
+          "sha256": "688587483ef89cc597baf9af9f2771a0f6172ce07b9ec1ed03e12cfd4dab7182",
+          "size": 11811
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page_client-reference-manifest.js",
+          "sha256": "0cf2c9862a84fe6f9de16e3a16546d311f53d3b6ab2ef9a95590e3ec0e1c3c18",
+          "size": 3999
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/app-paths-manifest.json",
+          "sha256": "e0be75c853555b01e1a9823abf81903c8d8934e5c7ca49e887afd6d00905d77a",
+          "size": 28
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js",
+          "sha256": "1e1bf7bcf1e1ae03a36c543f48b1232ce09640d8123b23e3cb7289bebbe28846",
+          "size": 842
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.nft.json",
+          "sha256": "bdd924ba0c0f093a99bbb312b1953f52a7b8629f7ec767d901f6680dd52b118a",
+          "size": 11649
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page_client-reference-manifest.js",
+          "sha256": "e8e543264e27c68e5f199dcbfab5eb59755edd768ac5a131637a021f3defddbd",
+          "size": 4597
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app-paths-manifest.json",
+          "sha256": "2b8b0a14cce392c718748dbb89b9225230070494ad896a18fccb74d029338eb5",
+          "size": 130
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js",
+          "sha256": "8dad95c555cbba81a79fcafdbd5da114212d1a78de4849234bb2c40df0aa78ff",
+          "size": 217483
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js.map",
+          "sha256": "36ada6778596383204fdf834e70759d8a22e150649c275a6544258dbe294290e",
+          "size": 1329148
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js",
+          "sha256": "d3f28d82a7dfcb03a40b22a87647bd7fd582bfd4182de9c3aac5867b1f7e38ee",
+          "size": 1492
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js.map",
+          "sha256": "196b86fd2f578673a1ee9972e77449ebe2bc485fdab4803b4ae3d65a43ddcf31",
+          "size": 2396
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js",
+          "sha256": "2bfe0a5ad86f83c23aa5597acd9e8cbb27b38c93f0ec4ab9f070ee5e1955b9de",
+          "size": 2858
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js.map",
+          "sha256": "c16d920661248e1a0669868a52ad0accab07d5219319d945d9fcecb3817c4e9b",
+          "size": 7063
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js",
+          "sha256": "958174fed72de1738a6ddc9b13194a49995f7ff9dab234f594bcf9b3f41dd8d0",
+          "size": 25157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js.map",
+          "sha256": "6284d845a4a210149233799423ea80f68ef0da352c19e62b4818c2a27e588cc3",
+          "size": 136967
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js",
+          "sha256": "9966b9fc7dc5eb642f5d14cfd0b447140afb50e9851e83736623709463b18097",
+          "size": 7944
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js.map",
+          "sha256": "21532a1d673d831427c6886da3bed14f7b38ab7583730f4d122cc3809036328d",
+          "size": 14470
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js",
+          "sha256": "fecc24d1f9639b12df3815314ef364d88371097c2c82b19a9d15bd016f761181",
+          "size": 32204
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js.map",
+          "sha256": "c2a20475e7a2e6065de472a0255a5a49d996efa4d11d771de84428b6be80da35",
+          "size": 55280
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1ifuc2d._.js",
+          "sha256": "4cdce35f60898408021f6faa02a3ebe9823bb8f65222317caecaf2fc7c72c300",
+          "size": 10948
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1ifuc2d._.js.map",
+          "sha256": "937f86e0e9dc3e78a25e363957b1b04ed4d586bb91982e09e75e00c72e7c69cc",
+          "size": 42587
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1t88sw-._.js",
+          "sha256": "52d2ad674c028c892ecb8e0aabc1a9db0c2d4a40fa5e743d8dafea37202960a2",
+          "size": 3472
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_1t88sw-._.js.map",
+          "sha256": "5bfa1ff3423bc1b952985a01f33bc7f35e5998236b0b25a32087b6499cd0d3ec",
+          "size": 4877
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js",
+          "sha256": "c898e6139d76ae88f36ae1daa7cd2950dfd0eccaff3bea76692d9f4655d76914",
+          "size": 125
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js",
+          "sha256": "174b05d9df2550c3ea4fe731a2750d7e0e93465ab60d2fac0cc47f127c0de36b",
+          "size": 122
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js",
+          "sha256": "76f655a65309e9ac85bfa9199f012d77aad022a32973f49ab855a3c87e5fd6e9",
+          "size": 111
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js",
+          "sha256": "38e504b236c8c1cd0f80f1064b850817d62321d9a4c946d68cbd2f94b28fc175",
+          "size": 6521
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js.map",
+          "sha256": "57354b486ac9037775ae3bf661836d759ae975ec3ad3a602bd7e108d822e1b58",
+          "size": 12165
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js",
+          "sha256": "9c1a671a6f8d28c31c182a6d425472eb7dcd1ee155f3a1d3a57e38385591accd",
+          "size": 7559
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js.map",
+          "sha256": "86f238cafd6bfe32c4f2f6174b504796fc3160d4dcff546bb2b5fb5ef297f1e9",
+          "size": 11256
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js",
+          "sha256": "e23646f3d95558e9143a42953f5a7bb0fd8a61511d03950c97d6c9771e394639",
+          "size": 53029
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js.map",
+          "sha256": "ada417a441914fc433660b9be3f31ce68606f7775c107c61b2589e2eebf789e8",
+          "size": 993430
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_18ie-du._.js",
+          "sha256": "58fd23ea17cbb8128082a043777f718ed86f9c7fd2bd99198498352f6ac463d3",
+          "size": 3339
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_18ie-du._.js.map",
+          "sha256": "3d57a4c464e41e4c4c7b5fdecf2b9f2fa0b9686cae8fe7d18b2942a65b1a496e",
+          "size": 7418
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js",
+          "sha256": "b20ebf5e9d0d2c8c0b0b8088d45e1c5bb5efd8a00a4c8bd774e5c32f436aedb6",
+          "size": 2528
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js.map",
+          "sha256": "96cb29c4e3c207072bef0e90356b3af7b6d29d0aa2255291db66c815cfa55489",
+          "size": 4302
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js",
+          "sha256": "af7a0b3c069d876bfdbc11bb3fc88aa3cb0769688dcf9705debf15c2fd579201",
+          "size": 659
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js.map",
+          "sha256": "2279cece9800f751570cc3e4116b5b213722d5c5f40dec873553a7755f5617dd",
+          "size": 620
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js",
+          "sha256": "1511d90136b9b0f3a51642aa06f86d39dde4e0843ffde454674acadfa396b942",
+          "size": 343
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js.map",
+          "sha256": "88c737f8ad10d4b21739d74cb70b3addda2ce05624dac2c5b464f1243e2831b5",
+          "size": 3157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js",
+          "sha256": "31c82886e206a4ddfb028d86b19b036491c30eca465089fc6284754717f29f3a",
+          "size": 672
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js.map",
+          "sha256": "d07468167794147610d609b1e2cf04c68d844924a277b88685b4748bbb00947b",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/src_app_layout_tsx_0r5yz5t._.js",
+          "sha256": "0d08d6749f08adce41136c3e344e91b658e75f8297e2b2594af2b5f5ffc16174",
+          "size": 386
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/src_app_layout_tsx_0r5yz5t._.js.map",
+          "sha256": "7b3ae944a5eb801c3a507370a4e602d1247ea7e51293956de7f7d299e1d7ebc6",
+          "size": 752
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/interception-route-rewrite-manifest.js",
+          "sha256": "fc5133e40acf09e6517b073ddd7b5c0c218d09938848902210f2cc13f08e1c81",
+          "size": 48
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-build-manifest.js",
+          "sha256": "b704443ac77a5e3fce0974b4a9c1bfe121afcc898212a55a25f727d6f5c0287c",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-manifest.json",
+          "sha256": "3e662212864bc4c124cfc53fa5d428813c619852b447c9fd2d9926cd39d7a4a6",
+          "size": 83
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.js",
+          "sha256": "36feb6ff9eda2c958da55bdf3e7280596902cbaf7050cfaca0d5c68ee25d2be2",
+          "size": 135
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.json",
+          "sha256": "65f953122fe2fb5910d84495421ee32397b0be6321daa59118bd85d3cbc51d4d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.js",
+          "sha256": "02294681ca9c8410dd27aca71687fe5df6dec8e568e4349cbe052051b9d9fa94",
+          "size": 138
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.json",
+          "sha256": "094abf3d9adaddefa00e2afcfd9dde35f80b7b1e9747c659b5b39a9fd401842d",
+          "size": 97
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_buildManifest.js",
+          "sha256": "9476e0afd3f9da68a64e6ec58631191fd3eaca62c9f5a377e7517fe9a89e59ea",
+          "size": 219
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_clientMiddlewareManifest.js",
+          "sha256": "5483e3295dc35dfe29ea932efc85341c916f10ff78ff5b0e965e003710893a4a",
+          "size": 96
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/MU-loG4bUOWnbjWFGaVjO/_ssgManifest.js",
+          "sha256": "653f3e53e89b4f8548ff86c19e92bb3c6b84b6be7485a320b1e00893ed877479",
+          "size": 76
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/0cz1d0mv5g_q7.js",
+          "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+          "size": 112594
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/1ztgd4w04vhnt.js",
+          "sha256": "ca3b031489ba3bd0f7f7e24efb757d190044e6aa1dbd8fd5b55751ebe9aa60b2",
+          "size": 183261
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/261olwc-3mym3.css",
+          "sha256": "cd0b7d3c53f7ec360e91f7f1999118d4b93fa6f891a0f9ca7c897c57b7ac35c1",
+          "size": 196
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/2o4d5467xr-1l.js",
+          "sha256": "676da90831f8927470459f9b5ac4ee5b8028f26f1908a53c94913498d84e1bda",
+          "size": 12802
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3e4keds9ktjdu.js",
+          "sha256": "7e242e7d64eed143f65ed4e01c9e4cca500c41b6d28215a49e167e1cc2682a34",
+          "size": 229156
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3fntmmi971322.js",
+          "sha256": "34ed6abf4c6d0d1bb3dc56d3f133d2a5dbc3a3c89c791deab314e27143ac14ce",
+          "size": 14377
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3l04zcqx63h3y.js",
+          "sha256": "49cf866bf4d0282119e51835114325403f28e53fd0bccb63dde7ba3114a8e9fb",
+          "size": 16797
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/turbopack-3n-2l_h40r1k1.js",
+          "sha256": "eb49035b7af292e13bd1a163c4811a57f4b983e0a1437f04cf227bcdbebdc747",
+          "size": 9619
+        },
+        {
+          "kind": "file",
+          "path": ".next/trace",
+          "sha256": "5d9828cb5e52f9cfe32dd85faeb1bf4b164a83fabb3ea38c22864d19680c56de",
+          "size": 5629
+        },
+        {
+          "kind": "file",
+          "path": ".next/trace-build",
+          "sha256": "13e81e8fb86f327326c61847c7de78553c24b47f5b8ae2fd873a189024210173",
+          "size": 1497
+        },
+        {
+          "kind": "file",
+          "path": ".next/turbopack",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/cache-life.d.ts",
+          "sha256": "4f984436b10cfb43ccf7fc3114dcb851cbefa4d58b7d8ae741aaae0f6e330129",
+          "size": 5905
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/root-params.d.ts",
+          "sha256": "f3387dd7800eec3c34273f7a8efad13e864598c7e8f788d321e407390989bb59",
+          "size": 101
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/routes.d.ts",
+          "sha256": "a384610388221cd70cffb4503cee7853b8b076f2b4a55324b20a4bdbd25a3538",
+          "size": 1397
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/validator.ts",
+          "sha256": "f70e1e9104f989e63e8d2419a4b378ebf3fa951107b8f668ec6a4fbf138c0352",
+          "size": 2111
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "8cd2a8ff3759d0a198f2878628f482a62c8ae24606ba8871b119c1a3109e9fb7"
+    },
+    "result": {
+      "argv": [
+        "/Volumes/SSD_NX/tmp/CommandAgent-a14-a4-target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "nextjs",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"allowed_dependencies\":[\"next\",\"react\",\"react-dom\"],\"entry_paths\":[\"package.json\"],\"forbidden_dependencies\":[\"tailwindcss\",\"postcss plugins\",\"autoprefixer\",\"any network-installed package\"],\"framework\":\"nextjs\",\"language\":\"javascript_or_typescript\",\"network\":\"denied\",\"provisioning\":\"offline bundle only\",\"reserved_port\":4201,\"scored\":false,\"shell\":\"forbidden\",\"styling\":\"plain CSS\"}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "b99623031df79c47d2480e836d2ff77b8a8d7a1e29282b825aa55c1911559860",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "54b08731a6f19845dd299694c2e079a891114130b9ececec1384f01309b84c21",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent/runs/01a05007-feb3-7483-8b30-7c7ff72f7801",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": null,
+        "initial_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "wall_time_ms": 0
+        },
+        "snapshot_sha256": null,
+        "status": "not_recorded",
+        "total_bytes": null,
+        "workspace_relative_path": null
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": "preflight_unavailable"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "control_restore_failed_count": 0,
+        "control_retained_count": 0,
+        "current_success_suppressed": false,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "promotion_decisions": [],
+        "terminal_stop_reason": "preflight_unavailable",
+        "treatment_regression_rejected_count": 0
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 13720,
+        "output_tokens": 2227,
+        "total_tokens": 15947,
+        "wall_time_ms": 87072
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: automatic Recovery Plan stopped: preflight unavailable: required_capability_has_no_product_visible_read_only_observation:browser_readiness,browser_interaction: phase setup-project profile invariant verification failed: typescript dependency must use a deterministic 5.x range such as ^5.5.0; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-setup-project-01a05009-784f-7102-b010-dc0e597e5137.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-setup-project-01a05009-784f-7102-b010-dc14cc62e73a.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-phase-setup-project-01a05009-784f-7102-b010-dc0e597e5137.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-setup-project-01a05009-784f-7102-b010-dc14cc62e73a.yaml\n",
+      "stdout": "→ planning the overall plan (qwen3.6, up to 600s)\n✓ overall plan ready (9s)\n### Plan\n- Goal: Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する...\n- Profile: nextjs\n- Port: 4201\n- UltraPlan accepted: 3 phases; first: setup-project\n- Phase list:\n1. ○ setup-project - Initialize a minimal Next.js project structure with package.json containing next, react, and rea...\n2. ○ create-route - Create the /play-01 page component in app/play-01/page.js (or pages/play-01.js) that renders a h...\n3. ○ verify-build - Verify that the project builds successfully with 'next build' command. Ensure no Tailwind or Pos...\n── Phase 1/3: setup-project ──\n#### Phase: setup-project\n1. ○ [setup] Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language ... (verify 0)\n2. ○ [verify] Verify package scripts use the requested port and the Next.js build command remains executable. (verify 4)\nplan normalized: instruction_truncated\n→ step nextjs-scaffold [setup]\n→ npm install not_required\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (15s)\n→ Bash ls -la /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6...\n✓ Bash ok\n→ npm install not_required\n→ step nextjs-profile-verify [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (8s)\n→ Read package.json\n→ Read src/app/layout.js\n→ Read src/app/page.js\n→ Read src/app/globals.css\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ npm install not_required\n→ npm install not_required\n→ planning steps for phase 1/3 setup-project (qwen3.6, up to 600s)\n✗ provider aborted by user\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (53s)\n→ Bash ls /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260830-a14-a4-smoke-01/phase6-mai...\n✓ Bash ok\n→ npm install blocked\n✗ Phase 1/3: setup-project typescript dependency must use a deterministic 5.x range such as ^5.5.0\n✗ verify setup-project (intermediate_invariant): typescript dependency must use a deterministic 5.x range such as ^5.5.0\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "dependency_setup_missing",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-setup-project-01a05009-784f-7102-b010-dc14cc62e73a.yaml",
+        "status": "failed",
+        "stop_reason": "automatic Recovery Plan stopped: preflight unavailable: required_capability_has_no_product_visible_read_only_observation:browser_readiness,browser_interaction",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 96919
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c04-task-01"
+}

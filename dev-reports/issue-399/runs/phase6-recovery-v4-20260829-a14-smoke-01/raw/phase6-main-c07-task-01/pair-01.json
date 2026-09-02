@@ -1,0 +1,770 @@
+{
+  "case_id": "phase6-main-c07-task-01",
+  "comparison": {
+    "artifact_delta_between_arms": {
+      "added": [],
+      "after_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "before_snapshot_sha256": "dba53726d81f99ba8b2a24c8351d1bf4fe5060f026ee43013452e3d605c71c6c",
+      "change_count": 1,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_attempts": [
+      {
+        "attempt_index": 0,
+        "kind": "initial",
+        "status": "failed",
+        "stop_reason": null
+      }
+    ],
+    "initial_oracle_status": "fail",
+    "initial_regression_status": "not_applicable",
+    "quality_transition": "initial_attempt_divergence",
+    "raw_oracle_transition": "improved",
+    "recovery_attempts": [
+      {
+        "attempt_index": 0,
+        "kind": "initial",
+        "status": "failed",
+        "stop_reason": null
+      }
+    ],
+    "recovery_oracle_status": "pass",
+    "recovery_regression_status": "not_applicable",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 6850,
+      "output_tokens": 1827,
+      "total_tokens": 8677,
+      "wall_time_ms": 56812
+    },
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "structured_recovery_candidate:missing_required_evidence",
+      "run_recovery_one_arm": true,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "fail_count": 1,
+      "oracle_count": 1,
+      "outcomes": [
+        {
+          "adapter_id": "exact-reproducer--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 0,
+            "executed": true,
+            "exit_code": 0,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_mismatch",
+            "result": "fail",
+            "runtime_ms": 94,
+            "stderr": "",
+            "stdout": "1\n",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [],
+      "after_snapshot_sha256": "dba53726d81f99ba8b2a24c8351d1bf4fe5060f026ee43013452e3d605c71c6c",
+      "before_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "change_count": 1,
+      "changed": [
+        "app.py"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "dba53726d81f99ba8b2a24c8351d1bf4fe5060f026ee43013452e3d605c71c6c",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "dba53726d81f99ba8b2a24c8351d1bf4fe5060f026ee43013452e3d605c71c6c"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "75ae6fa6b82ab539fd23d43933e83720de40e5ca0a25cfe65f2ef75f2e2cf391",
+          "size": 338
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "dba53726d81f99ba8b2a24c8351d1bf4fe5060f026ee43013452e3d605c71c6c"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--initial-only/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--initial-only/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--initial-only/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "d467945389646c1f067c716b35f1780f4740694646b0c66bfd6b0cad05e41e60",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "de762e9589438fcb4dd0ee019b88076450dfc5d39d6d4b601a254fb21d6ae37d",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--initial-only/before/.commandagent/runs/01a04d5c-d8f0-7c31-9311-e94a34470de3",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "disabled"
+      },
+      "recovery_plan_auto_runs": 0,
+      "resource_usage": {
+        "input_tokens": 13828,
+        "output_tokens": 1182,
+        "total_tokens": 15010,
+        "wall_time_ms": 44919
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d5d-8950-7f13-98e2-2d730511938f.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d5d-8950-7f13-98e2-2d8e9607fb02.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d5d-8950-7f13-98e2-2d730511938f.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d5d-8950-7f13-98e2-2d8e9607fb02.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (14s)\n#### Phase: Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and r...\n1. ○ [inspect] Check the current directory structure to locate app.py and fixture/task-01.json. Read the conten... (verify 0)\n2. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n3. ○ [implement] Edit app.py to fix the bug identified in the previous step. Ensure the fix handles the specific ... (verify 0)\n4. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-workspace [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Glob **/*\n✓ Glob ok\n→ step reproduce-crash [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n→ Read fixture/task-01.json\n✓ Read ok\n✓ Read ok\n✗ verify command failed: python3 app.py fixture/task-01.json outcome: CommandFailed status: exit status: 1 el...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (10s)\n→ Edit\n✗ Edit missing_arg\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Edit app.py\n✓ Edit ok\n↻ repair 1/2: unknown\n→ step fix-app-py [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Read app.py\n✓ Read ok\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "missing_required_evidence",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d5d-8950-7f13-98e2-2d8e9607fb02.yaml",
+        "status": "failed",
+        "stop_reason": "completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d5d-8950-7f13-98e2-2d730511938f.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d5d-8950-7f13-98e2-2d8e9607fb02.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d5d-8950-7f13-98e2-2d730511938f.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d5d-8950-7f13-98e2-2d8e9607fb02.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 45246
+    }
+  },
+  "intent": "fix",
+  "pair_id": "phase6-main-c07-task-01--pair-01",
+  "profile": "generic",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-smoke-01/raw/phase6-main-c07-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "fail_count": 0,
+      "oracle_count": 1,
+      "outcomes": [
+        {
+          "adapter_id": "exact-reproducer--phase6-cell-07-source-task-01",
+          "claim_id": "exact-reproducer",
+          "executor_kind": "fixture_hash_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 1,
+            "executed": true,
+            "exit_code": 1,
+            "fixture_sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 82,
+            "stderr": "Traceback (most recent call last):\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/app.py\", line 16, in <module>\n    raise SystemExit(main(sys.argv))\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/app.py\", line 11, in main\n    print(sum(item[\"amount\"] for item in payload[\"items\"]))\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/app.py\", line 11, in <genexpr>\n    print(sum(item[\"amount\"] for item in payload[\"items\"]))\nKeyError: 'amount'\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 1,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [],
+      "after_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "before_snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app.py",
+          "sha256": "57d423420b7f30c9f57757c581022ad47cb48893cedd107562e3ed470157e5dc",
+          "size": 331
+        },
+        {
+          "kind": "file",
+          "path": "fixture/control.json",
+          "sha256": "ba71edf1fdb64a61af22f087c5ad9e53693a173eae693059681b9a93cd0aec69",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-01.json",
+          "sha256": "f94e63d4cefe9572ba14857b7d3a8e86c9257a4d5f8d4e2901bdad40f48ca4dd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-02.json",
+          "sha256": "9fa0a636ab861ed3b550bf8c92f29c83e8dcf709c277633f2ed589ee6ea77bab",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-03.json",
+          "sha256": "a9357d5f64ec36de05495521003c7e65d08d14481d28e8f7157f5cb6f4b0a0a0",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-04.json",
+          "sha256": "458ef2ac8f0b3412f885e857945f619fab8ea125f13e9f3434427af6a986fc17",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-05.json",
+          "sha256": "1e349a6ca700559a5770526d018f30b218f69ccf2ec7ce2d6d8dce17c1358e0a",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-06.json",
+          "sha256": "00890aaf684849a1750ed7419ff3a69ac2caa0563417467d8ccdfdf099e0f693",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-07.json",
+          "sha256": "00b6ed63e90bce280d5dee43830c8d07628f5e3db2fc8c09bfe5156723a55bf9",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-08.json",
+          "sha256": "25bd151a7c6d204499887aea1c70aeddb9848f18e09af636a988c42bcd466786",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-09.json",
+          "sha256": "dae7c2551df4cf12c679e1b6f9753abd33b061fa93bf0e4ed219d78d3b3dc55b",
+          "size": 38
+        },
+        {
+          "kind": "file",
+          "path": "fixture/task-10.json",
+          "sha256": "3d2f218b82dc5969bc1fe59327bdb0208edeb5547a6fce8f13cd734847829416",
+          "size": 39
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "908722f41443511373140ad5b9226559ecb6dea832aae111e706d65bd8f75316"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "generic",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--plan-run",
+        "Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and rerun that same hash-bound fixture successfully; do not substitute fixture/control.json.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"do_not_convert_to\":[\"Node.js harness\"],\"do_not_substitute\":[\"fixture/control.json\"],\"language\":\"python3\",\"network\":\"denied\",\"registered_reproducer_fixture\":\"fixture/task-01.json\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "d467945389646c1f067c716b35f1780f4740694646b0c66bfd6b0cad05e41e60",
+      "completion_verify_attempt_recorded": false,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "de762e9589438fcb4dd0ee019b88076450dfc5d39d6d4b601a254fb21d6ae37d",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/.commandagent/runs/01a04d5d-8a1f-7b01-abc9-69f584a16b06",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": false,
+        "configured_recovery_runs": 1,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": null
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 20678,
+        "output_tokens": 3009,
+        "total_tokens": 23687,
+        "wall_time_ms": 101731
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: model_stagnation:read_only_loop: write_required exhausted for app.py; objective: Repair step `reproduce-crash`. Verification failed: command failed: python3 app.py fixture/task-01.json outcome: CommandFailed status: exit status: 1 elapsed_ms: 51 summary: KeyError: 'amount' stdout: stderr: Traceback (most recent call last): File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/app.py\", line 16, in <module> raise\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-read-only-stagnation-01a04d5f-1bd2-7a33-962a-ce4e1a145dcc.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-read-only-stagnation-01a04d5f-1bd3-7a72-9eb8-5652331cfe20.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-read-only-stagnation-01a04d5f-1bd2-7a33-962a-ce4e1a145dcc.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-read-only-stagnation-01a04d5f-1bd3-7a72-9eb8-5652331cfe20.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (11s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (17s)\n#### Phase: Reproduce the Python crash with exactly `python3 app.py fixture/task-01.json`, fix app.py, and r...\n1. ○ [setup] Create the directory structure and the fixture file `fixture/task-01.json` containing the specif... (verify 0)\n2. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 8)\n3. ○ [implement] Edit `app.py` to fix the root cause of the crash identified in the previous step. Ensure the fix... (verify 0)\n4. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\nplan normalized: shell_control_split\n→ step setup-workspace [setup]\n→ step reproduce-crash [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (5s)\n→ Glob **/*\n✓ Glob ok\n✗ verify command failed: python3 app.py fixture/task-01.json outcome: CommandFailed status: exit status: 1 el...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (13s)\n→ Bash python3 app.py fixture/task-01.json; exit_code=$?; if [ $exit_code -eq 0 ]; then echo 'FAIL: Exp...\n✓ Bash ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (7s)\n→ Bash python3 app.py fixture/task-01.json; exit_code=$?; if [ $exit_code -eq 0 ]; then echo 'FAIL: Exp...\n✓ Bash ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (11s)\n→ Bash python3 app.py fixture/task-01.json; exit_code=$?; if [ $exit_code -eq 0 ]; then echo 'FAIL: Exp...\n✓ Bash ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (8s)\n→ Bash python3 app.py fixture/task-01.json; exit_code=$?; if [ $exit_code -eq 0 ]; then echo 'FAIL: Exp...\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (25s)\n→ Read app.py\n→ Read fixture/task-01.json\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "model_stagnation:read_only_loop",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-read-only-stagnation-01a04d5f-1bd3-7a72-9eb8-5652331cfe20.yaml",
+        "status": "failed",
+        "stop_reason": "model_stagnation:read_only_loop: write_required exhausted for app.py; objective: Repair step `reproduce-crash`. Verification failed: command failed: python3 app.py fixture/task-01.json outcome: CommandFailed status: exit status: 1 elapsed_ms: 51 summary: KeyError: 'amount' stdout: stderr: Traceback (most recent call last): File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c07-task-01--pair-01--recovery-one/before/app.py\", line 16, in <module> raise\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-read-only-stagnation-01a04d5f-1bd2-7a33-962a-ce4e1a145dcc.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-read-only-stagnation-01a04d5f-1bd3-7a72-9eb8-5652331cfe20.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile generic \"$(cat .commandagent/repairs/repair-read-only-stagnation-01a04d5f-1bd2-7a33-962a-ce4e1a145dcc.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-read-only-stagnation-01a04d5f-1bd3-7a72-9eb8-5652331cfe20.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 102969
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14",
+  "source_case_id": "phase6-main-c07-task-01"
+}

@@ -1,0 +1,23 @@
+You generate a non-authoritative CommandAgent VerificationSpec v0 proposal for
+the Phase 6 contract-v2 preflight. Return one JSON object only.
+
+Copy goal, intent, profile, generation, and every required claim ID exactly from
+INPUT JSON. Emit every registered required claim once. Do not invent, rename,
+or omit claim IDs.
+
+Closed vocabulary:
+- claim.kind: behavior, state, negative_condition, regression,
+  reproducer_observation, diagnosis_binding
+- oracle.strategy: command, fixture, exit_code, stdout, stderr, file, http,
+  dom, interaction, existing_fix_evidence, existing_investigation_binding
+- oracle.input.kind: none, text, fixture, http, dom
+- oracle.observation.kind: exit_code, stdout, stderr, file, http_status, dom,
+  interaction, existing_binding
+
+Do not use near-synonyms such as build, style, reproducer_binding, trace,
+network_log, or command_matrix in closed-vocabulary fields. Host code computes
+UTF-8 origins, oracle IDs, lifecycle/result, and lineage hashes after generation;
+provider values for those deterministic fields are not trusted. Never claim that
+an oracle ran. Never emit a verdict, shell command string, absolute path, or
+parent traversal. Use existing evidence only through a matching frozen registry
+entry.

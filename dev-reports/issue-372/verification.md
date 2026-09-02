@@ -1,0 +1,58 @@
+# Issue 372 verification
+
+- Status: `passed`
+- `cargo test profile_manifest::supply::tests --lib`: `passed`
+- `cargo test --features gui --bin gui_server profile_supply_errors_keep_stable_http_mappings`: `passed`
+- `cargo test --features gui --test gui_server profile_supply_api -- --nocapture`: `passed`
+- `cargo test --test corpus_regression generated_app_corpus_matches_detector_and_probe_expectations -- --nocapture`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
+- `cargo test --test gui_read_only_guard`: `passed`
+- `cargo test --test protection_coverage_audit`: `passed`
+- `cargo test --test doc_drift`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo test`: `passed`
+- `(cd gui && npm run typecheck)`: `passed`
+- `(cd gui && npm run lint)`: `passed`
+- `(cd gui && node --check scripts/smoke.mjs)`: `passed`
+- `(cd gui && npm run build)`: `passed`
+- `(cd gui && npm run smoke -- --output ../dev-reports/issue-372/browser-smoke --read-only --commandagent-bin ../target/debug/commandagent)`: `passed`
+- `(cd gui && npm run smoke -- --output ../dev-reports/issue-372/browser-wizard-smoke --wizard-only --commandagent-bin ../target/debug/commandagent)`: `passed`
+
+## Merge recovery against origin/develop
+
+- Status: `passed`
+- Base SHA: `7abad1484fa29051a692f0b452b8158bb68808e2`
+- Merge commit: `829e0f141b89f75434133069051e3e7c967f4377`
+- Merge first parent: `f5f9d9a325e8726779cd4f56adccd4b850ded19b`
+- Merge second parent: `7abad1484fa29051a692f0b452b8158bb68808e2`
+- Conflicts: `none`
+- Resolution: `git merge --no-ff` completed with the `ort` strategy; no manual conflict edits were required. The Issue #372 profile-supply boundary and wizard remain present alongside the merged Issue #369, #371, and #375 changes.
+- `python3 scripts/codex_orchestrate.py 371 372 --dry-run --dependency-override 371: --dependency-override 372:371`: `passed`
+- `git fetch origin develop`: `passed`
+- `git merge --no-ff 7abad1484fa29051a692f0b452b8158bb68808e2 -m "Merge origin/develop into Issue 372"`: `passed`
+- `git diff --check HEAD^1..HEAD`: `passed`
+- `cargo test profile_manifest::supply::tests --lib`: `passed`
+- `cargo test --features gui --bin gui_server profile_supply_errors_keep_stable_http_mappings`: `passed`
+- `cargo test --features gui --test gui_server profile_supply_api -- --nocapture`: `passed`
+- `cargo test --test corpus_regression generated_app_corpus_matches_detector_and_probe_expectations`: `passed`
+- `cargo test --test protection_coverage_audit`: `passed`
+- `cargo test --test gui_read_only_guard`: `passed`
+- `cargo test --test doc_drift`: `passed`
+- `(cd gui && npm run smoke -- --output ../dev-reports/issue-372/merge-recovery-browser-smoke --read-only --commandagent-bin ../target/debug/commandagent)`: `passed`
+- `jq '{ok, case_count:(.cases|length), cases:[.cases[]|{id,base_path,ok}]}' dev-reports/issue-372/merge-recovery-browser-smoke/browser-smoke.json`: `passed`
+- `(cd gui && npm run smoke -- --output ../dev-reports/issue-372/merge-recovery-browser-wizard-smoke --wizard-only --commandagent-bin ../target/debug/commandagent)`: `passed`
+- `jq '{ok, case_count:(.cases|length), cases:[.cases[]|{id,base_path,ok,pack_wizard_ok:.pack_wizard.ok,profile_wizard_ok:.pack_wizard.profile_wizard.ok,auth_off_ok:.pack_wizard.auth_off.ok}]}' dev-reports/issue-372/merge-recovery-browser-wizard-smoke/browser-smoke.json`: `passed`
+- `(cd gui && npm run typecheck)`: `passed`
+- `(cd gui && npm run lint)`: `passed`
+- `(cd gui && npm run build)`: `passed`
+- `(cd gui && node --check scripts/smoke.mjs)`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
+- `cargo test --features gui --test gui_server`: `passed`
+- `cargo test`: `passed`
+- Final ancestry: `829e0f141b89f75434133069051e3e7c967f4377` has first parent `f5f9d9a325e8726779cd4f56adccd4b850ded19b` and exact develop second parent `7abad1484fa29051a692f0b452b8158bb68808e2`; the final evidence commit is a descendant of this merge.
+- `git merge-base --is-ancestor 7abad1484fa29051a692f0b452b8158bb68808e2 HEAD`: `passed`
+- `git merge-base --is-ancestor 829e0f141b89f75434133069051e3e7c967f4377 HEAD`: `passed`

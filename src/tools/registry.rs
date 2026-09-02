@@ -27,6 +27,7 @@ pub struct ToolContext {
     pub workspace_policy: WorkspacePolicy,
     pub eval_events_path: Option<PathBuf>,
     pub expected_paths: Vec<String>,
+    pub protected_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,6 +116,13 @@ impl ToolRegistry {
         enforce_mode(name, context.mode)?;
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
+        crate::minimal_loop::protected_paths::enforce_tool_mutation(
+            &context.root,
+            context.eval_events_path.as_deref(),
+            name,
+            arguments,
+            &context.protected_paths,
+        )?;
         super::allow_policy::authorize_current(
             name,
             arguments,
@@ -294,7 +302,23 @@ fn resolve_policy_checked_path(
     raw: &str,
     resolution: PathResolution,
 ) -> anyhow::Result<PathBuf> {
-    let normalized = normalize_path_arg(context, tool, raw)?;
+    let mut normalized = normalize_path_arg(context, tool, raw)?;
+    if matches!(resolution, PathResolution::Existing)
+        && !context.root.join(&normalized).exists()
+        && let Some(fallback) = required_path_suffix_fallback(&normalized, &context.expected_paths)
+        && context.root.join(&fallback).exists()
+    {
+        emit_path_fallback_evaluated(
+            context,
+            tool,
+            raw,
+            "existing_required_path",
+            true,
+            Some(&fallback),
+            Some(1),
+        );
+        normalized = fallback;
+    }
     super::hidden_path::ensure_reference_allowed(
         &context.root,
         &normalized,
@@ -619,6 +643,8 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
         "path_not_found_recoverable"
     } else if message.contains("workspace_policy_blocked") {
         "workspace_policy_blocked"
+    } else if message.contains("protected_path_mutation_rejected") {
+        "protected_path_mutation_rejected"
     } else if message.contains("invalid glob pattern") {
         "invalid_glob"
     } else if message.contains("Is a directory") || message.contains("is a directory") {
@@ -662,6 +688,7 @@ pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
             | "path_not_found_recoverable"
             | "command_timeout"
             | "verify_command_policy_error"
+            | "protected_path_mutation_rejected"
             | "invalid_glob"
             | "read_directory"
             | "edit_anchor_not_found"
@@ -745,6 +772,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         assert!(
             registry
@@ -767,6 +795,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let _policy = crate::tools::allow_policy::install(
             false,
@@ -806,6 +835,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         registry
             .execute("Write", &json!({"path":"a/b.txt","content":"ok"}), &context)
@@ -830,6 +860,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let content = (1..=25)
             .map(|line| format!("line {line}"))
@@ -884,6 +915,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         registry
             .execute(
@@ -921,6 +953,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let err = registry
@@ -950,6 +983,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let err = registry
@@ -982,6 +1016,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let output = registry
@@ -1016,6 +1051,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let absolute = dir.path().join("src/app/page.tsx");
 
@@ -1052,6 +1088,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let raw = dir
             .path()
@@ -1092,6 +1129,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: vec!["package.json".to_string(), "src/app/page.tsx".to_string()],
+            protected_paths: Vec::new(),
         };
         let raw = "/Users/example/share/work/old-run/package.json";
 
@@ -1113,6 +1151,39 @@ mod tests {
     }
 
     #[test]
+    fn nonexistent_relative_read_falls_back_to_unique_existing_expected_suffix() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("lib")).unwrap();
+        std::fs::write(
+            dir.path().join("lib/label.mjs"),
+            "export const label = 'ok';\n",
+        )
+        .unwrap();
+        let events = dir.path().join("events.jsonl");
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: Some(events.clone()),
+            expected_paths: vec!["lib/label.mjs".to_string()],
+            protected_paths: Vec::new(),
+        };
+
+        let output = registry
+            .execute("Read", &json!({"path":"app/lib/label.mjs"}), &context)
+            .unwrap();
+
+        assert!(output.contains("export const label"));
+        let events = std::fs::read_to_string(events).unwrap();
+        assert!(events.contains(r#""method":"existing_required_path""#));
+        assert!(events.contains(r#""normalized":"lib/label.mjs""#));
+    }
+
+    #[test]
     fn stale_absolute_write_rejection_names_current_root_and_nearest_expected_path() {
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
@@ -1128,6 +1199,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: vec!["src/app/page.tsx".to_string()],
+            protected_paths: Vec::new(),
         };
         let raw = "/Users/example/share/work/old-run/src/app/layout.tsx";
 
@@ -1166,6 +1238,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: vec!["src/app/page.tsx".to_string()],
+            protected_paths: Vec::new(),
         };
         let raw = dir
             .path()
@@ -1208,6 +1281,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let raw = "Users/maenokota/share/work/localwork/commandagent_mvp/01/test0709_camp_003/src/app/page.tsx";
 
@@ -1244,6 +1318,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let raw = "Users/maenokota/share/work/other-run/src/App.js";
 
@@ -1272,6 +1347,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let outside_path = outside.path().join("escape.txt");
 
@@ -1304,6 +1380,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let raw = dir.path().join("out/escape.txt");
 
@@ -1337,6 +1414,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let err = registry
@@ -1368,6 +1446,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let err = registry
@@ -1399,6 +1478,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let output = registry
@@ -1443,6 +1523,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let err = registry
@@ -1481,6 +1562,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let command =
             "ls /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0709_camp_003";
@@ -1514,6 +1596,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let command = format!("cd '{}' && printf data6-ok > output.txt", root.display());
 
@@ -1566,6 +1649,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let command = format!("cd '{}' && printf forbidden", outside.display());
 
@@ -1605,6 +1689,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: Some(events.clone()),
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         let output = registry
@@ -1633,6 +1718,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let package = dir.path().join("package.json");
 
@@ -1678,6 +1764,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let err = registry
             .execute("Read", &json!({"path":".anvil/session.json"}), &context)
@@ -1701,6 +1788,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
 
         for (tool, arguments) in [
@@ -1732,6 +1820,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let output = registry
             .execute("Glob", &json!({"pattern":"**/*"}), &context)
@@ -1754,6 +1843,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let err = registry
             .execute("Read", &json!({"path":"workdir/a.txt"}), &context)
@@ -1785,6 +1875,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         registry
             .execute(
@@ -1812,6 +1903,7 @@ mod tests {
             workspace_policy: WorkspacePolicy::NormalTask,
             eval_events_path: None,
             expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
         };
         let err = registry
             .execute(

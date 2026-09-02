@@ -308,6 +308,7 @@ pub fn run_ultra_plan_with_ui(
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
+    fix_runtime = crate::planner::fix_recovery::resume(fix_runtime, plan, config)?;
     let mut investigation_runtime =
         crate::planner::investigation_runtime::InvestigationRuntime::for_plan(plan, config);
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);

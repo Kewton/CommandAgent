@@ -1,5 +1,26 @@
 # commandagent eval
 
+The frozen goal-to-verify Phase 0 fixture replay lives in
+`goal_verify/v0/`. Run it with:
+
+```bash
+python3 scripts/eval-goal-verify-baseline.py --run-dir <new-run-directory>
+```
+
+The runner refuses to overwrite a non-empty run directory. See
+`docs/dev/goal-to-verify-v0.md` for its authority and go/no-go contract.
+
+The Phase 6 A/B UAT matrix is `goal_verify/v0/phase6-matrix.json`. Aggregate
+its separated blind-review, CI, offline/local, and approved-live evidence with:
+
+```bash
+python3 scripts/eval-goal-verify-phase6.py --run-dir <new-run-directory>
+```
+
+Missing candidate samples or live authorization remain explicit
+`INSUFFICIENT-EVIDENCE`; the aggregator never promotes conformance evidence
+into comparative or live evidence.
+
 This directory contains the MVP eval harness for:
 
 - minimal-loop
@@ -626,3 +647,10 @@ success:
 
 Acceptance gates and predictor scores are intentionally separate. A predictor
 score can explain risk, but it does not force acceptance success.
+
+# VerificationSpec shadow contract
+
+Phase 1 freezes the provider schema and prompt in
+`goal_verify/v0/verification-spec.schema.json` and
+`goal_verify/v0/verification-spec.prompt.txt`. These artifacts are shadow-only;
+the Phase 0 replay remains the authoritative baseline comparison.

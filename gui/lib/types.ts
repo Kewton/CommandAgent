@@ -45,6 +45,7 @@ export type PackSummary = {
   expected_hash: string | null;
   observed_hash: string | null;
   hash_matches_pin: boolean;
+  conformance_ok: boolean;
   has_assist: boolean;
   has_eval: boolean;
   retired: boolean;
@@ -58,6 +59,7 @@ export type TrialIntent = "create" | "fix" | "investigate";
 
 export type SessionSpec = {
   goal: string;
+  working_directory: string;
   profile: string;
   intent: TrialIntent | null;
   provider: string;
@@ -66,6 +68,7 @@ export type SessionSpec = {
   planner_model: string;
   pack: string | null;
   think: OllamaThink | null;
+  recovery_plan_auto_runs: number;
 };
 
 export type PackOption = {
@@ -116,6 +119,7 @@ export type ConfirmationIdentity = {
   band_measurement: string;
   band_source: string;
   full_meaning: string;
+  recovery_plan_auto_runs?: number;
   draft_manifest?: {
     source: "repository" | "local";
     path: string;
@@ -165,6 +169,19 @@ export type CreatedSession = {
   events_path: string;
 };
 
+export type SessionPathProjection = {
+  id: string;
+  working_directory: {
+    path: string;
+    state: "available" | "missing";
+  };
+  run_records: {
+    directory: string;
+    events: string;
+    summary: string;
+  };
+};
+
 export type TrialWorkspaceLease =
   | { status: "idle" }
   | { status: "running"; session_id: string }
@@ -176,6 +193,8 @@ export type TrialSessionSummary = {
   modified_epoch_seconds: number;
   gate: "gate_2" | "gate_3" | "gate_4" | null;
   status: string;
+  profile?: string | null;
+  intent?: TrialIntent | string | null;
   failure_diagnostics?: FailureDiagnostics;
   pack: {
     id: string;
@@ -197,6 +216,42 @@ export type PhaseStatus = {
   total: number;
   stage: string;
   status: string;
+  started_at_epoch_ms?: number | null;
+  ended_at_epoch_ms?: number | null;
+  duration_ms?: number | null;
+};
+
+export type PlanTaskStatus = {
+  step_execution_id: string;
+  step_index: number;
+  total_steps: number;
+  step_id: string;
+  step_kind: string;
+  status: "running" | "completed" | "short_circuited" | "failed" | "interrupted";
+  outcome: string | null;
+  verification_status: string | null;
+  verification_failure_count: number;
+  verification_failures: string[];
+  verification_failures_truncated: boolean;
+  changed_path_count: number;
+  changed_paths: string[];
+  changed_paths_truncated: boolean;
+  repair_attempts: number;
+  failure_summary: string | null;
+};
+
+export type PlanTaskExecution = {
+  execution_index: number;
+  plan_execution_id: string;
+  mode: string;
+  phase_id: string | null;
+  total_steps: number;
+  tasks: PlanTaskStatus[];
+};
+
+export type TaskProgress = {
+  status: "pending" | "supported" | "unsupported";
+  executions: PlanTaskExecution[];
 };
 
 export type FailureDiagnostics = {
@@ -210,6 +265,89 @@ export type FailureDiagnostics = {
   }>;
 };
 
+export type BoundedText = {
+  value: string;
+  truncated: boolean;
+};
+
+export type BoundedTextList = {
+  items: BoundedText[];
+  total_count: number;
+  truncated: boolean;
+};
+
+export type FailureExplanation = {
+  projection_status: "supported" | "fallback";
+  category:
+    | "planning"
+    | "execution"
+    | "verification"
+    | "release_gate"
+    | "infrastructure"
+    | "interrupted"
+    | "unknown";
+  location: {
+    interval_index: number;
+    plan_execution_id: BoundedText | null;
+    phase: { id: BoundedText; index: number | null; total: number | null } | null;
+    step: {
+      execution_id: BoundedText;
+      id: BoundedText;
+      kind: BoundedText;
+      index: number;
+      total: number;
+    } | null;
+  };
+  primary: {
+    summary: BoundedText;
+    failure_kind: BoundedText | null;
+    reason_code: BoundedText | null;
+  };
+  evidence: {
+    command: BoundedText | null;
+    exit_code: number | null;
+    stdout: BoundedText | null;
+    stderr: BoundedText | null;
+    verification_status: BoundedText | null;
+    acceptance_status: BoundedText | null;
+    release_gate_status: BoundedText | null;
+    observations: Array<{
+      kind: BoundedText;
+      status: BoundedText | null;
+      detail: BoundedText | null;
+      path: BoundedText | null;
+    }>;
+    observation_count: number;
+    observations_truncated: boolean;
+    missing_paths: BoundedTextList;
+    changed_paths: BoundedTextList;
+    evidence_paths: BoundedTextList;
+  };
+  progress: {
+    completed_phases: number;
+    total_phases: number;
+    completed_tasks: number;
+    total_tasks: number;
+    repair_attempts: number;
+    workspace_state: "available" | "missing" | "unknown";
+    partial_artifact_state: "observed" | "workspace_available" | "workspace_missing" | "unknown";
+  };
+  recovery: {
+    next_action_code: BoundedText | null;
+    explanation: BoundedText;
+    viable_actions: BoundedTextList;
+    repair_prompt_path: BoundedText | null;
+    recovery_plan_path: BoundedText | null;
+    suggested_command: BoundedText | null;
+    suggested_yaml_command: BoundedText | null;
+    continuation_eligible: boolean;
+    continuation_reason: BoundedText;
+  };
+  technical: {
+    machine_codes: BoundedTextList;
+  };
+};
+
 export type PolledSession = {
   id: string;
   started_epoch_seconds: number;
@@ -221,13 +359,22 @@ export type PolledSession = {
   assurance_reason: string | null;
   stop_reason: string | null;
   failure_diagnostics?: FailureDiagnostics;
+  failure_explanation?: FailureExplanation | null;
   next_action: string | null;
   phases: PhaseStatus[];
+  total_processing_duration_ms?: number | null;
+  task_progress: TaskProgress;
   event_count: number;
   acceptance_sheet: string | null;
   section5: string | null;
   events_path: string;
   identity?: ConfirmationIdentity;
+  recovery_auto_run: {
+    current: number;
+    used: number;
+    limit: number;
+    stop_reason: string | null;
+  };
 };
 
 export type DirectiveProposal = {
@@ -244,6 +391,7 @@ export type RuntimeStatus = {
   trial_token_auth_enabled: boolean;
   prerequisites: {
     execution_root: RuntimePrerequisite;
+    extension_root: RuntimePrerequisite;
     commandagent_binary: RuntimePrerequisite;
     trial_authentication: RuntimePrerequisite;
   };

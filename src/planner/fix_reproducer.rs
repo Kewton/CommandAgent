@@ -14,6 +14,22 @@ pub(crate) fn suggestion_for(plan: &UltraPlan) -> Option<ReproducerSuggestion> {
     resolve_profile_runtime(&plan.profile).fix_reproducer_suggestion(&plan.goal)
 }
 
+pub(crate) fn completion_contract_suggestion(
+    config: &crate::config::Config,
+) -> anyhow::Result<Option<ReproducerSuggestion>> {
+    let Some(contract) =
+        crate::minimal_loop::completion::CompletionContract::load_for_config(config)?
+    else {
+        return Ok(None);
+    };
+    Ok(contract
+        .fix_reproducer_command
+        .map(|command| ReproducerSuggestion {
+            basis: "completion_contract:fix_reproducer_command".to_string(),
+            suggestion: format!("completion_contract:fix_reproducer_command => {command}"),
+        }))
+}
+
 pub(crate) fn attach_to_phase_prompt(
     plan: &UltraPlan,
     phase: &UltraPhase,

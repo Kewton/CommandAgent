@@ -469,6 +469,10 @@ fn gui_server_disables_trial_without_an_execution_root() {
         "unconfigured"
     );
     assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
+    assert_eq!(
         runtime["prerequisites"]["trial_authentication"]["status"],
         "ready"
     );
@@ -1003,6 +1007,21 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     )
     .unwrap();
 
+    let incompatible = extension.path().join("packs/incompatible-pack/1.0.0");
+    std::fs::create_dir_all(&incompatible).unwrap();
+    let incompatible_assist = std::fs::read_to_string("packs/nextjs-acme/1.0.0/assist.yaml")
+        .unwrap()
+        .replace("id: nextjs-acme", "id: incompatible-pack");
+    std::fs::write(incompatible.join("assist.yaml"), incompatible_assist).unwrap();
+    let incompatible_hash = commandagent::planner::pack::load_directory(&incompatible)
+        .unwrap()
+        .hash;
+    std::fs::write(
+        incompatible.join("pack.sha256"),
+        format!("{incompatible_hash}\n"),
+    )
+    .unwrap();
+
     let mut local_server = Server::start_dashboard_only_with_extension(extension.path());
     let response = local_server.request_without_access("GET", "/api/packs", None);
     assert_eq!(response.status, 200, "{}", response.body);
@@ -1029,6 +1048,34 @@ fn extension_catalog_classifies_supply_and_warns_on_stale_local_pins() {
     assert_eq!(shadow["source"], "local");
     assert_eq!(shadow["shadowing_repository"], true);
     assert!(shadow["warning"].as_str().unwrap().contains("ローカル優先"));
+
+    let incompatible = packs
+        .iter()
+        .find(|pack| pack["id"] == "incompatible-pack")
+        .expect("missing incompatible local pack");
+    assert_eq!(incompatible["hash_matches_pin"], true);
+    assert_eq!(incompatible["conformance_ok"], false);
+    assert_eq!(incompatible["trial_eligible"], false);
+    assert!(
+        incompatible["warning"]
+            .as_str()
+            .unwrap()
+            .contains("profile / intent 契約と非互換")
+    );
+
+    let runtime = local_server.request_without_access("GET", "/api/runtime-status", None);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "ready"
+    );
+    assert!(
+        !runtime["prerequisites"]["extension_root"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains(extension.path().to_string_lossy().as_ref()),
+        "runtime response exposed the private extension-root path"
+    );
     local_server.stop();
 }
 
@@ -1296,6 +1343,274 @@ fn extension_supply_api_rejects_disabled_invalid_and_oversize_requests() {
 
 #[cfg(unix)]
 #[test]
+fn profile_supply_api_enforces_root_auth_origin_body_and_validation_boundaries() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let mut disabled = Server::start(
+        workspace.path(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = disabled.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 503, "{}", response.body);
+    assert_eq!(response.json()["code"], "extensions_disabled");
+    disabled.stop();
+
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut server = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/neutral-profile/manifest.toml"
+    );
+    let preview = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": content,
+    });
+    let origin = format!("http://127.0.0.1:{}", server.port);
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&preview),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(response.status, 401, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_auth_failed");
+
+    let response = server.request_with_access(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&preview),
+        Some(TEST_TRIAL_TOKEN),
+        None,
+    );
+    assert_eq!(response.status, 403, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_origin_not_allowed");
+
+    for path in [
+        "/profiles/neutral-profile/manifest.toml",
+        "profiles/../neutral-profile/manifest.toml",
+    ] {
+        let request = serde_json::json!({"path": path, "content": preview["content"]});
+        let response = server.request("POST", "/api/extensions/profiles/preview", Some(&request));
+        assert_eq!(response.status, 422, "{}", response.body);
+        assert_eq!(response.json()["code"], "profile_validation_failed");
+    }
+
+    let built_in = serde_json::json!({
+        "path": "profiles/nextjs/manifest.toml",
+        "content": commandagent::planner::profile_manifest::commands::template("nextjs"),
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&built_in));
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let unknown_capability = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": content.replace("scaffold_files_present", "unknown_capability"),
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&unknown_capability),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let overlay_content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/nextjs/overlay.toml"
+    );
+    let overlay = serde_json::json!({
+        "path": "profiles/nextjs/overlay.toml",
+        "content": overlay_content,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&overlay));
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()["kind"], "overlay");
+    assert_eq!(response.json()["base_profile"], "nextjs");
+    let invalid_overlay = serde_json::json!({
+        "path": "profiles/nextjs/overlay.toml",
+        "content": overlay_content.replace("mode = \"additive\"", "mode = \"replace\""),
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&invalid_overlay),
+    );
+    assert_eq!(response.status, 422, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_validation_failed");
+
+    let unknown = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": preview["content"],
+        "unknown": true,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&unknown));
+    assert_eq!(response.status, 400, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_invalid_request");
+
+    let oversize = serde_json::json!({
+        "path": "profiles/neutral-profile/manifest.toml",
+        "content": "x".repeat(256 * 1024 + 1),
+    });
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&oversize));
+    assert_eq!(response.status, 413, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_body_too_large");
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn profile_supply_api_previews_registers_idempotently_and_requires_restart() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let extension = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(extension.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let content = include_str!(
+        "corpus/apps/issue372-draft-profile-supply/extension-root/profiles/neutral-profile/manifest.toml"
+    );
+    let path = "profiles/neutral-profile/manifest.toml";
+    let request = serde_json::json!({"path": path, "content": content});
+
+    let mut server = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&request));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let preview = response.json();
+    let hash = preview["hash"].as_str().unwrap().to_string();
+    assert_eq!(preview["id"], "neutral-profile");
+    assert_eq!(preview["path"], path);
+    assert_eq!(preview["source"], "local");
+    assert_eq!(preview["status"], "draft");
+    assert_eq!(preview["assurance_ceiling"], "static");
+
+    let stale = serde_json::json!({
+        "path": path,
+        "content": request["content"],
+        "expected_hash": "sha256:stale",
+    });
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&stale));
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_confirmation_stale");
+
+    let register = serde_json::json!({
+        "path": path,
+        "content": request["content"],
+        "expected_hash": hash,
+    });
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&register));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let saved = response.json();
+    assert_eq!(saved["saved"], true);
+    assert_eq!(saved["idempotent"], false);
+    assert_eq!(saved["restart_required"], true);
+    assert!(
+        saved["restart_instruction"]
+            .as_str()
+            .unwrap()
+            .contains("再起動")
+    );
+    assert_eq!(
+        std::fs::read_to_string(extension.path().join(path)).unwrap(),
+        request["content"].as_str().unwrap()
+    );
+
+    let response = server.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let catalog = response.json();
+    assert_eq!(catalog[0]["hash"], register["expected_hash"]);
+    assert_eq!(catalog[0]["path"], path);
+    assert!(
+        !catalog[0]["path"]
+            .as_str()
+            .unwrap()
+            .contains(extension.path().to_string_lossy().as_ref())
+    );
+    assert_eq!(catalog[0]["available"], false);
+    assert_eq!(catalog[0]["restart_required"], true);
+
+    let response = server.request_without_access("GET", "/api/trial-options", None);
+    assert!(
+        response.json()["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|profile| profile["id"] != "neutral-profile")
+    );
+
+    let response = server.request("POST", "/api/extensions/profiles/register", Some(&register));
+    assert_eq!(response.status, 200, "{}", response.body);
+    assert_eq!(response.json()["idempotent"], true);
+
+    let changed_content = request["content"].as_str().unwrap().replace(
+        "display_name = \"Neutral profile\"",
+        "display_name = \"Changed\"",
+    );
+    let changed = serde_json::json!({"path": path, "content": changed_content});
+    let response = server.request("POST", "/api/extensions/profiles/preview", Some(&changed));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let changed_hash = response.json()["hash"].as_str().unwrap().to_string();
+    let changed_register = serde_json::json!({
+        "path": path,
+        "content": changed["content"],
+        "expected_hash": changed_hash,
+    });
+    let response = server.request(
+        "POST",
+        "/api/extensions/profiles/register",
+        Some(&changed_register),
+    );
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "profile_conflict");
+    assert_eq!(
+        std::fs::read_to_string(extension.path().join(path)).unwrap(),
+        request["content"].as_str().unwrap()
+    );
+
+    let journal = std::fs::read_to_string(extension.path().join("journal.jsonl")).unwrap();
+    assert!(journal.contains("\"action\":\"profile_register\""));
+    assert!(journal.contains("\"result\":\"ok\""));
+    assert!(journal.contains("\"result\":\"error\""));
+    assert!(!journal.contains("display_name"), "{journal}");
+    server.stop();
+
+    let mut restarted = Server::start_with_extension(workspace.path(), extension.path(), true);
+    let response = restarted.request("GET", "/api/extensions/profiles", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let catalog = response.json();
+    assert_eq!(catalog[0]["available"], true);
+    assert_eq!(catalog[0]["restart_required"], false);
+    assert_eq!(catalog[0]["hash"], register["expected_hash"]);
+
+    let options = restarted.request_without_access("GET", "/api/trial-options", None);
+    let draft = options.json()["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|profile| profile["id"] == "neutral-profile")
+        .cloned()
+        .expect("saved profile must become a Trial candidate after restart");
+    assert_eq!(draft["status"], "draft");
+    assert_eq!(draft["manifest_hash"], register["expected_hash"]);
+    assert_eq!(draft["assurance_ceiling"], "static");
+
+    let mut proposal = session_spec();
+    proposal["profile"] = serde_json::json!("neutral-profile");
+    proposal["pack"] = serde_json::Value::Null;
+    let response = restarted.request("POST", "/api/session-proposals", Some(&proposal));
+    assert_eq!(response.status, 200, "{}", response.body);
+    let identity = &response.json()["identity"];
+    assert_eq!(
+        identity["draft_manifest"]["hash"],
+        register["expected_hash"]
+    );
+    assert_eq!(identity["draft_manifest"]["assurance_ceiling"], "static");
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn run_index_reports_total_before_limit_and_normalized_status_state() {
     let repository = tempfile::tempdir().unwrap();
     let runs_root = repository.path().join("workspace/management/runs");
@@ -1416,6 +1731,10 @@ fn gui_server_defaults_trial_token_auth_to_off() {
     ] {
         assert_eq!(runtime["prerequisites"][prerequisite]["status"], "ready");
     }
+    assert_eq!(
+        runtime["prerequisites"]["extension_root"]["status"],
+        "unconfigured"
+    );
 
     let index = server.request_without_access("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);
@@ -1863,6 +2182,8 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
             .unwrap_or_else(|| panic!("missing session {id}: {sessions:?}"));
         assert_eq!(summary["gate"], gate);
         assert_eq!(summary["status"], status);
+        assert!(summary["profile"].is_null());
+        assert!(summary["intent"].is_null());
         assert!(summary["started_epoch_seconds"].as_u64().unwrap() > 0);
         assert!(summary["modified_epoch_seconds"].as_u64().unwrap() > 0);
         if id == &ids[97] {
@@ -1897,6 +2218,217 @@ fn session_index_requires_authentication_tracks_directories_and_caps_results() {
 
 #[cfg(unix)]
 #[test]
+fn failed_session_projects_exact_interval_and_reads_only_current_recovery_documents() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("failure-projection-commandagent");
+    write_failure_projection_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
+    let failure_fixture =
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&events_path).unwrap(),
+        failure_fixture
+    );
+
+    let failed = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(failed.status, 200, "{}", failed.body);
+    let failed = failed.json();
+    let explanation = &failed["failure_explanation"];
+    assert_eq!(explanation["projection_status"], "supported");
+    assert_eq!(explanation["category"], "verification");
+    assert_eq!(explanation["location"]["interval_index"], 1);
+    assert_eq!(
+        explanation["location"]["plan_execution_id"]["value"],
+        "final-plan-execution"
+    );
+    assert_eq!(
+        explanation["location"]["step"]["execution_id"]["value"],
+        "build-step-execution"
+    );
+    assert_eq!(
+        explanation["location"]["step"]["id"]["value"],
+        "verify-build"
+    );
+    assert_eq!(explanation["evidence"]["command"]["value"], "npm run build");
+    assert_eq!(explanation["evidence"]["exit_code"], 1);
+    assert_eq!(explanation["progress"]["completed_phases"], 1);
+    assert_eq!(explanation["progress"]["completed_tasks"], 1);
+    assert_eq!(explanation["progress"]["workspace_state"], "available");
+    assert_eq!(
+        explanation["recovery"]["repair_prompt_path"]["value"],
+        ".anvil/repairs/repair-build.md"
+    );
+    assert_eq!(
+        explanation["recovery"]["recovery_plan_path"]["value"],
+        ".anvil/plans/recovery-build.yaml"
+    );
+    assert_eq!(explanation["recovery"]["continuation_eligible"], true);
+
+    let unauthorized = server.request_without_access(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let repair = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(repair.status, 200, "{}", repair.body);
+    assert_eq!(repair.header("cache-control"), Some("private, no-store"));
+    assert_eq!(
+        repair.json()["content"],
+        "Repair the typed build failure.\n"
+    );
+    let plan = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Fplans%2Frecovery-build.yaml"),
+        None,
+    );
+    assert_eq!(plan.status, 200, "{}", plan.body);
+    assert!(
+        plan.json()["content"]
+            .as_str()
+            .unwrap()
+            .contains("Recovery Plan")
+    );
+    let unrelated = server.request(
+        "GET",
+        &format!("/api/sessions/{id}/recovery-document?path=unrelated.md"),
+        None,
+    );
+    assert_eq!(unrelated.status, 404, "{}", unrelated.body);
+    let mutation = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/recovery-document?path=.anvil%2Frepairs%2Frepair-build.md"),
+        None,
+    );
+    assert_eq!(mutation.status, 405, "{}", mutation.body);
+
+    std::fs::write(
+        &events_path,
+        include_str!(
+            "corpus/apps/issue377-gui-failure-explanations/fixtures/continuation-success.jsonl"
+        ),
+    )
+    .unwrap();
+    let continued = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(continued.status, 200, "{}", continued.body);
+    assert!(continued.json()["failure_explanation"].is_null());
+
+    std::fs::write(
+        &events_path,
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/legacy.jsonl"),
+    )
+    .unwrap();
+    let legacy = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(legacy.status, 200, "{}", legacy.body);
+    let legacy = legacy.json();
+    assert_eq!(
+        legacy["failure_explanation"]["projection_status"],
+        "fallback"
+    );
+    assert_eq!(legacy["failure_explanation"]["category"], "unknown");
+    assert_eq!(
+        legacy["failure_explanation"]["location"]["interval_index"],
+        1
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_documents_are_readable_when_trial_token_auth_is_off() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("failure-projection-commandagent");
+    write_failure_projection_cli(&cli);
+    let mut server = Server::start_without_trial_token(&workspace, &cli);
+    let origin = format!("http://127.0.0.1:{}", server.port);
+
+    let spec = session_spec();
+    let proposal = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request_with_access(
+        "POST",
+        "/api/sessions",
+        Some(&confirmed),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
+    let failure_fixture =
+        include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&events_path).unwrap(),
+        failure_fixture
+    );
+
+    for (path, expected) in [
+        (
+            ".anvil%2Frepairs%2Frepair-build.md",
+            "Repair the typed build failure.",
+        ),
+        (".anvil%2Fplans%2Frecovery-build.yaml", "Recovery Plan"),
+    ] {
+        let document = server.request_without_access(
+            "GET",
+            &format!("/api/sessions/{id}/recovery-document?path={path}"),
+            None,
+        );
+        assert_eq!(document.status, 200, "{}", document.body);
+        assert_eq!(document.header("cache-control"), Some("private, no-store"));
+        assert!(
+            document.json()["content"]
+                .as_str()
+                .unwrap()
+                .contains(expected),
+            "{}",
+            document.body
+        );
+    }
+
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -1907,7 +2439,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\nprintf '%s\\n' \"$@\" > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        "#!/bin/sh\nenv | sort > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-env.txt\"\npwd -P > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-cwd.txt\"\nprintf '%s\\n' \"$@\" > \"${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt\"\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
@@ -2081,6 +2613,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     confirmed["confirmation_hash"] = serde_json::Value::String(card_hash.to_string());
     let created = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(created.status, 202, "{}", created.body);
+    assert!(
+        !created.body.contains(execution_root_text.as_ref()),
+        "{}",
+        created.body
+    );
     let created_json: serde_json::Value = serde_json::from_str(&created.body).unwrap();
     let id = created_json["id"].as_str().unwrap();
     let started_epoch_seconds = created_json["started_epoch_seconds"].as_u64().unwrap();
@@ -2104,12 +2641,19 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let index = server.request("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);
+    assert!(
+        !index.body.contains(execution_root_text.as_ref()),
+        "{}",
+        index.body
+    );
     let index: serde_json::Value = serde_json::from_str(&index.body).unwrap();
     assert_eq!(index["lease"]["status"], "running");
     assert_eq!(index["lease"]["session_id"], id);
     let sessions = index["sessions"].as_array().unwrap();
     assert_eq!(sessions.first().unwrap()["id"], id);
     assert_eq!(sessions.first().unwrap()["gate"], "gate_2");
+    assert_eq!(sessions.first().unwrap()["profile"], "python-cli");
+    assert_eq!(sessions.first().unwrap()["intent"], "create");
     assert_eq!(
         sessions.first().unwrap()["pack"],
         serde_json::json!({
@@ -2178,6 +2722,12 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     .unwrap();
     let delegated_args = delegated_args.lines().collect::<Vec<_>>();
     let session_workspace = workspace.join("sessions").join(id).canonicalize().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(delegated_events.parent().unwrap().join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        session_workspace.to_string_lossy()
+    );
     assert!(!delegated_args.contains(&"--yes"), "{delegated_args:?}");
     assert!(
         delegated_args
@@ -2198,6 +2748,30 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(delegated_args.windows(2).any(|arguments| {
         arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
     }));
+    let session_paths = server.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(session_paths.status, 200, "{}", session_paths.body);
+    assert_eq!(
+        session_paths.header("cache-control"),
+        Some("private, no-store")
+    );
+    let session_paths = session_paths.json();
+    let canonical_run_root = delegated_events.parent().unwrap().canonicalize().unwrap();
+    assert_eq!(session_paths["id"], id);
+    assert_eq!(
+        session_paths["working_directory"],
+        serde_json::json!({
+            "path": session_workspace.to_string_lossy(),
+            "state": "available"
+        })
+    );
+    assert_eq!(
+        session_paths["run_records"],
+        serde_json::json!({
+            "directory": canonical_run_root.to_string_lossy(),
+            "events": canonical_run_root.join("events.jsonl").to_string_lossy(),
+            "summary": canonical_run_root.join("summary.md").to_string_lossy()
+        })
+    );
     let confirmation_root = delegated_events
         .parent()
         .unwrap()
@@ -2241,15 +2815,19 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "event_count",
             "events_path",
             "failure_diagnostics",
+            "failure_explanation",
             "gate",
             "id",
             "identity",
             "phases",
+            "task_progress",
             "next_action",
+            "recovery_auto_run",
             "section5",
             "started_epoch_seconds",
             "status",
             "stop_reason",
+            "total_processing_duration_ms",
             "verdict",
         ])
     );
@@ -2263,6 +2841,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(status_json["assurance_reason"].is_null());
     assert_eq!(status_json["stop_reason"], "completed");
     assert!(status_json["next_action"].is_null());
+    assert_eq!(status_json["recovery_auto_run"]["limit"], 0);
+    assert_eq!(status_json["recovery_auto_run"]["used"], 0);
     assert_eq!(status_json["identity"]["request"], spec["goal"]);
     assert_eq!(status_json["identity"]["profile"], spec["profile"]);
     assert_eq!(status_json["identity"]["workspace"], "<execution-root>");
@@ -2281,6 +2861,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         proposal_json["identity"]["pack"]
     );
     assert_eq!(status_json["phases"][0]["status"], "completed");
+    assert_eq!(status_json["task_progress"]["status"], "unsupported");
+    assert_eq!(
+        status_json["task_progress"]["executions"],
+        serde_json::json!([])
+    );
     assert!(
         status_json["acceptance_sheet"]
             .as_str()
@@ -2443,6 +3028,223 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
 #[cfg(unix)]
 #[test]
+fn selected_working_directory_is_hash_bound_persisted_and_reused_after_restart() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let selected = workspace.join("projects/alpha");
+    let alternate = workspace.join("projects/beta");
+    std::fs::create_dir_all(&selected).unwrap();
+    std::fs::create_dir_all(&alternate).unwrap();
+    std::fs::write(selected.join("existing.txt"), "preserve me\n").unwrap();
+    let cli = temp.path().join("selected-workspace-commandagent");
+    let fixture = include_str!("fixtures/gui_cli_events.jsonl");
+    std::fs::write(
+        &cli,
+        format!(
+            r#"#!/bin/sh
+pwd -P > "${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-cwd.txt"
+printf '%s\n' "$@" > "${{COMMANDAGENT_EVAL_EVENTS%/*}}/delegated-args.txt"
+case " $* " in
+  *" --run-ultra-plan "*) printf '%s' '{}' >> "$COMMANDAGENT_EVAL_EVENTS" ;;
+  *) printf '%s' '{}' > "$COMMANDAGENT_EVAL_EVENTS" ;;
+esac
+"#,
+            fixture.replace('\'', "'\\''"),
+            fixture.replace('\'', "'\\''"),
+        ),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let mut selected_spec = session_spec();
+    selected_spec["working_directory"] = serde_json::json!("projects/alpha");
+    let proposal = server.request("POST", "/api/session-proposals", Some(&selected_spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(
+        proposal["identity"]["workspace"],
+        "<execution-root>/projects/alpha"
+    );
+    assert!(
+        proposal["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("<execution-root>/projects/alpha")
+    );
+
+    let mut alternate_spec = selected_spec.clone();
+    alternate_spec["working_directory"] = serde_json::json!("projects/beta");
+    let alternate_proposal =
+        server.request("POST", "/api/session-proposals", Some(&alternate_spec));
+    assert_eq!(
+        alternate_proposal.status, 200,
+        "{}",
+        alternate_proposal.body
+    );
+    assert_ne!(
+        alternate_proposal.json()["card_hash"],
+        proposal["card_hash"]
+    );
+    alternate_spec["confirmation_hash"] = proposal["card_hash"].clone();
+    let stale = server.request("POST", "/api/sessions", Some(&alternate_spec));
+    assert_eq!(stale.status, 412, "{}", stale.body);
+
+    for invalid in [
+        serde_json::json!(selected.to_string_lossy()),
+        serde_json::json!("../outside"),
+        serde_json::json!("projects/../alpha"),
+        serde_json::json!("sessions/legacy"),
+        serde_json::json!(".commandagent/runs"),
+        serde_json::json!("projects/missing"),
+    ] {
+        let mut invalid_spec = session_spec();
+        invalid_spec["working_directory"] = invalid;
+        let rejected = server.request("POST", "/api/session-proposals", Some(&invalid_spec));
+        assert_eq!(rejected.status, 422, "{}", rejected.body);
+        assert!(
+            !rejected.body.contains(workspace.to_string_lossy().as_ref()),
+            "{}",
+            rejected.body
+        );
+    }
+    let symlink_target = workspace.join("projects/symlink-target");
+    std::fs::create_dir(&symlink_target).unwrap();
+    symlink(&symlink_target, workspace.join("projects/symlink-alias")).unwrap();
+    let mut symlink_spec = session_spec();
+    symlink_spec["working_directory"] = serde_json::json!("projects/symlink-alias");
+    let rejected = server.request("POST", "/api/session-proposals", Some(&symlink_spec));
+    assert_eq!(rejected.status, 422, "{}", rejected.body);
+
+    let mut confirmed = selected_spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let run_root = runs_dir(&workspace).join(&id);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "selected run timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let canonical_selected = selected.canonicalize().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        canonical_selected.to_string_lossy()
+    );
+    let args = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
+    let args = args.lines().collect::<Vec<_>>();
+    assert!(
+        args.windows(2)
+            .any(|pair| { pair[0] == "--cwd" && pair[1] == canonical_selected.to_string_lossy() })
+    );
+    assert_eq!(
+        std::fs::read_to_string(selected.join("existing.txt")).unwrap(),
+        "preserve me\n"
+    );
+    assert!(!workspace.join("sessions").join(&id).exists());
+    assert!(run_root.join("state/gui-working-directory.json").is_file());
+
+    server.stop();
+    let mut restarted = Server::start(&workspace, &cli);
+    let status = restarted.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(
+        status.json()["identity"]["workspace"],
+        "<execution-root>/projects/alpha"
+    );
+    let paths = restarted.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(paths.status, 200, "{}", paths.body);
+    assert_eq!(
+        paths.json()["working_directory"]["path"],
+        canonical_selected.to_string_lossy().as_ref()
+    );
+
+    let directive = serde_json::json!({"directive": "Keep using the selected directory"});
+    let proposed = restarted.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&directive),
+    );
+    assert_eq!(proposed.status, 200, "{}", proposed.body);
+    let hash = proposed.json()["directive_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let continued = restarted.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives/{hash}"),
+        None,
+    );
+    assert_eq!(continued.status, 202, "{}", continued.body);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let lease = restarted.request("GET", "/api/trial-workspace", None);
+        if lease.json()["status"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "selected continuation timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
+            .unwrap()
+            .trim(),
+        canonical_selected.to_string_lossy()
+    );
+
+    let displaced = workspace.join("projects/alpha-displaced");
+    std::fs::rename(&selected, &displaced).unwrap();
+    std::fs::create_dir_all(&selected).unwrap();
+    let replaced = restarted.request("GET", &format!("/api/sessions/{id}/paths"), None);
+    assert_eq!(replaced.status, 404, "{}", replaced.body);
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_working_directory_survives_spawn_rollback() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let selected = workspace.join("existing-project");
+    std::fs::create_dir_all(&selected).unwrap();
+    std::fs::write(selected.join("keep.txt"), "keep\n").unwrap();
+    let cli = temp.path().join("removed-before-spawn-commandagent");
+    std::fs::write(&cli, "#!/bin/sh\nprintf 'commandagent test\\n'\n").unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let mut spec = session_spec();
+    spec["working_directory"] = serde_json::json!("existing-project");
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    spec["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    std::fs::remove_file(&cli).unwrap();
+    let failed = server.request("POST", "/api/sessions", Some(&spec));
+    assert_eq!(failed.status, 500, "{}", failed.body);
+    assert_eq!(
+        std::fs::read_to_string(selected.join("keep.txt")).unwrap(),
+        "keep\n"
+    );
+    assert!(selected.is_dir());
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn typed_trial_intents_are_validated_frozen_and_delegated() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -2452,7 +3254,7 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
     let cli = temp.path().join("intent-commandagent");
     std::fs::write(
         &cli,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprofile=unknown\nprevious=\nfor argument in \"$@\"; do\n  if [ \"$previous\" = \"--profile\" ]; then profile=$argument; fi\n  previous=$argument\ndone\nprintf '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"%s\",\"assurance_level\":\"full\"}\\n' \"$profile\" > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+        "#!/bin/sh\nargs_path=\"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\n: > \"$args_path\"\nsleep 0.1\nprintf '%s\\n' \"$@\" > \"$args_path\"\nprofile=unknown\nprevious=\nfor argument in \"$@\"; do\n  if [ \"$previous\" = \"--profile\" ]; then profile=$argument; fi\n  previous=$argument\ndone\nprintf '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"%s\",\"assurance_level\":\"full\"}\\n' \"$profile\" > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
     )
     .unwrap();
     let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
@@ -2520,19 +3322,6 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
         assert_eq!(created.status, 202, "{}: {}", intent, created.body);
         let id = created.json()["id"].as_str().unwrap().to_string();
         let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !args_path.is_file() {
-            assert!(Instant::now() < deadline, "{intent} delegate did not start");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let delegated_args = std::fs::read_to_string(&args_path).unwrap();
-        let delegated_args = delegated_args.lines().collect::<Vec<_>>();
-        assert!(
-            delegated_args
-                .windows(2)
-                .any(|arguments| arguments == ["--intent", intent]),
-            "{delegated_args:?}"
-        );
         let status = server.request("GET", &format!("/api/sessions/{id}"), None);
         assert_eq!(status.status, 200, "{}", status.body);
         assert_eq!(status.json()["identity"]["intent"], intent);
@@ -2549,6 +3338,27 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
                 "{intent} delegate did not finish"
             );
             std::thread::sleep(Duration::from_millis(20));
+        }
+
+        assert!(
+            args_path.is_file(),
+            "{intent} delegate completed without recording arguments"
+        );
+        let delegated_args = std::fs::read_to_string(&args_path).unwrap();
+        let delegated_args = delegated_args.lines().collect::<Vec<_>>();
+        for expected in [
+            ["--intent", intent],
+            ["--provider", "ollama"],
+            ["--model", "fixture-executor"],
+            ["--planner-provider", "ollama"],
+            ["--planner-model", "fixture-planner"],
+        ] {
+            assert!(
+                delegated_args
+                    .windows(2)
+                    .any(|arguments| arguments == expected),
+                "missing {expected:?} in {delegated_args:?}"
+            );
         }
     }
 
@@ -2640,6 +3450,249 @@ fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
         "{delegated_args}"
     );
     server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("recovery-limit-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nprintf '%s\\n' '{\"event\":\"recovery_plan_auto_run_complete\",\"effective_profile\":\"python-cli\",\"recovery_plan_auto_run_current\":1,\"recovery_plan_auto_runs_used\":1,\"recovery_plan_auto_runs\":1,\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\"}' '{\"event\":\"tui_command_stop\",\"effective_profile\":\"python-cli\",\"ok\":true,\"status\":\"completed\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+
+    let spec = session_spec();
+    let omitted = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(omitted.status, 200, "{}", omitted.body);
+    let mut zero = spec.clone();
+    zero["recovery_plan_auto_runs"] = serde_json::json!(0);
+    let explicit_zero = server.request("POST", "/api/session-proposals", Some(&zero));
+    assert_eq!(explicit_zero.status, 200, "{}", explicit_zero.body);
+    assert_eq!(
+        omitted.json()["card_hash"],
+        explicit_zero.json()["card_hash"]
+    );
+
+    let mut one = spec.clone();
+    one["recovery_plan_auto_runs"] = serde_json::json!(1);
+    let proposal = server.request("POST", "/api/session-proposals", Some(&one));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal_json = proposal.json();
+    assert_ne!(proposal_json["card_hash"], omitted.json()["card_hash"]);
+    assert_eq!(proposal_json["identity"]["recovery_plan_auto_runs"], 1);
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("自動実行上限: 1 回")
+    );
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Plan 実行総数の上限: 2 回")
+    );
+    assert!(
+        proposal_json["card_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("時間・コストの上限目安: 単一 Plan 実行の最大 2 倍")
+    );
+
+    let mut twenty = spec.clone();
+    twenty["recovery_plan_auto_runs"] = serde_json::json!(20);
+    let maximum = server.request("POST", "/api/session-proposals", Some(&twenty));
+    assert_eq!(maximum.status, 200, "{}", maximum.body);
+    assert_eq!(maximum.json()["identity"]["recovery_plan_auto_runs"], 20);
+
+    let mut stale = one.clone();
+    stale["confirmation_hash"] = omitted.json()["card_hash"].clone();
+    let rejected = server.request("POST", "/api/sessions", Some(&stale));
+    assert_eq!(rejected.status, 412, "{}", rejected.body);
+
+    for invalid_value in [
+        serde_json::json!(-1),
+        serde_json::json!(21),
+        serde_json::json!(1.5),
+        serde_json::json!("1"),
+    ] {
+        let mut invalid = spec.clone();
+        invalid["recovery_plan_auto_runs"] = invalid_value;
+        let rejected = server.request("POST", "/api/session-proposals", Some(&invalid));
+        assert!(
+            matches!(rejected.status, 400 | 422),
+            "unexpected status {}: {}",
+            rejected.status,
+            rejected.body
+        );
+    }
+
+    let mut confirmed = one;
+    confirmed["confirmation_hash"] = proposal_json["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let delegated_args = loop {
+        if let Ok(args) = std::fs::read_to_string(&args_path) {
+            if args
+                .lines()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|pair| pair == ["--recovery-plan-auto-runs", "1"])
+            {
+                break args;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "delegated CLI did not write the confirmed recovery flag and value"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let arguments = delegated_args.lines().collect::<Vec<_>>();
+    let flag = arguments
+        .iter()
+        .position(|argument| *argument == "--recovery-plan-auto-runs")
+        .expect("confirmed recovery flag was not delegated");
+    assert_eq!(arguments.get(flag + 1), Some(&"1"));
+    let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(
+        status.json()["recovery_auto_run"],
+        serde_json::json!({
+            "current": 1,
+            "used": 1,
+            "limit": 1,
+            "stop_reason": "recovery_succeeded",
+        })
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn trial_session_paths_follow_configured_auth_and_remain_confined() {
+    use std::os::unix::fs::symlink;
+
+    const AVAILABLE_ID: &str = "018f0e32-7b80-7000-8000-000000000080";
+    const MISSING_ID: &str = "018f0e32-7b80-7000-8000-000000000081";
+    const SYMLINK_ID: &str = "018f0e32-7b80-7000-8000-000000000082";
+    const OUTSIDE_ID: &str = "018f0e32-7b80-7000-8000-000000000083";
+    const RUN_SYMLINK_ID: &str = "018f0e32-7b80-7000-8000-000000000084";
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let runs_root = runs_dir(&workspace);
+    let sessions_root = workspace.join("sessions");
+    std::fs::create_dir_all(&runs_root).unwrap();
+    std::fs::create_dir_all(&sessions_root).unwrap();
+    for id in [AVAILABLE_ID, MISSING_ID, SYMLINK_ID, OUTSIDE_ID] {
+        std::fs::create_dir(runs_root.join(id)).unwrap();
+    }
+    std::fs::create_dir(sessions_root.join(AVAILABLE_ID)).unwrap();
+
+    let in_root_target = sessions_root.join("real-directory");
+    std::fs::create_dir(&in_root_target).unwrap();
+    symlink(&in_root_target, sessions_root.join(SYMLINK_ID)).unwrap();
+    let outside_workspace = temp.path().join("outside-workspace");
+    std::fs::create_dir(&outside_workspace).unwrap();
+    symlink(&outside_workspace, sessions_root.join(OUTSIDE_ID)).unwrap();
+    let outside_run = temp.path().join("outside-run");
+    std::fs::create_dir(&outside_run).unwrap();
+    symlink(&outside_run, runs_root.join(RUN_SYMLINK_ID)).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let canonical_workspace = workspace.canonicalize().unwrap();
+    let available_path = format!("/api/sessions/{AVAILABLE_ID}/paths");
+    let unauthorized = server.request_without_access("GET", &available_path, None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    assert!(
+        !unauthorized
+            .body
+            .contains(canonical_workspace.to_string_lossy().as_ref())
+    );
+    let wrong_token = server.request_with_access(
+        "GET",
+        &available_path,
+        None,
+        Some("commandagent-gui-test-token-wrong-000000000001"),
+        None,
+    );
+    assert_eq!(wrong_token.status, 401, "{}", wrong_token.body);
+
+    let available = server.request("GET", &available_path, None);
+    assert_eq!(available.status, 200, "{}", available.body);
+    assert_eq!(available.header("cache-control"), Some("private, no-store"));
+    assert_eq!(
+        available.json()["working_directory"],
+        serde_json::json!({
+            "path": canonical_workspace.join("sessions").join(AVAILABLE_ID).to_string_lossy(),
+            "state": "available"
+        })
+    );
+
+    let missing = server.request("GET", &format!("/api/sessions/{MISSING_ID}/paths"), None);
+    assert_eq!(missing.status, 200, "{}", missing.body);
+    assert_eq!(missing.json()["working_directory"]["state"], "missing");
+
+    let invalid = server.request("GET", "/api/sessions/not-a-uuid/paths", None);
+    assert_eq!(invalid.status, 404, "{}", invalid.body);
+    let traversal = server.request("GET", "/api/sessions/%2E%2E/paths", None);
+    assert!(
+        matches!(traversal.status, 400 | 404),
+        "{}: {}",
+        traversal.status,
+        traversal.body
+    );
+    for id in [SYMLINK_ID, OUTSIDE_ID, RUN_SYMLINK_ID] {
+        let rejected = server.request("GET", &format!("/api/sessions/{id}/paths"), None);
+        assert_eq!(rejected.status, 404, "{id}: {}", rejected.body);
+        assert!(
+            !rejected
+                .body
+                .contains(temp.path().to_string_lossy().as_ref())
+        );
+    }
+    server.stop();
+
+    let mut unauthenticated_server = Server::start_without_trial_token(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let unauthenticated_paths =
+        unauthenticated_server.request_without_access("GET", &available_path, None);
+    assert_eq!(
+        unauthenticated_paths.status, 200,
+        "{}",
+        unauthenticated_paths.body
+    );
+    assert_eq!(
+        unauthenticated_paths.header("cache-control"),
+        Some("private, no-store")
+    );
+    assert_eq!(
+        unauthenticated_paths.json()["working_directory"],
+        serde_json::json!({
+            "path": canonical_workspace.join("sessions").join(AVAILABLE_ID).to_string_lossy(),
+            "state": "available"
+        })
+    );
+    unauthenticated_server.stop();
 }
 
 #[cfg(unix)]
@@ -3287,6 +4340,25 @@ fn write_terminal_cli(path: &std::path::Path) {
     std::fs::write(
         path,
         "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_failure_projection_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
+    std::fs::write(
+        path,
+        format!(
+            "#!/bin/sh\nmkdir -p .anvil/repairs .anvil/plans\nprintf '%s\\n' 'Repair the typed build failure.' > .anvil/repairs/repair-build.md\nprintf '%s\\n' 'name: Recovery Plan' > .anvil/plans/recovery-build.yaml\ncp '{}' \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+            fixture.display()
+        ),
     )
     .unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

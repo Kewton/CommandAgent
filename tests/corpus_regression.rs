@@ -273,6 +273,16 @@ fn generated_app_corpus_matches_detector_and_probe_expectations() {
 }
 
 #[test]
+fn issue399_plain_javascript_nextjs_profile_stays_javascript() {
+    let root = Path::new("tests/corpus/apps/issue399-nextjs-plain-js-mode");
+
+    assert!(verify_profile_final(root, "nextjs", "plain JavaScript app").is_pass());
+    let scaffold = profile_setup_scaffold_paths(root, "nextjs");
+    assert!(!scaffold.iter().any(|path| path.ends_with(".tsx")));
+    assert!(!scaffold.iter().any(|path| path == "tsconfig.json"));
+}
+
+#[test]
 fn foreign_compile_incident_fixture_is_not_repairable() {
     let path = Path::new(
         "tests/corpus/apps/test0816_gui_foreign_compile/fixtures/foreign-compile-error.json",

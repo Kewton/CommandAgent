@@ -1,0 +1,1052 @@
+{
+  "case_id": "phase6-main-c04-task-01",
+  "comparison": null,
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "excluded_failure_kind:dependency_setup_missing",
+      "run_recovery_one_arm": false,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "fail_count": 3,
+      "oracle_count": 3,
+      "outcomes": [
+        {
+          "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "port-path--phase6-cell-04-source-task-01",
+          "claim_id": "port-path",
+          "executor_kind": "http_get",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+          "size": 44
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "app/globals.css",
+        "app/layout.tsx",
+        "app/page.tsx",
+        "app/play-01/page.tsx",
+        "next-env.d.ts",
+        "next.config.js",
+        "package-lock.json",
+        "tsconfig.json"
+      ],
+      "after_snapshot_sha256": "ca0c759ece843bd80ee7e6622b3f072d643a4d74b8a9403c66b398d31c7c02e0",
+      "before_snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316",
+      "change_count": 9,
+      "changed": [
+        "package.json"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "13a879610f52e452ea99efd39a825ea8936e8f781d1d20d8d21dcc26e8dae61c",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "app/globals.css",
+          "sha256": "7539417afd36478fb5bb3e6ecb950c07bf8fed36886fad3439df999f4dc1853f",
+          "size": 105
+        },
+        {
+          "kind": "file",
+          "path": "app/layout.tsx",
+          "sha256": "0c68d0c0bf67a8e17ec51a319c5b3dfca5fa4a5e8946b465878cbdaccc28fe5d",
+          "size": 283
+        },
+        {
+          "kind": "file",
+          "path": "app/page.tsx",
+          "sha256": "dcecd424ef83029334f841eae9ca620ab982d39106ab93d050bca245f5cdad57",
+          "size": 64
+        },
+        {
+          "kind": "file",
+          "path": "app/play-01/page.tsx",
+          "sha256": "694e450d18ce8aaf2d93070345085eb100c594e3244ab9d84b22106f72d9054c",
+          "size": 467
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "3c8923763b8a4ddd6e599b931edb0f49744cfcb4dd5f10bfc34b7d362837a389",
+          "size": 656
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "ca0c759ece843bd80ee7e6622b3f072d643a4d74b8a9403c66b398d31c7c02e0"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".next/build-manifest.json",
+          "sha256": "81be29c73fc0b68e3d64b9599e30b31c28856c21f998a10efd56d18189c1d8fb",
+          "size": 607
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.previewinfo",
+          "sha256": "cf48d949777a6afb0bc1c318148b92c7907c75abd367dc9661147a8149a8353f",
+          "size": 262
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.rscinfo",
+          "sha256": "7591f2f4b2beb19e1687313569f683a2bb8975d899ff0f6d6d3e04f6cebce572",
+          "size": 102
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000001.sst",
+          "sha256": "18fcf7ff96dc8d8295e0cc9ce0f7acde2ab7c3b11ad9c89e92ed06bbbc08281b",
+          "size": 5204980
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000002.sst",
+          "sha256": "57dbdb781b1b44ad4c10156ab0a3d861538de4425161d35aa81a1e7d5eb2ff77",
+          "size": 1402621
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000003.sst",
+          "sha256": "084c0f88ca9f9c4b4f817253fc7e331936b017a1b0ca846667c9ea76c31a8269",
+          "size": 18743377
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000004.sst",
+          "sha256": "28cf704038615d5a3948c6c300c25c6abf4c7699689a84ae7ad45014ba6a2f8f",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000005.meta",
+          "sha256": "4128824947d86d5794e981e9c79260ead578ddb44df398e32c221745fb406460",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000006.meta",
+          "sha256": "34ad2207bb8b528fcfe1c26fc4c1ef6b3403c2b77dcd6aaa7ab8419371702ee1",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000007.meta",
+          "sha256": "1dd74effca372ee23806c02175f00753aa85c6815ff4876db8ca5369a995791f",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000008.meta",
+          "sha256": "106393c7faf9cb9e8c6dd5c0fdd15646fffe2f980d484b8a0afcf04d29fa887d",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/CURRENT",
+          "sha256": "0c0d8528bda786cbd628cbf0b0ecfbe325beea24392f94385fca3e709218bd68",
+          "size": 70
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/LOG",
+          "sha256": "e0d7915d1b15b8e7345242104d0e2623c004ecad5422d0b9095b6599426b4439",
+          "size": 866
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/build-diagnostics.json",
+          "sha256": "60099f360cac022510b6b7483d2b019fc75b6ac721ef110251e1cbb65f8b2d09",
+          "size": 89
+        },
+        {
+          "kind": "file",
+          "path": ".next/diagnostics/framework.json",
+          "sha256": "7288466fae0f8ede896171848660162adbe0686cc68cacdd671d2ee577afce11",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".next/fallback-build-manifest.json",
+          "sha256": "4d6da3f2610f0bc299c2cccf7622ad0a1c600e7a911319abdb4d579f794ce46e",
+          "size": 366
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-minimal-server.js.nft.json",
+          "sha256": "ac3dcd7aad1ccc41cbba2f58116c2ed918ae0fb2685aeb4267185cb777175315",
+          "size": 7968
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-server.js.nft.json",
+          "sha256": "17efdd9eb88b8cebceef8f91cd1dcc5ecd7a48d3cd7ad4694f3ec37499ef833e",
+          "size": 92032
+        },
+        {
+          "kind": "file",
+          "path": ".next/package.json",
+          "sha256": "091a04fa67c7907b98e106fcff8b964e13129754fce72d24f3025b97c4887fa3",
+          "size": 20
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/app-paths-manifest.json",
+          "sha256": "67d788223a06e3479a7e8372879e18c1595dae22d20db1434676dfa06f2b154c",
+          "size": 56
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js",
+          "sha256": "b1a83a660d14f61c7c6ead8307f9bec0b5cc18330692b3a10810e50fc0989ab2",
+          "size": 556
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page.js.nft.json",
+          "sha256": "aba8e1f79e4d1d6928c7db3af3758622b8a06facf3e11259762a5362d203a00f",
+          "size": 11406
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_global-error/page_client-reference-manifest.js",
+          "sha256": "2832da263201224bb73fe370979ccf68467761756065e5daaf33b3a2d54343c3",
+          "size": 3748
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/app-paths-manifest.json",
+          "sha256": "e96e120dd8e4ae7f5c12a0e9695e528fd90b9b885af3e592cd2695ba972bebe1",
+          "size": 50
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js",
+          "sha256": "fbdb019b96f525c1036b478feb08c57ddb65595e78089c6b6c21c01f8d58b065",
+          "size": 787
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.nft.json",
+          "sha256": "aa3faba40d37df39c910c302d8dacfcea32a8a6502f5b5058043c93e26ab91b0",
+          "size": 11807
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page_client-reference-manifest.js",
+          "sha256": "fadd6bfd22b005d6b82f21b5932ebc114324f20941bbf4c688ea4241ae397b44",
+          "size": 3991
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/app-paths-manifest.json",
+          "sha256": "e0be75c853555b01e1a9823abf81903c8d8934e5c7ca49e887afd6d00905d77a",
+          "size": 28
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js",
+          "sha256": "6cecdc51a7afdb968691e7bcc7cf494de63bc6a6380d04e160d73c5f962f6c00",
+          "size": 838
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.nft.json",
+          "sha256": "f22b3322d08c617014eb331ec7e4c18c77527194d47c2d7bc3142c04e2282a28",
+          "size": 11580
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page_client-reference-manifest.js",
+          "sha256": "068f436e446f8cb1f2dc51acf0ffc01cb8f05bcca911888e9586789171ff04d2",
+          "size": 3980
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page/app-paths-manifest.json",
+          "sha256": "77a0e10a7b21ef33edf36fa5b4e9abce0328c35b5db13d8f128951cadb971fe3",
+          "size": 44
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page/build-manifest.json",
+          "sha256": "059d657cd6025f91d55655e84c8da9b3ede0fe4f7dce912cb39e56dc65eb752e",
+          "size": 459
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page/next-font-manifest.json",
+          "sha256": "dc1719fb3b97327924884a5839c5cfa68896e28803f0cd5e969b7c20f519d1e5",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page/server-reference-manifest.json",
+          "sha256": "d0c7f70e7b24a0f6f6b52e64bddbd51705dad21e63403dddeb723b03e70be9a5",
+          "size": 30
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page.js",
+          "sha256": "81ca5b13d7523c30bcd139848e6b11c87e71ec2e2b67a5eb68bde1157f53453f",
+          "size": 857
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page.js.map",
+          "sha256": "a8ae20908e3aa88a005bf3b5cadedd7f1107cf28a6e4db9da80280fe9f54de95",
+          "size": 53
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page.js.nft.json",
+          "sha256": "531f34e6b032c87f0f0a694cd3cab60aa0400273f310dbd3e4c38ed25d318ec1",
+          "size": 11997
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page_client-reference-manifest.js",
+          "sha256": "3b9fdeb2aab1b55227e4144c1515f0e90f714f4fca6ed2c46a1def5e3744f4a4",
+          "size": 4628
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app-paths-manifest.json",
+          "sha256": "ed1d10e35b921231f63bd1accfb5d6fd701441b2894590bea115ea8a4e70a95a",
+          "size": 172
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js",
+          "sha256": "8dad95c555cbba81a79fcafdbd5da114212d1a78de4849234bb2c40df0aa78ff",
+          "size": 217483
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__07-cb6x._.js.map",
+          "sha256": "36ada6778596383204fdf834e70759d8a22e150649c275a6544258dbe294290e",
+          "size": 1329148
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js",
+          "sha256": "d3f28d82a7dfcb03a40b22a87647bd7fd582bfd4182de9c3aac5867b1f7e38ee",
+          "size": 1492
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0_wo2si._.js.map",
+          "sha256": "196b86fd2f578673a1ee9972e77449ebe2bc485fdab4803b4ae3d65a43ddcf31",
+          "size": 2396
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js",
+          "sha256": "2bfe0a5ad86f83c23aa5597acd9e8cbb27b38c93f0ec4ab9f070ee5e1955b9de",
+          "size": 2858
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0bf0c1b._.js.map",
+          "sha256": "c16d920661248e1a0669868a52ad0accab07d5219319d945d9fcecb3817c4e9b",
+          "size": 7063
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js",
+          "sha256": "958174fed72de1738a6ddc9b13194a49995f7ff9dab234f594bcf9b3f41dd8d0",
+          "size": 25157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__0z5ob0b._.js.map",
+          "sha256": "6284d845a4a210149233799423ea80f68ef0da352c19e62b4818c2a27e588cc3",
+          "size": 136967
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js",
+          "sha256": "9966b9fc7dc5eb642f5d14cfd0b447140afb50e9851e83736623709463b18097",
+          "size": 7944
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[root-of-the-server]__1x0ibcr._.js.map",
+          "sha256": "21532a1d673d831427c6886da3bed14f7b38ab7583730f4d122cc3809036328d",
+          "size": 14470
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js",
+          "sha256": "fecc24d1f9639b12df3815314ef364d88371097c2c82b19a9d15bd016f761181",
+          "size": 32204
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/[turbopack]_runtime.js.map",
+          "sha256": "c2a20475e7a2e6065de472a0255a5a49d996efa4d11d771de84428b6be80da35",
+          "size": 55280
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_0na4tz7._.js",
+          "sha256": "f8cdd2db66160a916531dbacc41258bf4a7f45538c2f982835e762005dafbed5",
+          "size": 3121
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_0na4tz7._.js.map",
+          "sha256": "10029c5dc52c2018cc9134caaa3a43f82baa31ffef4323b9f991e0e58e9cc5b5",
+          "size": 4316
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_160dg38._.js",
+          "sha256": "f2f3b753a52283b30c16cf1d43d0987b2e36e8a9ff3a4eb420d00641f7b41fc5",
+          "size": 3537
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_160dg38._.js.map",
+          "sha256": "03fa77a89522004136cab5f688cc7c1d3a7f71f0bbde2b855e64b54127564a3b",
+          "size": 5032
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js",
+          "sha256": "c898e6139d76ae88f36ae1daa7cd2950dfd0eccaff3bea76692d9f4655d76914",
+          "size": 125
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__global-error_page_actions_0zi5s8-.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js",
+          "sha256": "174b05d9df2550c3ea4fe731a2750d7e0e93465ab60d2fac0cc47f127c0de36b",
+          "size": 122
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app__not-found_page_actions_0pt47yr.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js",
+          "sha256": "76f655a65309e9ac85bfa9199f012d77aad022a32973f49ab855a3c87e5fd6e9",
+          "size": 111
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_page_actions_0hhsz1j.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_play-01_page_actions_15zd6cd.js",
+          "sha256": "a06f97b816ab61c35a28f0ef2921145eb362932c9ec5f104cdfe6b57f01053a7",
+          "size": 119
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/_next-internal_server_app_play-01_page_actions_15zd6cd.js.map",
+          "sha256": "bba91168b8031003cc96ad9268cf613f0df3f39694a6b6dfa788d47ed5b30c18",
+          "size": 51
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/app_layout_tsx_2144vk_._.js",
+          "sha256": "db09bb75e3772b9ec8b2f4cd8bcc6e9955d804b881c1d6cf942a3a7430444a93",
+          "size": 363
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/app_layout_tsx_2144vk_._.js.map",
+          "sha256": "1d4d82da4737e474788d120a9d015198d70e9499a3b4a65a77161882d39ef003",
+          "size": 684
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/app_play-01_page_tsx_1rha2yo._.js",
+          "sha256": "d8d292b0aa5ccbad3eba2f328f2a2dfe7872388ce9b63f0a0f8f8d366da71493",
+          "size": 470
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/app_play-01_page_tsx_1rha2yo._.js.map",
+          "sha256": "7d733501f64c8303f674bc071530ce9323eb05b37b7fec16b25e2e2bcf66e6cc",
+          "size": 1040
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js",
+          "sha256": "38e504b236c8c1cd0f80f1064b850817d62321d9a4c946d68cbd2f94b28fc175",
+          "size": 6521
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_01xbj_9._.js.map",
+          "sha256": "57354b486ac9037775ae3bf661836d759ae975ec3ad3a602bd7e108d822e1b58",
+          "size": 12165
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js",
+          "sha256": "9c1a671a6f8d28c31c182a6d425472eb7dcd1ee155f3a1d3a57e38385591accd",
+          "size": 7559
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_0ts4ag-._.js.map",
+          "sha256": "86f238cafd6bfe32c4f2f6174b504796fc3160d4dcff546bb2b5fb5ef297f1e9",
+          "size": 11256
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js",
+          "sha256": "e23646f3d95558e9143a42953f5a7bb0fd8a61511d03950c97d6c9771e394639",
+          "size": 53029
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1--45f-._.js.map",
+          "sha256": "ada417a441914fc433660b9be3f31ce68606f7775c107c61b2589e2eebf789e8",
+          "size": 993430
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1br5xh2._.js",
+          "sha256": "6adb51ce4df423d42c8e3d8435b139d019f5d78c9a88ec5bb8f13415c94cb5a9",
+          "size": 3335
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_1br5xh2._.js.map",
+          "sha256": "ed288c335d1be2c918e7651c415c8663d3437a15a00701b20a1f93ec1391e6dc",
+          "size": 7414
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js",
+          "sha256": "b20ebf5e9d0d2c8c0b0b8088d45e1c5bb5efd8a00a4c8bd774e5c32f436aedb6",
+          "size": 2528
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_0wpq8j3._.js.map",
+          "sha256": "96cb29c4e3c207072bef0e90356b3af7b6d29d0aa2255291db66c815cfa55489",
+          "size": 4302
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js",
+          "sha256": "af7a0b3c069d876bfdbc11bb3fc88aa3cb0769688dcf9705debf15c2fd579201",
+          "size": 659
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_forbidden_0symwr9.js.map",
+          "sha256": "2279cece9800f751570cc3e4116b5b213722d5c5f40dec873553a7755f5617dd",
+          "size": 620
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js",
+          "sha256": "1511d90136b9b0f3a51642aa06f86d39dde4e0843ffde454674acadfa396b942",
+          "size": 343
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_global-error_0q-w892.js.map",
+          "sha256": "88c737f8ad10d4b21739d74cb70b3addda2ce05624dac2c5b464f1243e2831b5",
+          "size": 3157
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js",
+          "sha256": "31c82886e206a4ddfb028d86b19b036491c30eca465089fc6284754717f29f3a",
+          "size": 672
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/ssr/node_modules_next_dist_client_components_builtin_unauthorized_0l_sp0x.js.map",
+          "sha256": "d07468167794147610d609b1e2cf04c68d844924a277b88685b4748bbb00947b",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/interception-route-rewrite-manifest.js",
+          "sha256": "fc5133e40acf09e6517b073ddd7b5c0c218d09938848902210f2cc13f08e1c81",
+          "size": 48
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-build-manifest.js",
+          "sha256": "adf31eb779e62d68a5e65e0ac2f262cda4a9de8599a10384d017a644ff8fcb0c",
+          "size": 639
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-manifest.json",
+          "sha256": "3e662212864bc4c124cfc53fa5d428813c619852b447c9fd2d9926cd39d7a4a6",
+          "size": 83
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.js",
+          "sha256": "36feb6ff9eda2c958da55bdf3e7280596902cbaf7050cfaca0d5c68ee25d2be2",
+          "size": 135
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.json",
+          "sha256": "65f953122fe2fb5910d84495421ee32397b0be6321daa59118bd85d3cbc51d4d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.js",
+          "sha256": "d54f189a097c458fab78b1e14aa7a2efd9d15741157bc983dd20df640db31d77",
+          "size": 138
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.json",
+          "sha256": "9c508fe6931d068316b22802fdadc561621515d9737694580f5b94537dab0b92",
+          "size": 97
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/QvTir0hcM287ZGpkZLSHN/_buildManifest.js",
+          "sha256": "9476e0afd3f9da68a64e6ec58631191fd3eaca62c9f5a377e7517fe9a89e59ea",
+          "size": 219
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/QvTir0hcM287ZGpkZLSHN/_clientMiddlewareManifest.js",
+          "sha256": "5483e3295dc35dfe29ea932efc85341c916f10ff78ff5b0e965e003710893a4a",
+          "size": 96
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/QvTir0hcM287ZGpkZLSHN/_ssgManifest.js",
+          "sha256": "653f3e53e89b4f8548ff86c19e92bb3c6b84b6be7485a320b1e00893ed877479",
+          "size": 76
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/07bcdnx1b_yp5.css",
+          "sha256": "61e7483ba224a1ee1fffc23259b69cd959fcfca8b3744e42163ad6a5523da10c",
+          "size": 81
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/0cz1d0mv5g_q7.js",
+          "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+          "size": 112594
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/1ztgd4w04vhnt.js",
+          "sha256": "ca3b031489ba3bd0f7f7e24efb757d190044e6aa1dbd8fd5b55751ebe9aa60b2",
+          "size": 183261
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/2zj2nz2j0jm3-.js",
+          "sha256": "ce871b21deeee775de4e3f6ad7a3eecf21c5a1cf7f6d8b11fef61bdb583cc1c1",
+          "size": 508
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3e4keds9ktjdu.js",
+          "sha256": "7e242e7d64eed143f65ed4e01c9e4cca500c41b6d28215a49e167e1cc2682a34",
+          "size": 229156
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3fntmmi971322.js",
+          "sha256": "34ed6abf4c6d0d1bb3dc56d3f133d2a5dbc3a3c89c791deab314e27143ac14ce",
+          "size": 14377
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/3l04zcqx63h3y.js",
+          "sha256": "49cf866bf4d0282119e51835114325403f28e53fd0bccb63dde7ba3114a8e9fb",
+          "size": 16797
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/turbopack-3n-2l_h40r1k1.js",
+          "sha256": "eb49035b7af292e13bd1a163c4811a57f4b983e0a1437f04cf227bcdbebdc747",
+          "size": 9619
+        },
+        {
+          "kind": "file",
+          "path": ".next/turbopack",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/cache-life.d.ts",
+          "sha256": "4f984436b10cfb43ccf7fc3114dcb851cbefa4d58b7d8ae741aaae0f6e330129",
+          "size": 5905
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/root-params.d.ts",
+          "sha256": "f3387dd7800eec3c34273f7a8efad13e864598c7e8f788d321e407390989bb59",
+          "size": 101
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/routes.d.ts",
+          "sha256": "0283fc1025732a1f9e3705acb8c0fb71439722570bfb9d4367dd5c61e133871e",
+          "size": 1427
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/validator.ts",
+          "sha256": "97a1c152e6851bb4f26b14a1a9323453a677197b54a4f85629efaebd0ad64922",
+          "size": 2369
+        },
+        {
+          "kind": "file",
+          "path": "app/globals.css",
+          "sha256": "7539417afd36478fb5bb3e6ecb950c07bf8fed36886fad3439df999f4dc1853f",
+          "size": 105
+        },
+        {
+          "kind": "file",
+          "path": "app/layout.tsx",
+          "sha256": "0c68d0c0bf67a8e17ec51a319c5b3dfca5fa4a5e8946b465878cbdaccc28fe5d",
+          "size": 283
+        },
+        {
+          "kind": "file",
+          "path": "app/page.tsx",
+          "sha256": "dcecd424ef83029334f841eae9ca620ab982d39106ab93d050bca245f5cdad57",
+          "size": 64
+        },
+        {
+          "kind": "file",
+          "path": "app/play-01/page.tsx",
+          "sha256": "694e450d18ce8aaf2d93070345085eb100c594e3244ab9d84b22106f72d9054c",
+          "size": 467
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "daebbab741ce51b4f83752a25941f402a8a34d07b13089ad62a5b8c0e4633435",
+          "size": 27750
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "cdf2140dc5b0eff3e82b423e92ad461abcb7a4c1a76c9d60ed6c54280b1c4ba3",
+          "size": 391
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "3c8923763b8a4ddd6e599b931edb0f49744cfcb4dd5f10bfc34b7d362837a389",
+          "size": 656
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "ca0c759ece843bd80ee7e6622b3f072d643a4d74b8a9403c66b398d31c7c02e0"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c04-task-01--pair-01--initial-only/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c04-task-01--pair-01--initial-only/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "nextjs",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c04-task-01--pair-01--initial-only/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--plan-run",
+        "Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"allowed_dependencies\":[\"next\",\"react\",\"react-dom\"],\"entry_paths\":[\"package.json\"],\"forbidden_dependencies\":[\"tailwindcss\",\"postcss plugins\",\"autoprefixer\",\"any network-installed package\"],\"framework\":\"nextjs\",\"language\":\"javascript_or_typescript\",\"network\":\"denied\",\"provisioning\":\"offline bundle only\",\"reserved_port\":4201,\"scored\":false,\"shell\":\"forbidden\",\"styling\":\"plain CSS\"}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "b99623031df79c47d2480e836d2ff77b8a8d7a1e29282b825aa55c1911559860",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "54b08731a6f19845dd299694c2e079a891114130b9ececec1384f01309b84c21",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c04-task-01--pair-01--initial-only/initial/.commandagent/runs/01a04d57-c2d5-7823-ba52-e269b85af9dc",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "disabled"
+      },
+      "recovery_plan_auto_runs": 0,
+      "resource_usage": {
+        "input_tokens": 24931,
+        "output_tokens": 2971,
+        "total_tokens": 27902,
+        "wall_time_ms": 104757
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: completion contract verify failed after 1 attempts: dependency_setup_missing: command failed: npm run build outcome: CommandFailed status: exit status: 1 elapsed_ms: 6717 summary: command did not succeed: npm run build stdout: > play-app@1.0.0 build > next build ▲ Next.js 16.3.1 (Turbopack) ✓ Running next.config.js took 6ms Creating an optimized production build ... ✓ Compiled successfully in 1137ms Running TypeScript ... It looks like you're trying to use TypeScript but do not have the required\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d59-7a05-75b2-9dbb-a2a3e2fb86f8.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d59-7a05-75b2-9dbb-a2b994df6c14.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d59-7a05-75b2-9dbb-a2a3e2fb86f8.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d59-7a05-75b2-9dbb-a2b994df6c14.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (18s)\n✗ planner planner_error\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (24s)\n#### Phase: Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明...\n1. ○ [setup] Create package.json with name, version, scripts (dev, build, start), and dependencies for next, ... (verify 0)\n2. ○ [implement] Create app/layout.tsx with basic HTML structure and app/page.tsx for root route. Create app/play... (verify 0)\n3. ○ [implement] Create app/globals.css or inline styles in app/layout.tsx to set body background-color to blue. ... (verify 0)\n4. ○ [implement] Create next.config.js to configure the Next.js application. Ensure it does not include any forbi... (verify 0)\n5. ○ [verify] Run npm run build to ensure the Next.js application builds successfully without errors. (verify 1)\n6. ○ [verify] Check that the Next.js application is configured to run on port 4201. This can be verified by ch... (verify 1)\n7. ○ [verify] Verify that app/play-01/page.tsx contains the h1 element with text '開始'. (verify 1)\n8. ○ [verify] Verify that the CSS styling sets body background-color to blue. (verify 1)\nplan normalized: shell_control_split\n→ step setup-package-manifest [setup]\n→ npm install not_required\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (14s)\n→ Bash ls -la /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-ma...\n→ Glob **/*\n✓ Bash ok\n✓ Glob ok\n→ npm install not_required\n→ step implement-app-entry [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read package.json\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Glob app/**/*\n→ Glob *\n✓ Glob ok\n✓ Glob ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (5s)\n→ Write app/layout.tsx\n✓ Write ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (15s)\n→ Write app/layout.tsx\n→ Write app/page.tsx\n→ Write app/play-01/page.tsx\n→ Write app/globals.css\n→ Write next.config.js\n✓ Write ok\n✓ Write ok\n✓ Write ok\n✓ Write ok\n✓ Write ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (4s)\n→ Read app/layout.tsx\n→ Glob app/globals.css\n✓ Read ok\n✓ Glob ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (5s)\n→ Edit app/layout.tsx\n✓ Edit ok\n→ npm install blocked\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "dependency_setup_missing",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d59-7a05-75b2-9dbb-a2b994df6c14.yaml",
+        "status": "failed",
+        "stop_reason": "completion contract verify failed after 1 attempts: dependency_setup_missing: command failed: npm run build outcome: CommandFailed status: exit status: 1 elapsed_ms: 6717 summary: command did not succeed: npm run build stdout: > play-app@1.0.0 build > next build ▲ Next.js 16.3.1 (Turbopack) ✓ Running next.config.js took 6ms Creating an optimized production build ... ✓ Compiled successfully in 1137ms Running TypeScript ... It looks like you're trying to use TypeScript but do not have the required\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d59-7a05-75b2-9dbb-a2a3e2fb86f8.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d59-7a05-75b2-9dbb-a2b994df6c14.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d59-7a05-75b2-9dbb-a2a3e2fb86f8.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d59-7a05-75b2-9dbb-a2b994df6c14.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 112522
+    }
+  },
+  "intent": "create",
+  "pair_id": "phase6-main-c04-task-01--pair-01",
+  "profile": "nextjs",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-smoke-01/raw/phase6-main-c04-task-01/pair-01.json",
+  "recovery_one": {
+    "reason": "excluded_failure_kind:dependency_setup_missing",
+    "status": "not_run"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14",
+  "source_case_id": "phase6-main-c04-task-01"
+}

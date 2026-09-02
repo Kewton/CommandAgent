@@ -193,7 +193,10 @@ The confirmation card contains:
 6. planner/executor/provider/preset and any known measured limitation;
 7. the selected pack or explicit `no pack`, including ID, version, exact-byte
    hash, compatible point, and whether a comparable band row exists;
-8. unknown or unmeasured values rendered as such, never estimated silently.
+8. the confirmed Recovery Plan auto-run limit (`0..20`), excluding the initial
+   run, the maximum total plan executions (`1 + N`), and the equivalent upper
+   bound on duration/cost relative to one plan execution; and
+9. unknown or unmeasured values rendered as such, never estimated silently.
 
 The human can confirm, edit the request/bindings, choose an admitted compatible
 pack, or cancel. Confirmation persists the exact card identity and selected
@@ -216,6 +219,24 @@ The shell may display progress already emitted by the product. It may not
 reinterpret progress as completion, auto-select a repair, swap models, change
 packs, or answer a runner question on the user's behalf.
 
+One narrow exception is the explicitly confirmed bounded Recovery Plan
+controller. The confirmed value is shared by top-level UltraPlan actions,
+`/ultra-plan-run`, `/run-ultra-plan`, and `/resume`. A nonzero Gate 1 value may
+execute only a typed runner-produced, workspace-confined, parseable Recovery
+Plan candidate after the existing resume safety checks pass; event files,
+rendered errors, and suggested commands are not execution inputs. Interruption,
+drift, path escape, review-required YAML, normalized-plan cycles,
+and the configured limit stop automatically and retain honest failure plus the
+manual recovery route. Zero preserves the legacy identity and execution path.
+
+For StepPlan task progress, the shell projects only schema-versioned
+`plan_step_started`, `plan_step_completed`, and `plan_step_failed` records.
+`plan_execution_id` defines an execution interval and `step_execution_id`
+defines one task attempt; neither Step ID nor event adjacency is a valid merge
+key. Completed, short-circuited, failed, and interrupted states come only from
+the matching typed terminal record. A terminal stream without a complete typed
+contract is `unsupported`, not an inferred set of successes.
+
 Why conversation need not be trusted: execution consumes the persisted typed
 confirmation, not the latest chat text. Existing runner events, evidence,
 budgets, and honest-failure terminals remain authoritative.
@@ -231,6 +252,8 @@ sheet, not a conversational summary in place of it. Navigation may highlight:
 - evidence paths/hashes and pack pins;
 - elapsed epochs and cost fields that were actually recorded;
 - discrepancies between the confirmed value tag and the executed identity.
+- every typed StepPlan task interval, including bounded failure and verification
+  evidence, while older sessions remain explicitly unsupported.
 
 The user may acknowledge/close or inspect an evidence item. A friendly one-line
 heading is allowed, but it cannot omit, rewrite, or upgrade the sheet.
@@ -243,6 +266,24 @@ the verdict.
 
 For non-full or failed terminals, the shell presents the full sheet plus §5
 plain-language stop reason and only these typed next-action proposals:
+
+The GUI result-detail implementation first projects one bounded
+`FailureExplanation` from the final continuation interval. Its public leaf
+model keeps the exact schema-v1 Plan/Step identity, failure location/category,
+command and verification evidence, completed progress, workspace/artifact
+state, and `recovery_prompt_saved` handoff fields separate. An earlier failed
+interval is never combined with a successful continuation, and legacy or
+incomplete identity pairs degrade to `unknown`. Planning, execution,
+verification, release-gate, infrastructure, interrupted, and unknown are
+display classifications only; they do not change the terminal verdict or gate.
+
+Recovery-document opens are GETs confined to the current per-session workspace
+and to the exact projected repair-prompt or Recovery Plan path. They require a
+valid bearer token when Trial token authentication is on and follow the
+administrator-selected trusted-loopback policy when it is off. Copy actions
+never execute a command. Applying a recommendation only prefills the existing
+additional-request draft, after which credential scrubbing, exact-byte review,
+and the separate confirmation remain mandatory.
 
 | Action | Required basis | Effect |
 |---|---|---|
@@ -447,3 +488,31 @@ The six design questions are resolved as follows:
 6. The production estimate is fixed at **1,320–2,280 Rust lines**, with
    **5–10 calibration campaigns**. Tests and fixtures retain the separate
    **1,370–2,330 line** planning range.
+
+## 10. GUI Trial route projection
+
+The management GUI projects the same D-3c lifecycle through four fixed,
+static-export-compatible routes:
+
+- `try/` owns editable launch identity and exact Gate 1 confirmation.
+- `try/status/?session=<id>` owns read-only observation of a nonterminal run.
+- `try/history/` owns a compact session index without inline diagnosis.
+- `try/history/detail/?session=<id>` owns terminal verdict, diagnosis,
+  acceptance, events, and artifacts.
+
+This is an information-architecture boundary, not a lifecycle or authority
+change. Launch still requires the exact confirmation hash and active-lease
+admission. Status, history, and detail use GET-only projections. Existing
+verification, acceptance, honest-failure, event names, event schemas, and the
+legacy `.anvil/` read namespace remain unchanged. The runtime Trial token stays
+in base-path-scoped `sessionStorage`; only the session ID may appear in a URL.
+
+Status and detail also show one per-session working-directory panel. Its
+absolute `sessions/<id>` path is derived from the same `SessionPaths` value
+used for delegated `current_dir` and `--cwd`, while the run-record directory,
+`events.jsonl`, and `summary.md` are labeled separately. Absolute paths are
+available only from the GET-only `api/sessions/{id}/paths` endpoint when Trial
+token authentication is enabled and satisfied; they remain absent from public
+projections. The endpoint rejects invalid IDs, traversal, symlinks, and
+out-of-root resolution, and projects a deleted workspace as `missing` without
+recreating it or claiming that artifacts remain.

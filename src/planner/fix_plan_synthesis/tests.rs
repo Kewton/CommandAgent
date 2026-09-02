@@ -1,5 +1,10 @@
 #[cfg(test)]
 mod cases {
+    #[path = "completion_contract_tests.rs"]
+    mod completion_contract_tests;
+    #[path = "contract_regression_tests.rs"]
+    mod contract_regression_tests;
+
     use std::collections::BTreeMap;
     use std::path::Path;
 

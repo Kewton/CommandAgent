@@ -1,0 +1,16 @@
+case_id = "issue398-critic-counterfactual-lineage"
+
+[json_fields]
+fixtures/contract.json:schema_version = "commandagent.verification_spec.critic.v0"
+fixtures/contract.json:authority.shadow_only = "true"
+fixtures/contract.json:authority.candidate_execution_authorized = "false"
+fixtures/contract.json:authority.existing_verdict_changed = "false"
+fixtures/contract.json:lineage.freeze_bind_execute = "true"
+fixtures/contract.json:lineage.semantic_setup_concretization_allowed = "true"
+fixtures/contract.json:negative.expected_observation_change = "rejected"
+fixtures/contract.json:negative.polarity_change = "rejected"
+fixtures/contract.json:negative.strength_weakening = "rejected"
+fixtures/contract.json:negative.counterfactual_absent = "unverified_with_reason"
+fixtures/contract.json:negative.provider_unavailable = "unverified"
+fixtures/contract.json:adversarial.false_full = "0"
+fixtures/contract.json:resources.phase0_budget_required = "true"

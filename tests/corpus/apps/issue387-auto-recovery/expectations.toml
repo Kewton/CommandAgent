@@ -1,0 +1,58 @@
+case_id = "issue387-auto-recovery"
+source = "Issue #387 bounded Recovery Plan auto-run event contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recovery-events.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_configured\"",
+  "\"recovery_plan_auto_runs\":2",
+  "\"event\":\"recovery_boundary_snapshot\"",
+  "\"workspace_relative_path\":\".commandagent/recovery-boundaries/attempt-1/workspace\"",
+  "\"snapshot_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"recovery_candidate_scope\":\"step\"",
+  "\"recovery_failed_step\":\"verify-output\"",
+  "\"recovery_verify_command_count\":1",
+  "\"recovery_treatment_path\":\".commandagent/recovery-treatments/attempt-1/workspace\"",
+  "\"recovery_plan_auto_runs_used\":1",
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"decision\":\"promoted\"",
+  "\"event\":\"recovery_plan_auto_run_complete\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\""
+]
+fixtures/recovery-safety-events.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"observation_phase\":\"pre_recovery\"",
+  "\"source\":\"product_visible_completion_contract\"",
+  "\"observation_isolated\":true",
+  "\"external_oracle_used\":false",
+  "\"event\":\"recovery_suppressed_current_success\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"current_success_protected\"",
+  "\"event\":\"recovery_treatment_rejected_regression\"",
+  "\"event\":\"recovery_control_retained\"",
+  "\"event\":\"recovery_promotion_decision\"",
+  "\"decision\":\"rejected\"",
+  "\"event\":\"inspect_mutation_tool_rejected\"",
+  "\"step_kind\":\"inspect\""
+]

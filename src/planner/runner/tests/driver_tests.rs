@@ -101,6 +101,10 @@ fn verify_step_short_circuits_when_expected_path_and_verify_already_pass() {
     assert!(event_text.contains("\"event\":\"step_short_circuited\""));
     assert!(event_text.contains("\"at\":\"start\""));
     assert!(event_text.contains("\"step_id\":\"verify-existing\""));
+    assert!(event_text.contains("\"event\":\"plan_step_started\""));
+    assert!(event_text.contains("\"event\":\"plan_step_completed\""));
+    assert!(event_text.contains("\"terminal_status\":\"skipped\""));
+    assert!(event_text.contains("\"outcome\":\"short_circuited\""));
 }
 
 #[test]
@@ -1598,7 +1602,6 @@ fn fix_contract_freezes_the_run_start_profile_binding() {
     cfg.profile_explicit = false;
     let fix = UltraPlan::deterministic("fix parser", "generic", "default", "fix");
     let create = UltraPlan::deterministic("create parser", "generic", "default", "create");
-
     assert!(!ProfilePromotionState::for_run(&fix, &cfg).eligible);
     assert!(ProfilePromotionState::for_run(&create, &cfg).eligible);
 }
@@ -1630,6 +1633,7 @@ fn config(root: PathBuf) -> Config {
         lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 100,
         max_iterations: 4,
+        recovery_plan_auto_runs: 0,
         chat_timeout_secs: 1,
         chat_timeout_source: "override:test".to_string(),
         field_sources: crate::config::ConfigFieldSources::default(),

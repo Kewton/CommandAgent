@@ -1,0 +1,67 @@
+{
+  "annotation_protocol": {
+    "disagreements": [],
+    "label_author": "phase6-live-runner",
+    "method": "provider generation projected mechanically; variant-blind review pending",
+    "reviewed_at": "pending",
+    "reviewer": "pending-blind-review",
+    "status": "pending"
+  },
+  "cases": [
+    {
+      "allowed_verdicts": [
+        "full",
+        "partial"
+      ],
+      "case_id": "create-build-only-functional--pair-01",
+      "forbidden_verdicts": [
+        "failed",
+        "unverified"
+      ],
+      "goal": "Build a counter whose button increments twice; a build alone is not proof.",
+      "intent": "create",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": false,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 339,
+        "output_tokens": 911,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-pilot-20260826-v1/raw/create-build-only-functional/pair-01.json",
+        "verdict": "partial",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 26501
+      },
+      "optional_claims": [],
+      "polarity": "positive",
+      "profile": "nextjs",
+      "required_claims": [
+        {
+          "id": "counter-two-clicks",
+          "min_strength": "runtime",
+          "oracle": {
+            "expected": "two clicks change 0 to 2",
+            "kind": "browser_sequence"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "build_only_insufficient",
+        "functional_behavior"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.corpus.v0"
+}

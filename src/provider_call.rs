@@ -1421,6 +1421,7 @@ mod tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 1,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs,
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),

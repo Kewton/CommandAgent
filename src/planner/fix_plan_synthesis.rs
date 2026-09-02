@@ -13,6 +13,9 @@ use crate::planner::repair_targeting::{
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
+mod phase_dispatch;
+pub(crate) use phase_dispatch::phase_plan;
+
 const CONTRACT_PHASE_IDS: [&str; 4] = [
     "reproduce-before",
     "isolate-cause",
@@ -40,25 +43,6 @@ pub(crate) fn resolve_phase_plan(
             canonicalize_model_reproducer(config, plan, phase, generate_with_model()?)
         }
         PhasePlan::NotApplicable => generate_with_model(),
-    }
-}
-
-pub(crate) fn phase_plan(
-    config: &Config,
-    plan: &UltraPlan,
-    phase: &UltraPhase,
-    runtime: Option<&FixRuntime>,
-) -> anyhow::Result<PhasePlan> {
-    if !applies(config, plan) {
-        return Ok(PhasePlan::NotApplicable);
-    }
-    ensure_contract_shape(plan)?;
-    match phase.id.as_str() {
-        "reproduce-before" => reproduce_before(config, plan, phase),
-        "isolate-cause" => generated(config, phase, isolate_cause(config, plan, runtime)?),
-        "repair" => generated(config, phase, implement_fix(config, plan, runtime)?),
-        "verify-regressions" => generated(config, phase, verify_after(config, plan, runtime)?),
-        other => anyhow::bail!("unsupported synthesized data fix phase: {other}"),
     }
 }
 
@@ -300,6 +284,7 @@ fn verify_after(
             ProfileFixRegressionAdapter::DataManifestCheck => {
                 Ok(crate::planner::profiles::data::step_policy::catalog_check_command(&binding.id))
             }
+            ProfileFixRegressionAdapter::VerifyCommand(command) => Ok(command.clone()),
             other => anyhow::bail!(
                 "data fix synthesis received non-data F3 adapter for {}: {other:?}",
                 binding.id
@@ -341,7 +326,7 @@ fn generated(config: &Config, phase: &UltraPhase, plan: StepPlan) -> anyhow::Res
         crate::planner::step_plan_finalize::finalize_step_plan_for_execution(&mut plan, config);
     if !report.is_pass() {
         anyhow::bail!(
-            "synthesized data fix phase `{}` failed lint: {}",
+            "synthesized fix phase `{}` failed lint: {}",
             phase.id,
             report.primary_message()
         );

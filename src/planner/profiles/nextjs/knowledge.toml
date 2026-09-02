@@ -162,6 +162,24 @@ primary_example = '''data-anvil-action="primary"'''
 package_script_build = "next build"
 package_script_dev = "next dev -p {port}"
 package_script_start = "next start -p {port}"
+entrypoint_files = [
+  "src/app/page.tsx",
+  "src/app/page.jsx",
+  "src/app/page.ts",
+  "src/app/page.js",
+  "app/page.tsx",
+  "app/page.jsx",
+  "app/page.ts",
+  "app/page.js",
+  "pages/index.tsx",
+  "pages/index.jsx",
+  "pages/index.ts",
+  "pages/index.js",
+  "src/pages/index.tsx",
+  "src/pages/index.jsx",
+  "src/pages/index.ts",
+  "src/pages/index.js",
+]
 required_hooks = [
   '''data-anvil-action="primary"''',
   '''data-anvil-action="restart"''',

@@ -1,0 +1,3185 @@
+{
+  "batch_record_sha256": {
+    "batch-01": "2f874064edf67aa67142ce6a9dca4421cbd3ddb030d5002d0ef4d22a91f80e36",
+    "batch-02": "b3ee332e92ba211a55da8c9a3480b9745e86af10206de60331951b41dceb687c",
+    "batch-03": "33e7fcf05430317a41127af3678068c2bcf49539fca8f161d2beb6efdb4990bf",
+    "batch-04": "2992dcd426c9f99f2530eec11901bec94bf24d49ec20963da44870f9b7d857ee",
+    "batch-05": "bd97ecaa0b03427b4ca787e3512996ff2d410f7534e6c3336e05d5ce264631cf",
+    "batch-06": "5ff223e5cc0846764409cf6366e7df49799a46089c00328e1d990c8b80e423db",
+    "batch-07": "701e07b6ac95fac5c98a9a351014c14823857905df3f3dd3833e50248b130973",
+    "batch-08": "5d23ec9aac4e53d5bf9ab283b1c0ec6cf45c4ac5663ed0c4a41b14db6dd98ede",
+    "batch-09": "7048b752196018de780caa230c3478f9d4c21464a6e22084612ec75e625a71e5",
+    "batch-10": "1f70f36396815786a4c9c797577fd5ca3390db5411d9b42836d617bcf36764b2",
+    "batch-11": "d6c7de5546d72334219de5230a71af6fca57079a582d648db7fc0e5c9573e5ec",
+    "batch-12": "7660ca1cb3c5f6340bf386ec36bd3050f3e63237e57289fe619b8a7cfdf2c2c9"
+  },
+  "blind_items_file_sha256": "878b8d91c415e8823771be2f320eba6ba94a311fab23ad7212dfc367709686d3",
+  "blind_items_sha256": "b979f731fa823d4888f62d4fae2db9d1a347ef6aa61d49d22a2f9a8956eb8f07",
+  "candidate_corpus_sha256": "e9004b43b1eccf7207aa8b6bc7c4dc9ddfe37b9b7e9f029e63d3d91f0791a531",
+  "complete": true,
+  "expected_pairs": 360,
+  "failures": [],
+  "preference_counts": {
+    "baseline": 334,
+    "candidate": 19,
+    "tie": 7
+  },
+  "reviewed_pairs": 360,
+  "reviews": [
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-01",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-08",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-10",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-12",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-14",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-16",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-18",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-20",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-27",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C03"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-29",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-build-only-functional--pair-30",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-02",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-05",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-06",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-08",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-09",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-10",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-12",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-13",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-14",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-19",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-20",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-21",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-24",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-claim-id-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-27",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-claim-id-B",
+        "missing-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-29",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-cli-known-multiple-inputs--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "missing-evidence-A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-02",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-03",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-09",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-14",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-15",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-16",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-17",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-19",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "create-negative-constraint-injection--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-mismatch"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-24",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-negative-constraint-injection--pair-30",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-01",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-04",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-10",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-13",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-15",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-18",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-21",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-24",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-28",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "create-ui-copy-style-port-path--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "complete-coverage",
+        "valid-schema",
+        "strong-evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-01",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-02",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "valid-schema",
+        "extra-claim"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-05",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-06",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-09",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "valid-schema",
+        "extra-claim"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-19",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-21",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-24",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-after-not-run-regression-shrunk--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "claimed-coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-03",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal_strength",
+        "equal_coverage"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-05",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-13",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-17",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-18",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-21",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-26",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-27",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-28",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-29",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-baseline-not-reproduced-substitution--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "exact-ID_coverage",
+        "executed_evidence"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-02",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-03",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-04",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-06",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C1"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-12",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-14",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C3"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C3"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-20",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C3"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C1"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-25",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C1"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-29",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "C2"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-existing-tests-only-dependency-missing--pair-30",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "C3"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-01",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-reproduced-after-regression--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "missing-claims-A",
+        "weak-evidence-A",
+        "complete-coverage-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "missing-claims-A",
+        "weak-evidence-A",
+        "complete-coverage-B"
+      ]
+    },
+    {
+      "decoded_preference": "candidate",
+      "pair_id": "fix-reproduced-after-regression--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "missing-claims-A",
+        "weak-evidence-A",
+        "complete-coverage-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-08",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-10",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "missing-claims-A",
+        "weak-evidence-A",
+        "complete-coverage-B"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-14",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-15",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-18",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-19",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-21",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-26",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "tie",
+      "pair_id": "fix-reproduced-after-regression--pair-27",
+      "preferred_variant": "tie",
+      "reason_codes": [
+        "equal-coverage",
+        "equal-evidence",
+        "valid-schema"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-28",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid-schema-A",
+        "complete-coverage-B",
+        "strong-evidence-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "complete-coverage",
+        "strong-evidence",
+        "invalid-schema-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "fix-reproduced-after-regression--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "missing-claims-A",
+        "weak-evidence-A",
+        "complete-coverage-B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-07",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-08",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-20",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-26",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-27",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-29",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-claims-absent-causality--pair-30",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-05",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-09",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-10",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-12",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-15",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-16",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-20",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_B",
+        "INCOMPLETE_COVERAGE_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-25",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-26",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "INCOMPLETE_COVERAGE_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "COMPLETE_COVERAGE_A",
+        "MISSING_CLAIMS_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-composite-timeout--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "SCHEMA_INVALID_A",
+        "MISSING_CLAIMS_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-01",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-02",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-03",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-04",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-05",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-06",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-08",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-09",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-10",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-11",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-14",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-15",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-16",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-17",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-19",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-21",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-22",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-23",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-25",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-26",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-27",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-28",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "invalid_schema_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-fabricated-location--pair-30",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "invalid_schema_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-01",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-02",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-03",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-04",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-05",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-06",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-07",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-08",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-09",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-10",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-11",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-12",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-13",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-14",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-15",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-16",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-17",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-18",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-19",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-20",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-21",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-22",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-23",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-24",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-25",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-26",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-27",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-28",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-29",
+      "preferred_variant": "A",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_B"
+      ]
+    },
+    {
+      "decoded_preference": "baseline",
+      "pair_id": "investigate-reproducer-defect--pair-30",
+      "preferred_variant": "B",
+      "reason_codes": [
+        "EVIDENCE_STRENGTH_MISMATCH",
+        "SCHEMA_INVALID_A"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.phase6_blind_report.v0",
+  "variant_mapping_file_sha256": "4bc8353a5ba72b0b0f958b33871561c1e5627358477b40a9a60bd4b4a293a33c",
+  "variant_mapping_sha256": "7bedfca2f13bf274114e745534267a0f2bedd8d48f0f2a8769d12bc5032a3886"
+}

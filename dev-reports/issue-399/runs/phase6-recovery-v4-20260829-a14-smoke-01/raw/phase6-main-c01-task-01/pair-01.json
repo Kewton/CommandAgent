@@ -1,0 +1,449 @@
+{
+  "case_id": "phase6-main-c01-task-01",
+  "comparison": {
+    "artifact_delta_between_arms": {
+      "added": [
+        "smoke-check.py"
+      ],
+      "after_snapshot_sha256": "adf6b45e258b1412de46a7ba8b96eb02fc226283d807a1ef11d3b8229ce2cb95",
+      "before_snapshot_sha256": "e8b1877cdf300018123760aa21a984085dec8e5538bf7351a2e085f6a8b68697",
+      "change_count": 2,
+      "changed": [
+        "cli/main.py"
+      ],
+      "removed": []
+    },
+    "executed_recovery_runs": 0,
+    "existing_artifact_harmed": false,
+    "initial_attempts": [
+      {
+        "attempt_index": 0,
+        "kind": "initial",
+        "status": "failed",
+        "stop_reason": null
+      }
+    ],
+    "initial_oracle_status": "pass",
+    "initial_regression_status": "not_applicable",
+    "quality_transition": "no_recovery_needed",
+    "raw_oracle_transition": "unchanged_pass",
+    "recovery_attempts": [
+      {
+        "attempt_index": 0,
+        "kind": "initial",
+        "status": "failed",
+        "stop_reason": null
+      }
+    ],
+    "recovery_oracle_status": "pass",
+    "recovery_regression_status": "not_applicable",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": -1824,
+      "output_tokens": -113,
+      "total_tokens": -1937,
+      "wall_time_ms": -12511
+    },
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "structured_recovery_candidate:missing_required_evidence",
+      "run_recovery_one_arm": true,
+      "runtime_source": "structured_terminal_status"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "cli-known-values-2-3--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "5\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 52,
+            "stderr": "",
+            "stdout": "5\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "cli-known-values-neg1-1--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "0\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 35,
+            "stderr": "",
+            "stdout": "0\n",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "cli/main.py"
+      ],
+      "after_snapshot_sha256": "e8b1877cdf300018123760aa21a984085dec8e5538bf7351a2e085f6a8b68697",
+      "before_snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f",
+      "change_count": 1,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "e8b1877cdf300018123760aa21a984085dec8e5538bf7351a2e085f6a8b68697",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "3eb5420db1f4f42ea07428f25e8bc2a947af64af2af2c5a25e16c643596a5b62",
+          "size": 247
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e8b1877cdf300018123760aa21a984085dec8e5538bf7351a2e085f6a8b68697"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "3eb5420db1f4f42ea07428f25e8bc2a947af64af2af2c5a25e16c643596a5b62",
+          "size": 247
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e8b1877cdf300018123760aa21a984085dec8e5538bf7351a2e085f6a8b68697"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--initial-only/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--initial-only/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--initial-only/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--plan-run",
+        "Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"entry_paths\":[\"cli/main.py\"],\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "c8cad652796121ca8e8501223de2677d3938d696c3dc6550276e8ba4ab97899c",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "121292d53285548f3f7d484430ea83779d21c90c68c26f51241ae276432b86c6",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--initial-only/initial/.commandagent/runs/01a04d55-f31f-7ac0-8402-fd4f3301456c",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "disabled"
+      },
+      "recovery_plan_auto_runs": 0,
+      "resource_usage": {
+        "input_tokens": 5465,
+        "output_tokens": 1645,
+        "total_tokens": 7110,
+        "wall_time_ms": 62646
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nEstimated duration from similar runs: average 10.5 min (3 samples; formal Window B band).\nerror: completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d56-e889-78b1-920e-1a5770366904.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d56-e889-78b1-920e-1a633628295f.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d56-e889-78b1-920e-1a5770366904.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d56-e889-78b1-920e-1a633628295f.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (17s)\n✗ planner planner_error\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n✗ planner planner_error\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (12s)\n#### Phase: Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.  Operationa...\n1. ○ [setup] Create the cli directory structure to hold the main.py script. (verify 0)\n2. ○ [implement] Create cli/main.py. The script should read command-line arguments using sys.argv, convert them t... (verify 1)\n3. ○ [verify] Verify that inputs 2 and 3 produce output 5. (verify 1)\n4. ○ [verify] Verify that inputs -1 and 1 produce output 0. (verify 1)\n→ step setup-directory [setup]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (12s)\n→ Write cli/main.py\n✓ Write ok\n→ step implement-cli [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (7s)\n→ Write cli/main.py\n✓ Write ok\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "missing_required_evidence",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d56-e889-78b1-920e-1a633628295f.yaml",
+        "status": "failed",
+        "stop_reason": "completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d56-e889-78b1-920e-1a5770366904.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d56-e889-78b1-920e-1a633628295f.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d56-e889-78b1-920e-1a5770366904.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d56-e889-78b1-920e-1a633628295f.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 62910
+    }
+  },
+  "intent": "create",
+  "pair_id": "phase6-main-c01-task-01--pair-01",
+  "profile": "cli",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-smoke-01/raw/phase6-main-c01-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "fail_count": 0,
+      "oracle_count": 2,
+      "outcomes": [
+        {
+          "adapter_id": "cli-known-values-2-3--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "5\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 48,
+            "stderr": "",
+            "stdout": "5\n",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "cli-known-values-neg1-1--phase6-cell-01-source-task-01",
+          "claim_id": "cli-known-values",
+          "executor_kind": "sandbox_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": "0\n",
+            "executed": true,
+            "exit_code": 0,
+            "output_truncated": false,
+            "reason": "observation_match",
+            "result": "pass",
+            "runtime_ms": 32,
+            "stderr": "",
+            "stdout": "0\n",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "pass",
+      "pass_count": 2,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "cli/main.py",
+        "smoke-check.py"
+      ],
+      "after_snapshot_sha256": "adf6b45e258b1412de46a7ba8b96eb02fc226283d807a1ef11d3b8229ce2cb95",
+      "before_snapshot_sha256": "af58b29d4e8010c913255f5c6bfc51d843c856bc250583488f71c0d8c29b912f",
+      "change_count": 2,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "adf6b45e258b1412de46a7ba8b96eb02fc226283d807a1ef11d3b8229ce2cb95",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b650f8ad416dc7acee9c39cd1e008bd07bc2db004c75f9dc2fac5b9456a80562",
+          "size": 253
+        },
+        {
+          "kind": "file",
+          "path": "smoke-check.py",
+          "sha256": "8bc3d8f8e4bc17e0b6afb78c52883107479fb0b406ee550297dd31de4793c2d5",
+          "size": 782
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "adf6b45e258b1412de46a7ba8b96eb02fc226283d807a1ef11d3b8229ce2cb95"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "cli/main.py",
+          "sha256": "b650f8ad416dc7acee9c39cd1e008bd07bc2db004c75f9dc2fac5b9456a80562",
+          "size": 253
+        },
+        {
+          "kind": "file",
+          "path": "smoke-check.py",
+          "sha256": "8bc3d8f8e4bc17e0b6afb78c52883107479fb0b406ee550297dd31de4793c2d5",
+          "size": 782
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "adf6b45e258b1412de46a7ba8b96eb02fc226283d807a1ef11d3b8229ce2cb95"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--recovery-one/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--recovery-one/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "cli",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--recovery-one/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--plan-run",
+        "Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"entry_paths\":[\"cli/main.py\"],\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"stdlib_only\":true}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "c8cad652796121ca8e8501223de2677d3938d696c3dc6550276e8ba4ab97899c",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "121292d53285548f3f7d484430ea83779d21c90c68c26f51241ae276432b86c6",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c01-task-01--pair-01--recovery-one/initial/.commandagent/runs/01a04d56-e94e-7403-aa00-9783099fbf95",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": false,
+        "configured_recovery_runs": 1,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": null
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 3641,
+        "output_tokens": 1532,
+        "total_tokens": 5173,
+        "wall_time_ms": 50135
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nEstimated duration from similar runs: average 10.5 min (3 samples; formal Window B band).\nerror: completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d57-adae-7643-9d4f-07814f7b946f.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d57-adae-7643-9d4f-0794728ea0f8.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d57-adae-7643-9d4f-07814f7b946f.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d57-adae-7643-9d4f-0794728ea0f8.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (9s)\n↻ plan quality retry 1: code task lacks test, build, smoke, or compile verification\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (11s)\n↻ plan quality retry 2: code task lacks test, build, smoke, or compile verification\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (9s)\n↻ plan quality retry 3: code task lacks test, build, smoke, or compile verification\n#### Phase: Create a Python sum CLI at cli/main.py; inputs 2 3 print 5, and inputs -1 1 print 0.  Operationa...\n1. ○ [implement] Create cli/main.py that reads two integers from command-line arguments, computes their sum, and ... (verify 0)\n2. ○ [implement] Create a smoke-check.py script that imports subprocess and verifies cli/main.py outputs 5 for in... (verify 0)\n3. ○ [verify] Run the smoke check to validate CLI behavior for the specified test cases. (verify 1)\n→ step create-cli-script [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (19s)\n→ Write cli/main.py\n→ Write smoke-check.py\n✓ Write ok\n✓ Write ok\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "missing_required_evidence",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d57-adae-7643-9d4f-0794728ea0f8.yaml",
+        "status": "failed",
+        "stop_reason": "completion contract verify failed after 1 attempts: missing_required_evidence:bound_verify_command\nPaths:\n- recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04d57-adae-7643-9d4f-07814f7b946f.md\n- recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d57-adae-7643-9d4f-0794728ea0f8.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .commandagent/repairs/repair-minimal-loop-01a04d57-adae-7643-9d4f-07814f7b946f.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04d57-adae-7643-9d4f-0794728ea0f8.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 50362
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14",
+  "source_case_id": "phase6-main-c01-task-01"
+}

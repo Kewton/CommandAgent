@@ -229,52 +229,10 @@ pub(super) fn validate_recovery_prompt(path: &Path) -> Result<(), String> {
     Err("recovery_prompt_missing_recovery_sections".to_string())
 }
 
-pub(super) fn validate_recovery_yaml(path: &Path) -> Result<(), String> {
-    if !path.is_file() {
-        return Err("recovery_yaml_missing".to_string());
-    }
-    let text = std::fs::read_to_string(path)
-        .map_err(|err| format!("recovery_yaml_unreadable: {}", err))?;
-    let parsed =
-        parse_ultra_plan(&text).map_err(|err| format!("recovery_yaml_parse_failed: {}", err))?;
-    let rendered = render_ultra_plan(&parsed);
-    let reparsed = parse_ultra_plan(&rendered)
-        .map_err(|err| format!("recovery_yaml_roundtrip_parse_failed: {}", err))?;
-    if reparsed != parsed {
-        return Err("recovery_yaml_roundtrip_mismatch".to_string());
-    }
-    if let Some(reason) = recovery_yaml_needs_review_reason(&text) {
-        return Err(format!("recovery_yaml_needs_review: {reason}"));
-    }
-    Ok(())
-}
-
-pub(super) fn recovery_yaml_needs_review_reason(text: &str) -> Option<String> {
-    let mut needs_review = false;
-    let mut reason = String::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed == "recovery_needs_review: true" {
-            needs_review = true;
-        } else if let Some(value) = trimmed.strip_prefix("recovery_needs_review_reason:") {
-            reason = parse_recovery_metadata_string(value.trim());
-        }
-    }
-    needs_review.then(|| {
-        if reason.is_empty() {
-            "needs_review".to_string()
-        } else {
-            reason
-        }
-    })
-}
-
-pub(super) fn parse_recovery_metadata_string(value: &str) -> String {
-    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-        serde_json::from_str(value).unwrap_or_else(|_| value.trim_matches('"').to_string())
-    } else {
-        value.trim_matches('"').trim_matches('\'').to_string()
-    }
+pub(crate) fn validate_recovery_yaml(path: &Path) -> Result<(), String> {
+    crate::planner::recovery_validation::validate(path)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 pub(super) fn recovery_artifact_check_summary(validation: &RecoveryArtifactValidation) -> String {
@@ -538,12 +496,19 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         config.eval_events_path.as_deref(),
                     )
                 };
+                let recovery_contract_bound =
+                    crate::planner::recovery_step_plan_binding::bind_generated(
+                        config,
+                        phase_label,
+                        &mut plan,
+                    )?;
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
                     || step_checks_converted > 0
                     || preset_converted > 0
-                    || python_cli_canonicalized > 0;
+                    || python_cli_canonicalized > 0
+                    || recovery_contract_bound;
                 emit_planner_plan_sanitized(
                     config,
                     client.label(),
@@ -551,10 +516,11 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     attempt,
                     &sanitizer_report,
                 );
-                let lint_report = crate::planner::lint::lint_template_contract(
+                let mut lint_report = crate::planner::lint::lint_template_contract(
                     &plan,
                     Some(&config.workspace_root),
                 );
+                sanitizer_report.append_policy_errors(&mut lint_report);
                 if lint_report.is_pass() {
                     let quality_context = plan_quality_context(config, goal);
                     let quality_report = step_plan_quality_report(&plan, &quality_context);
@@ -741,9 +707,11 @@ pub(super) fn deterministic_step_plan_for_phase(
     );
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+    crate::planner::recovery_step_plan_binding::bind_generated(config, phase_label, &mut plan)?;
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
-    let lint_report =
+    let mut lint_report =
         crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
+    sanitizer_report.append_policy_errors(&mut lint_report);
     if !lint_report.is_pass() {
         emit_planner_error_for_lint(config, provider, model, &lint_report, 1);
         anyhow::bail!(
@@ -1764,6 +1732,12 @@ pub(super) fn emit_planner_plan_sanitized(
                 "original_command": eval_events::body_snippet(&record.original_command),
                 "fragments": record.fragments.iter().map(|fragment| eval_events::body_snippet(fragment)).collect::<Vec<_>>(),
                 "dropped_fallback": record.dropped_fallback.as_deref().map(eval_events::body_snippet),
+            })).collect::<Vec<_>>(),
+            "semantic_change_rejections": report.semantic_change_rejections.iter().map(|record| json!({
+                "kind": &record.kind,
+                "step_id": &record.step_id,
+                "value": eval_events::body_snippet(&record.value),
+                "reason": eval_events::body_snippet(&record.reason),
             })).collect::<Vec<_>>(),
             "removed_commands": report.removed_commands.iter().map(|record| json!({
                 "step_id": &record.step_id,

@@ -1,27 +1,21 @@
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::json;
 
-use super::{checks, internal_checks, manifest, phase_scope::DataSetupStepChecks};
+use super::{manifest, phase_scope::DataSetupStepChecks};
 use crate::eval_events;
-use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
-use crate::minimal_loop::python_traceback;
-use crate::planner::capability_catalog::{InternalCapability, ProbeCapability, ResolvedCapability};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 mod contract_assertion;
+mod execution;
+mod input_binding;
 mod phase_filter;
 pub(crate) mod verify_default;
 
-pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
+pub(crate) use execution::execute_catalog_check;
+pub(crate) use input_binding::catalog_check_command_with_input;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CatalogCheckOutcome {
-    pub id: String,
-    pub ok: bool,
-    pub reasons: Vec<String>,
-}
+pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
 
 pub(crate) fn canonicalize_step_plan(
     plan: &mut StepPlan,
@@ -42,25 +36,8 @@ pub(crate) fn catalog_check_command(id: &str) -> String {
 }
 
 pub(crate) fn catalog_check_id(command: &str) -> Option<&str> {
-    let id = command.trim().strip_prefix(CATALOG_CHECK_PREFIX)?;
+    let (id, _) = input_binding::parts(command)?;
     (!id.is_empty() && !id.chars().any(char::is_whitespace) && is_bound_check_id(id)).then_some(id)
-}
-
-pub(crate) fn execute_catalog_check(
-    root: &Path,
-    command: &str,
-    report: &mut crate::planner::verify::VerificationReport,
-    eval_events_path: Option<&Path>,
-    goal: Option<&str>,
-) -> Option<anyhow::Result<CatalogCheckOutcome>> {
-    let id = catalog_check_id(command)?.to_string();
-    Some(execute_bound_check(
-        root,
-        id,
-        report,
-        eval_events_path,
-        goal,
-    ))
 }
 
 pub(crate) fn run_step_catalog_checks(
@@ -368,52 +345,6 @@ fn manifest_owned_path(path: &str) -> bool {
 
 fn is_bound_check_id(id: &str) -> bool {
     manifest::check_ids().iter().any(|bound| bound == id)
-}
-
-fn execute_bound_check(
-    root: &Path,
-    id: String,
-    report: &mut crate::planner::verify::VerificationReport,
-    eval_events_path: Option<&Path>,
-    goal: Option<&str>,
-) -> anyhow::Result<CatalogCheckOutcome> {
-    let resolved = manifest::get()
-        .resolve()?
-        .into_values()
-        .flatten()
-        .find(|check| check.id == id)
-        .ok_or_else(|| anyhow::anyhow!("data manifest check `{id}` is not bound"))?
-        .capability;
-    let (ok, reasons) = match resolved {
-        ResolvedCapability::Internal(InternalCapability::Data(check)) => {
-            internal_checks::execute(root, check, goal)?
-        }
-        ResolvedCapability::Probe(ProbeCapability::Pipeline {
-            entry,
-            timeout_seconds,
-        }) => {
-            let evidence = pipeline_probe::run(
-                root,
-                PipelineProbeConfig::new(entry)
-                    .with_timeout(Duration::from_secs(timeout_seconds.into())),
-            )?;
-            python_traceback::attach_pipeline_report(&evidence, eval_events_path, report);
-            (evidence.ok, evidence.failure_kinds)
-        }
-        ResolvedCapability::Probe(ProbeCapability::DataRerunConsistency {
-            entry,
-            timeout_seconds,
-        }) => {
-            let evidence = checks::check_rerun_consistency(
-                root,
-                &entry,
-                Duration::from_secs(timeout_seconds.into()),
-            )?;
-            (evidence.ok, evidence.failure_kinds)
-        }
-        capability => anyhow::bail!("unsupported data catalog check adapter: {capability:?}"),
-    };
-    Ok(CatalogCheckOutcome { id, ok, reasons })
 }
 
 fn emit_canonicalized(

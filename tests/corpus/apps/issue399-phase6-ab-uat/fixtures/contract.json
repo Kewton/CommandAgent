@@ -1,0 +1,9 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_report.v0",
+  "evidence_lanes": {"separated": true},
+  "metrics": {"complete_shape": true},
+  "raw_evidence": {"referenced": true},
+  "rollback": {"rehearsed": true},
+  "flag_off": {"compatible": true},
+  "final_decision": "INSUFFICIENT-EVIDENCE"
+}

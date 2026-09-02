@@ -1,0 +1,27 @@
+{
+  "schema_version": "commandagent.goal_verify.measurement_boundary.v2",
+  "status": "draft_waiting_for_task_corpus",
+  "paired_run": {
+    "shared": ["source_task_id", "goal", "workspace snapshot", "model", "seed", "wall budget", "token budget", "cache policy"],
+    "exclusion": "frozen before first response; timeout, dependency failure, schema failure, and concretization failure remain failures"
+  },
+  "proposal_only": {
+    "start": "goal request accepted",
+    "end": "host-canonicalized VerificationSpec validation completed",
+    "metrics": ["schema compliance", "claim coverage", "proposal wall time", "proposal input tokens", "proposal output tokens"]
+  },
+  "end_to_end": {
+    "start": "goal request accepted",
+    "end": "all eligible oracle evaluations and candidate adjudication completed",
+    "metrics": ["task success", "strong binding", "unverified", "false-full", "wall time", "total tokens", "retry", "flake"]
+  },
+  "cluster_design": {
+    "source_task_field": "source_task_id",
+    "target_per_cell": "10 distinct source tasks x 3 paired runs",
+    "bootstrap": "hierarchical cluster paired percentile",
+    "samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39920260826,
+    "task_clusters_weighted_equally": true
+  }
+}

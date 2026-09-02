@@ -15,6 +15,7 @@ fn context(root: &std::path::Path, events: &std::path::Path) -> ToolContext {
         workspace_policy: WorkspacePolicy::NormalTask,
         eval_events_path: Some(events.to_path_buf()),
         expected_paths: Vec::new(),
+        protected_paths: Vec::new(),
     }
 }
 

@@ -112,6 +112,9 @@ use final_acceptance::*;
 mod adjudication_create;
 use adjudication_create::*;
 
+#[path = "runner/recovery_acceptance.rs"]
+pub(crate) mod recovery_acceptance;
+
 #[path = "assurance.rs"]
 mod assurance;
 use assurance::*;

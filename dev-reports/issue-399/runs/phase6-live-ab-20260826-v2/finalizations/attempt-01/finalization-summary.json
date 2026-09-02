@@ -1,0 +1,22 @@
+{
+  "attempt_id": "attempt-01",
+  "bootstrap_samples": 2000,
+  "compared_files": [
+    "phase6-report.json",
+    "failure-cases.json"
+  ],
+  "decision_sha256": {
+    "failure-cases.json": "20de33297cb1e7a27f5a55051eb96ac497e117ff59f274b4d247b7ce5d8c8912",
+    "phase6-report.json": "60a4a6ca182f6bec25bc4899c0168fec17d2b79644cf3b2ea3d7374ee27b5778"
+  },
+  "failure_count": 9,
+  "final_decision": "NO-GO",
+  "input_sha256": {
+    "blind_review_report": "fdc8fac6b7c7c296ed059bc14be9d2c2371a4a20b789599337ea1b01be199320",
+    "campaign_summary": "eaa810f89c24d46b7296fe3f7d0646bdb8b9d3adb2a8dc32a9a9843bb539882e",
+    "candidate_corpus": "e9004b43b1eccf7207aa8b6bc7c4dc9ddfe37b9b7e9f029e63d3d91f0791a531",
+    "matrix": "dabd7af67d15ac4cc6c42775d4b57ed4b8a405350c9cb9c86a5edf708a61a6bc"
+  },
+  "same_script_replay_byte_identical": true,
+  "schema_version": "commandagent.goal_verify.phase6_finalization.v0"
+}

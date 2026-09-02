@@ -1,0 +1,291 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
+  "contract_id": "phase6-preflight-v4-20260827-live-05",
+  "status": "frozen",
+  "code_sha": "fb1b12475ece4a9dd9403c4351ee123afe443fd6",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-fb1b1247.json",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "samples_per_cell": 5,
+  "selected_cells": [
+    {"case_id": "create-build-only-functional", "intent": "create", "lane": "primary"},
+    {"case_id": "create-ui-copy-style-port-path", "intent": "create", "lane": "primary"},
+    {"case_id": "create-cli-known-multiple-inputs", "intent": "create", "lane": "primary"},
+    {"case_id": "create-negative-constraint-injection", "intent": "create", "lane": "executor_unavailable"},
+    {"case_id": "fix-reproduced-after-regression", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-baseline-not-reproduced-substitution", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-after-not-run-regression-shrunk", "intent": "fix", "lane": "primary"},
+    {"case_id": "fix-existing-tests-only-dependency-missing", "intent": "fix", "lane": "primary"}
+  ],
+  "runner_sources": [
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval_lib/goal_verify_live_v4.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v4.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval-goal-verify-v4-readiness.py",
+    "scripts/eval-goal-verify-v4-report.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v4.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "supersedes": {
+    "run_id": "phase6-preflight-v3-20260826-live-02",
+    "completed_pairs": 29,
+    "completed_proposals": 58,
+    "policy": "retain without rescoring, proposal reuse, completion, or quality inference",
+    "reason": "v3 compared current-product implementation from initial/before with candidate oracles executed on completed reference/after artifacts"
+  },
+  "pre_live_amendments": [
+    {
+      "id": "v4-A1",
+      "recorded_at": "2026-08-26",
+      "before_first_provider_response": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-01",
+      "replacement_run_id": "phase6-preflight-v4-20260826-live-02",
+      "superseded_code_sha": "b43e3633c66c0b169eb03b53dd267051199b6b47",
+      "replacement_code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
+      "reason": "the first smoke attempt failed before baseline and provider execution because v4 passed pair_root/source-stages to the inherited stage helper, which resolved the frozen dependency bundle under execution_root/run-id/provisioned instead of execution_root/provisioned",
+      "change": "pass pair_root directly so the inherited helper resolves the preregistered execution_root/provisioned bundle",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 0,
+      "superseded_run_completed_proposals": 0,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "superseded_evidence_policy": "retain the zero-proposal manifest and summary; do not resume or reuse the run id",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4d93c0c1.json"
+    },
+    {
+      "id": "v4-A2",
+      "recorded_at": "2026-08-26",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-02",
+      "replacement_run_id": "phase6-preflight-v4-20260826-live-03",
+      "superseded_code_sha": "4d93c0c1f965ad26c95facee0d804fca5fc77dff",
+      "replacement_code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
+      "reason": "the first bounded pair proved the same-snapshot and gold-isolation invariants but exposed that v4 classified dom and interaction proposals as executor_unavailable instead of executing candidate-owned browser bindings; the report also conflated a recorded timeout or server-not-ready attempt with no host execution record",
+      "change": "add a v4-only browser binding schema, host-validated loopback HTTP/DOM/interaction execution, a pre-product frozen Playwright toolchain, offline npm execution, and a separate execution_attempt_recorded field without changing pass/fail outcomes",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-2826e36f.json"
+    },
+    {
+      "id": "v4-A3",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_manifest_resume_gate": true,
+      "superseded_run_id": "phase6-preflight-v4-20260826-live-03",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-04",
+      "superseded_code_sha": "2826e36f8c459986c3d2f4a7b0c3aedb5518d9e8",
+      "replacement_code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
+      "reason": "the live-03 manifest proved that the CLI default selected the production v0 schema hash instead of the v4 schema declared by the frozen contract; the v4 runner did not bind the resolved CLI schema path back to contract.generation.structured_output_schema",
+      "change": "derive the CLI schema default from the contract and reject any v4 schema path that differs from the contract before readiness checks, workspace creation, baseline execution, or provider requests",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "superseded_schema_sha256": "c08838d8bdf9d2d1caa6426b79c3ccfbcb2234b4ecab0a1ab6e01a126a4b188a",
+      "required_schema_sha256": "7c88c3d74dab59673bcc287ab076f473ff0ea153a02c4079862252bfa828f894",
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "superseded_evidence_policy": "retain the one-pair record, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include it in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-96b762d9.json"
+    },
+    {
+      "id": "v4-A4",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "instrument_defect_detected_by_selected_cell_transition": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-04",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-05",
+      "superseded_code_sha": "96b762d93ca60d8d818243d43cd616a9e7c0ebc3",
+      "replacement_code_sha": "fb1b12475ece4a9dd9403c4351ee123afe443fd6",
+      "reason": "live-04 completed the first three selected cells, then failed before the fourth cell baseline or provider call because create-negative-constraint-injection had no initial workspace; v3 readiness allowed the executor-unavailable cell to remain workspace-less while v4 additive execution requires a shared product snapshot for every selected cell",
+      "change": "add a hash-frozen empty initial product workspace for the negative cell without changing its unavailable executor status; merge it additively over the immutable v3 registry; require readiness to validate every selected cell intent, product stage declaration, stage directory, and product_run.initial_stage before any provider response",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 15,
+      "superseded_run_completed_proposals": 30,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "executor_status_changes": "none",
+      "superseded_evidence_policy": "retain the 15-pair records, manifest, ledger, and summary for instrument-defect audit only; do not resume, rescore, reuse proposals, or include them in quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-fb1b1247.json"
+    }
+  ],
+  "comparison": {
+    "baseline": "current_product_evidence",
+    "candidate": "baseline_plus_candidate_evidence",
+    "estimand": "score(union(baseline_evidence,candidate_evidence))-score(baseline_evidence)",
+    "task_execution_count_per_pair": 1,
+    "shared_product_snapshot": true,
+    "baseline_failure_override_allowed": false,
+    "unverified_as_pass_allowed": false
+  },
+  "pairing": {
+    "shared": [
+      "source_task_id",
+      "goal",
+      "initial_or_before_snapshot",
+      "product_run",
+      "product_snapshot_sha256",
+      "baseline_evidence",
+      "model",
+      "seed",
+      "wall_budget",
+      "token_budget",
+      "dependency_bundle",
+      "cache_policy"
+    ],
+    "candidate_execution_target": "product_snapshot",
+    "fix_before_execution_target": "frozen_before_snapshot",
+    "reference_or_after_fallback": "forbidden",
+    "exclusion_rules": [
+      "timeout remains a failure",
+      "dependency failure remains a failure",
+      "schema failure remains a failure",
+      "concretization failure remains a failure",
+      "baseline_unavailable remains a failure",
+      "no denominator, exclusion, threshold, or lane change after the first provider response"
+    ]
+  },
+  "information_boundary": {
+    "candidate_visible": [
+      "goal",
+      "intent",
+      "profile",
+      "lane-appropriate claim contract",
+      "bounded product workspace manifest",
+      "executor capabilities",
+      "safety policy",
+      "frozen fix or investigation evidence registry"
+    ],
+    "candidate_hidden": [
+      "gold adapter ids",
+      "gold argv",
+      "gold expected values",
+      "gold observations",
+      "reference implementation contents",
+      "baseline scores and verdict",
+      "blind variant mapping"
+    ],
+    "gold_use": "scoring_only_after_candidate_execution",
+    "provider_argv_policy": "host_validate_then_execute_as_direct_argv_without_shell",
+    "semantic_repair": "forbidden"
+  },
+  "generation": {
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4.prompt.txt",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec-preflight-v4.schema.json",
+    "model": "qwen3.6:27b-coding-nvfp4",
+    "seed_base": 399400,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "regeneration_limit": 1,
+    "regeneration_cost_included": true,
+    "think": false,
+    "keep_alive": "30m",
+    "shape_examples": {
+      "create": "tests/fixtures/verification_spec_v0/create.json",
+      "fix": "tests/fixtures/verification_spec_v0/fix.json"
+    }
+  },
+  "execution": {
+    "sandbox": "candidate commands and candidate servers use macos_sandbox_exec",
+    "network": "external denied; candidate servers are loopback-only; host-fixed browser blocks non-same-origin requests",
+    "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
+    "browser_toolchain": "playwright-core copied from the provisioned bundle before product execution and hash-recorded outside candidate workspaces",
+    "shell": false,
+    "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4",
+    "same_snapshot_hash_required": true,
+    "candidate_primary_reference_fallback_max_count": 0,
+    "gold_used_for_execution_max_count": 0,
+    "baseline_observation_copy_max_count": 0
+  },
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-a4.json",
+  "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+  "scoring": {
+    "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v3.json",
+    "answer_key_use": "post_execution_scoring_only",
+    "variants": [
+      "baseline",
+      "baseline_plus_candidate"
+    ],
+    "deduplication_key": [
+      "claim_id",
+      "observation_semantics",
+      "input_binding",
+      "stage"
+    ],
+    "shadow_verdict": true,
+    "candidate_verdict_inherits_baseline_pass": false
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10.0,
+    "p95_wall_time_max_increase_pct": 20.0,
+    "p50_total_tokens_max_increase_pct": 10.0,
+    "p95_total_tokens_max_increase_pct": 20.0,
+    "preflight_use": "report_only"
+  },
+  "preflight": {
+    "purpose": "additive measurement instrument readiness; never product GO",
+    "schema_compliance_yield_floor": 0.95,
+    "same_snapshot_rate": 1.0,
+    "executable_oracle_execution_record_rate": 1.0,
+    "union_scorer_determinism_rate": 1.0,
+    "shadow_false_full_max_count": 0,
+    "semantic_review_required": true
+  },
+  "full_experiment": {
+    "cells": 12,
+    "minimum_pairs_per_cell": 30,
+    "minimum_total_pairs": 360,
+    "minimum_distinct_source_tasks_per_cell": 10,
+    "minimum_runs_per_source_task": 3,
+    "cluster_unit": "source_task_id",
+    "cluster_weighting": "equal",
+    "bootstrap": "hierarchical paired percentile",
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39920260826
+  },
+  "semantic_review": {
+    "primary": "source-blind atomic verification item review",
+    "raw_candidate_proposal_only": true,
+    "canonicalized_spec_visible": false,
+    "execution_result_visible": false,
+    "superset_portfolio_review": "secondary_non_blind",
+    "independent_human_required": true,
+    "different_model_families_required": 2
+  },
+  "authorization": {
+    "implementation_authorized": true,
+    "live_collection_authorized": true,
+    "approved_at": "2026-08-27",
+    "approved_by": "repository owner (continued execution of the reviewed v4 design)",
+    "scope": "limit-0, bounded smoke, and additive preflight collection using the frozen v4 contract",
+    "note": "exact SHA, CI evidence, run id, budgets, exclusions, and input boundary are frozen before the first provider response"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl"
+  }
+}

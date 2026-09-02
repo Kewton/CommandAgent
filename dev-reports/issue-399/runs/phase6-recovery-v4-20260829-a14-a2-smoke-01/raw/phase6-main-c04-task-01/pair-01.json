@@ -1,0 +1,1524 @@
+{
+  "case_id": "phase6-main-c04-task-01",
+  "comparison": {
+    "artifact_delta_between_arms": {
+      "added": [
+        "README.md",
+        "src/app/play-01/page.tsx",
+        "tests/layout.test.js",
+        "tests/page.test.ts"
+      ],
+      "after_snapshot_sha256": "c312d471dd9e5c034e5c1ab4ea71956b313e33bf51e63bdc9bda03fa03c6ae9a",
+      "before_snapshot_sha256": "312474027beafbc8d181d1ec4225db49a4866201b0b84402fc931acc459b5ffa",
+      "change_count": 9,
+      "changed": [
+        "next-env.d.ts",
+        "package-lock.json",
+        "package.json",
+        "src/app/globals.css",
+        "tsconfig.json"
+      ],
+      "removed": []
+    },
+    "control_snapshot_matches_boundary": true,
+    "effect_attribution_ready": true,
+    "executed_recovery_runs": 1,
+    "existing_artifact_harmed": false,
+    "initial_oracle_status": "fail",
+    "initial_regression_status": "not_applicable",
+    "internal_external_outcome_matrix": {
+      "control": {
+        "external": "fail",
+        "internal": "failed_recoverable"
+      },
+      "treatment": {
+        "external": "fail",
+        "internal": "failed"
+      }
+    },
+    "oracle_semantics": {
+      "errors": [],
+      "final_success_adapter_ids": [
+        "ui-copy-text--phase6-cell-04-source-task-01",
+        "ui-style-background--phase6-cell-04-source-task-01",
+        "port-path--phase6-cell-04-source-task-01"
+      ],
+      "precondition_adapter_ids": [],
+      "valid": true
+    },
+    "precondition_oracle_status": "not_applicable",
+    "quality_transition": "unchanged_fail",
+    "raw_oracle_transition": "unchanged_fail",
+    "recovery_changed_paths": {
+      "added": [
+        "README.md",
+        "src/app/play-01/page.tsx",
+        "tests/layout.test.js",
+        "tests/page.test.ts"
+      ],
+      "change_count": 9,
+      "changed": [
+        "next-env.d.ts",
+        "package-lock.json",
+        "package.json",
+        "src/app/globals.css",
+        "tsconfig.json"
+      ],
+      "removed": []
+    },
+    "recovery_oracle_status": "fail",
+    "recovery_regression_status": "not_applicable",
+    "regression_introduced": false,
+    "resource_delta": {
+      "input_tokens": 118841,
+      "output_tokens": 6922,
+      "total_tokens": 125763,
+      "wall_time_ms": 224926
+    },
+    "shared_initial_history": true,
+    "success_improved": false
+  },
+  "eligibility": {
+    "preregistered": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available"
+    },
+    "runtime": {
+      "category": "recoverable_candidate",
+      "eligible": true,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_inputs_and_frozen_external_oracles_available",
+      "run_recovery_one_arm": true,
+      "runtime_source": "shared_recovery_boundary"
+    }
+  },
+  "initial_only": {
+    "boundary_snapshot_sha256": "a944105799c5a4386f0a78b6e8b3e15d184ad0389a75a491aea8d378249126d7",
+    "boundary_workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace",
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 3,
+      "oracle_count": 3,
+      "outcomes": [
+        {
+          "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        },
+        {
+          "adapter_id": "port-path--phase6-cell-04-source-task-01",
+          "claim_id": "port-path",
+          "executor_kind": "http_get",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "executed": false,
+            "original_result": "blocked",
+            "reason": "server_not_ready",
+            "result": "fail"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "host_capability_attachments": [
+      "node_modules",
+      ".goal-verify-tools"
+    ],
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+          "size": 44
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316"
+    },
+    "observed_snapshot_sha256": "a944105799c5a4386f0a78b6e8b3e15d184ad0389a75a491aea8d378249126d7",
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "312474027beafbc8d181d1ec4225db49a4866201b0b84402fc931acc459b5ffa",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "dd53e40695c5f212b7460de702f2c851992a04d0903b9996b4bb898b497cf2f4",
+          "size": 30367
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "d14f6e8e86288fb68261d39e46441ba42dcd5ffc081f2aa61bed70dc4b397819",
+          "size": 418
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "312474027beafbc8d181d1ec4225db49a4866201b0b84402fc931acc459b5ffa"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+          "size": 288
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "dd53e40695c5f212b7460de702f2c851992a04d0903b9996b4bb898b497cf2f4",
+          "size": 30367
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "d14f6e8e86288fb68261d39e46441ba42dcd5ffc081f2aa61bed70dc4b397819",
+          "size": 418
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "eb94b922a59d19ac46868e9733d398588e66e0ba853235f28b4c8ccf0505899c",
+          "size": 237
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "34e2d51d93269741a8eb930466fde8bd0eca2896d3a736e3fba3f711cface22e",
+          "size": 789
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "312474027beafbc8d181d1ec4225db49a4866201b0b84402fc931acc459b5ffa"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "nextjs",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"allowed_dependencies\":[\"next\",\"react\",\"react-dom\"],\"entry_paths\":[\"package.json\"],\"forbidden_dependencies\":[\"tailwindcss\",\"postcss plugins\",\"autoprefixer\",\"any network-installed package\"],\"framework\":\"nextjs\",\"language\":\"javascript_or_typescript\",\"network\":\"denied\",\"provisioning\":\"offline bundle only\",\"reserved_port\":4201,\"scored\":false,\"shell\":\"forbidden\",\"styling\":\"plain CSS\"}"
+      ],
+      "recovery_boundary": {
+        "file_count": 11,
+        "initial_provider_usage": {
+          "input_tokens": 13756,
+          "output_tokens": 1836,
+          "total_tokens": 15592,
+          "wall_time_ms": 76260
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 118841,
+          "output_tokens": 6922,
+          "total_tokens": 125763,
+          "wall_time_ms": 224926
+        },
+        "snapshot_sha256": "a944105799c5a4386f0a78b6e8b3e15d184ad0389a75a491aea8d378249126d7",
+        "status": "captured",
+        "total_bytes": 39718,
+        "workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace"
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed_recoverable",
+            "stop_reason": "recovery_started"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "shared_recovery_boundary"
+      },
+      "resource_usage": {
+        "input_tokens": 13756,
+        "output_tokens": 1836,
+        "total_tokens": 15592,
+        "wall_time_ms": 76260
+      },
+      "status": "captured_pre_recovery_control",
+      "terminal_status": {
+        "event": "recovery_plan_auto_run_start",
+        "ok": false,
+        "recorded": true,
+        "recovery_handoff_kind": "profile_invariant_failure",
+        "status": "failed_recoverable"
+      }
+    },
+    "status": "captured_pre_recovery_control"
+  },
+  "intent": "create",
+  "oracle_semantics": {
+    "errors": [],
+    "final_success_adapter_ids": [
+      "ui-copy-text--phase6-cell-04-source-task-01",
+      "ui-style-background--phase6-cell-04-source-task-01",
+      "port-path--phase6-cell-04-source-task-01"
+    ],
+    "precondition_adapter_ids": [],
+    "valid": true
+  },
+  "pair_id": "phase6-main-c04-task-01--pair-01",
+  "pairing_unit": "shared_pre_recovery_snapshot",
+  "profile": "nextjs",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-a2-smoke-01/raw/phase6-main-c04-task-01/pair-01.json",
+  "recovery_one": {
+    "external_oracles": {
+      "a14_role": "final_success",
+      "fail_count": 2,
+      "oracle_count": 3,
+      "outcomes": [
+        {
+          "adapter_id": "ui-copy-text--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "exit_code": 1,
+            "original_result": "blocked",
+            "reason": "playwright_unavailable_or_failed",
+            "result": "fail",
+            "runtime_ms": 30,
+            "stderr": "node:internal/modules/cjs/loader:1408\n  throw err;\n  ^\n\nError: Cannot find module 'playwright-core'\nRequire stack:\n- /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/[eval]\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1405:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1061:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1066:22)\n    at Module._load (node:internal/modules/cjs/loader:1215:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\n    at Module.require (node:internal/modules/cjs/loader:1491:12)\n    at require (node:internal/modules/helpers:135:16)\n    at [eval]:1:22\n    at runScriptInThisContext (node:internal/vm:218:10) {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: [\n    '/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/[eval]'\n  ]\n}\n\nNode.js v24.1.0\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "ui-style-background--phase6-cell-04-source-task-01",
+          "claim_id": "ui-copy-style",
+          "executor_kind": "playwright_script",
+          "is_regression": false,
+          "outcome": {
+            "a14_attribution": "product_did_not_reach_frozen_observation_boundary",
+            "exit_code": 1,
+            "original_result": "blocked",
+            "reason": "playwright_unavailable_or_failed",
+            "result": "fail",
+            "runtime_ms": 32,
+            "stderr": "node:internal/modules/cjs/loader:1408\n  throw err;\n  ^\n\nError: Cannot find module 'playwright-core'\nRequire stack:\n- /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/[eval]\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1405:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1061:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1066:22)\n    at Module._load (node:internal/modules/cjs/loader:1215:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\n    at Module.require (node:internal/modules/cjs/loader:1491:12)\n    at require (node:internal/modules/helpers:135:16)\n    at [eval]:1:22\n    at runScriptInThisContext (node:internal/vm:218:10) {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: [\n    '/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/[eval]'\n  ]\n}\n\nNode.js v24.1.0\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        },
+        {
+          "adapter_id": "port-path--phase6-cell-04-source-task-01",
+          "claim_id": "port-path",
+          "executor_kind": "http_get",
+          "is_regression": false,
+          "outcome": {
+            "actual": 200,
+            "executed": true,
+            "reason": "observation_match",
+            "result": "pass"
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 1,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "53e75fc917dbce79fb9512f144fb9166b36a5d6f287f1a8b845fcf84ad41d99e",
+          "size": 44
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [
+        "README.md",
+        "next-env.d.ts",
+        "next.config.js",
+        "package-lock.json",
+        "src/app/global.d.ts",
+        "src/app/globals.css",
+        "src/app/layout.js",
+        "src/app/layout.tsx",
+        "src/app/page.js",
+        "src/app/page.tsx",
+        "src/app/play-01/page.tsx",
+        "tests/layout.test.js",
+        "tests/page.test.ts",
+        "tsconfig.json"
+      ],
+      "after_snapshot_sha256": "c312d471dd9e5c034e5c1ab4ea71956b313e33bf51e63bdc9bda03fa03c6ae9a",
+      "before_snapshot_sha256": "e9d2790087342bf18b9db03b720333f88f18827b344af158eb85d88edc54e316",
+      "change_count": 15,
+      "changed": [
+        "package.json"
+      ],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "66ad96310df57915472574d87eaeea47523aa0c739903653e213d3162b092e5b",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "9fbc4325a7314dfd5a5ff86c5f519e6b88150226327e9228e17e853948f6f50f",
+          "size": 825
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+          "size": 228
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "89dc3fb2789a984c6bfdeb3bbddb419d4757b48d056e26ace6b46e15ad534d1c",
+          "size": 16759
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "8469485f56f1d6b427140fcbff4f94332aa0aa23f6b6e5b38b83d5791bf8ea7b",
+          "size": 428
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "71ad0002a9d3cbc785a64a86cb5ea1bd3d3dd81a26b82dcb9c89c30aead8137e",
+          "size": 240
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "src/app/play-01/page.tsx",
+          "sha256": "5ba1b28019e50367f2bf91eaffa1ac8d8ac95b93d610dfc45ba4d45e42849604",
+          "size": 474
+        },
+        {
+          "kind": "file",
+          "path": "tests/layout.test.js",
+          "sha256": "6503497f4ab0416ea12f200c541b8ee7e18a8c3edfe0af063ff6c7cc7b27d526",
+          "size": 729
+        },
+        {
+          "kind": "file",
+          "path": "tests/page.test.ts",
+          "sha256": "c2377916d798c20fa048b4ba30d500b86dded163eb10d77c25ba45bc46dc4f97",
+          "size": 832
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "0c039baf308c98f47dfd08dac38468222ea0b4d66354122b3b0a518006ff0ee8",
+          "size": 788
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "c312d471dd9e5c034e5c1ab4ea71956b313e33bf51e63bdc9bda03fa03c6ae9a"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".next/BUILD_ID",
+          "sha256": "d14928c54f9de54ba535ee57c6fd897fa0f1cf1d347bbbae18bf3eb394299972",
+          "size": 21
+        },
+        {
+          "kind": "file",
+          "path": ".next/app-build-manifest.json",
+          "sha256": "6606223bb58b46581da198b03343c1ce66d3615e0b80da9d39067a4c1fabde55",
+          "size": 1202
+        },
+        {
+          "kind": "file",
+          "path": ".next/app-path-routes-manifest.json",
+          "sha256": "7df4630c5feb57fa83b06f7fffd8344c7c65414405e4ae8f870ac2f125a20091",
+          "size": 73
+        },
+        {
+          "kind": "file",
+          "path": ".next/build-manifest.json",
+          "sha256": "4a235301a6d99d407c643e8b58f80f5012d45a6cca984033c0a769d64415a951",
+          "size": 968
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.previewinfo",
+          "sha256": "35434320727b8b7ca13ce171a449ab7b636fe0c573ad0154a8be96abcc05128b",
+          "size": 262
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.rscinfo",
+          "sha256": "ffc920092996f47f7e3aee6885b231d40736ca68998c799fd8dbd90a134c5a7b",
+          "size": 102
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/.tsbuildinfo",
+          "sha256": "99915e43e7190dcc1b8892bc4ce727f960c976dd940204e758ee60ddfa7982c7",
+          "size": 86701
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000001.sst",
+          "sha256": "ec2540d4cb3e40249d4913baf6cee4940dcea4460b1cad8af1dcfea84d857abb",
+          "size": 5165484
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000002.sst",
+          "sha256": "9217a55cd74cebe2ff60a17d08590e7a35f19f8c9233a3581b39f4136c72ed8e",
+          "size": 1396089
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000003.sst",
+          "sha256": "94a3326990ba7aa1719dfdc83809228a56eb5c157f31abf16c2861a64ddbfcd5",
+          "size": 18633969
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000004.sst",
+          "sha256": "04d729e7e54850b8772fdf32df214075ddc742ea7e8aee96f04024dbafa472ed",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000005.meta",
+          "sha256": "4128824947d86d5794e981e9c79260ead578ddb44df398e32c221745fb406460",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000006.meta",
+          "sha256": "7163008be83cf687707aff80ec4e2a106b72df46266b601495d8bb1aa2ce3560",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000007.meta",
+          "sha256": "8fdfca87d28f530d404915e54ac2204bee763e1a71c7b2a0fe39250a8a4f8f8f",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000008.meta",
+          "sha256": "08912b2eaf690c72feab3b600d8bc742547e6c5a2d94772b67e8d088675d5ffc",
+          "size": 150075
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000009.sst",
+          "sha256": "2c66c9c076500b415f69e4c9abf9f8d0b95b436b295cbd72b827cbe3c384a429",
+          "size": 25353
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000010.sst",
+          "sha256": "03b9f55f43477708858449b914d115b79127d00cceeb26434c31c6893d2bc538",
+          "size": 1509479
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000011.sst",
+          "sha256": "866f18417319400310d0610519c1c9c7e18a00a4853a2beb3dc21bba30ba0607",
+          "size": 830516
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000012.sst",
+          "sha256": "ef97d2ece3ea736d977b29cbb284d73aa48e639bada4740307435340e5ea4a5c",
+          "size": 52
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000013.meta",
+          "sha256": "6a2abbaa7f10329aa6fe2484dea6c27d0e621faa0eb484162f7757eada16c6ce",
+          "size": 640
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000014.meta",
+          "sha256": "7ac732a51d47674e34196d3ba6de1c6bb9bdbfd017c5a504f3dee4d1a097afa5",
+          "size": 18873
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000015.meta",
+          "sha256": "87803b4a31b1dd3ce15d2ecf956ada56dd1b7f2b180362a8023ea4b1c834c941",
+          "size": 218842
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/00000016.meta",
+          "sha256": "b785a90b92cdc9732262935afabf72b4dfb4e5c2991a4933dfdab164650f6817",
+          "size": 228188
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/CURRENT",
+          "sha256": "0a3b7e648359e5f52097e37658ef9387c4123b855976192758a97e439a051d03",
+          "size": 71
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/turbopack/v16.3.1-3d32eb87/LOG",
+          "sha256": "3830751ee95464f5760cb2a09f3d4029f815adfff8c9caf6df0db9d5822e364a",
+          "size": 1729
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/0.pack",
+          "sha256": "d025278f74916587251e3fccd128614dcf144e42741e6b9de62a59c8db6e7177",
+          "size": 10726606
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/1.pack",
+          "sha256": "78ee2ed396696ff6ddf9fc3b8128e40a7e8902c0085bb83f6544c6e6240c00d1",
+          "size": 650603
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/10.pack",
+          "sha256": "e31fcfa6895534e1bf82a06de39df6dbaa1a395b2e44c8a1e234928f2cdb3b9f",
+          "size": 17953
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/11.pack",
+          "sha256": "d1549c35538f271db715c1c716b2dc1f27a0b2cbc5d51059fc0e6cdd6b4ea100",
+          "size": 792
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/12.pack",
+          "sha256": "26aee20e8d9de7ce5b73677ef580c979bfae72232659a8f334ffb53b35016568",
+          "size": 792
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/13.pack",
+          "sha256": "2a57cee1228a52555f93dd9f85397bac572b27c91d471f1fc3a2eef9f2cd9a74",
+          "size": 854
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/2.pack",
+          "sha256": "58005e64d1d5c185afd83579b62f7ba0bcd4d3dcf773f071cd00f6d2f2a4aacd",
+          "size": 18270
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/3.pack",
+          "sha256": "c79ea98c96ab3c9eab185ad23e10950e7697018cd3df1ba855ae199849f4ec0e",
+          "size": 792
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/4.pack",
+          "sha256": "b0e7b2f9af9cfdea58f8037fd20179bd134e96e031b90f8b03b48d8595d3a255",
+          "size": 55966
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/5.pack",
+          "sha256": "4b2a421333a9791911517cefb38420763ccf680e33d50fce86a6acce59544561",
+          "size": 1035
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/6.pack",
+          "sha256": "8ebe3e576695d3294d0fbce79e55e877c466b3fbef7b9b31f9489d29a7f2ce90",
+          "size": 2762674
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/7.pack",
+          "sha256": "96239efba1f391e3d346998448af90a68f7add17b2690096892d76ffe267dfcf",
+          "size": 116664
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/8.pack",
+          "sha256": "b4bbcb70a5a6f600d44b64f732a4a69b683184e9e8ae47adcdfb822998157251",
+          "size": 792
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/9.pack",
+          "sha256": "2ea06bd9aac579559d4613a86b6b1854d47ebb9077335ded0772e3d95b2c3b42",
+          "size": 792
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/index.pack",
+          "sha256": "438e6f643615e21850a0888c08b62418ae61a1bd37efb7da13c8daf7db70cb7a",
+          "size": 3182630
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/client-production/index.pack.old",
+          "sha256": "897304a81f0f5f763b46effb011256b456de72785bec47262d363fc1c703b963",
+          "size": 3182256
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/edge-server-production/0.pack",
+          "sha256": "f10738db7bb47ea4f6312ceae45989e507e6891e1f13d2b0d0dbabf21cb8f72b",
+          "size": 274
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/edge-server-production/index.pack",
+          "sha256": "49d9cc007fda0f79d58f14ff3dd91c3f32f4693d4c87651ac879b7bdc1bcf584",
+          "size": 16788
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/0.pack",
+          "sha256": "d9d429574105357fae5232796b3311273f2f112732ac4f3fc78800bb52ae49ab",
+          "size": 8204063
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/1.pack",
+          "sha256": "243ba0ed7f66135a0d4f6f8ef7bf544d7784c1f9bbf2fd2468367322afb289e1",
+          "size": 462009
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/2.pack",
+          "sha256": "ac139bdec7598ddf3ebf9c8496bdc4eb183362bdfd118ea7657ea96c39e62bba",
+          "size": 11318
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/3.pack",
+          "sha256": "020ec235e5a7ecbedd9b71c948a36ec9bd2183943ae5a3576da976c1b3edd6fd",
+          "size": 331159
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/index.pack",
+          "sha256": "3cc18f6af564041ec999061d334e33f23ad5b922cde5381ec3187f2bd0b87708",
+          "size": 2307984
+        },
+        {
+          "kind": "file",
+          "path": ".next/cache/webpack/server-production/index.pack.old",
+          "sha256": "37d9b4a3cf0c36c6c1a37f431cac3a8614521ba099d95291d1756872d52ee6a1",
+          "size": 2274714
+        },
+        {
+          "kind": "file",
+          "path": ".next/export-marker.json",
+          "sha256": "00b8eb33940c8f9866197d78c48736c081437cb6852a52b79f5c10a708cc6a02",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": ".next/images-manifest.json",
+          "sha256": "675781f29a529fceb07c0a27ebd6790d229b83b22822fc8607cb82bbcf311a3b",
+          "size": 511
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-minimal-server.js.nft.json",
+          "sha256": "e92f0f2664bf0528e3e667d7498323ac4ff5cfba055e3c8f7073cd49cad49cab",
+          "size": 4688
+        },
+        {
+          "kind": "file",
+          "path": ".next/next-server.js.nft.json",
+          "sha256": "db2bf99e9c8e6b9754b583f6621e704ec7b3bd0296f99c28d9cfe38dfac2c769",
+          "size": 30673
+        },
+        {
+          "kind": "file",
+          "path": ".next/package.json",
+          "sha256": "091a04fa67c7907b98e106fcff8b964e13129754fce72d24f3025b97c4887fa3",
+          "size": 20
+        },
+        {
+          "kind": "file",
+          "path": ".next/prerender-manifest.json",
+          "sha256": "5b17bd5069bb900952be9a8972e60e0e229691f06e544479d38f484b64eb98e8",
+          "size": 757
+        },
+        {
+          "kind": "file",
+          "path": ".next/react-loadable-manifest.json",
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/required-server-files.json",
+          "sha256": "645a204ba35fd463e85796a7cd50a950b5b275ef63441a5df37983da4b02c71a",
+          "size": 4714
+        },
+        {
+          "kind": "file",
+          "path": ".next/routes-manifest.json",
+          "sha256": "9d7b2ea9827026ff093de690e00d335ff85dc0262c1df1c576cb1c10a987f67e",
+          "size": 819
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js",
+          "sha256": "4f3e0e9d09160dcd641d2903578171df3345f126d3a9407bbf51761b893084bd",
+          "size": 3451
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page.js.nft.json",
+          "sha256": "9e6e36147b33266782b501c5a384ad7fc2c6d8cba9d8c9f23e808e6ec194838c",
+          "size": 1173
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found/page_client-reference-manifest.js",
+          "sha256": "f10c21b53de28590d7ef2ecf5615b987f879b562b25126871ef33ad8af0485b4",
+          "size": 5125
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found.html",
+          "sha256": "489a6bb00b05aa44188feb32bbf9719d35d04a9f13864ba16d23ea1434df4071",
+          "size": 6546
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found.meta",
+          "sha256": "f3ebd2ce4648849809effb8e98ccb31cd7f940ddc4c616e4fb939b29a97896b7",
+          "size": 142
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/_not-found.rsc",
+          "sha256": "f61bed83a14ef2572b0eb275672c92ae7fa439067d9044812c72e93a55752a09",
+          "size": 3631
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/index.html",
+          "sha256": "9c86d3fcdec394ce5e645c870581144837490e59a2d55b2aa73c5e2c3aa260fb",
+          "size": 7519
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/index.meta",
+          "sha256": "043b30a12c5e68cd1d115dd5977fb61cd54a139992e4d42105865c410b799a74",
+          "size": 80
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/index.rsc",
+          "sha256": "fb80df91599d759bca89673bed50f2817b3868709f5af5c7635dc65e11ef928c",
+          "size": 2259
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js",
+          "sha256": "c75a675f7923d1b32a018d986370ac237afd4e2e0a9c0b276d8ff02504bd2ccc",
+          "size": 11462
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page.js.nft.json",
+          "sha256": "a7e2944b797a2ed85021b962987978e29a281d96d0505fd11d7684f396ab8363",
+          "size": 1149
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/page_client-reference-manifest.js",
+          "sha256": "1d3d5abd4a44ac5324ec726fb53fe36466df621642c9634761eab79e3bad8270",
+          "size": 4949
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page.js",
+          "sha256": "6ac9d3a7964f72dad9f58a54d03e995eebb1d04ebf026dd8f6c0335fe1f619d5",
+          "size": 3286
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page.js.nft.json",
+          "sha256": "9a3aa0e67f37ddbc1ba793f3391513e6476b6cdcf918976097ffad3e670b9b97",
+          "size": 1200
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01/page_client-reference-manifest.js",
+          "sha256": "182fe7d0e19eef53dca8687aa5ee6d9a50a5099550e84eaf525dd76246d91bf1",
+          "size": 5177
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01.html",
+          "sha256": "c33ff335693905b098d881104fab191367f767d47663dd4f467ff559f03a58b7",
+          "size": 4756
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01.meta",
+          "sha256": "a0c63c6f243d10741499b1723da1768783456f5a9d8d460a7db798ecddd83e1a",
+          "size": 116
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app/play-01.rsc",
+          "sha256": "98529e6877b512559384d08ab66aa08073c5298d6bde7fd3f05e11ad448a41e5",
+          "size": 2649
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/app-paths-manifest.json",
+          "sha256": "26776a0268a615e50292b138012ad1577e76daddc40a9830246bca3761cc8557",
+          "size": 118
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/682.js",
+          "sha256": "7714e6b81b19efbaa31d8b50bf03341dea04e059c44b138ea539e15b7001835f",
+          "size": 33636
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/819.js",
+          "sha256": "12a8668937dea0e0d16d5caa34ad3ffb221306ef65ec04e426d851ca8ed0010c",
+          "size": 153964
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/chunks/font-manifest.json",
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/font-manifest.json",
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "size": 2
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/functions-config-manifest.json",
+          "sha256": "4a124203e444a5efc30d108223ae9630f54d8d7dee788526afedc9486a7907c8",
+          "size": 28
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/interception-route-rewrite-manifest.js",
+          "sha256": "fc5133e40acf09e6517b073ddd7b5c0c218d09938848902210f2cc13f08e1c81",
+          "size": 48
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-build-manifest.js",
+          "sha256": "772e397223e73becbdf5eb3895cbb0d936f3dcbccf367dc2fcf32166dc58f322",
+          "size": 888
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-manifest.json",
+          "sha256": "0a8520bc7e076f7ae717c2d62713990c83e8a3d74626f327a3844bc0504e210c",
+          "size": 83
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/middleware-react-loadable-manifest.js",
+          "sha256": "ad2e79ec91e2a5440840da3d8bd222c279b3b4c47e89a968327a66f6cb12eb82",
+          "size": 36
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.js",
+          "sha256": "2c0f5bbb79d07dfea405146a62d7e15a7a9e890d29e38b7db2631fcf6e480da8",
+          "size": 106
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/next-font-manifest.json",
+          "sha256": "926e772d34a53f2a4d9b16071dd6ea77b051b2b7acc49d9165723debe3fbbe0f",
+          "size": 77
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/404.html",
+          "sha256": "489a6bb00b05aa44188feb32bbf9719d35d04a9f13864ba16d23ea1434df4071",
+          "size": 6546
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/500.html",
+          "sha256": "2074e465a236497fdc5f3b15d4b58d71f32a1e72ee3b857be283c2c95f34b786",
+          "size": 1995
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_app.js",
+          "sha256": "c6fd32047d814f24b11fa77bfe8146f0a6de74adc986fbe0f5243ba526923eb1",
+          "size": 3291
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_app.js.nft.json",
+          "sha256": "e03334f487c5ebfc2cfa1d78515aeba15ab4462f2d35e0c4c30676736e389ca3",
+          "size": 517
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_document.js",
+          "sha256": "abe549286ead3c2a4461684fd14a1b6161bf9da61d28fbaa911a5be0718c57f6",
+          "size": 378
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_document.js.nft.json",
+          "sha256": "ed69d65e8248b11cad53973e340131fad186348d533f608c95dc2bf31b434189",
+          "size": 1932
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_error.js",
+          "sha256": "d6c7b6d0d13078f717755d7bff0530e188683305407a7c625c8ef8697491ab35",
+          "size": 8619
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages/_error.js.nft.json",
+          "sha256": "b8af0eefd893788b55bbff83cfdd1f913300d46631404a53594f139dd8e47d54",
+          "size": 1855
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/pages-manifest.json",
+          "sha256": "0ad2152605d1fedef7740af2809982e86b206f12cc3353767c0520834f9b51cf",
+          "size": 111
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.js",
+          "sha256": "ce01006c00e1f63bcbfe41b3f7edd260d969b41d0a323b705c44e1ef9df13d8c",
+          "size": 123
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/server-reference-manifest.json",
+          "sha256": "88e7a2f7ddeeb26958fc8f37cfae71f8dad30dce0db23b75122c30db9cd6d604",
+          "size": 84
+        },
+        {
+          "kind": "file",
+          "path": ".next/server/webpack-runtime.js",
+          "sha256": "5b9816fc1f766649ea510e670d5b36b83d3ff2042ee7c7ea98d92b91fbb1641a",
+          "size": 1459
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/1ySP3ABdzCFQ-_9AqKYhk/_buildManifest.js",
+          "sha256": "5068b95c9845e2ef8d47132a537eb424cd9a7f1092d5eb2c495504a98eac9797",
+          "size": 224
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/1ySP3ABdzCFQ-_9AqKYhk/_ssgManifest.js",
+          "sha256": "678f6ce2cb80b1fe72fc67e7412be6e2ab6ada083111b64f7c40d35e3cba5e00",
+          "size": 80
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/117-7ebbf0cbbf9a662d.js",
+          "sha256": "7bd6f41cfe0ce8b68c0fcfc0c580bf3f21c9d7b49f22665e6b21bb5ef49b476a",
+          "size": 124364
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/app/_not-found/page-0bcc516ca2a8cb9d.js",
+          "sha256": "bb92d8394e0b6761c5784733eb166a49f9529d4e160edf939d036edc275c1169",
+          "size": 1745
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/app/layout-380834ad1f056864.js",
+          "sha256": "028df45a1ad493018feb656f2f34cd07a3f198b921acacab37f16557448cda19",
+          "size": 230
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/app/page-5eddaeea117d9c96.js",
+          "sha256": "49962b0965328ed95d9d00add20d2e3d1f15d464cabd050df48830964020c26c",
+          "size": 16210
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/app/play-01/page-bfde5e3b445d1d0b.js",
+          "sha256": "72b50b50d0cc48f5fe32fafe0fcbe7157381f7937a54a1acf2bd8e2018357b37",
+          "size": 635
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/fd9d1056-5d0c434f4506d830.js",
+          "sha256": "b8bddf9481d859d648e1e050f8322eb3defe3dd3f9bd13f4c44dd6f2ecf5ab80",
+          "size": 172834
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/framework-f66176bb897dc684.js",
+          "sha256": "4250d53f0bc756ece2ddd690a008add1d7fdc887528c671f4dfe8d916d7787b7",
+          "size": 139978
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/main-8c0e7cf36bdceb65.js",
+          "sha256": "6ad75a6438a77099753907c6de1f9da781642341ed9d78d8f5319e3b8f3baf28",
+          "size": 116393
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/main-app-81b30e25f2d9367c.js",
+          "sha256": "467e7e9b9815172c8ee37a1941fa201105657a204c04f9577a9f35d8cc911d3e",
+          "size": 461
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/pages/_app-72b849fbd24ac258.js",
+          "sha256": "40df8f6358751c320ee0ae19630165eabb4479ac560b29d86ae54b2bfa169b31",
+          "size": 280
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/pages/_error-7ba65e1336b92748.js",
+          "sha256": "a31af6773e8c90a5a79b78cdddf59bd913e1087078f8982bcd5312ff04cdaff1",
+          "size": 247
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/polyfills-42372ed130431b0a.js",
+          "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+          "size": 112594
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/chunks/webpack-a3c37fcbf859f6f9.js",
+          "sha256": "80fa77796cbb7875228c4211ae07732c2372f2defc649a5bd3f016b68081b7c8",
+          "size": 3718
+        },
+        {
+          "kind": "file",
+          "path": ".next/static/css/1c48205b8c5f55cc.css",
+          "sha256": "16359a92f10f3b0267520dbf970963a7d0ebbde2a25941ba827c43eecdf7e16e",
+          "size": 198
+        },
+        {
+          "kind": "file",
+          "path": ".next/trace",
+          "sha256": "ac623b2425c60effee2393097ae2116d0b3e3ba784d52713da2ff95463753c61",
+          "size": 32987
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/app/layout.ts",
+          "sha256": "61ae59daaa89f653b9ca000b8b5f64b1cbf9b9047f41acedf44f26bd37ea6b32",
+          "size": 3591
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/app/page.ts",
+          "sha256": "25b9909f4b9a726bda7897b5d7cbc4e7b41b67c12a5190c8a6ca256a812fb2e5",
+          "size": 3579
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/app/play-01/page.ts",
+          "sha256": "f83847ef2edcb912578f2d9d8010e6dc0e67a4ddc43beb507ea69dbad67c8df2",
+          "size": 3609
+        },
+        {
+          "kind": "file",
+          "path": ".next/types/package.json",
+          "sha256": "e3d5a4a2d8551aa52c5a01d2a0efb2e06a2d9711b4f5c5f1d20de6e21807e2cd",
+          "size": 18
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "sha256": "9fbc4325a7314dfd5a5ff86c5f519e6b88150226327e9228e17e853948f6f50f",
+          "size": 825
+        },
+        {
+          "kind": "file",
+          "path": "next-env.d.ts",
+          "sha256": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+          "size": 228
+        },
+        {
+          "kind": "file",
+          "path": "next.config.js",
+          "sha256": "549704cecfddd6f6c20e181566bbabb2e390f729be865edf881a4464ff50f50d",
+          "size": 94
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "sha256": "89dc3fb2789a984c6bfdeb3bbddb419d4757b48d056e26ace6b46e15ad534d1c",
+          "size": 16759
+        },
+        {
+          "kind": "file",
+          "path": "package.json",
+          "sha256": "8469485f56f1d6b427140fcbff4f94332aa0aa23f6b6e5b38b83d5791bf8ea7b",
+          "size": 428
+        },
+        {
+          "kind": "file",
+          "path": "src/app/global.d.ts",
+          "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+          "size": 24
+        },
+        {
+          "kind": "file",
+          "path": "src/app/globals.css",
+          "sha256": "71ad0002a9d3cbc785a64a86cb5ea1bd3d3dd81a26b82dcb9c89c30aead8137e",
+          "size": 240
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.js",
+          "sha256": "44e46dc58723b6109322ac7cf17a22afd57a46649e62e1407597bed84df4aaaf",
+          "size": 297
+        },
+        {
+          "kind": "file",
+          "path": "src/app/layout.tsx",
+          "sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+          "size": 389
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.js",
+          "sha256": "dd60a46cbc3c15ff238948e43075c981f113c83cf5d641246bf8c50366a3eabf",
+          "size": 496
+        },
+        {
+          "kind": "file",
+          "path": "src/app/page.tsx",
+          "sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+          "size": 6319
+        },
+        {
+          "kind": "file",
+          "path": "src/app/play-01/page.tsx",
+          "sha256": "5ba1b28019e50367f2bf91eaffa1ac8d8ac95b93d610dfc45ba4d45e42849604",
+          "size": 474
+        },
+        {
+          "kind": "file",
+          "path": "tests/layout.test.js",
+          "sha256": "6503497f4ab0416ea12f200c541b8ee7e18a8c3edfe0af063ff6c7cc7b27d526",
+          "size": 729
+        },
+        {
+          "kind": "file",
+          "path": "tests/page.test.ts",
+          "sha256": "c2377916d798c20fa048b4ba30d500b86dded163eb10d77c25ba45bc46dc4f97",
+          "size": 832
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "sha256": "0c039baf308c98f47dfd08dac38468222ea0b4d66354122b3b0a518006ff0ee8",
+          "size": 788
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "c312d471dd9e5c034e5c1ab4ea71956b313e33bf51e63bdc9bda03fa03c6ae9a"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "create",
+        "--profile",
+        "nextjs",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "1",
+        "--ultra-plan-run",
+        "Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する。\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"allowed_dependencies\":[\"next\",\"react\",\"react-dom\"],\"entry_paths\":[\"package.json\"],\"forbidden_dependencies\":[\"tailwindcss\",\"postcss plugins\",\"autoprefixer\",\"any network-installed package\"],\"framework\":\"nextjs\",\"language\":\"javascript_or_typescript\",\"network\":\"denied\",\"provisioning\":\"offline bundle only\",\"reserved_port\":4201,\"scored\":false,\"shell\":\"forbidden\",\"styling\":\"plain CSS\"}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "b99623031df79c47d2480e836d2ff77b8a8d7a1e29282b825aa55c1911559860",
+      "completion_verify_attempt_recorded": true,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "54b08731a6f19845dd299694c2e079a891114130b9ececec1384f01309b84c21",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6-main-c04-task-01--pair-01--shared-run/initial/.commandagent/runs/01a04df8-bf30-7e61-a4b9-64bd7f004c21",
+      "product_run_namespace": ".commandagent",
+      "recovery_boundary": {
+        "file_count": 11,
+        "initial_provider_usage": {
+          "input_tokens": 13756,
+          "output_tokens": 1836,
+          "total_tokens": 15592,
+          "wall_time_ms": 76260
+        },
+        "recovery_provider_usage": {
+          "input_tokens": 118841,
+          "output_tokens": 6922,
+          "total_tokens": 125763,
+          "wall_time_ms": 224926
+        },
+        "snapshot_sha256": "a944105799c5a4386f0a78b6e8b3e15d184ad0389a75a491aea8d378249126d7",
+        "status": "captured",
+        "total_bytes": 39718,
+        "workspace_relative_path": ".commandagent/recovery-boundaries/attempt-1/workspace"
+      },
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed_recoverable",
+            "stop_reason": "recovery_started"
+          },
+          {
+            "attempt_index": 1,
+            "kind": "recovery",
+            "recovery_handoff_kind": "profile_invariant_failure",
+            "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-project-scaffold-01a04dfa-0edf-7c32-af4f-47d1f80d5635.yaml",
+            "status": "failed",
+            "stop_reason": "limit_reached"
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 1,
+        "event_telemetry_available": true,
+        "executed_recovery_runs": 1,
+        "terminal_stop_reason": "limit_reached"
+      },
+      "recovery_plan_auto_runs": 1,
+      "resource_usage": {
+        "input_tokens": 132597,
+        "output_tokens": 8758,
+        "total_tokens": 141355,
+        "wall_time_ms": 301186
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: ultra final acceptance repair failed: completion contract verify failed after 1 attempts: missing_required_capabilities:unsupported_required_capability:browser_readiness Paths: - recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04dfe-d737-7c31-a3d3-aa2bcd243bae.md - recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04dfe-d737-7c31-a3d3-aa3464c2ecad.yaml Commands: - suggested command: /ultra-plan-run --profile nextjs \"$(cat\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b94f960d4a45.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b9500f4e9ecf.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b94f960d4a45.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b9500f4e9ecf.yaml\n",
+      "stdout": "→ planning the overall plan (qwen3.6, up to 600s)\n✓ overall plan ready (15s)\n### Plan\n- Goal: Next.js で /play-01 に見出し『開始』を表示し、body の computed background-color を blue にし、明示 port 4201 で提供する...\n- Profile: nextjs\n- Port: 4201\n- UltraPlan accepted: 4 phases; first: project-scaffold\n- Phase list:\n1. ○ project-scaffold - Scaffold a minimal Next.js project using only allowed dependencies (next, react, react-dom). Cre...\n2. ○ implement-play-01 - Implement the /play-01 route in app/play-01/page.tsx. Display a heading with text '開始' (start ...\n3. ○ layout-and-css - Configure app/layout.tsx with proper HTML structure including body tag. Add a global CSS file (a...\n4. ○ build-verification - Verify the Next.js application builds successfully with next build. Ensure all imports resolve, ...\n── Phase 1/4: project-scaffold ──\n#### Phase: project-scaffold\n1. ○ [setup] Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language ... (verify 0)\n2. ○ [verify] Verify package scripts use the requested port and the Next.js build command remains executable. (verify 4)\nplan normalized: instruction_truncated\n→ step nextjs-scaffold [setup]\n→ npm install not_required\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (18s)\n→ Bash ls -la /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-a2-smoke-01/phase6...\n✓ Bash ok\n→ npm install not_required\n→ step nextjs-profile-verify [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (9s)\n→ Read package.json\n→ Read src/app/layout.js\n→ Read src/app/page.js\n→ Read src/app/globals.css\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ npm install not_required\n→ npm install not_required\n→ planning steps for phase 1/4 project-scaffold (qwen3.6, up to 600s)\n✗ provider aborted by user\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (33s)\n→ Edit package.json\n✓ Edit ok\n→ npm install blocked\n✗ Phase 1/4: project-scaffold typescript dependency must use a deterministic 5.x range such as ^5.5.0\n✗ verify project-scaffold (intermediate_invariant): typescript dependency must use a deterministic 5.x range such as ^5.5.0\n── Phase 1/3: inspect-current-state ──\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (16s)\n#### Phase: inspect-current-state\n1. ○ [inspect] Read package.json to check for next, react, react-dom dependencies and scripts for dev/start on ... (verify 0)\n2. ○ [inspect] Check if src/app directory exists and contains layout.tsx, page.tsx, and globals.css files. (verify 0)\n3. ○ [inspect] Check if src/app/play-01/page.tsx exists and contains the heading '開始' with blue body backgrou... (verify 0)\n4. ○ [inspect] Read tsconfig.json to verify TypeScript configuration is coherent with Next.js App Router requir... (verify 0)\nplan normalized: goal_truncated\n→ step inspect-package-json [inspect]\n→ npm install not_required\n→ step inspect-app-structure [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Glob **/*\n→ Glob src/app/**/*\n✓ Glob ok\n✓ Glob ok\n→ step inspect-play-01-route [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Glob src/app/play-01/**/*\n→ Read src/app/layout.tsx\n→ Read src/app/page.tsx\n→ Read src/app/globals.css\n✓ Glob ok\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ step inspect-tsconfig [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (10s)\n→ Read tsconfig.json\n→ Read package.json\n→ Read src/app/global.d.ts\n→ Read next.config.js\n✓ Read ok\n✓ Read ok\n✓ Read ok\n✓ Read ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (29s)\n→ Bash test -f 'package.json' && echo PASS || echo FAIL\n→ Bash test -f 'tsconfig.json' && echo PASS || echo FAIL\n→ Bash test -f 'src/app/layout.tsx' && echo PASS || echo FAIL\n→ Bash test -f 'src/app/page.tsx' && echo PASS || echo FAIL\n→ Bash test -f 'src/app/globals.css' && echo PASS || echo FAIL\n→ Bash test -f 'src/app/global.d.ts' && echo PASS || echo FAIL\n→ Bash node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).s...\n→ Bash node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? Strin...\n→ Bash node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\"\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n✓ Bash ok\n→ npm install not_required\n✓ verify inspect-current-state (intermediate_invariant)\n✓ Phase 1/3: inspect-current-state\n── Phase 2/3: repair-project-scaffold ──\n#### Phase: repair-project-scaffold\n1. ○ [setup] Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language ... (verify 0)\n2. ○ [verify] Verify package scripts use the requested port and the Next.js build command remains executable. (verify 4)\nplan normalized: instruction_truncated\n→ step nextjs-scaffold [setup]\n→ npm install not_required\n→ step nextjs-profile-verify [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (12s)\n→ Bash node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).s...\n✓ Bash ok\n→ npm install not_required\n→ npm install not_required\n✗ verify dependency_setup_lifecycle_failed: command failed: npm run build outcome: CommandFailed status: exit...\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (18s)\n→ Bash ls node_modules/.package-lock.json 2>/dev/null; ls node_modules/typescript/bin/ 2>/dev/null; ls ...\n→ Glob node_modules/**/*\n✗ Bash bash_path_confinement_error\n✗ Bash bash_path_confinement_error\n✓ Glob ok\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (21s)\n→ Read src/app/layout.js\n→ Read src/app/page.js\n→ Glob src/app/play-01/**/*\n✓ Read ok\n✓ Read ok\n✓ Glob ok\n→ npm install not_required\n→ npm install not_required\n↻ repair 1/2: unknown\n→ planning steps (qwen3.6, up to 600s)\n✓ verify repair-project-scaffold (intermediate_invariant)\n✓ Phase 2/3: repair-project-scaffold\n── Phase 3/3: verify-recovery ──\n✓ step plan ready (32s)\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (0s)\n#### Phase: verify-recovery\n1. ○ [inspect] Check existing package.json, tsconfig.json, and src/app directory structure to determine what ne... (verify 0)\n2. ○ [implement] Ensure package.json has next, react, react-dom dependencies and scripts with build=next build, d... (verify 1)\n3. ○ [implement] Ensure tsconfig.json has moduleResolution=bundler, target=ES2017+, jsx=preserve, strict=true, an... (verify 1)\n4. ○ [implement] Create src/app/layout.tsx with basic HTML structure, importing globals.css, and providing metada... (verify 1)\n5. ○ [implement] Create src/app/globals.css with body { background-color: blue; } to set computed background colo... (verify 2)\n6. ○ [implement] Create src/app/play-01/page.tsx with a heading displaying '開始', data-anvil-action='primary' on... (verify 3)\n7. ○ [implement] Create src/app/global.d.ts with module augmentation for next/image if needed, or empty declarati... (verify 1)\n8. ○ [verify] Run npm run build to verify the Next.js app compiles successfully with the /play-01 route. (verify 1)\nplan normalized: goal_truncated, shell_control_split x2\n→ step inspect-scaffold [inspect]\n→ npm install not_required\n→ step repair-package-json [implement]\n→ npm install not_required\n→ step repair-tsconfig [implement]\n→ step create-layout [implement]\n→ step create-globals-css [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (11s)\n→ Read src/app/globals.css\n✓ Read ok\n→ npm install not_required\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (8s)\n→ Edit src/app/globals.css\n✓ Edit ok\n→ npm install not_required\n→ step create-play-route [implement]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (11s)\n→ Write src/app/play-01/page.tsx\n✓ Write ok\n→ npm install not_required\n→ step create-global-types [implement]\n→ step verify-build [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (4s)\n→ Bash npm run build 2>&1\n✓ Bash ok\n→ npm install not_required\n✓ verify verify-recovery (intermediate_invariant)\n✓ verify verify-recovery (final_acceptance)\n✓ Phase 3/3: verify-recovery\n✗ probe: skipped_offline\n✗ final acceptance incomplete\n↻ repair 1/2: package_config\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (12s)\n→ Glob **/*\n✓ Glob ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (31s)\n→ Write tests/page.test.ts\n→ Write tests/layout.test.js\n→ Write README.md\n✓ Write ok\n✓ Write ok\n✓ Write ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (5s)\n→ Read tests/page.test.ts\n✓ Read ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (10s)\n→ Bash npm run build 2>&1\n✓ Bash ok\n→ repairing (qwen3.6, up to 600s)\n✓ repair turn finished (8s)\n→ Edit tests/page.test.ts\n✓ Edit ok\n→ npm install not_required\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "missing_required_capabilities",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b9500f4e9ecf.yaml",
+        "status": "failed",
+        "stop_reason": "ultra final acceptance repair failed: completion contract verify failed after 1 attempts: missing_required_capabilities:unsupported_required_capability:browser_readiness Paths: - recovery prompt saved: .commandagent/repairs/repair-minimal-loop-01a04dfe-d737-7c31-a3d3-aa2bcd243bae.md - recovery YAML saved: .commandagent/plans/recovery-ultra-plan-minimal-loop-01a04dfe-d737-7c31-a3d3-aa3464c2ecad.yaml Commands: - suggested command: /ultra-plan-run --profile nextjs \"$(cat\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b94f960d4a45.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b9500f4e9ecf.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b94f960d4a45.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-verify-recovery-01a04dfe-d738-71a3-a8c5-b9500f4e9ecf.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 399634
+    },
+    "status": "completed"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14_a2",
+  "source_case_id": "phase6-main-c04-task-01"
+}

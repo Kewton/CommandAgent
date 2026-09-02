@@ -1,5 +1,4 @@
-// StepPlan execution, bounded repair, and phase-owned context.
-// Pure extraction from the E-5d responsibility map (pre-split runner.rs:960-3602).
+// StepPlan execution, bounded repair, and phase-owned context (pre-split runner.rs:960-3602).
 #[allow(unused_imports)]
 use super::{
     BTreeSet, BoundCompletionContract, BuildVerifierLifecycleObservation, BuildVerifierObservation,
@@ -76,10 +75,17 @@ use super::{
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
 
+#[path = "phase/recovery_fix.rs"]
+pub(super) mod recovery_fix;
+
 #[path = "phase/effects.rs"]
 mod effects;
 #[path = "phase/flow.rs"]
 mod flow;
+#[path = "phase/intent_completion.rs"]
+mod intent_completion;
+#[path = "phase/plan_step_events.rs"]
+mod plan_step_events;
 #[path = "phase/state.rs"]
 mod state;
 #[path = "phase/step_plan_execution.rs"]
@@ -91,6 +97,7 @@ pub use flow::{
     generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
     run_ultra_plan_with_ui, save_ultra_plan,
 };
+use plan_step_events::PlanStepEvents;
 pub(super) use step_plan_execution::{
     run_step_plan_with_session_with_ui, run_step_plan_with_session_with_ui_and_run_authority,
 };
@@ -1096,13 +1103,23 @@ pub(super) fn run_step(
     mut run_setup_authority: Option<&mut UltraRunSetupAuthorityState>,
 ) -> Result<StepRunOutcome, StepRunError> {
     let runtime = resolve_profile_runtime(&config.profile);
-    let (mut runtime_step, synthesized_precheck) = runtime.runtime_step_with_profile_checks(
-        &config.workspace_root,
-        &prompt_context.overall_goal,
-        step,
-        phase_scope,
-        config.eval_events_path.as_deref(),
-    );
+    let host_owned_recovery_verify =
+        crate::planner::recovery_step_plan_binding::is_host_owned_final_success_step(
+            config,
+            phase_scope,
+            step,
+        );
+    let (mut runtime_step, synthesized_precheck) = if host_owned_recovery_verify {
+        (step.clone(), false)
+    } else {
+        runtime.runtime_step_with_profile_checks(
+            &config.workspace_root,
+            &prompt_context.overall_goal,
+            step,
+            phase_scope,
+            config.eval_events_path.as_deref(),
+        )
+    };
     runtime
         .inject_step_material(config, &mut runtime_step)
         .map_err(|err| StepRunError {
@@ -1130,7 +1147,10 @@ pub(super) fn run_step(
     let setup_authority = step_verify_setup_authority(plan, step, run_authority);
     let contract_setup_authority =
         step_contract_setup_authority(plan, step, phase_scope, run_authority);
-    let step_options = step_run_session_options(
+    let recovery_fix = recovery_fix::bind(&step_config, step, prompt_context, setup_authority)
+        .map_err(|err| *err)?;
+    let local_repair_turns = recovery_fix.local_repair_turns(STEP_REPAIR_MAX_TURNS);
+    let mut step_options = step_run_session_options(
         plan,
         step,
         contract_enforcement,
@@ -1140,11 +1160,16 @@ pub(super) fn run_step(
     .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
         config.resolved_intent(&prompt_context.overall_goal),
     ))
-    .with_required_mutation_before_short_circuit(synthesized_precheck);
+    .with_required_write_for_action_prompt(recovery_fix.requires_write())
+    .with_required_mutation_before_short_circuit(
+        synthesized_precheck || recovery_fix.requires_write(),
+    );
+    recovery_fix::defer_contract_verification(&mut step_options, recovery_fix.requires_write());
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
-    let verify_first_applicable = data_pre_satisfied
-        .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
+    let verify_first_applicable = host_owned_recovery_verify
+        || data_pre_satisfied
+            .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
     if verify_first_applicable {
         let (report, build_lifecycles) = verify_step_completion_observed(
             config,
@@ -1164,6 +1189,18 @@ pub(super) fn run_step(
             );
         }
         if report.is_pass() {
+            if host_owned_recovery_verify {
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "recovery_host_final_success_verification_passed",
+                        "phase_id": phase_scope.unwrap_or(""),
+                        "step_id": runtime_step.id,
+                        "registered_verify_commands": runtime_step.verify,
+                        "model_execution_skipped": true,
+                    }),
+                );
+            }
             if data_pre_satisfied.is_some() {
                 crate::planner::profiles::data::pre_satisfied::emit_short_circuited(
                     config.eval_events_path.as_deref(),
@@ -1195,6 +1232,36 @@ pub(super) fn run_step(
                 ..StepRunOutcome::default()
             });
         }
+        if host_owned_recovery_verify {
+            let message = format!(
+                "host-owned Recovery final-success verification failed: {}",
+                report.primary_reason()
+            );
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_host_final_success_verification_failed",
+                    "phase_id": phase_scope.unwrap_or(""),
+                    "step_id": runtime_step.id,
+                    "reason": eval_events::body_snippet(&report.primary_reason()),
+                    "registered_verify_commands": runtime_step.verify,
+                    "model_execution_skipped": true,
+                }),
+            );
+            return Err(StepRunError {
+                message: message.clone(),
+                outcome: StepRunOutcome {
+                    primary_failure: Some(message),
+                    verify_failures: vec![report.primary_reason()],
+                    command_failures: command_failure_summaries(&report),
+                    stop_reason: Some(
+                        "recovery_host_final_success_verification_failed".to_string(),
+                    ),
+                    partial: true,
+                    ..StepRunOutcome::default()
+                },
+            });
+        }
     }
     let initial = run_session_with_outcome_with_options(
         client,
@@ -1221,7 +1288,7 @@ pub(super) fn run_step(
         ..StepRunOutcome::default()
     };
     let overall_goal = prompt_context.overall_goal.as_str();
-    match runtime.post_step_repair(&config.workspace_root, overall_goal) {
+    match recovery_fix.post_repair(runtime, &config.workspace_root, overall_goal) {
         Ok(true) => {
             if let Some(state) = run_setup_authority.as_deref_mut() {
                 state.grant("manifest_repair");
@@ -1261,7 +1328,9 @@ pub(super) fn run_step(
         outcome.partial = true;
         return Err(StepRunError { message, outcome });
     }
-    let (report, build_lifecycles) = verify_step_completion_observed(
+    let initial_changed_paths = recovery_fix.observed_changes_from_start(&initial.changed_paths);
+    outcome.changed_paths = initial_changed_paths.clone();
+    let (mut report, build_lifecycles) = verify_step_completion_observed(
         config,
         &prompt_context.overall_goal,
         &runtime_step,
@@ -1269,6 +1338,7 @@ pub(super) fn run_step(
         phase_scope,
         setup_authority,
     );
+    recovery_fix.merge_verification(&mut report, &initial_changed_paths);
     apply_runtime_command_normalizations(&mut runtime_step, &report);
     for lifecycle in &build_lifecycles {
         emit_dependency_build_lifecycle(
@@ -1295,7 +1365,7 @@ pub(super) fn run_step(
     let repair_policy = crate::planner::profiles::data::repair_policy::StepRepairPolicy::new(
         &config.profile,
         &step.id,
-        STEP_REPAIR_MAX_TURNS,
+        local_repair_turns,
         config.eval_events_path.as_deref(),
     );
     let mut current_reachability =
@@ -1332,15 +1402,16 @@ pub(super) fn run_step(
         expected_paths: merge_repair_target_paths(&report, &runtime_step.expected_paths),
         verify_commands: runtime_step.verify.clone(),
         expected_result: Some(step_expected_result(step).to_string()),
-        max_repair_turns: Some(STEP_REPAIR_MAX_TURNS),
+        max_repair_turns: Some(local_repair_turns),
         missing_paths: report.missing_paths.clone(),
-        changed_files: initial.changed_paths.clone(),
+        changed_files: initial_changed_paths,
         initial_stop_reason: Some(format!("{:?}", initial.stop_reason)),
         workspace_root: Some(config.workspace_root.clone()),
         eval_events_path: config.eval_events_path.clone(),
         prompt_layout: config.prompt_layout,
         ..RepairContext::default()
     };
+    recovery_fix.merge_verify_commands(&mut context.verify_commands);
     let mut current_report = report;
     let mut previous_missing = current_report.missing_paths.len();
     let mut repair_stop_reason = None;
@@ -1369,7 +1440,7 @@ pub(super) fn run_step(
         );
     }
     if current_reachability.reachable {
-        for attempt in 1..=STEP_REPAIR_MAX_TURNS {
+        for attempt in 1..=local_repair_turns {
             let repair_session_mode =
                 if no_change_repairs > 0 && !current_report.compile_errors.is_empty() {
                     RepairSessionMode::Compact
@@ -1399,6 +1470,7 @@ pub(super) fn run_step(
                 &mut hook_snapshot_feedback_given,
                 repair_prompt,
             );
+            let mutation_checkpoint = recovery_fix.mutation_checkpoint();
             let repair_result = match repair_session_mode {
                 RepairSessionMode::Appended => run_session_with_outcome_with_options(
                     client,
@@ -1462,9 +1534,10 @@ pub(super) fn run_step(
             outcome.repair_attempts = attempt;
             repair_stop_reason = Some(format!("{:?}", repair.stop_reason));
             let changed_paths_before_repair = context.changed_files.clone();
-            let mut repair_turn_changed_paths = repair.changed_paths.clone();
-            merge_changed_files(&mut context, &repair.changed_paths);
-            merge_unique_strings(&mut outcome.changed_paths, &repair.changed_paths);
+            let mut repair_turn_changed_paths =
+                recovery_fix.observed_changes_since(&mutation_checkpoint, &repair.changed_paths);
+            merge_changed_files(&mut context, &repair_turn_changed_paths);
+            merge_unique_strings(&mut outcome.changed_paths, &repair_turn_changed_paths);
             merge_unique_strings(
                 &mut outcome.observed_missing_capabilities,
                 &repair.missing_capabilities,
@@ -1477,8 +1550,11 @@ pub(super) fn run_step(
                 &mut outcome.observed_missing_obligations,
                 &repair.missing_obligations,
             );
-            merge_unique_strings(&mut outcome.repair_changed_paths, &repair.changed_paths);
-            match runtime.post_step_repair(&config.workspace_root, overall_goal) {
+            merge_unique_strings(
+                &mut outcome.repair_changed_paths,
+                &repair_turn_changed_paths,
+            );
+            match recovery_fix.post_repair(runtime, &config.workspace_root, overall_goal) {
                 Ok(true) => {
                     if let Some(state) = run_setup_authority.as_deref_mut() {
                         state.grant("manifest_repair");
@@ -1532,7 +1608,7 @@ pub(super) fn run_step(
                 outcome.partial = true;
                 return Err(StepRunError { message, outcome });
             }
-            let (retry, retry_lifecycles) = verify_step_with_context(
+            let (mut retry, retry_lifecycles) = verify_step_with_context(
                 &config.workspace_root,
                 &runtime_step,
                 Some(&config.profile),
@@ -1541,8 +1617,10 @@ pub(super) fn run_step(
                 config.offline,
                 config.eval_events_path.as_deref(),
             );
+            recovery_fix.merge_verification(&mut retry, &context.changed_files);
             apply_runtime_command_normalizations(&mut runtime_step, &retry);
             context.verify_commands = runtime_step.verify.clone();
+            recovery_fix.merge_verify_commands(&mut context.verify_commands);
             for lifecycle in &retry_lifecycles {
                 emit_dependency_build_lifecycle(
                     config.eval_events_path.as_deref(),

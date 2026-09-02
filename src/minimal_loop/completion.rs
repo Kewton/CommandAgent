@@ -28,7 +28,11 @@ pub struct CompletionContract {
     #[serde(default)]
     pub required_paths: Vec<String>,
     #[serde(default)]
+    pub protected_paths: Vec<String>,
+    #[serde(default)]
     pub verify_commands: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix_reproducer_command: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
@@ -64,18 +68,22 @@ pub struct DeferredVerifyRequirement {
 
 impl CompletionContract {
     pub fn load_for_config(config: &Config) -> anyhow::Result<Option<Self>> {
-        let path = config.completion_contract_path.clone().or_else(|| {
-            crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
-        });
-        let Some(path) = path else {
+        let Some(path) = Self::configured_path_for_config(config)? else {
             return Ok(None);
         };
-        let path = normalize_contract_file_path(&config.workspace_root, &path)?;
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read completion contract {}", path.display()))?;
         let contract: Self = serde_json::from_str(&text)
             .with_context(|| format!("invalid completion contract JSON {}", path.display()))?;
         Ok(Some(contract.validate(&config.workspace_root)?))
+    }
+
+    pub(crate) fn configured_path_for_config(config: &Config) -> anyhow::Result<Option<PathBuf>> {
+        let path = config.completion_contract_path.clone().or_else(|| {
+            crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
+        });
+        path.map(|path| normalize_contract_file_path(&config.workspace_root, &path))
+            .transpose()
     }
 
     pub fn validate(mut self, root: &Path) -> anyhow::Result<Self> {
@@ -98,7 +106,32 @@ impl CompletionContract {
             }
         }
         self.required_paths = paths;
+        let mut seen_protected_paths = BTreeSet::new();
+        let mut protected_paths = Vec::new();
+        for path in self.protected_paths {
+            validate_contract_path(root, &path)?;
+            if !self
+                .required_paths
+                .iter()
+                .any(|required| Path::new(required).starts_with(&path))
+            {
+                bail!("protected completion path is not required: {path}");
+            }
+            if seen_protected_paths.insert(path.clone()) {
+                protected_paths.push(path);
+            }
+        }
+        self.protected_paths = protected_paths;
         self.verify_commands = commands;
+        if let Some(command) = self.fix_reproducer_command.take() {
+            let mut normalized = normalize_planner_verify_command(&command)?;
+            if normalized.len() != 1 {
+                bail!("fix_reproducer_command must normalize to exactly one command");
+            }
+            let command = normalized.remove(0);
+            validate_verify_command(&command)?;
+            self.fix_reproducer_command = Some(command);
+        }
         self.required_capabilities = normalize_unique_list(self.required_capabilities);
         self.deterministic_oracles = normalize_unique_list(self.deterministic_oracles);
         self.required_evidence = normalize_unique_list(self.required_evidence);
@@ -166,6 +199,12 @@ impl CompletionContract {
             || !self.required_obligations.is_empty()
             || !self.deterministic_oracles.is_empty()
             || !self.deferred_verify_requirements.is_empty()
+    }
+
+    pub(crate) fn has_registered_fix_reproducer(&self) -> bool {
+        self.fix_reproducer_command
+            .as_ref()
+            .is_some_and(|command| self.verify_commands.contains(command))
     }
 
     pub fn dependency_precondition_active(&self, root: &Path) -> bool {
@@ -443,10 +482,19 @@ impl CompletionContract {
                     acceptance.missing_capabilities.join(",")
                 ));
             }
-            if !acceptance.missing_evidence.is_empty() {
+            let missing_evidence = acceptance
+                .missing_evidence
+                .iter()
+                .filter(|evidence| {
+                    evidence.as_str() != "bound_verify_command"
+                        || !self.has_registered_fix_reproducer()
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if !missing_evidence.is_empty() {
                 report.push_profile_failure(format!(
                     "missing_required_evidence:{}",
-                    acceptance.missing_evidence.join(",")
+                    missing_evidence.join(",")
                 ));
             }
             if !acceptance.weak_evidence.is_empty() {
@@ -1650,7 +1698,12 @@ fn normalize_obligation_roles(values: Vec<String>) -> anyhow::Result<Vec<String>
         }
         if !matches!(
             normalized.as_str(),
-            "setup" | "scaffold" | "implementation" | "verification" | "acceptance_evidence"
+            "setup"
+                | "scaffold"
+                | "implementation"
+                | "verification"
+                | "acceptance_evidence"
+                | "investigation"
         ) {
             bail!("unsupported completion obligation role: {value}");
         }
@@ -2503,8 +2556,10 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_deduplicates_and_accepts_safe_verify() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/main.rs".to_string(), "src/main.rs".to_string()],
             verify_commands: vec!["cargo test".to_string(), "cargo test".to_string()],
+            fix_reproducer_command: Some("python3 cli.py 7".to_string()),
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2519,17 +2574,108 @@ export class SpaceInvadersEngine {\n\
         .unwrap();
         assert_eq!(contract.required_paths, vec!["src/main.rs"]);
         assert_eq!(contract.verify_commands, vec!["cargo test"]);
+        assert_eq!(
+            contract.fix_reproducer_command.as_deref(),
+            Some("python3 cli.py 7")
+        );
         assert_eq!(contract.verify_repair_cap, 2);
+    }
+
+    #[test]
+    fn successful_registered_fix_reproducer_satisfies_bound_observation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.py"), "raise SystemExit(0)\n").unwrap();
+        let contract = CompletionContract {
+            protected_paths: Vec::new(),
+            required_paths: vec!["app.py".to_string()],
+            verify_commands: vec!["python3 app.py".to_string()],
+            fix_reproducer_command: Some("python3 app.py".to_string()),
+            profile: None,
+            goal: None,
+            required_capabilities: Vec::new(),
+            deterministic_oracles: Vec::new(),
+            required_evidence: vec![
+                "implementation_artifact".to_string(),
+                "bound_verify_command".to_string(),
+            ],
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 1,
+        }
+        .validate(dir.path())
+        .unwrap();
+
+        assert!(!contract.runtime_acceptance_report(dir.path()).passed);
+        assert!(contract.verify(dir.path()).is_pass());
+
+        std::fs::write(dir.path().join("app.py"), "raise SystemExit(1)\n").unwrap();
+        assert!(!contract.verify(dir.path()).is_pass());
+    }
+
+    #[test]
+    fn structured_contract_protects_only_declared_required_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid: CompletionContract = serde_json::from_str(
+            r#"{"required_paths":["scripts/repro.py","tests/test_app.py"],"protected_paths":["scripts/repro.py","tests"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            valid.validate(dir.path()).unwrap().protected_paths,
+            ["scripts/repro.py", "tests"]
+        );
+
+        let invalid: CompletionContract = serde_json::from_str(
+            r#"{"required_paths":["pipeline/main.py"],"protected_paths":["scripts/repro.py"]}"#,
+        )
+        .unwrap();
+        assert!(
+            invalid
+                .validate(dir.path())
+                .unwrap_err()
+                .to_string()
+                .contains("protected completion path is not required")
+        );
+    }
+
+    #[test]
+    fn structured_contract_rejects_multiple_fix_reproducer_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = CompletionContract {
+            protected_paths: Vec::new(),
+            required_paths: Vec::new(),
+            verify_commands: Vec::new(),
+            fix_reproducer_command: Some("python3 cli.py 7\npython3 cli.py 8".to_string()),
+            profile: None,
+            goal: None,
+            required_capabilities: Vec::new(),
+            deterministic_oracles: Vec::new(),
+            required_evidence: Vec::new(),
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 2,
+        }
+        .validate(dir.path())
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            error.contains("fix_reproducer_command") || error.contains("verify command"),
+            "{error}"
+        );
     }
 
     #[test]
     fn structured_contract_splits_multi_grep_verify_commands() {
         let dir = tempfile::tempdir().unwrap();
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: vec![
                 r#"grep -q "alpha" src/report.txt && grep -q "beta" src/report.txt"#.to_string(),
             ],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2553,8 +2699,10 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_deduplicates_capabilities_and_derives_evidence() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: vec![
@@ -2608,8 +2756,10 @@ export class SpaceInvadersEngine {\n\
     fn contract_derives_goal_evidence_hint_tokens() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("シューティングでドラゴンを倒すゲーム".to_string()),
             required_capabilities: Vec::new(),
@@ -2648,8 +2798,10 @@ export class SpaceInvadersEngine {\n\
     fn structured_contract_normalizes_required_obligations() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2659,6 +2811,7 @@ export class SpaceInvadersEngine {\n\
             required_obligations: vec![
                 " implementation ".to_string(),
                 "acceptance-evidence".to_string(),
+                "investigation".to_string(),
                 "implementation".to_string(),
             ],
             deferred_verify_requirements: Vec::new(),
@@ -2668,11 +2821,13 @@ export class SpaceInvadersEngine {\n\
         .unwrap();
         assert_eq!(
             contract.required_obligations,
-            vec!["implementation", "acceptance_evidence"]
+            vec!["implementation", "acceptance_evidence", "investigation"]
         );
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: Vec::new(),
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2700,8 +2855,10 @@ export class SpaceInvadersEngine {\n\
             "target/debug/app",
         ] {
             let err = CompletionContract {
+                protected_paths: Vec::new(),
                 required_paths: vec![path.to_string()],
                 verify_commands: Vec::new(),
+                fix_reproducer_command: None,
                 profile: None,
                 goal: None,
                 required_capabilities: Vec::new(),
@@ -2725,8 +2882,10 @@ export class SpaceInvadersEngine {\n\
         let dir = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/tmp", dir.path().join("out")).unwrap();
         let err = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["out/file.txt".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2752,8 +2911,10 @@ export class SpaceInvadersEngine {\n\
             "next dev -p 3011",
         ] {
             let err = CompletionContract {
+                protected_paths: Vec::new(),
                 required_paths: Vec::new(),
                 verify_commands: vec![command.to_string()],
+                fix_reproducer_command: None,
                 profile: None,
                 goal: None,
                 required_capabilities: Vec::new(),
@@ -2865,6 +3026,7 @@ export class SpaceInvadersEngine {\n\
     fn verify_feedback_anchors_gameplay_evidence_to_implementation_files() {
         let dir = tempfile::tempdir().unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec![
                 "package.json".to_string(),
                 "src/app/page.tsx".to_string(),
@@ -2873,6 +3035,7 @@ export class SpaceInvadersEngine {\n\
                 "tests/gameplay.test.ts".to_string(),
             ],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: None,
             required_capabilities: Vec::new(),
@@ -2933,8 +3096,10 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let report = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["test_repair_report.py".to_string()],
             verify_commands: vec!["python3 -m unittest test_repair_report.py".to_string()],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -2980,8 +3145,10 @@ export class SpaceInvadersEngine {\n\
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3017,8 +3184,10 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: vec!["npm run build".to_string()],
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3052,8 +3221,10 @@ export class SpaceInvadersEngine {\n\
             "#!/bin/sh\nmkdir -p node_modules/.bin node_modules/next\ncat > node_modules/next/package.json <<'EOF'\n{\"version\":\"14.2.0\"}\nEOF\ncat > node_modules/.bin/next <<'EOF'\n#!/bin/sh\nexit 0\nEOF\ncat > node_modules/.bin/npm <<'EOF'\n#!/bin/sh\nif [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then exit 0; fi\nexit 1\nEOF\nchmod +x node_modules/.bin/next node_modules/.bin/npm\ntouch package-lock.json\nexit 0\n",
         );
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3103,8 +3274,10 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: None,
             required_capabilities: Vec::new(),
@@ -3180,6 +3353,7 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec![
                 "package.json".to_string(),
                 "src/app/page.tsx".to_string(),
@@ -3187,6 +3361,7 @@ export class SpaceInvadersEngine {\n\
                 "src/app/global.d.ts".to_string(),
             ],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: Some("Create a Next.js app".to_string()),
             required_capabilities: Vec::new(),
@@ -3242,8 +3417,10 @@ export class SpaceInvadersEngine {\n\
         )
         .unwrap();
         let contract = CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["package.json".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: Some("nextjs".to_string()),
             goal: Some("Create a Next.js app".to_string()),
             required_capabilities: Vec::new(),

@@ -523,6 +523,10 @@ fn step_repair_unrelated_change_is_telemetry_and_handoff_saved() {
     assert!(event_text.contains("\"event\":\"recovery_prompt_saved\""));
     assert!(event_text.contains("\"failure_kind\":\"repair_unrelated_change\""));
     assert!(event_text.contains("\"failure_kind\":\"bounded_repair_exhausted\""));
+    assert!(event_text.contains("\"event\":\"plan_step_started\""));
+    assert!(event_text.contains("\"event\":\"plan_step_failed\""));
+    assert!(event_text.contains("\"outcome\":\"bounded_repair_failed\""));
+    assert!(event_text.contains("\"verification_status\":\"failed\""));
 }
 
 #[test]

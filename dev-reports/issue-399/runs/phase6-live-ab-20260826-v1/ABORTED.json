@@ -1,0 +1,9 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_abort.v0",
+  "aborted_at": "2026-08-26",
+  "completed_raw_records": 44,
+  "included_in_final_analysis": false,
+  "records_deleted": false,
+  "reason": "Independent pre-finalization audit found concurrent shard last-writer-wins aggregation and insufficient append-only record integrity binding.",
+  "replacement_run": "phase6-live-ab-20260826-v2"
+}

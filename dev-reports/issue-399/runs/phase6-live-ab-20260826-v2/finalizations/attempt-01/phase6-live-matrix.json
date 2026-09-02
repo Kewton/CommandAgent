@@ -1,0 +1,149 @@
+{
+  "baseline": {
+    "corpus": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/baseline-corpus.json",
+    "label": "phase0-current-authority-paired-replay",
+    "report": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/finalizations/attempt-01/baseline-eval/baseline.json"
+  },
+  "candidate": {
+    "corpus": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/candidate-corpus.json",
+    "label": "verification-spec-v0-live-shadow",
+    "report": "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/finalizations/attempt-01/candidate-eval/baseline.json"
+  },
+  "cells": [
+    {
+      "intent": "create",
+      "language": "en",
+      "profile": "cli",
+      "size": "small"
+    },
+    {
+      "intent": "create",
+      "language": "ja",
+      "profile": "generic",
+      "size": "small"
+    },
+    {
+      "intent": "create",
+      "language": "en",
+      "profile": "nextjs",
+      "size": "medium"
+    },
+    {
+      "intent": "create",
+      "language": "ja",
+      "profile": "nextjs",
+      "size": "medium"
+    },
+    {
+      "intent": "fix",
+      "language": "ja",
+      "profile": "cli",
+      "size": "medium"
+    },
+    {
+      "intent": "fix",
+      "language": "en",
+      "profile": "data",
+      "size": "small"
+    },
+    {
+      "intent": "fix",
+      "language": "en",
+      "profile": "generic",
+      "size": "medium"
+    },
+    {
+      "intent": "fix",
+      "language": "ja",
+      "profile": "nextjs",
+      "size": "large"
+    },
+    {
+      "intent": "investigate",
+      "language": "en",
+      "profile": "data",
+      "size": "large"
+    },
+    {
+      "intent": "investigate",
+      "language": "en",
+      "profile": "generic",
+      "size": "medium"
+    },
+    {
+      "intent": "investigate",
+      "language": "ja",
+      "profile": "generic",
+      "size": "small"
+    },
+    {
+      "intent": "investigate",
+      "language": "ja-en",
+      "profile": "nextjs",
+      "size": "large"
+    }
+  ],
+  "dimensions": [
+    "intent",
+    "profile",
+    "language",
+    "size"
+  ],
+  "evidence_lanes": {
+    "approved_live": {
+      "authorized": true,
+      "references": [
+        "eval/goal_verify/v0/phase6-paired-contract.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-summary.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "blind_review": {
+      "references": [
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/blind-review-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/blind-review-report.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "ci": {
+      "references": [
+        "eval/goal_verify/v0/exact-sha-ci-b8474aad.json"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "offline_local": {
+      "references": [
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-manifest.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/campaign-summary.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/baseline-corpus.json",
+        "dev-reports/issue-399/runs/phase6-live-ab-20260826-v2/blind-review/candidate-corpus.json"
+      ],
+      "required": true,
+      "status": "available"
+    }
+  },
+  "flag_off_compatibility": {
+    "references": [
+      "docs/dev/verification-spec-v0.md",
+      "tests/create_shadow_oracle.rs",
+      "tests/fix_shadow_conformance.rs",
+      "tests/investigate_shadow_conformance.rs",
+      "tests/critic_shadow_conformance.rs"
+    ],
+    "verified": true
+  },
+  "matrix_id": "phase6-live-ab-20260826-v2",
+  "minimum_samples_per_cell": 30,
+  "rollback": {
+    "references": [
+      "docs/dev/goal-to-verify-v0.md",
+      "tests/verification_spec_v0.rs"
+    ],
+    "rehearsed": true
+  },
+  "schema_version": "commandagent.goal_verify.phase6_matrix.v0"
+}

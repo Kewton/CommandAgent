@@ -33,12 +33,14 @@ import type {
 export type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
 
 type UseTrialComposeProps = {
+  loadOptions?: boolean;
   stage: ScreenStage;
   setStage: Dispatch<SetStateAction<ScreenStage>>;
 };
 
 const initialSpec: SessionSpec = {
   goal: "",
+  working_directory: "",
   profile: "python-cli",
   intent: null,
   provider: "ollama",
@@ -47,9 +49,10 @@ const initialSpec: SessionSpec = {
   planner_model: "",
   pack: null,
   think: null,
+  recovery_plan_auto_runs: 0,
 };
 
-export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
+export function useTrialCompose({ loadOptions = true, stage, setStage }: UseTrialComposeProps) {
   const runtime = useShellRuntimeStatus();
   const composeRef = useRef<HTMLDivElement>(null);
   const gateOneRef = useRef<HTMLElement>(null);
@@ -94,6 +97,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
   }, [runtime?.data?.trial_token_auth_enabled]);
 
   useEffect(() => {
+    if (!loadOptions) return;
     let cancelled = false;
     void Promise.all([fetchTrialOptions(), fetchPackOptions()])
       .then(([options, packs]) => {
@@ -106,7 +110,7 @@ export function useTrialCompose({ stage, setStage }: UseTrialComposeProps) {
         if (!cancelled) setOptionsError(describeError(reason));
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadOptions]);
 
   useEffect(() => {
     if (packOptions === null || packPreselectionApplied.current) return;

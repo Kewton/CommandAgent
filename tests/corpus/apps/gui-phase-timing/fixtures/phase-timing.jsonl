@@ -1,0 +1,5 @@
+{"event":"ultra_plan_generation_attempt","attempt":1,"occurred_at_epoch_ms":1000}
+{"event":"ultra_plan_generation_succeeded","phase_count":1,"occurred_at_epoch_ms":1500}
+{"event":"ultra_phase_start","phase_id":"implementation","phase_index":1,"total_phases":1,"occurred_at_epoch_ms":2000}
+{"event":"ultra_phase_complete","phase_id":"implementation","phase_index":1,"total_phases":1,"occurred_at_epoch_ms":7000}
+{"event":"tui_command_stop","status":"completed","occurred_at_epoch_ms":8000,"time_profile":{"total_ms":8000}}

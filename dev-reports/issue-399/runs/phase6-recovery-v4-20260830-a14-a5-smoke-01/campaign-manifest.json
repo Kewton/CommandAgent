@@ -1,0 +1,50 @@
+{
+  "code_sha": "d985fa10da1d2834ed72f29fe91dd6694ca9eb24",
+  "commandagent_bin": "/Volumes/SSD_NX/tmp/CommandAgent-a14-a5-final-target/release/commandagent",
+  "commandagent_binary_sha256": "8e5940b66f501d2d75e9a60e744cb01f5b24eca10078f6945916c1ea2ae5c703",
+  "contract_id": "phase6-recovery-v4-20260830-a14-a5-live-01",
+  "contract_sha256": "d286d5ab0d639af00ce2a50a1a3f5d8d5ab0b590554bf0912289553e08ba10a9",
+  "exact_sha_ci_evidence_sha256": "352b92c3767b0c15c258d789678e070afbacee74cbe9632b124337d2f3762413",
+  "execution_root": "/Volumes/SSD_NX/tmp/commandagent_trial",
+  "frozen_input_sha256": {
+    "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a5.json": "68b6cd354505628cad4a530c89367a53c1e0c7fc1525db067f1f4d8ed7c90c06",
+    "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
+    "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a2.json": "3dd424aa5187d3dd16ac3744f094524387be661282038b77533d320630655135",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/layout.js": "decfc2f161f8d2c2ba495ac56a7e558e74c8c022cff5653e955b41e5fa96ca29",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/page.js": "60027e201b4ca49feca5e97a2d25347d87a7c9d8be22ef0f81336326d6577b0f",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/app/play-01/page.js": "f955747df19e0cb2969fec01b0cf15b36f2c4191d6207a18f451064b15906573",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/next.config.js": "9ec21e32c339ca74d2d5272dec98e6a6f959c8780061e9d337a8ea9779c746b0",
+    "tests/fixtures/goal_verify_v4_a14_a5/create-ui-copy-style-port-path/reference/package.json": "70781ee29f0ba2b5db9da49f43e8bc47b3f21e7f9441fa7124ab61eca27561e6"
+  },
+  "run_id": "phase6-recovery-v4-20260830-a14-a5-smoke-01",
+  "runner_source_sha256": {
+    "scripts/eval-goal-verify-recovery-v4-report.py": "bc793cf5ff9dc7478d3105c10b8974c9a087932bf27d4d5720dda1ff6066d6b8",
+    "scripts/eval-goal-verify-recovery-v4.py": "5c93c04eb2988375ec044919d4ae15096ba38b9ffa005b222fe4a76ee332b32c",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14.py": "0e6d6a6b71b45a5970522669483af5997c45cf45c0519cefe900e320e06553df",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a1.py": "745c5d02bf4b90f054a1f96d95c829de64ec4ccc63876f992d1c52195fe0a7d4",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a2.py": "d67f90929a611b9a4ca7494b1f8cd22effb9a7ed444ce5513e7049b4543be209",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a3.py": "6864b964011fe43e4d7299de65f28725a08fa1ceb9eedbd62e9fe50c91083aeb",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a4.py": "b34d39ce6a2973696626251ed6337838d1937e2822e364caa22036f3bcb31b73",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a5.py": "387ac6832a99e6dcce7e9d55f096a64146435c2daf38e0afa1d20f21b37dbb42",
+    "scripts/eval_lib/goal_verify_additive_v4.py": "f3c173dee24c39076805be8f99a3a6103c7a40db008364804290836ba6306948",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py": "7a8dc9e600dc45d4bdd66b2b2cab143f4740214d84fa45d3d3edaf886ce078c3",
+    "scripts/eval_lib/goal_verify_executors_v3.py": "82d3eb3939807f39b6b96b7225a6e7f277439a0d7aee24ee709512efc90eb978",
+    "scripts/eval_lib/goal_verify_manifest_visibility_v4.py": "04eed2409e71c84eb6c694e91d88db1c03352b23b95ed464e17bac71a63321b3",
+    "scripts/eval_lib/goal_verify_recovery_experiment_v4.py": "fc9fc69ac5a143d9c06269ee011e3a442174f59e6799d0e40ca0f9fb25b004de",
+    "scripts/eval_lib/goal_verify_recovery_live_v4.py": "424df5493c41d723a4110464c55802d7567c9b6b520f08db4d9a13acbb377f01",
+    "scripts/eval_lib/goal_verify_recovery_report_v4.py": "c5940ba4b6af6da6e9c6d3c7eef28036b12008bcd5452549de38e2d12d425d0d",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py": "719462db0949600b9a3b730f3dcf5b0db0aab501d38fc1f0b44aedad41e6fb26"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_campaign.v4_a14",
+  "selected_pair_ids": [
+    "phase6-main-c01-task-01--pair-01",
+    "phase6-main-c04-task-01--pair-01",
+    "phase6-main-c06-task-01--pair-01",
+    "phase6-main-c07-task-01--pair-01"
+  ],
+  "target_pairs": 4
+}

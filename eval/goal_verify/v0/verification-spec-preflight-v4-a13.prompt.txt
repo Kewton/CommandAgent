@@ -1,0 +1,94 @@
+Generate one non-authoritative additive CommandAgent VerificationSpec v0 raw
+proposal as JSON only. It supplements the current product result; it never
+replaces that result, reports a verdict, or claims that an oracle ran.
+
+Copy INPUT `goal`, `intent`, and `profile` exactly. Copy the two fixed top-level
+constants from SHAPE EXAMPLE. The raw schema is authoritative. In particular:
+
+RAW PROPOSAL CONTRACT:
+
+- With `required_claims`, emit every supplied `claim.id` exactly once and no
+  others. Without it, create unique temporary IDs for atomic claims.
+- A raw claim contains `id`, `normalized_requirement`, `kind`, and optionally
+  one allowed `unverifiable_reason`. Do not emit `origin`, byte range, required,
+  or oracle IDs; all are host-owned.
+- A raw oracle contains `claim_id`, strategy, expected polarity, minimum
+  strength, setup, input, observation, and timeout. Do not emit host-owned ID,
+  observed strength, lifecycle, result, lineage, or provenance.
+- Operational constraints and completion paths/commands may bind an oracle to
+  an existing claim. They are not claims and do not prove execution or success.
+- Use only paths and bindings present in `workspace_manifest`.
+
+SEMANTIC CAPABILITY POLICY:
+
+- `semantic_policy_sha256` identifies the host policy used again before
+  execution and scoring. Do not reinterpret or bypass it.
+- In conformance, emit an oracle only from that claim's non-empty
+  `expected_observations` and only when `executor_status` is `available`.
+- In held-out synthesis, use only strategies listed in
+  `executor_capabilities.strategies`. Workspace files, task commands, or an
+  existing-evidence registry do not make an unlisted strategy available.
+- If no visible capability can meaningfully observe a claim, preserve the claim
+  without an oracle and use exactly one of `executor_capability_unavailable`,
+  `safe_execution_unavailable`, or `workspace_binding_unavailable`. This is
+  unverified, never pass.
+- An executable command is not automatically semantically sufficient. Its
+  observation must directly establish the claim. Never use a source literal as
+  proof of network activity or absence, or a generic artifact-exists check as
+  proof of causal intervention, timeout boundaries, source location, or a
+  reproducer outcome.
+- Do not use honest unknown when a listed capability, exact visible argv, and
+  required observation directly establish the claim.
+
+ALLOWED SEMANTICS:
+
+- create claim kinds: behavior, state, negative_condition
+- fix claim kinds: behavior, state, negative_condition, regression,
+  reproducer_observation
+- investigate claim kinds: diagnosis_binding, reproducer_observation
+- minimum strength: weak, deterministic, runtime
+- strategies: command, fixture, exit_code, stdout, stderr, file, http, dom,
+  interaction, existing_fix_evidence, existing_investigation_binding
+- input kinds: none, text, fixture, http, dom
+- observation kinds: exit_code, stdout, stderr, file, http_status, dom,
+  interaction, existing_binding
+
+Strategy/input/observation combinations are:
+
+- command: none/text/fixture -> exit_code/stdout/stderr/file
+- exit_code: none/text/fixture -> exit_code
+- stdout or stderr: none/text/fixture -> the same observation kind
+- fixture: fixture -> file; file: none/fixture -> file
+- http: http -> http_status
+- dom: dom -> dom; interaction: dom -> interaction
+- existing_fix_evidence or existing_investigation_binding:
+  none/fixture -> existing_binding
+
+DIRECT EXECUTION RULES:
+
+- Every setup contains direct `argv`, safe relative `cwd`, and a string-array
+  `fixture_paths`; use `[]` when none. Never use a shell, shell syntax, absolute
+  path, parent traversal, invented file, command, fixture, port, or value. Host
+  execution uses direct argv without a shell.
+- command/exit_code/stdout/stderr use 1-32 non-empty argv items. A fixture binds
+  the exact visible relative path and SHA-256.
+- One oracle observes one thing. Expected polarity is the required acceptance
+  state, not a result. Exact stdout/stderr is at most 2048 UTF-8 bytes.
+- http input uses GET/HEAD, loopback port, and `path` beginning `/`. DOM input
+  uses loopback port, `route`, selector, optional property, and optional 1-32
+  click actions. Actions belong only to interaction input.
+- HTTP/DOM/interaction setup is only the advertised direct start argv with its
+  decimal port as a distinct item. Host performs the advertised production
+  build separately. Unknown Next versions/build flags are unavailable.
+- Use the advertised Next build argv exactly. Never substitute `npm run build`
+  or combine build/start with a shell operator.
+- Browser expected values are exact runtime values. For CSS blue use
+  `rgb(0, 0, 255)`, not the source token.
+- An existing baseline observation is not a new oracle result. Gold adapters
+  and expected outcomes are used only for scoring after execution.
+
+For fix claims, separate before failure, after success, and regression
+preservation when each is required. Host selects the frozen before stage only
+for an intent-compatible before claim; all primary oracles use the hashed
+product snapshot. Host deterministically adds IDs, origins, flags, byte ranges,
+lineage, observed strength after semantic admissibility, and provenance.

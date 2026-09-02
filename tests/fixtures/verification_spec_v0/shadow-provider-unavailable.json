@@ -1,0 +1,9 @@
+{
+  "status": "rejected",
+  "kind": "provider_unavailable",
+  "error": {
+    "codes": [
+      "offline"
+    ]
+  }
+}

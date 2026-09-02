@@ -1,0 +1,633 @@
+{
+  "baseline": {
+    "corpus": "eval/goal_verify/v0/corpus.json",
+    "label": "phase0-current-authority",
+    "report": "dev-reports/issue-393/runs/fixture-replay-e74b7113/baseline.json"
+  },
+  "candidate": {
+    "absence_reason": "No comparative candidate run or provider-backed Phase 6 campaign is authorized by Issue 399.",
+    "corpus": null,
+    "label": "verification-spec-v0-shadow",
+    "report": null
+  },
+  "evidence_lanes": {
+    "approved_live": {
+      "authorized": false,
+      "references": [],
+      "required": true,
+      "status": "not_authorized"
+    },
+    "blind_review": {
+      "references": [
+        "dev-reports/issue-393/annotation-review.md",
+        "dev-reports/issue-398/implementation-summary.md"
+      ],
+      "required": true,
+      "status": "available"
+    },
+    "ci": {
+      "absence_reason": "Predecessor local verification passed, but no exact-SHA CI result is recorded as Phase 6 evidence.",
+      "references": [],
+      "required": true,
+      "status": "missing"
+    },
+    "offline_local": {
+      "absence_reason": "The baseline and Phase 1-5 conformance checks exist, but no comparative candidate replay exists.",
+      "references": [
+        "dev-reports/issue-393/runs/fixture-replay-e74b7113/manifest.json",
+        "dev-reports/issue-393/runs/fixture-replay-e74b7113/baseline.json",
+        "dev-reports/issue-394/verification.md",
+        "dev-reports/issue-395/verification.md",
+        "dev-reports/issue-396/verification.md",
+        "dev-reports/issue-397/verification.md",
+        "dev-reports/issue-398/verification.md"
+      ],
+      "required": true,
+      "status": "partial"
+    }
+  },
+  "failure_cases": [
+    {
+      "reason": "missing",
+      "scope": "evidence_lane:ci"
+    },
+    {
+      "reason": "partial",
+      "scope": "evidence_lane:offline_local"
+    },
+    {
+      "reason": "not_authorized",
+      "scope": "evidence_lane:approved_live"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:create|cli|en|small"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:create|generic|ja|small"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:create|nextjs|en|medium"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:create|nextjs|ja|medium"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:fix|cli|ja|medium"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:fix|data|en|small"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:fix|generic|en|medium"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:fix|nextjs|ja|large"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:investigate|data|en|large"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:investigate|generic|en|medium"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:investigate|generic|ja|small"
+    },
+    {
+      "reason": "baseline_samples=1, candidate_samples=0 below 30",
+      "scope": "matrix_cell:investigate|nextjs|ja-en|large"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:required_claim_recall"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:required_claim_precision"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:strong_binding_coverage"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:task_success_rate"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:final_acceptance_rate"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:false_full_count"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:false_fail_rate"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:false_partial_rate"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:flake_rate"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:schema_compliance_yield"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:required_claim_recall_gain"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:strong_binding_coverage_gain"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:unverified_rate_reduction"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:false_full_target"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:wall_time_p50"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:wall_time_p95"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:total_tokens_p50"
+    },
+    {
+      "reason": "insufficient_evidence",
+      "scope": "indicator:total_tokens_p95"
+    }
+  ],
+  "final_decision": "INSUFFICIENT-EVIDENCE",
+  "flag_off_compatibility": {
+    "references": [
+      "docs/dev/verification-spec-v0.md",
+      "tests/create_shadow_oracle.rs",
+      "tests/fix_shadow_conformance.rs",
+      "tests/investigate_shadow_conformance.rs",
+      "tests/critic_shadow_conformance.rs"
+    ],
+    "verified": true
+  },
+  "indicators": [
+    {
+      "baseline": 0.5,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "required_claim_recall",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.705882,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "required_claim_precision",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.01
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "strong_binding_coverage",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 1.0,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "task_success_rate",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.333333,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "final_acceptance_rate",
+      "threshold": {
+        "rule": "delta_min",
+        "value": -0.02
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "false_full_count",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.0,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "false_fail_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.0,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "false_partial_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.027778,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "flake_rate",
+      "threshold": {
+        "rule": "delta_max",
+        "value": 0.01
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.916667,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "schema_compliance_yield",
+      "threshold": {
+        "rule": "candidate_min",
+        "value": 0.95
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "required_claim_recall_gain",
+      "threshold": {
+        "rule": "delta_min",
+        "value": 0.1
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.5,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "strong_binding_coverage_gain",
+      "threshold": {
+        "rule": "delta_min",
+        "value": 0.15
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0.375,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "unverified_rate_reduction",
+      "threshold": {
+        "rule": "delta_max",
+        "value": -0.1
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 0,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "false_full_target",
+      "threshold": {
+        "rule": "candidate_max",
+        "value": 0
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 244500,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "wall_time_p50",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": null
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 900000,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "wall_time_p95",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": null
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 14550,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "total_tokens_p50",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": null
+      },
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline": 36000,
+      "candidate": null,
+      "confidence_interval_95": {
+        "lower": null,
+        "paired_sample_size": 0,
+        "status": "insufficient_evidence",
+        "upper": null
+      },
+      "delta": null,
+      "name": "total_tokens_p95",
+      "threshold": {
+        "rule": "delta_pct_max",
+        "value": null
+      },
+      "verdict": "insufficient_evidence"
+    }
+  ],
+  "matrix_cells": [
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "create",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "cli",
+      "size": "small",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "create",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "small",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "create",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "medium",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "create",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "medium",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "fix",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "cli",
+      "size": "medium",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "fix",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "data",
+      "size": "small",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "fix",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "medium",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "fix",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "large",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "investigate",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "data",
+      "size": "large",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "investigate",
+      "language": "en",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "medium",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "investigate",
+      "language": "ja",
+      "minimum_samples": 30,
+      "profile": "generic",
+      "size": "small",
+      "verdict": "insufficient_evidence"
+    },
+    {
+      "baseline_samples": 1,
+      "candidate_samples": 0,
+      "intent": "investigate",
+      "language": "ja-en",
+      "minimum_samples": 30,
+      "profile": "nextjs",
+      "size": "large",
+      "verdict": "insufficient_evidence"
+    }
+  ],
+  "matrix_id": "phase6-ab-uat-v0",
+  "report_schema_version": "commandagent.goal_verify.phase6_report.v0",
+  "rollback": {
+    "references": [
+      "docs/dev/goal-to-verify-v0.md",
+      "tests/verification_spec_v0.rs"
+    ],
+    "rehearsed": true
+  }
+}

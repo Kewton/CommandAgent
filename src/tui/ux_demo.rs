@@ -298,6 +298,7 @@ mod tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs: 600,
             chat_timeout_source: "default:local_provider".to_string(),
             field_sources: ConfigFieldSources::default(),

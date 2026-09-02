@@ -1,0 +1,38 @@
+[
+  {
+    "reason": "failed",
+    "scope": "indicator:required_claim_recall"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:required_claim_precision"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:strong_binding_coverage"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:false_full_count"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:schema_compliance_yield"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:required_claim_recall_gain"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:strong_binding_coverage_gain"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:unverified_rate_reduction"
+  },
+  {
+    "reason": "failed",
+    "scope": "indicator:false_full_target"
+  }
+]

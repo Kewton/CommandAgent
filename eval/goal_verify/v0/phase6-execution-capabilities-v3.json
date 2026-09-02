@@ -1,0 +1,181 @@
+{
+  "schema_version": "commandagent.goal_verify.execution_capabilities.v3",
+  "status": "frozen",
+  "contract_id": "phase6-preflight-v3-20260826-live-02",
+  "drafted_at": "2026-08-26",
+  "supersedes": "eval/goal_verify/v0/phase6-execution-capabilities-v2.json for v3 runs",
+  "classification_dimensions": {
+    "schema_mapping": [
+      "full",
+      "partial",
+      "none"
+    ],
+    "executor_status": [
+      "existing",
+      "adaptation_required",
+      "unavailable"
+    ],
+    "lane": [
+      "primary",
+      "executor_unavailable"
+    ],
+    "primary_endpoint_rule": "a claim counts in primary denominators only when its executor_status is existing or is implemented and verified before the first preflight response; adaptation_required claims not ready at freeze move to executor_unavailable at claim level (never to a snapshot lookup)"
+  },
+  "cases": [
+    {
+      "case_id": "create-build-only-functional",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "counter-two-clicks",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "playwright_script",
+          "strategies": [
+            "interaction"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "ui-copy-style",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "playwright_script",
+          "strategies": [
+            "dom"
+          ]
+        },
+        {
+          "claim_id": "port-path",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "http_get",
+          "strategies": [
+            "http"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "cli-known-values",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "sandbox_command",
+          "strategies": [
+            "command",
+            "stdout"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "create-negative-constraint-injection",
+      "lane": "executor_unavailable",
+      "claims": [
+        {
+          "claim_id": "no-network",
+          "schema_mapping": "none",
+          "executor_status": "unavailable",
+          "strategies": []
+        }
+      ]
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "before-after",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "stage_command",
+          "strategies": [
+            "command",
+            "existing_fix_evidence"
+          ]
+        },
+        {
+          "claim_id": "regressions",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "regression_set",
+          "strategies": [
+            "command",
+            "existing_fix_evidence"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "exact-reproducer",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "fixture_hash_command",
+          "strategies": [
+            "existing_fix_evidence",
+            "fixture",
+            "command"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "after-executed",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "stage_command",
+          "strategies": [
+            "command",
+            "existing_fix_evidence"
+          ],
+          "note": "unavailable in v2; executable in v3 via the after stage"
+        },
+        {
+          "claim_id": "full-regression-set",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "regression_set",
+          "strategies": [
+            "command",
+            "existing_fix_evidence"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "lane": "primary",
+      "claims": [
+        {
+          "claim_id": "bug-reproducer",
+          "schema_mapping": "full",
+          "executor_status": "existing",
+          "executor": "sandbox_command / stage_command",
+          "strategies": [
+            "command",
+            "existing_fix_evidence"
+          ],
+          "note": "negative cell; dependency deliberately absent"
+        }
+      ]
+    }
+  ],
+  "investigate": "not selected in v3; unchanged from v2 (unavailable)"
+}

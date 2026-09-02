@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -7,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use super::claims_binding::{ClaimBinding, bind_report_claims_to_results, claim_limit_exceeded};
 use super::results_schema::{self, ExcludedRows, ResultsDocument};
 use crate::evidence_envelope::EvidenceFamily;
-use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
-use crate::planner::failure_vocabulary::{claims_id, reconciliation_id, rerun_id};
+use crate::planner::failure_vocabulary::{claims_id, reconciliation_id};
+
+mod rerun;
+pub use rerun::{check_rerun_consistency, check_rerun_consistency_with_args};
 
 pub use super::inspection_schema::{
     EVIDENCE_PATH as INSPECTION_SCHEMA_EVIDENCE_PATH, InspectionSchemaEvidence,
@@ -128,63 +129,6 @@ pub fn check_claims_binding(root: &Path) -> anyhow::Result<ClaimsBindingEvidence
     evidence.ok = evidence.failure_kinds.is_empty();
     evidence.status = status(evidence.ok);
     write_evidence(root, CLAIMS_BINDING_EVIDENCE_PATH, &evidence)?;
-    Ok(evidence)
-}
-
-pub fn check_rerun_consistency(
-    root: &Path,
-    entry: &str,
-    timeout: Duration,
-) -> anyhow::Result<RerunConsistencyEvidence> {
-    let mut evidence = RerunConsistencyEvidence {
-        capability_id: "data_rerun_consistency".to_string(),
-        status: "failed".to_string(),
-        ok: false,
-        entry: entry.to_string(),
-        pipeline_run_ok: false,
-        baseline_results: None,
-        rerun_results: None,
-        failure_kinds: Vec::new(),
-    };
-    match results_schema::load(root) {
-        Ok(results) => evidence.baseline_results = Some(results),
-        Err(error) => evidence
-            .failure_kinds
-            .push(rerun_id!("baseline_results:{error}")),
-    }
-    if evidence.baseline_results.is_some() {
-        match pipeline_probe::run(root, PipelineProbeConfig::new(entry).with_timeout(timeout)) {
-            Ok(report) => {
-                evidence.pipeline_run_ok = report.ok;
-                if !report.ok {
-                    evidence
-                        .failure_kinds
-                        .push(rerun_id!("pipeline_run:{}", report.failure_kinds.join(",")));
-                }
-            }
-            Err(error) => evidence
-                .failure_kinds
-                .push(rerun_id!("pipeline_run_error:{error}")),
-        }
-        match results_schema::load(root) {
-            Ok(results) => evidence.rerun_results = Some(results),
-            Err(error) => evidence
-                .failure_kinds
-                .push(rerun_id!("rerun_results:{error}")),
-        }
-    }
-    if let (Some(baseline), Some(rerun)) = (&evidence.baseline_results, &evidence.rerun_results)
-        && !crate::minimal_loop::rerun_consistency::reproduced(baseline, rerun)
-    {
-        evidence
-            .failure_kinds
-            .push("rerun_consistency_violation:results_changed".to_string());
-    }
-    evidence.ok = evidence.failure_kinds.is_empty()
-        && evidence.pipeline_run_ok
-        && evidence.rerun_results.is_some();
-    evidence.status = status(evidence.ok);
-    write_evidence(root, RERUN_CONSISTENCY_EVIDENCE_PATH, &evidence)?;
     Ok(evidence)
 }
 
@@ -308,6 +252,8 @@ fn status(ok: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use serde_json::json;
 

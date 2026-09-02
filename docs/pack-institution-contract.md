@@ -711,6 +711,9 @@ group- or other-writable root is rejected.
 
 ```text
 <extension-root>/
+├── profiles/
+│   ├── <id>/manifest.toml
+│   └── <admitted-base>/overlay.toml
 ├── packs/<id>/<version>/
 │   ├── assist.yaml
 │   ├── eval.yaml
@@ -743,6 +746,21 @@ the alternatives above. `detail` is at most 4,096 UTF-8 bytes after credential
 scrub and MUST NOT contain secret source text. The journal is outside every
 pack hash. Existing lines MUST NOT be edited, truncated, reordered, or changed
 from `error` to `ok`; retirement does not erase history.
+
+Profile registration additively uses a distinct `profile_register` record in
+the same JSONL file:
+
+```json
+{"ts":"<RFC3339>","actor":"gui|cli","action":"profile_register","profile":{"id":"<profile-id>","path":"profiles/<id>/manifest.toml|profiles/<base>/overlay.toml","hash":"sha256:<64-lowercase-hex>"},"result":"ok|error","detail":"<bounded scrubbed text>"}
+```
+
+This does not alter or widen `JournalEntry`: all existing pack records retain
+their exact closed shape and alternatives. The additive profile record carries
+no submitted TOML, private absolute root, token, or credential. Profile bytes
+are limited to 256 KiB, validated through the existing manifest/overlay
+decoder, and installed create-new without following symlinks or replacing an
+existing file. Successful supply does not mutate the running registry;
+availability changes only after restart with the same extension root.
 
 ## 8. Pack conformance
 

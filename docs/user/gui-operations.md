@@ -17,8 +17,10 @@ without removing the last successful list.
 
 `--trial-token-auth` accepts `on` or `off` and defaults to `off`. Off hides the
 token field and removes bearer authentication, but every POST still requires a
-same-host Origin or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. Use off only on a
-trusted local loopback session.
+same-host Origin or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. GET-only recovery
+documents are readable without a token when off; their projected-path,
+workspace-confinement, non-symlink, and no-store checks remain enforced. Use off
+only on a trusted local loopback session.
 
 On requires a 32–4096 character non-whitespace `GUI_TRIAL_TOKEN` in the server
 process environment. The browser sends it as
@@ -55,8 +57,10 @@ complete supply record.
 
 Retirement is non-destructive and terminal for that version. Do not delete
 bytes/history or edit a pinned version; stage a new version. Review the journal
-for `stage|verify|pin|retire`, actor, outcome, exact identity, and scrubbed
-detail. See [GUI extensions](gui-extensions.md#lifecycle-workflow).
+for `stage|verify|pin|retire|profile_register`, actor, outcome, exact identity,
+and scrubbed detail. A profile record includes only its normalized relative
+path and exact hash, never the submitted TOML. See
+[GUI extensions](gui-extensions.md#lifecycle-workflow).
 
 ## API
 
@@ -69,7 +73,7 @@ Evidence routes are same-origin GET requests below the configured base path:
 | `api/bands`, `api/maps`, `api/maps/score-time.svg` | measured-band and score/time projections |
 | `api/packs`, `api/contracts`, `api/suites` | resolved pack catalog and reviewed documents |
 | `api/reports`, `api/reports/view?path=…` | measurement report archive |
-| `api/runtime-status` | Trial readiness, authentication mode, and lease state |
+| `api/runtime-status` | Trial readiness, extension-root state, authentication mode, and lease state |
 
 Paths are canonicalized below inventory roots, listing does not follow
 symlinks, and individual text views are capped at 1 MiB.
@@ -113,6 +117,14 @@ The GUI translates the code into a next action without hiding the server detail.
 | `428 trial_confirmation_required` | Check contract/price and explicitly confirm. |
 | `503 trial_execution_disabled` | Restart with a valid execution root and required token. |
 | `500 trial_internal_error` | Check the CLI path/server log; reconnect rather than double-dispatch. |
+| `401 profile_auth_failed` | Enter the current Trial token, then preview again. |
+| `403 profile_origin_not_allowed` | Use the configured GUI Origin or add its exact value and restart. |
+| `400 profile_invalid_request` | Rebuild the JSON request with only the documented fields. |
+| `413 profile_body_too_large` | Reduce the manifest or overlay to 256 KiB or less. |
+| `422 profile_validation_failed` | Correct the relative path, closed schema/capability, ID, or additive overlay. |
+| `409 profile_confirmation_stale` | Preview the current bytes again and reconfirm the returned exact hash. |
+| `409 profile_conflict` | Choose a new ID/path or preserve the existing file; it will not be overwritten. |
+| `500 profile_io_failed` | Check extension-root ownership, free space, managed paths, and journal; retrying identical bytes is safe. |
 
 For unreadable repository records, reload inventory, then verify repository
 root, canonical path, and permissions. For proxy/network rejection, assume an
@@ -135,7 +147,9 @@ npm run smoke:errors
   upstream/proxy responses.
 - Origin rejected: use the exact browser scheme/host/port in the allowlist.
 - Catalog mutation fails: verify extension ownership, 0700 permissions, space,
-  and journal state; do not bypass `SupplyRoot`.
+  and journal state; do not bypass `SupplyRoot` or `ProfileSupplyRoot`.
+- A profile was saved but is absent from Trial: honor `restart_required`, restart
+  with the same extension root, then match its exact hash in Layer 2 and Gate 1.
 - Lease is non-idle: use the exact session and the
   [read-only recovery guide](gui-trial.md#workspace-lease-inspection-and-recovery).
 - Monitoring is lost: inspect network/proxy and reconnect; do not infer child
@@ -159,10 +173,13 @@ npm run smoke -- \
   --commandagent-bin ../target/release/commandagent
 ```
 
-Use `--overview-only` for the provider-free first-run/help check and
-`--read-only` for all read-only projections. The smoke verifies base-safe
-links, runtime visibility/concurrency, list revalidation, help copy, empty-state
-wording, extension labels/handoff, dashboard/API/SVG, Trial workflow,
-reconnect, and mobile layout. It records
+Use `--overview-only` for the provider-free landing/first-use check and
+`--read-only` for all read-only projections. The Overview smoke verifies
+base-safe Trial/status/history/detail CTAs, direct reload, absence of duplicated
+map/band/run dashboards and their API fetches, real and unavailable runtime
+states, heading structure, focus visibility, WCAG axe rules, reduced motion,
+help copy, and desktop/mobile layout on both base paths. The broader smoke also
+verifies runtime concurrency, list revalidation, extension labels/handoff,
+Trial workflow, and reconnect. It records
 screenshots and `browser-smoke.json`; it never makes a successful result by
 weakening Gate 1 or terminal acceptance.

@@ -36,6 +36,15 @@ played as a time-lapse.
   <img src="docs/assets/demo/gui-demo.gif" alt="Real screen recording of the CommandAgent management GUI: sample goal, Gate 1 card, running phases, and the result" width="900">
 </p>
 
+The GUI **Overview** is the product landing page: **Goal -> pre-execution
+confirmation -> plan/implement -> verify/repair -> verified result or honest
+failure**. It explains local-first operation, Gate 1, bounded writes, evidence,
+and the [four extension layers](docs/guide/en/extensions.md) before showing live
+readiness and active-session data. Start at `/try/`, watch an active session at
+`/try/status/`, find sessions at `/try/history/`, and read terminal evidence at
+`/try/history/detail/`. Capability maps/bands and repository-run lists remain
+on their owning **Measurements** and **Repository run records** pages.
+
 The [recording notes](docs/assets/ux-demo.md) explain how both GIFs were
 captured and how to regenerate them with `scripts/demo/`. The
 [tutorial](docs/guide/en/tutorial.md) walks through the same screens step by
@@ -118,9 +127,13 @@ one:
 Other entry points:
 
 - [GUI getting started](docs/user/getting-started-gui.md) — setup readiness,
-  sample Trial, Gate 1, and result reading
-- [Extensions](docs/user/gui-extensions.md) — pack/profile supply, lifecycle,
-  naming, and the path from a private extension to review
+  sample Trial, Gate 1, separate status/history/result pages, and the copyable
+  working directory (isolated per session by default, or an existing relative
+  directory selected below `--execution-root`)
+- [Extensions](docs/guide/en/extensions.md) — four layers, pack/profile supply,
+  bounded draft-profile registration, assurance boundaries, and the path from
+  a private extension to review;
+  [detailed lifecycle](docs/user/gui-extensions.md)
 
 ## Install
 

@@ -1,0 +1,43 @@
+{
+  "checks": {
+    "candidate_manifest_policy_applied": true,
+    "frozen_external_oracle_post_execution": true,
+    "ineligible_recovery_not_executed": true,
+    "initial_arm_configured_zero": true,
+    "maximum_one_recovery_executed": true,
+    "paired_input_snapshot_match": true,
+    "recovery_arm_configured_one_or_preregistered_not_run": true,
+    "resource_measurement_complete": true,
+    "target_pairs_complete": true
+  },
+  "contract_id": "phase6-recovery-v4-20260829-a14-live-01",
+  "counts": {
+    "attributed_harmed": 0,
+    "attributed_improved": 0,
+    "initial_attempt_divergence": 1,
+    "no_recovery_executed": 0,
+    "no_recovery_needed": 1,
+    "unchanged_fail": 0,
+    "unchanged_pass": 0,
+    "unusable": 0
+  },
+  "diagnostics": {
+    "ineligible_recovery_violations": [],
+    "manifest_policy_violations": [],
+    "oracle_source_violations": [],
+    "resource_missing": [],
+    "snapshot_mismatches": []
+  },
+  "effect_claim_allowed": false,
+  "inference_role": "instrument diagnostic only",
+  "instrument_ready": true,
+  "median_resource_delta": {
+    "input_tokens": 2513.0,
+    "output_tokens": 857.0,
+    "total_tokens": 3370.0,
+    "wall_time_ms": 22150.5
+  },
+  "record_count": 4,
+  "run_id": "phase6-recovery-v4-20260829-a14-smoke-01",
+  "schema_version": "commandagent.goal_verify.recovery_report.v4_a14"
+}

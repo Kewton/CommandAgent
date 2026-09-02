@@ -70,11 +70,18 @@ unchanged.
 All three must be pairwise disjoint, including canonicalized symlink aliases.
 The extension root must not be the Trial execution root.
 
-Each confirmed Trial runs with `<execution-root>/sessions/<session-id>/` as
-both its process working directory and CLI `--cwd`. Generated source plus that
-workspace's `.commandagent/plans`, `evidence`, and `repairs` stay below the
-session directory. Automatically generated completion contracts follow the
-same boundary; these products are never shared at the execution-root top level.
+By default, each confirmed Trial runs with
+`<execution-root>/sessions/<session-id>/` as both its process working directory
+and CLI `--cwd`. The Trial form can instead select an existing directory below
+the execution root by relative path. Gate 1 binds that canonical directory,
+and confirmed additional requests and history reconnects reuse it. Absolute
+paths, traversal, symlinks, runtime directories, missing directories, and
+paths outside the execution root are rejected.
+
+Generated source plus the selected workspace's `.commandagent/plans`,
+`evidence`, and `repairs` stay below that working directory. Automatically
+generated completion contracts follow the same boundary; these products are
+never shared at the execution-root top level.
 Confirmations, `events.jsonl`, `summary.md`, and directive state remain in the
 central `<execution-root>/.commandagent/runs/<session-id>/` record used by the
 GUI APIs. The legacy `.anvil/runs/<session-id>/` location remains read-only
@@ -99,7 +106,9 @@ cargo run --features gui --bin gui_server -- \
 
 Open `http://127.0.0.1:4173/`. The server binds only to `127.0.0.1`. With
 authentication off, the token field is hidden, but every POST still requires a
-same-host or allowlisted Origin. Use this only for a trusted loopback session.
+same-host or allowlisted Origin. Read-only recovery documents are also
+available without a bearer token in this mode. Use this only for a trusted
+loopback session.
 If `--execution-root` is omitted, read-only dashboards remain available and
 all Trial APIs fail closed.
 

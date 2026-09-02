@@ -23,6 +23,7 @@ const DEFAULT_MAX_ARTIFACTS: usize = 256;
 #[derive(Debug, Clone)]
 pub struct PipelineProbeConfig {
     entry: PathBuf,
+    args: Vec<String>,
     timeout: Duration,
     max_stream_bytes: usize,
     max_artifact_bytes: u64,
@@ -34,6 +35,7 @@ impl PipelineProbeConfig {
     pub fn new(entry: impl Into<PathBuf>) -> Self {
         Self {
             entry: entry.into(),
+            args: Vec::new(),
             timeout: DEFAULT_TIMEOUT,
             max_stream_bytes: DEFAULT_MAX_STREAM_BYTES,
             max_artifact_bytes: DEFAULT_MAX_ARTIFACT_BYTES,
@@ -44,6 +46,11 @@ impl PipelineProbeConfig {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    pub fn with_args(mut self, args: impl IntoIterator<Item = String>) -> Self {
+        self.args = args.into_iter().collect();
         self
     }
 
@@ -110,7 +117,10 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
         "python3".to_string(),
         "-B".to_string(),
         entry_display.clone(),
-    ];
+    ]
+    .into_iter()
+    .chain(config.args.iter().cloned())
+    .collect::<Vec<_>>();
     let command_text = command_parts.join(" ");
     if let Some(reason) = crate::tools::bash::blocked_reason(&command_text, true) {
         bail!("pipeline entry blocked by offline command policy: {reason}");
@@ -120,6 +130,7 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
     command
         .arg("-B")
         .arg(&entry_display)
+        .args(&config.args)
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -206,6 +217,9 @@ fn validate_config(config: &PipelineProbeConfig) -> anyhow::Result<()> {
     }
     if config.max_stream_bytes == 0 {
         bail!("pipeline stream limit must be greater than zero");
+    }
+    if config.args.iter().any(|arg| arg.contains('\0')) {
+        bail!("pipeline argument contains NUL");
     }
     Ok(())
 }
@@ -347,6 +361,7 @@ fn millis_u64(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("pipeline_probe/argument_tests.rs");
 
     fn write_pipeline(root: &Path, body: &str) {
         std::fs::create_dir_all(root.join("pipeline")).unwrap();

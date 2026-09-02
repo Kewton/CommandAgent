@@ -1,0 +1,41 @@
+{
+  "schema_version": "commandagent.goal_verify.early_termination.v1",
+  "contract_id": "phase6-main-v4-20260829-live-02",
+  "terminated_at": "2026-08-29T10:56:34Z",
+  "status": "early_terminated_diagnostic",
+  "reason": "candidate_visible_workspace_manifest_includes_generated_and_cache_artifacts",
+  "decision": "stop before changing the frozen prompt/input contract; preserve the partial run without formal GO/NO-GO",
+  "confirmed_state": {
+    "pairs": 133,
+    "proposals": 266,
+    "record_ledger_entries": 133,
+    "record_ledger_head_sha256": "f07ffa2d8881173264b0e373612dab75c5bf0ef6d95eacc88ad54dbc9e6915c5",
+    "record_ledger_file_sha256": "db36d5319b7dc7d5b11959da3a1688ac7ba6a6cc898343067752b2a457a70fda",
+    "campaign_summary_sha256": "f743be9dd76bff399a23049e3671cbac3ba2b74354462432c828e43248edd1ea",
+    "campaign_manifest_sha256": "622c29cffa0a646a37423cb932ef20c210f24f044378b54eb38c68f560e44e2b"
+  },
+  "finding": {
+    "full_manifest_integrity": "retained",
+    "candidate_visible_projection": "unfiltered",
+    "observed_nextjs_cell_04_median_full_entries": 170,
+    "observed_nextjs_cell_04_median_dot_next_entries": 165,
+    "matched_pair_candidate_input_token_median_before": 7341,
+    "matched_pair_candidate_input_token_median_after": 37759,
+    "semantic_output_bias_possible": true,
+    "resource_measurement_contaminated": true
+  },
+  "evidence_policy": {
+    "raw_records_rewritten": false,
+    "record_ledger_rewritten": false,
+    "campaign_summary_rewritten": false,
+    "formal_main_decision_allowed": false,
+    "diagnostic_use_allowed": true
+  },
+  "required_successor_changes": [
+    "separate the host-internal full manifest from the candidate-visible projection",
+    "hide generated, cache, dependency-environment, and coverage artifacts from candidate input",
+    "retain full snapshot hashing for same-snapshot integrity",
+    "cover Next.js and Python generated artifacts with focused tests",
+    "freeze a new amendment and exact-SHA evidence before any successor live run"
+  ]
+}

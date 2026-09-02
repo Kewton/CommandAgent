@@ -7,8 +7,10 @@ use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupObservation, NodeDependencySetupStatus,
 };
 use crate::minimal_loop::verifier_env;
+use crate::planner::expected_result_observation::record_python_traceback as rt;
 use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
+use crate::planner::verify_semantics::checked_runtime_repair as cr;
 use crate::tools::path_guard::{resolve_existing, validate_workspace_relative};
 use crate::{eval_events, tools::bash::BashOutcome};
 
@@ -737,9 +739,7 @@ fn verify_step_with_setup_observed_with_options(
                 reason,
                 traceback,
             } => {
-                if let Some(traceback) = traceback {
-                    report.push_python_traceback(traceback);
-                }
+                rt(&mut report, eval_events_path, step, command, traceback);
                 if dependency_classification::is_dependency_missing_for_command(
                     root, command, &reason,
                 ) {
@@ -1652,9 +1652,9 @@ pub fn normalize_runtime_bash_command_for_boundary(
         anyhow::bail!("{}", VerifyCommandViolationKind::Empty.message());
     }
     let mut current = trimmed.to_string();
-    let mut reasons = Vec::new();
-    let mut kinds = Vec::new();
-    if let Some(repair) = normalize_verify_command_for_oracle_repair_with_root(trimmed, root)
+    let (mut reasons, mut kinds) = (Vec::new(), Vec::new());
+    let repair = normalize_verify_command_for_oracle_repair_with_root(trimmed, root);
+    if let Some(repair) = cr(repair)?
         && repair.normalized != current
     {
         current = repair.normalized;
@@ -3674,21 +3674,21 @@ mod tests {
     }
 
     #[test]
-    fn runtime_bash_normalizer_strips_custom_status_echo_branches() {
+    fn runtime_bash_normalizer_rejects_custom_status_echo_polarity_change() {
         let dir = tempfile::tempdir().unwrap();
-        let plan = normalize_runtime_bash_command_for_boundary(
+        let error = normalize_runtime_bash_command_for_boundary(
             r#"test -f src/app/page.tsx && echo "EXISTS" || echo "MISSING""#,
             dir.path(),
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(plan.normalization_kind, "success_failure_echo_stripped");
-        assert_eq!(plan.segments.len(), 1);
-        assert_eq!(plan.segments[0].connector, RuntimeCommandConnector::Always);
-        assert_eq!(
-            plan.segments[0].command.as_str(),
-            "test -f src/app/page.tsx"
+        assert!(
+            error
+                .to_string()
+                .contains("verify_command_rewritten_with_semantic_change"),
+            "{error:#}"
         );
+        assert!(error.to_string().contains("success_failure_echo_stripped"));
     }
 
     #[test]
@@ -4773,6 +4773,35 @@ EOF\n\
             verify: vec!["false".to_string()],
         };
         assert!(verify_step(dir.path(), &step).is_pass());
+    }
+
+    #[test]
+    fn verify_expected_result_fail_accepts_python_traceback_and_records_event() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("crash.py"), "raise KeyError('expected')\n").unwrap();
+        let events = dir.path().join("events.jsonl");
+        let step = PlanStep {
+            id: "reproducer-before".to_string(),
+            kind: "verify".to_string(),
+            expected_result: "fail".to_string(),
+            instruction: "Observe the historical failure.".to_string(),
+            expected_paths: Vec::new(),
+            verify: vec!["python3 crash.py".to_string()],
+        };
+
+        let (report, _) = verify_step_with_setup_observed_with_offline_and_events(
+            dir.path(),
+            &step,
+            NodeDependencySetupAuthority::None,
+            false,
+            Some(&events),
+        );
+
+        assert!(report.is_pass(), "{report:?}");
+        assert!(report.python_tracebacks.is_empty());
+        let events = std::fs::read_to_string(events).unwrap();
+        assert!(events.contains("expected_fail_python_traceback_observed"));
+        assert!(events.contains("\"polarity_satisfied\":true"));
     }
 
     #[test]

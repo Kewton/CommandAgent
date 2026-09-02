@@ -1,0 +1,1541 @@
+{
+  "authorization": {
+    "approved_at": "2026-08-28",
+    "approved_by": "repository owner",
+    "implementation_authorized": true,
+    "live_collection_authorized": true,
+    "note": "freeze exact SHA, CI, corpus, task contracts, adapters, workspaces, smoke set, review packet rules, budgets, thresholds, exclusions, and seed before the first main provider response",
+    "scope": "local 360-pair Phase 6 main experiment (12 cells x 10 tasks x 3 runs), fixed source-blind review, and deterministic 2,000-sample cluster bootstrap; external live A/B remains unauthorized"
+  },
+  "baseline": {
+    "completion_verify_result_required": false,
+    "honest_terminal_policy": "completion verification attempted or discovered product run exited nonzero",
+    "honest_terminal_required": true,
+    "mode": "current_product_live",
+    "product_findings_recorded": [
+      "nextjs profile auto-scaffolds tailwind/postcss/typescript configs despite the forbidden-dependency constraint",
+      "product installed next 14.2.35 from cache in 2/5 build-only runs although the bundle provides 16.3.1",
+      "completion contract verify reports missing_required_evidence:bound_verify_command on cli/negative cells (harness-vs-product attribution pending)",
+      "fix reproduce step semantics diverge from the task contract (expected command to fail but it passed)"
+    ],
+    "product_run_discovered_required": true,
+    "recovery_plan_argv": [
+      "--recovery-plan-auto-runs",
+      "0"
+    ],
+    "recovery_plan_auto_runs": 0,
+    "recovery_plan_policy": "the harness passes --recovery-plan-auto-runs 0 explicitly on every baseline product run and records it in raw argv/evidence; the estimand is the current product with automatic Recovery Plan execution disabled; recovery YAML generation is recorded but never executed by the harness",
+    "run_namespaces": [
+      ".commandagent/runs",
+      ".anvil/runs",
+      ".commandagent-state/runs"
+    ],
+    "runtime_state_excluded_from_candidate_snapshot": true,
+    "task_contract_bound_required": true,
+    "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-main.json"
+  },
+  "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+  "claim_policy": {
+    "allow_unverifiable_reason": true,
+    "allowed_reasons": [
+      "executor_capability_unavailable",
+      "safe_execution_unavailable",
+      "workspace_binding_unavailable"
+    ],
+    "claims_from_operational_constraints": "creating a new claim from operational_constraints is forbidden; operational_constraints may only bind an oracle for an already-provided required claim ID; in the conformance lane any extra claim fails the exact registered-ID rule; in the held-out lane decomposed claims follow the existing held-out policy and are never credited without a registered adapter",
+    "passing_credit": false,
+    "scoring": "retain claim in denominator as unverified"
+  },
+  "code_sha": "4b46342c3848bc49d3675d5aad15e3422d54fae1",
+  "comparison": {
+    "baseline": "current_product_evidence",
+    "baseline_failure_override_allowed": false,
+    "candidate": "baseline_plus_candidate_evidence",
+    "estimand": "score(union(baseline_evidence,candidate_evidence))-score(baseline_evidence)",
+    "shared_product_snapshot": true,
+    "task_execution_count_per_pair": 1,
+    "unverified_as_pass_allowed": false
+  },
+  "contract_id": "phase6-main-v4-20260828-live-01",
+  "corpus": "eval/goal_verify/v0/phase6-main-corpus-v4.json",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4b46342c.json",
+  "execution": {
+    "baseline_observation_copy_max_count": 0,
+    "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
+    "browser_toolchain": "playwright-core copied from the provisioned bundle before product execution and hash-recorded outside candidate workspaces",
+    "candidate_primary_reference_fallback_max_count": 0,
+    "cli_text_comparison": "remove at most one terminal LF or CRLF from both expected and actual for stdout/stderr only",
+    "command_sandbox_denial_policy": "the exact Next.js 16 Turbopack internal-bind denial signature is blocked safe_execution_unavailable; raw argv is never rewritten and the claim remains unverified",
+    "gold_used_for_execution_max_count": 0,
+    "network": "external denied; candidate build has all network denied; candidate servers are loopback-only; host-fixed browser blocks non-same-origin requests",
+    "next_build_policy": {
+      "14.2.35": {
+        "prepare_argv": [
+          "npx",
+          "next",
+          "build"
+        ],
+        "start_argv": [
+          "npx",
+          "next",
+          "start",
+          "-p",
+          "<port>"
+        ]
+      },
+      "16.3.1": {
+        "prepare_argv": [
+          "npx",
+          "next",
+          "build",
+          "--webpack"
+        ],
+        "start_argv": [
+          "npx",
+          "next",
+          "start",
+          "-p",
+          "<port>"
+        ]
+      },
+      "candidate_visible": "next_version and safe_build_argv are exposed via executor_capabilities.next; a candidate command oracle whose argv equals safe_build_argv is executable, any other next build argv is policy_rejected",
+      "detection": "read node_modules/next/package.json version inside the frozen product workspace; record it in evidence",
+      "unregistered": "safe_execution_unavailable (blocked, claim stays unverified); never guess a flag",
+      "verification": "confirmed on 2026-08-27 against direct `node_modules/.bin/next build --help`: 14.2.35 package sha256 851ca2846050593b78eed7d371b530c8eb32935122e1e2fd5fc8fc6d49cb48dd has no --webpack option; 16.3.1 package sha256 dc243091ba95352bbc300be22c6561d24a19a1c0bd2c2cc85d2c5168767ea7b9 exposes --webpack; A9 unit fixtures cover both registered versions and an unregistered version"
+    },
+    "per_oracle_port_binding": "retained: each http/dom/interaction oracle's own setup.argv must contain its port as a distinct item; no cross-oracle port inference",
+    "same_snapshot_hash_required": true,
+    "sandbox": "candidate commands and candidate servers use macos_sandbox_exec",
+    "server_policy": "host-owned direct argv Next.js production build then start, selected by the detected product-workspace Next version (see next_build_policy); build network is denied, server is loopback-only, signals are limited to same-sandbox targets, no shell chaining, and selectors/read targets remain candidate-owned",
+    "shell": false,
+    "stage_resolution": "effective stage is decided exactly once from the claim's intent-compatible origin before any workspace is selected; existing_fix_evidence and existing_investigation_binding execute against the product workspace and keep the origin stage (before/after/reproduce) inside the binding record; execution_snapshot_sha256 must equal the frozen hash of the workspace actually used",
+    "unknown_flag_policy": "scoped to registered Next.js build/start requests only: an unregistered Next build/start option is policy_rejected before execution and recorded; Python, pytest, and other direct argv continue to use the existing safety validator rather than a nonexistent global option allowlist; raw argv is never rewritten",
+    "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4"
+  },
+  "freeze_checklist": [
+    "focused main-design, Python, corpus-regression, Ruff, Rust fmt, clippy, and full cargo tests green",
+    "release commandagent and verification_spec_validate binaries built; versions recorded",
+    "exact implementation code SHA CI and acceptance completed/success",
+    "main contract, 120-case corpus, 120 task contracts, adapters, workspace additions, schemas, prompt, dependency bundle, runner sources, smoke set, budgets, thresholds, exclusions, and bootstrap seed frozen",
+    "main design validator confirms 12 cells x 10 distinct source tasks x 3 runs = 360 paired runs",
+    "readiness blockers 0 outside the managed filesystem sandbox",
+    "preregistered 12-pair smoke passes in phase6-main-v4-20260828-smoke-01; smoke records and responses remain isolated from live-01",
+    "any smoke instrument defect supersedes live-01 through a new pre-live amendment and run id; never rescore, resume, or copy smoke evidence into the main run"
+  ],
+  "full_experiment": {
+    "bootstrap": "hierarchical paired percentile",
+    "bootstrap_samples": 2000,
+    "cells": 12,
+    "cluster_unit": "source_task_id",
+    "cluster_weighting": "equal",
+    "confidence_level": 0.95,
+    "minimum_distinct_source_tasks_per_cell": 10,
+    "minimum_pairs_per_cell": 30,
+    "minimum_runs_per_source_task": 3,
+    "minimum_total_pairs": 360,
+    "seed": 39920260826
+  },
+  "generation": {
+    "canonical_schema": "eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json",
+    "keep_alive": "30m",
+    "model": "qwen3.6:27b-coding-nvfp4",
+    "num_predict": 4096,
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4-a10.prompt.txt",
+    "regeneration_cost_included": true,
+    "regeneration_limit": 1,
+    "request_timeout_sec": 900,
+    "seed_base": 399600,
+    "shape_examples": {
+      "create": "tests/fixtures/goal_verify_v4/raw-proposal-a10-create.json",
+      "fix": "tests/fixtures/goal_verify_v4/raw-proposal-a10-fix.json",
+      "investigate": "tests/fixtures/goal_verify_v4/raw-proposal-a10-investigate.json"
+    },
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec-raw-preflight-v4-a10.schema.json",
+    "temperature": 0.2,
+    "think": false
+  },
+  "information_boundary": {
+    "candidate_hidden": [
+      "gold adapter ids",
+      "gold argv",
+      "gold expected values",
+      "gold observations",
+      "reference implementation contents",
+      "baseline scores and verdict",
+      "blind variant mapping"
+    ],
+    "candidate_visible": [
+      "goal",
+      "intent",
+      "profile",
+      "lane-appropriate claim contract",
+      "bounded product workspace manifest",
+      "executor capabilities",
+      "safety policy",
+      "frozen fix or investigation evidence registry",
+      "typed operational_constraints (not independently scored; never a source of new claims; usable only to bind oracles for already-provided required claim IDs)",
+      "executor_capabilities.next: detected next_version, safe_build_argv, safe_start_argv_template (product workspace metadata, not gold)"
+    ],
+    "gold_use": "scoring_only_after_candidate_execution",
+    "host_normalization_policy": "only the predeclared meaning-preserving fixture_paths default, http route-to-path alias, dom computed_style_property-to-property alias, and uniquely placed interaction actions move; every repair records before/after binding hashes",
+    "paired_task_input_encoding": "the semantic goal and typed operational_constraints are shared components; baseline --plan-run receives a deterministic labeled goal-plus-canonical-JSON envelope and candidate INPUT JSON receives goal plus task_contract.operational_constraints without merging constraints into claim text",
+    "provider_argv_policy": "host_validate_then_execute_as_direct_argv_without_shell",
+    "raw_proposal_contract": "provider emits only semantic claim/oracle fields accepted by the closed A10 raw schema; host-owned origin, UTF-8 byte ranges, required flags, derived IDs, lifecycle/result, lineage, and provider provenance are absent from raw output and injected only after raw-schema plus exact-ID validation",
+    "semantic_repair": "forbidden"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "runtime_files_excluded": [
+      ".campaign.lock",
+      ".commandagent",
+      ".commandagent-state",
+      ".anvil",
+      ".goal-verify-baseline"
+    ]
+  },
+  "main_analysis": {
+    "bootstrap": "hierarchical cluster paired percentile",
+    "bootstrap_samples": 2000,
+    "cell_unit": "cell_id",
+    "cluster_unit": "source_task_id",
+    "confidence_level": 0.95,
+    "diagnostic_lane": "contract_conformance",
+    "exclusion_rule_changes_after_first_response": "forbidden",
+    "primary_lane": "held_out_synthesis",
+    "resource_budget_gate": "hard GO gate on the primary held_out_synthesis lane",
+    "resource_measurement": {
+      "baseline_tokens": "terminal product time_profile prompt_eval_count + eval_count",
+      "baseline_wall_time": "terminal product time_profile.total_ms",
+      "candidate_tokens": "sum prompt_eval_count + eval_count across every generation attempt",
+      "candidate_wall_time": "monotonic wall time across generation, canonicalization, validation, oracle execution, and scoring",
+      "increase_denominator": "shared baseline product run",
+      "missing_measurement": "hard NO-GO; never imputed or excluded",
+      "percentiles": "nearest-rank p50 and p95 over primary-lane paired runs"
+    },
+    "same_script_replay_required": true,
+    "seed": 39920260826,
+    "task_clusters_weighted_equally": true,
+    "threshold_mapping": {
+      "diagnostic_lane": "contract_conformance is reported and must preserve schema/snapshot/information-boundary integrity, but it is not the effectiveness estimand",
+      "end_to_end_task_success": "not substituted or inferred; the additive candidate does not rerun or replace the shared product task execution",
+      "primary_effectiveness": [
+        "required_claim_recall_min_gain_pp on the 95% cluster-bootstrap lower bound",
+        "strong_binding_coverage_min_gain_pp on the 95% cluster-bootstrap lower bound",
+        "unverified_rate_min_reduction_pp on the 95% cluster-bootstrap upper bound",
+        "false_full_target_count",
+        "schema_compliance_yield_floor"
+      ],
+      "primary_resources": "all four preregistered p50/p95 wall-time/token budgets are hard gates",
+      "semantic_safety": "the fixed 36-item authorized source-blind review decision_rule is a hard gate"
+    },
+    "unit": "paired run"
+  },
+  "main_design_decision": {
+    "analysis_unit": "source_task_id cluster",
+    "before_first_main_provider_response": true,
+    "decided_at": "2026-08-28",
+    "decided_by": "repository owner",
+    "design": "12 cells x 10 distinct source tasks per cell x 3 paired runs per source task",
+    "diagnostic_lane": "contract_conformance",
+    "external_live_ab": "not authorized",
+    "failed_generation_policy": "retain provider failures as empty_proposal semantic-review units and in every denominator",
+    "id": "v4-main-D1",
+    "primary_lane": "held_out_synthesis",
+    "rationale": "avoid treating repeated runs of one task as independent evidence while retaining the frozen paired baseline/candidate comparison",
+    "result_dependent": false,
+    "total_pairs": 360
+  },
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "pairing": {
+    "candidate_execution_target": "product_snapshot",
+    "exclusion_rules": [
+      "timeout remains a failure",
+      "dependency failure remains a failure",
+      "schema failure remains a failure",
+      "concretization failure remains a failure",
+      "baseline unavailable remains a failure",
+      "honest early baseline failure remains included",
+      "no denominator, exclusion, threshold, or lane change after the first provider response"
+    ],
+    "fix_before_execution_target": "frozen_before_snapshot",
+    "reference_or_after_fallback": "forbidden",
+    "shared": [
+      "source_task_id",
+      "goal",
+      "initial_or_before_snapshot",
+      "product_run",
+      "product_snapshot_sha256",
+      "baseline_evidence",
+      "model",
+      "seed",
+      "wall_budget",
+      "token_budget",
+      "dependency_bundle",
+      "cache_policy",
+      "candidate_visible_completion_contract",
+      "shared_goal",
+      "operational_constraints"
+    ]
+  },
+  "pre_live_amendments": [
+    {
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "change": "allow loopback only, while retaining the external-network deny, for the host-owned production-build step; require every baseline to bind the task contract, discover its product run, and record either a completion-verification attempt or a discovered nonzero product failure as an honest terminal",
+      "denominator_changes": "none",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-05bda1cc.json",
+      "exclusion_rule_changes": "none; honest early baseline failures remain included",
+      "id": "v4-A6",
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "prompt_changes": "none",
+      "reason": "the first live-06 pair exposed that the host-owned Next.js production-build step denied loopback bind even though Turbopack may require an internal loopback port during build; it also exposed that requiring every baseline to reach completion verification contradicts the frozen v4 rule that honest baseline failures remain in the denominator and are never overridden",
+      "recorded_at": "2026-08-27",
+      "replacement_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-07",
+      "result_dependent": false,
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "superseded_code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+      "superseded_evidence_policy": "retain live-06 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-07 quality inference",
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-06",
+      "task_input_changes": "none",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "change": "use the host-owned direct argv [\"npx\",\"next\",\"build\",\"--webpack\"] before [\"npx\",\"next\",\"start\",\"-p\",\"<port>\"]; deny all build network operations; allow signals only when the target is in the same macOS sandbox so candidate processes cannot signal host processes",
+      "denominator_changes": "none",
+      "diagnostic_result": "on an isolated copy of the live-07 product snapshot, webpack compiled successfully with bind_denied=false and kill_denied=false; the remaining ENOTCACHED TypeScript dependency failure is retained as a product-snapshot failure",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4234e0a1.json",
+      "exclusion_rule_changes": "none",
+      "id": "v4-A7",
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "prompt_changes": "none",
+      "reason": "the first live-07 pair and an isolated workspace-copy diagnostic proved that allowing 127.0.0.1 loopback did not cover the bind used internally by Next.js 16 Turbopack; switching to the official webpack production-build path removed that bind, after which child cleanup required signals that the default-deny profile had not allowed",
+      "recorded_at": "2026-08-27",
+      "replacement_code_sha": "4234e0a171deaf9db085e9d3f50a90959d450bee",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-08",
+      "result_dependent": false,
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "superseded_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "superseded_evidence_policy": "retain live-07 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-08 quality inference",
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-07",
+      "task_input_changes": "none",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "change": "declare the safely executable Next.js production-build argv [\"npx\",\"next\",\"build\",\"--webpack\"] in the candidate-visible prompt; keep raw candidate argv unchanged; deterministically classify the exact Turbopack sandbox-denial signature as blocked safe_execution_unavailable rather than a product failure",
+      "denominator_changes": "none; blocked claims remain unverified in the denominator",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-37df7f95.json",
+      "exclusion_rule_changes": "none",
+      "id": "v4-A8",
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "prompt_changes": "add only the candidate-visible safe Next.js production-build argv and honest-unavailable fallback",
+      "reason": "the first live-08 pair proved that the host-owned browser prepare path used webpack safely, but an independently proposed npm run build command oracle still invoked Next.js 16 Turbopack and was incorrectly scored as a product failure when the measurement sandbox denied Turbopack's internal network bind",
+      "recorded_at": "2026-08-27",
+      "replacement_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-09",
+      "result_dependent": false,
+      "schema_content_changes": "none",
+      "scoring_changes": "none; correct sandbox-policy denial classification before scoring",
+      "superseded_code_sha": "4234e0a171deaf9db085e9d3f50a90959d450bee",
+      "superseded_evidence_policy": "retain live-08 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-09 quality inference",
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-08",
+      "task_input_changes": "none",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": true,
+      "before_first_replacement_provider_response": true,
+      "change": "shared semantic goal plus typed operational_constraints per case (task registry a9); constraints are not independently scored and may only bind oracles for existing registered claim IDs, while the exact registered claim ID rule remains unchanged; effective stage decided once before workspace selection with existing_fix_evidence bound to the product workspace and stage provenance kept inside the binding; version-aware host-owned Next build/start (14.2.35 -> build, 16.3.1 -> build --webpack, unregistered -> safe_execution_unavailable) with next_version and safe argv exposed as candidate-visible executor capabilities; per-oracle port binding retained; prompt states minimum_strength vocabulary, fixture_paths string items, no new claims from constraints, and server-request-only argv for dom/http/interaction; recovery_plan_auto_runs fixed at 0; stratified smoke with both Next versions before live-10",
+      "denominator_changes": "none",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-24bcaf05.json",
+      "exclusion_rule_changes": "none",
+      "harness_changes_required": [
+        "goal_verify_task_contracts_v4.bind: read the semantic goal and attach operational_constraints; baseline product receives a deterministic goal-plus-constraints task envelope while candidate lanes receive the same two components as typed fields",
+        "goal_verify_task_contracts_v4 validation and readiness: machine-validate the v4_a9 registry schema, source hashes, exact registered claim IDs, safe paths/direct argv, dependency-set consistency, scored=false, and completion-contract consistency",
+        "goal_verify_additive_v4.concretize_candidate_oracle / evaluate_candidate_spec_v4: decide effective stage once before workspace selection",
+        "goal_verify_live_v4: detect product workspace next version, select prepare argv from next_build_policy, expose executor_capabilities.next, and reject only unregistered Next build/start flags as policy_rejected",
+        "goal_verify_baseline_product_v3: pass --recovery-plan-auto-runs 0 explicitly and record the configured value in raw argv/evidence",
+        "smoke selector: use the preregistered smoke request namespace and exact 9-pair selection; keep smoke evidence separate from live-10",
+        "Next build policy fixtures: exercise pinned 14.2.35 and 16.3.1 toolchains independently of product-generated version changes"
+      ],
+      "id": "v4-A9",
+      "instrument_defect_detected_by": "live-09 full 40-pair collection (NO-GO retained; not rescored)",
+      "prompt_changes": "add minimum_strength vocabulary and fixture_paths item shape; state that operational_constraints never create new claims but may bind an oracle for an existing required claim ID; dom/http/interaction argv must be the server start request only; Next build argv comes from executor_capabilities.next.safe_build_argv or is honestly unavailable",
+      "quality_effect_estimate_used": false,
+      "reason": "live-09 exposed (1) a contract-internal inconsistency: the A5 execution_goal mixed non-scored operational constraints and unregistered acceptance requirements into the goal string, so 22 conformance lanes emitted extra claims and failed the exact registered-ID rule; (2) a stage-resolution order defect: concretize_candidate_oracle rewrote existing_fix_evidence stage to product after the before workspace had been chosen, producing stage=product with the before snapshot hash; (3) a Next.js version mismatch: the host-owned --webpack prepare is valid on 16.3.1 but unknown on 14.2.35 product workspaces, and candidate dom/http oracles carried build argv without the server port; (4) closed-vocabulary gaps for minimum_strength and fixture_paths item shape",
+      "recorded_at": "2026-08-27",
+      "recovery_plan_auto_runs_decision": {
+        "argv": [
+          "--recovery-plan-auto-runs",
+          "0"
+        ],
+        "decided_at": "2026-08-27",
+        "decided_by": "repository owner",
+        "estimand": "current product default without automatic Recovery Plan execution",
+        "value": 0
+      },
+      "replacement_code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-10",
+      "result_dependency_scope": "instrument-validity failures observed in live-09 only (schema-invalid categories, snapshot-stage mismatch, and executor capability defects)",
+      "result_dependent": true,
+      "schema_content_changes": "VerificationSpec v0 schema content unchanged; task-contract registry schema changes from v4_a5 to v4_a9 and is validated separately",
+      "scoring_changes": "none",
+      "superseded_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+      "superseded_evidence_policy": "retain live-09 as immutable NO-GO evidence; do not resume, rescore, reuse proposals, or include it in live-10 quality inference",
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-09",
+      "task_contract_registry_schema_changes": "execution_goal is replaced by goal plus typed operational_constraints; source hash, registered claim IDs, field types, safe paths, direct argv, dependency-set consistency, scored=false, and completion-contract consistency are machine validated",
+      "task_input_changes": "execution_goal replaced by shared goal + operational_constraints; unregistered A5 acceptance requirements dropped; app/page.tsx and README/--help requirements removed; D-A9-1 is resolved by restoring the negative cell corpus injection text verbatim for both arms",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": true,
+      "before_first_replacement_provider_response": true,
+      "canonical_schema_content_changes": "none; eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json remains the post-canonicalization schema",
+      "change": "separate the provider-facing closed raw proposal schema from the unchanged canonical VerificationSpec schema; require provider-authored claim id, normalized_requirement, and kind plus candidate oracle semantics; forbid host-owned fields in raw output; validate raw JSON before exact-ID canonicalization; inject origin and UTF-8 byte range, required flag, derived claim/oracle linkage, lifecycle/result, lineage, and generation provenance deterministically afterward; retain the unmodified raw response for semantic blind review",
+      "denominator_changes": "none",
+      "diagnostic_smoke_run_id": "phase6-preflight-v4-20260827-a9-smoke-01",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-8e73df57.json",
+      "exclusion_rule_changes": "none",
+      "harness_changes_required": [
+        "goal_verify_live_v4 validates the unmodified provider response against the frozen raw schema before invoking either canonicalizer",
+        "goal_verify_live_v4 records raw_schema_validation per attempt and hashes both raw and canonical schemas in the campaign manifest",
+        "goal_verify_preflight_v4 validates raw/canonical separation, the exact raw semantic field set, absence of host-owned fields, raw shape fixtures, and prompt markers",
+        "legacy v4 contracts without generation.canonical_schema retain their previous generation and validation path"
+      ],
+      "id": "v4-A10",
+      "instrument_defect_detected_by": "preregistered A9 stratified smoke phase6-preflight-v4-20260827-a9-smoke-01 (9/9 pairs complete; NO-GO retained)",
+      "prompt_changes": "state the raw claim/oracle field mapping explicitly; claim.id is the registered ID in conformance and a temporary provider ID in held-out; oracle_ids never substitutes for claim.id; host-owned fields are omitted rather than emitted as ignored placeholders",
+      "quality_effect_estimate_used": false,
+      "raw_schema_content_changes": "new closed A10 raw schema accepts only top-level identity fields, claim semantic fields, and candidate-authored oracle semantics; host-owned fields are additionalProperties violations",
+      "reason": "the A9 smoke completed 36/36 provider attempts, but all 72 raw claim objects contained only oracle_ids and omitted id, normalized_requirement, kind, origin, and required; schema-valid yield was 0/18 while CLI and generic cells reproduced the same failure, bounding it to the raw proposal contract rather than the Next executor",
+      "recorded_at": "2026-08-28",
+      "replacement_code_sha": "8e73df5701bbc4446c17e7c800c2d08c765c51a6",
+      "replacement_run_id": "phase6-preflight-v4-20260828-live-11",
+      "result_dependency_scope": "A9 smoke instrument-validity failure only; no A9 quality estimate exists because zero lane reached candidate execution",
+      "result_dependent": true,
+      "scoring_changes": "none",
+      "semantic_repair_policy": "unchanged and forbidden; missing id, normalized_requirement, or kind is a hard reject and is never reconstructed from oracle fields",
+      "superseded_code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "superseded_evidence_policy": "retain the complete A9 smoke as immutable NO-GO instrument evidence; do not resume, rescore, reuse its responses, or copy any record/request/ledger into A10 smoke or live-11",
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-10",
+      "superseded_run_status": "never_started",
+      "task_input_changes": "none; A9 shared semantic goal plus typed operational_constraints remains frozen",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "canonical_schema_content_changes": "none",
+      "change": "track claim-linked raw oracles by their stable source-list index rather than a host-owned ID; record source oracle indexes only in the secret mapping; fail closed when any pair/lane/oracle-index reference appears more than once; publish claim-group, oracle-reference, unique-reference, and duplicate-reference counts in the blind manifest; accept the prepare template's reviews key while retaining parsed_reviews compatibility",
+      "denominator_changes": "none for proposal collection and additive scoring; semantic review units now implement the already-frozen one claim-oracle group rule without duplicate oracle-only units",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-3c3cab1b.json",
+      "exclusion_rule_changes": "none",
+      "harness_changes_required": [
+        "goal_verify_blind_v4.prepare_semantic_items tracks linked oracles by raw list index and creates orphan_oracle only when no raw claim has the oracle claim_id",
+        "the secret mapping records source_oracle_indexes so the prepare step can reject duplicate source oracle references before writing review artifacts",
+        "the blind manifest records item group and oracle reference integrity counts with duplicate_oracle_reference_count required to be zero",
+        "the model review validator accepts both the prepare template reviews array and the historical parsed_reviews representation"
+      ],
+      "id": "v4-A11",
+      "instrument_defect_detected_by": "live-11 post-collection source-blind semantic item preparation and independent model review (NO-GO retained; human packet not used)",
+      "prompt_changes": "none",
+      "provider_generation_changes": "none",
+      "quality_effect_estimate_used": false,
+      "raw_schema_content_changes": "none",
+      "reason": "A10 correctly forbids host-owned oracle.id in raw proposals, but prepare_semantic_items tracked claim-linked raw oracles by oracle.id; the tracked set therefore remained empty and all 178 linked oracles were added a second time as orphan_oracle items, producing 331 items instead of 153 claim groups and placing 8 invalid orphan items in the 10-item human sample; the prepare template also emitted reviews while the validator read parsed_reviews only",
+      "recorded_at": "2026-08-28",
+      "recovery_plan_auto_runs_decision": {
+        "decided_at": "2026-08-28",
+        "decided_by": "repository owner",
+        "estimand": "current product default without automatic Recovery Plan execution",
+        "value": 0
+      },
+      "replacement_code_sha": "3c3cab1b5ce4f0f1f23db52f9de7a8ac376464bb",
+      "replacement_run_id": "phase6-preflight-v4-20260828-live-12",
+      "result_dependency_scope": "live-11 semantic instrument structure only; the invalid 331-item model verdicts, agreement values, and 10-item human packet are diagnostic and are not used to estimate A11 quality",
+      "result_dependent": true,
+      "scoring_changes": "none",
+      "semantic_repair_policy": "unchanged and forbidden",
+      "superseded_code_sha": "8e73df5701bbc4446c17e7c800c2d08c765c51a6",
+      "superseded_evidence_policy": "retain live-11 raw records, invalid blind items, two model reviews, interim report, and analysis as immutable NO-GO diagnostic evidence; do not complete its human review, resume, rescore, reuse provider responses, or copy any record/request/ledger/review into A11 smoke or live-12",
+      "superseded_run_id": "phase6-preflight-v4-20260828-live-11",
+      "task_input_changes": "none",
+      "threshold_changes": "none"
+    },
+    {
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "canonical_schema_content_changes": "none",
+      "change": "retain the legacy independent-human path, and add a contract-bound user-authorized AI calibration path; bind the exact reviewer identity and authorization metadata before replacement collection; permit disclosed contract-authoring involvement; require source-blind, forbidden-material, and other-review-output boundary confirmations; bind packet export and report validation to the exact contract hash",
+      "denominator_changes": "none",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-8958ed6f.json",
+      "exclusion_rule_changes": "none",
+      "harness_changes_required": [
+        "goal_verify_blind_v4 validates either the legacy independent human or the exact contract-authorized AI calibration reviewer",
+        "the authorized AI document records immutable authorization, provider, model family/version, authoring involvement, source-blind confirmation, forbidden-material confirmation, and output independence",
+        "the reviewer packet exporter and report CLI require the exact contract whose hash is recorded by blind preparation",
+        "legacy human-only contracts continue to reject AI reviewers"
+      ],
+      "id": "v4-A12",
+      "instrument_defect_detected_by": "live-12 completed all machine gates except the frozen independent-human review; the available Fable reviewer is an AI model session and participated in contract and prompt authoring",
+      "prompt_changes": "none",
+      "provider_generation_changes": "none",
+      "quality_effect_estimate_used": false,
+      "raw_schema_content_changes": "none",
+      "reason": "the repository owner explicitly chose to permit a named AI calibration reviewer; treating that reviewer as a human or as uninvolved would be false, so the contract and validator must represent user authorization, AI identity, authoring involvement, and source-blind result boundaries honestly",
+      "recorded_at": "2026-08-28",
+      "recovery_plan_auto_runs_decision": {
+        "decided_at": "2026-08-28",
+        "decided_by": "repository owner",
+        "estimand": "current product default without automatic Recovery Plan execution",
+        "value": 0
+      },
+      "replacement_code_sha": "8958ed6fb2368c58cbfb7dda57814481de1d53f7",
+      "replacement_run_id": "phase6-preflight-v4-20260828-live-13",
+      "result_dependency_scope": "live-12 procedural gate completion and reviewer availability only; live-12 proposal quality, execution results, model verdicts, and agreement values are not reused to estimate A12 quality",
+      "result_dependent": true,
+      "scoring_changes": "none",
+      "semantic_repair_policy": "unchanged and forbidden",
+      "superseded_code_sha": "3c3cab1b5ce4f0f1f23db52f9de7a8ac376464bb",
+      "superseded_evidence_policy": "retain live-12 raw records, blind items, model reviews, incomplete semantic report state, and analysis as immutable NO-GO evidence; do not add an AI review to live-12, rescore it, reuse its provider responses, or copy any record/request/ledger/review into A12 smoke or live-13",
+      "superseded_run_id": "phase6-preflight-v4-20260828-live-12",
+      "task_input_changes": "none",
+      "threshold_changes": "human-versus-model consensus is renamed authorized-calibration-reviewer-versus-model consensus with the same preregistered 7/10 raw-agreement threshold; model-model kappa threshold remains 0.4"
+    }
+  ],
+  "preflight": {
+    "executable_oracle_execution_record_rate": 1,
+    "purpose": "full additive main experiment; preflight GO is a prerequisite, not the effectiveness result",
+    "same_snapshot_rate": 1,
+    "schema_compliance_yield_floor": 0.95,
+    "semantic_review_required": true,
+    "shadow_false_full_max_count": 0,
+    "union_scorer_determinism_rate": 1
+  },
+  "provisioning_policy": {
+    "bundle_hash_update": "any bundle change updates the shared dependency_bundle hash for both arms and is included in exact-SHA evidence",
+    "forbidden_dependencies_never_added": [
+      "tailwindcss",
+      "postcss plugins",
+      "autoprefixer"
+    ],
+    "host_tooling_dependencies": "playwright-core is frozen host-owned browser tooling copied outside the candidate workspace before product execution; it is not an allowed product dependency and does not relax allowed_dependencies",
+    "typescript": "not forced; fixtures and required_paths are JS/JSX; if a future cell needs TypeScript, the minimal version-pinned type packages are preregistered explicitly"
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "resource_budgets": {
+    "p50_total_tokens_max_increase_pct": 10,
+    "p50_wall_time_max_increase_pct": 10,
+    "p95_total_tokens_max_increase_pct": 20,
+    "p95_wall_time_max_increase_pct": 20,
+    "preflight_use": "report_only"
+  },
+  "runner_sources": [
+    "scripts/eval-goal-verify-blind-v4-export-human.py",
+    "scripts/eval-goal-verify-blind-v4-export-reviewer.py",
+    "scripts/eval-goal-verify-blind-v4-prepare.py",
+    "scripts/eval-goal-verify-blind-v4-report.py",
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval-goal-verify-main-v4-report.py",
+    "scripts/eval-goal-verify-v4-readiness.py",
+    "scripts/eval-goal-verify-v4-report.py",
+    "scripts/eval_lib/generate_goal_verify_main_v4.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_blind_v4.py",
+    "scripts/eval_lib/goal_verify_live_v4.py",
+    "scripts/eval_lib/goal_verify_main_design_v4.py",
+    "scripts/eval_lib/goal_verify_main_report_v4.py",
+    "scripts/eval_lib/goal_verify_next_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_v4.py",
+    "scripts/eval_lib/goal_verify_repairs_v4.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval_lib/goal_verify_stats_v2.py",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v4.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "samples_per_cell": 3,
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
+  "scoring": {
+    "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v4-main.json",
+    "answer_key_use": "post_execution_scoring_only",
+    "candidate_verdict_inherits_baseline_pass": false,
+    "deduplication_key": [
+      "claim_id",
+      "observation_semantics",
+      "input_binding",
+      "stage"
+    ],
+    "shadow_verdict": true,
+    "variants": [
+      "baseline",
+      "baseline_plus_candidate"
+    ]
+  },
+  "selected_cells": [
+    {
+      "case_id": "phase6-main-c01-task-01",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c01-task-02",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c01-task-03",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c01-task-04",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c01-task-05",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c01-task-06",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c01-task-07",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c01-task-08",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c01-task-09",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c01-task-10",
+      "cell_id": "cell-01",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-01-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c02-task-01",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c02-task-02",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c02-task-03",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c02-task-04",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c02-task-05",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c02-task-06",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c02-task-07",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c02-task-08",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c02-task-09",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c02-task-10",
+      "cell_id": "cell-02",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-02-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c03-task-01",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c03-task-02",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c03-task-03",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c03-task-04",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c03-task-05",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c03-task-06",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c03-task-07",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c03-task-08",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c03-task-09",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c03-task-10",
+      "cell_id": "cell-03",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-03-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c04-task-01",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c04-task-02",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c04-task-03",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c04-task-04",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c04-task-05",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c04-task-06",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c04-task-07",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c04-task-08",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c04-task-09",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c04-task-10",
+      "cell_id": "cell-04",
+      "intent": "create",
+      "lane": "main",
+      "source_task_id": "phase6-cell-04-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c05-task-01",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c05-task-02",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c05-task-03",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c05-task-04",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c05-task-05",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c05-task-06",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c05-task-07",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c05-task-08",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c05-task-09",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c05-task-10",
+      "cell_id": "cell-05",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-05-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c06-task-01",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c06-task-02",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c06-task-03",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c06-task-04",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c06-task-05",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c06-task-06",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c06-task-07",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c06-task-08",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c06-task-09",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c06-task-10",
+      "cell_id": "cell-06",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-06-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c07-task-01",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c07-task-02",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c07-task-03",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c07-task-04",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c07-task-05",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c07-task-06",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c07-task-07",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c07-task-08",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c07-task-09",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c07-task-10",
+      "cell_id": "cell-07",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-07-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c08-task-01",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c08-task-02",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c08-task-03",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c08-task-04",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c08-task-05",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c08-task-06",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c08-task-07",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c08-task-08",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c08-task-09",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c08-task-10",
+      "cell_id": "cell-08",
+      "intent": "fix",
+      "lane": "main",
+      "source_task_id": "phase6-cell-08-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c09-task-01",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c09-task-02",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c09-task-03",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c09-task-04",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c09-task-05",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c09-task-06",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c09-task-07",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c09-task-08",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c09-task-09",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c09-task-10",
+      "cell_id": "cell-09",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-09-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c10-task-01",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c10-task-02",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c10-task-03",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c10-task-04",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c10-task-05",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c10-task-06",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c10-task-07",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c10-task-08",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c10-task-09",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c10-task-10",
+      "cell_id": "cell-10",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-10-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c11-task-01",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c11-task-02",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c11-task-03",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c11-task-04",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c11-task-05",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c11-task-06",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c11-task-07",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c11-task-08",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c11-task-09",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c11-task-10",
+      "cell_id": "cell-11",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-11-source-task-10"
+    },
+    {
+      "case_id": "phase6-main-c12-task-01",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-01"
+    },
+    {
+      "case_id": "phase6-main-c12-task-02",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-02"
+    },
+    {
+      "case_id": "phase6-main-c12-task-03",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-03"
+    },
+    {
+      "case_id": "phase6-main-c12-task-04",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-04"
+    },
+    {
+      "case_id": "phase6-main-c12-task-05",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-05"
+    },
+    {
+      "case_id": "phase6-main-c12-task-06",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-06"
+    },
+    {
+      "case_id": "phase6-main-c12-task-07",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-07"
+    },
+    {
+      "case_id": "phase6-main-c12-task-08",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-08"
+    },
+    {
+      "case_id": "phase6-main-c12-task-09",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-09"
+    },
+    {
+      "case_id": "phase6-main-c12-task-10",
+      "cell_id": "cell-12",
+      "intent": "investigate",
+      "lane": "main",
+      "source_task_id": "phase6-cell-12-source-task-10"
+    }
+  ],
+  "semantic_review": {
+    "calibration_packet_preflight": "all source oracle references unique, every orphan proven unmatched, isolated sample bound to the corrected full item hash and exact contract hash, and no result/model/secret artifact included before distribution",
+    "calibration_reviewer_policy": {
+      "agreement_gate_effect": "already resolved by A12 live-13: model evidence is inadmissible as corroborating evidence in main-v4",
+      "allowed_reviewer_types": [
+        "human",
+        "ai"
+      ],
+      "authorized_ai_reviewer": {
+        "authorization_id": "issue-399-main-v4-fable-review",
+        "authorization_scope": "main-v4 live-01 fixed source-blind sample of exactly 36 items (3 per matrix cell), after the review document is fixed and before any result artifact is opened",
+        "authorized_at": "2026-08-28",
+        "authorized_by": "repository owner",
+        "contract_authoring_involvement": true,
+        "model_family": "claude",
+        "model_id_or_version": "claude-fable-5",
+        "provider": "anthropic",
+        "reviewer_id": "fable"
+      },
+      "calibration_consensus_gate": "not rerun for main-v4; the fixed 36-item authorized AI review is the authoritative semantic review",
+      "forbidden_reviewer_inputs": [
+        "secret mapping",
+        "other model reviews",
+        "execution results",
+        "canonicalized output",
+        "preflight report",
+        "raw records",
+        "prior reviewer output"
+      ],
+      "legacy_human_requirements_unchanged": true,
+      "model_model_agreement_gate": "not rerun for main-v4 because A12 Cohen kappa 0.0765 was below 0.4",
+      "policy_version": "user_authorized_ai_v1",
+      "required_ai_confirmations": [
+        "user_authorized",
+        "source_blind_confirmed",
+        "forbidden_materials_not_accessed",
+        "reviewer_output_independence_confirmed"
+      ]
+    },
+    "calibration_reviewer_required": true,
+    "canonicalized_spec_visible": false,
+    "different_model_families_required": 0,
+    "duplicate_source_oracle_reference_max_count": 0,
+    "execution_result_visible": false,
+    "human_packet_preflight": "legacy compatibility: all source oracle references unique, every orphan proven unmatched, and isolated sample bound to the corrected full item hash before distribution",
+    "independent_human_machine_gate": {
+      "contract_authoring_involvement": false,
+      "independence_confirmed": true,
+      "isolated_packet_only": true,
+      "reviewer_type": "human"
+    },
+    "independent_human_required": false,
+    "main_sample": {
+      "authoritative_reviewer": "contract-authorized source-blind Fable AI",
+      "decision_rule": {
+        "completion": "hard GO gate",
+        "false_positive_or_overconstraint_risk_axis_fail_max_count": 0,
+        "needs_revision": "reported with rationale but not an automatic gate; quantitative effectiveness remains governed by the frozen paired metrics",
+        "unusable_max_count": 0
+      },
+      "items_per_cell": 3,
+      "model_reviews": "inadmissible as corroborating evidence because A12 agreement gates failed",
+      "selection": "within held_out_synthesis, take the minimum item hash for every source_task_id, then select the three smallest of those task-level hashes per cell; selected deterministically before review",
+      "size": 36,
+      "source_lane": "held_out_synthesis"
+    },
+    "model_evidence_admissible": false,
+    "model_reviews_required": false,
+    "primary": "source-blind atomic verification item review",
+    "raw_candidate_proposal_only": true,
+    "review_unit": "one raw claim plus every raw oracle whose claim_id equals that claim id; an orphan_oracle unit exists only for a raw oracle whose claim_id matches no raw claim",
+    "source_oracle_identity": "zero-based raw oracles list index within pair and lane; provider-visible or host-owned oracle.id is not required",
+    "superset_portfolio_review": "secondary_non_blind"
+  },
+  "smoke": {
+    "design": "one preregistered source task per matrix cell",
+    "full_run_id": "phase6-main-v4-20260828-live-01",
+    "limit_flag": "plain --limit is forbidden for preregistered smoke",
+    "minimum_lanes": 24,
+    "minimum_pairs": 12,
+    "not_used_for": "main quality inference; smoke responses and records are never copied into live-01",
+    "pair_ids": [
+      "phase6-main-c01-task-01--pair-01",
+      "phase6-main-c02-task-01--pair-01",
+      "phase6-main-c03-task-01--pair-01",
+      "phase6-main-c04-task-01--pair-01",
+      "phase6-main-c05-task-01--pair-01",
+      "phase6-main-c06-task-01--pair-01",
+      "phase6-main-c07-task-01--pair-01",
+      "phase6-main-c08-task-01--pair-01",
+      "phase6-main-c09-task-01--pair-01",
+      "phase6-main-c10-task-01--pair-01",
+      "phase6-main-c11-task-01--pair-01",
+      "phase6-main-c12-task-01--pair-01"
+    ],
+    "request_namespace": "phase6-main-v4-20260828-smoke-01",
+    "run_id": "phase6-main-v4-20260828-smoke-01"
+  },
+  "status": "frozen",
+  "superseded_contract": "eval/goal_verify/v0/phase6-preflight-v4-a12-contract.json",
+  "supersedes": "phase6-preflight-v4-20260828-live-13",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-main.json",
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json"
+}

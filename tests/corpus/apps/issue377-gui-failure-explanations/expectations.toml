@@ -1,0 +1,57 @@
+case_id = "issue377-gui-failure-explanations"
+source = "Issue #377 bounded terminal failure projection fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["plan_step_failed", "recovery_prompt_saved", "human_directive_continuation_started"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/failure.jsonl = [
+  "\"event\":\"plan_step_failed\"",
+  "\"outcome\":\"bounded_repair_failed\"",
+  "\"event\":\"step_verify_failure\"",
+  "\"event\":\"recovery_prompt_saved\"",
+  "\"suggested_recovery_command\"",
+  "\"suggested_recovery_yaml_command\""
+]
+fixtures/continuation-success.jsonl = [
+  "\"status\":\"failed\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"plan_execution_id\":\"continuation-plan\"",
+  "\"status\":\"completed\""
+]
+fixtures/legacy.jsonl = [
+  "\"failure_kind\":\"tui_command_failed\"",
+  "\"next_action\":\"fix_command_failure\""
+]
+
+[fixture_ordered]
+fixtures/failure.jsonl = [
+  "\"step_execution_id\":\"build-step-execution\"",
+  "\"event\":\"step_verify_failure\"",
+  "\"event\":\"plan_step_failed\"",
+  "\"event\":\"ultra_phase_failed\"",
+  "\"event\":\"recovery_prompt_saved\"",
+  "\"event\":\"tui_command_stop\""
+]
+fixtures/continuation-success.jsonl = [
+  "\"status\":\"failed\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"status\":\"completed\""
+]

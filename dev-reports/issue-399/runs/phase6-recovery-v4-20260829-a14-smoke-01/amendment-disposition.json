@@ -1,0 +1,19 @@
+{
+  "schema_version": "commandagent.goal_verify.recovery_smoke_disposition.v4_a14",
+  "run_id": "phase6-recovery-v4-20260829-a14-smoke-01",
+  "observed_at": "2026-08-29T11:59:47Z",
+  "historical_evidence_immutable": true,
+  "collection_completed_pairs": 4,
+  "collection_process_exit_code": 0,
+  "original_report_instrument_ready": true,
+  "actual_executed_recovery_pair_count": 0,
+  "disposition": "diagnostic_only_not_sufficient_for_full_experiment",
+  "direct_cause": "both arms used --plan-run; automatic Recovery is connected to --ultra-plan-run",
+  "amendment": "v4-A14-A1",
+  "required_correction": [
+    "use the same --ultra-plan-run action for both arms",
+    "require at least one live pair with executed_recovery_runs equal to 1 before instrument readiness"
+  ],
+  "effect_claim_allowed": false,
+  "rescore_or_rewrite_original_run": false
+}

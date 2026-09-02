@@ -1,0 +1,41 @@
+{
+  "code_sha": "97fa75fa33167f0f5dcc9b7f85efa4de96e789a5",
+  "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+  "commandagent_binary_sha256": "d45beaf00a34934f89286328e8cc22c65e4f4060911e20d62c503bce435738c1",
+  "contract_id": "phase6-recovery-v4-20260829-a14-a2-live-01",
+  "contract_sha256": "24ecf79dd09d69602df12a620151d953796e22a8dbf81f3ce70af534f6dd15d8",
+  "exact_sha_ci_evidence_sha256": "34f6be46ab095ae3d3d3c316241490e24d9f50ea713b65283920d9f3eaff1931",
+  "execution_root": "/Volumes/SSD_NX/tmp/commandagent_trial",
+  "frozen_input_sha256": {
+    "eval/goal_verify/v0/baseline-config.json": "774430f0cd90b7605ba63474ee9cf5b39c7d77533f57f62e2d20fb04835557bb",
+    "eval/goal_verify/v0/phase6-command-adapters-v4-a14-a2.json": "7e440234477bd4f8a1755c0d846d9b53b743198f9b1f561bbf6c6ed3498cf5d5",
+    "eval/goal_verify/v0/phase6-main-corpus-v4.json": "0356af93672a4de7b6a7eabe27745ab8814b3407db7b08bdb8a414f67b114369",
+    "eval/goal_verify/v0/phase6-real-workspaces-v3.json": "c6b6fb137c61607a56bdc9f9493f2e32d756c32e023249a903199f3d817f145d",
+    "eval/goal_verify/v0/phase6-real-workspaces-v4-main.json": "60de3cc48c3ee6bb04c5a6d654996d7beea6b5093e9e58199fd73b1963d6958b",
+    "eval/goal_verify/v0/phase6-task-contracts-v4-a14-a2.json": "3dd424aa5187d3dd16ac3744f094524387be661282038b77533d320630655135"
+  },
+  "run_id": "phase6-recovery-v4-20260829-a14-a2-smoke-01",
+  "runner_source_sha256": {
+    "scripts/eval-goal-verify-recovery-v4-report.py": "a943122cc526455e6ebcebb6b553b3166561a28130e4dad1be93896e883f6a3a",
+    "scripts/eval-goal-verify-recovery-v4.py": "5c93c04eb2988375ec044919d4ae15096ba38b9ffa005b222fe4a76ee332b32c",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14.py": "0e6d6a6b71b45a5970522669483af5997c45cf45c0519cefe900e320e06553df",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a1.py": "745c5d02bf4b90f054a1f96d95c829de64ec4ccc63876f992d1c52195fe0a7d4",
+    "scripts/eval_lib/generate_goal_verify_recovery_v4_a14_a2.py": "d67f90929a611b9a4ca7494b1f8cd22effb9a7ed444ce5513e7049b4543be209",
+    "scripts/eval_lib/goal_verify_additive_v4.py": "f3c173dee24c39076805be8f99a3a6103c7a40db008364804290836ba6306948",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py": "bbb2a4c63318fe9281132b71b4b1a8a0febc1db6d2c625e998b7e02cab41e4c1",
+    "scripts/eval_lib/goal_verify_executors_v3.py": "fbcda17ecf00e0482c376a1fbbeb11270cf9b0756bf8c2ba93230be04ccd4290",
+    "scripts/eval_lib/goal_verify_manifest_visibility_v4.py": "04eed2409e71c84eb6c694e91d88db1c03352b23b95ed464e17bac71a63321b3",
+    "scripts/eval_lib/goal_verify_recovery_experiment_v4.py": "fc9fc69ac5a143d9c06269ee011e3a442174f59e6799d0e40ca0f9fb25b004de",
+    "scripts/eval_lib/goal_verify_recovery_live_v4.py": "d549bf01714efe7c7802af7944d41e4cc64aaed6053bd41ea9e80748b9a7a58b",
+    "scripts/eval_lib/goal_verify_recovery_report_v4.py": "9495b7b98bc734e6a543ef2e5b75e9b4003f6b2bb935725745e7321c8c196c53",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py": "719462db0949600b9a3b730f3dcf5b0db0aab501d38fc1f0b44aedad41e6fb26"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_campaign.v4_a14",
+  "selected_pair_ids": [
+    "phase6-main-c01-task-01--pair-01",
+    "phase6-main-c04-task-01--pair-01",
+    "phase6-main-c06-task-01--pair-01",
+    "phase6-main-c07-task-01--pair-01"
+  ],
+  "target_pairs": 4
+}

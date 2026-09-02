@@ -1,0 +1,185 @@
+case_id = "issue399_fix_reproducer_contract"
+source = "Issue 399 A14-A6 typed fix reproducer binding"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["fix_plan_synthesized", "completion_contract:fix_reproducer_command", "python3 cli.py 7"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/typed-fix-reproducer.jsonl = [
+  "\"event\":\"fix_plan_synthesized\"",
+  "\"r_basis\":\"completion_contract:fix_reproducer_command\"",
+  "\"expected_result\":\"fail\"",
+  "\"verify\":[\"python3 cli.py 7\"]"
+]
+fixtures/typed-reproducer-recovery-preflight.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"status\":\"fail\"",
+  "\"source\":\"product_visible_completion_contract\"",
+  "\"read_only\":true",
+  "\"external_oracle_used\":false",
+  "\"event\":\"recovery_candidate_verify_commands_bound\"",
+  "\"recovery_verify_command_source\":\"completion_contract\"",
+  "\"event\":\"recovery_candidate_completion_requirements_bound\"",
+  "\"obligation_repair_target_count\":1",
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"completion_contract_bound\"",
+  "\"completion_contract_path\":\".commandagent/recovery-runtime/completion-contract.json\"",
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"contract_origin\":\"fix_intent_v0\"",
+  "\"source\":\"host_owned_recovery_fix_origin\"",
+  "\"origin_evidence_path\":\".commandagent/recovery-runtime/fix-origin-evidence.json\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"binding_stage\":\"pre_lint\"",
+  "\"binding_mode\":\"completion_contract_final_success\"",
+  "\"bound_verify_commands\":[\"python3 cli.py 7\"]",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"runtime_acceptance_passed\":true",
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"event\":\"recovery_promotion_decision\"",
+  "\"decision\":\"promoted\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"recovery_succeeded\""
+]
+fixtures/host-final-success-failure.jsonl = [
+  "\"event\":\"recovery_host_final_success_verification_failed\"",
+  "\"phase_id\":\"repair-unknown\"",
+  "\"registered_verify_commands\":[\"node scripts/repro.mjs fixture/task-01.json\",\"node scripts/regression.mjs\",\"npx next build --webpack\"]",
+  "\"model_execution_skipped\":true"
+]
+fixtures/host-final-success-pass.jsonl = [
+  "\"event\":\"recovery_host_final_success_verification_passed\"",
+  "\"registered_verify_commands\":[\"node scripts/repro.mjs fixture/task-01.json\",\"node scripts/regression.mjs\",\"npx next build --webpack\"]",
+  "\"model_execution_skipped\":true"
+]
+fixtures/host-final-success-data-profile.jsonl = [
+  "\"event\":\"recovery_host_final_success_verification_failed\"",
+  "\"phase_id\":\"verify-recovery\"",
+  "\"registered_verify_commands\":[\"python3 scripts/repro.py data/task.csv\",\"python3 -m pytest -q tests\",\"python3 scripts/contract_check.py\"]",
+  "\"model_execution_skipped\":true"
+]
+fixtures/verification-inconsistency.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"status\":\"verification_inconsistency\"",
+  "\"event\":\"recovery_suppressed_verification_inconsistency\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"verification_inconsistency\""
+]
+fixtures/protected-verification-input.jsonl = [
+  "\"event\":\"protected_path_mutation_rejected\"",
+  "\"tool\":\"Edit\"",
+  "\"protected_path\":\"scripts/repro.py\"",
+  "\"policy_source\":\"completion_contract\""
+]
+fixtures/recovery-implement-write-required.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"plan_step_started\"",
+  "\"step_kind\":\"implement\"",
+  "\"event\":\"no_progress_feedback\"",
+  "no Write/Edit tool call has happened yet",
+  "\"event\":\"tool_execute\"",
+  "\"name\":\"Write\"",
+  "\"event\":\"plan_step_completed\""
+]
+fixtures/recovery-implement-contract-verification.jsonl = [
+  "\"event\":\"step_obligation_scope\"",
+  "\"step_kind\":\"implement\"",
+  "\"completion_contract_verification_enabled\":false",
+  "\"event\":\"recovery_fix_safety_verification\"",
+  "\"registered_verify_commands\":[\"python3 app.py fixture/task-02.json\"]",
+  "\"ok\":true",
+  "\"event\":\"recovery_host_final_success_verification_passed\""
+]
+fixtures/recovery-read-only-inspection.jsonl = [
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"binding_mode\":\"read_only_inspection\"",
+  "\"event\":\"recovery_read_only_post_step_repair_suppressed\"",
+  "\"reason\":\"recovery_read_only_inspection\"",
+  "\"step_kind\":\"inspect\""
+]
+fixtures/contract-bound-data-observation.jsonl = [
+  "\"event\":\"fix_regression_contract_bound\"",
+  "\"source\":\"completion_contract\"",
+  "\"registered_regression_count\":2",
+  "\"omitted_supplemental_ids\":[\"pipeline_probe\",\"data_reconciliation\",\"data_claims_binding\",\"data_rerun_consistency\",\"data_results_schema\"]",
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"regression_source\":\"completion_contract\"",
+  "\"bound_regression_ids\":[\"completion_contract_verify_2\",\"completion_contract_verify_3\"]",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"verdict\":\"full\"",
+  "\"external_contract_ok\":true",
+  "\"requirement_statuses\":{\"after_passes\":\"passed\",\"before_fails\":\"passed\",\"no_regression\":\"passed\"}",
+  "\"event\":\"recovery_observation_effect_policy_bound\"",
+  "\"allowed_generated_paths\":[\"output/inspection.json\",\"output/results.json\",\"output/report.md\"]",
+  "\"protected_change_disposition\":\"reject_and_retain_control\"",
+  "\"registered_data_input_fixture\":\"data/task-02.csv\"",
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"observation_phase\":\"post_recovery\"",
+  "\"status\":\"pass\""
+]
+
+[fixture_ordered]
+fixtures/typed-fix-reproducer.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"fix_plan_synthesized\"",
+  "\"event\":\"step_plan_generated\"",
+  "\"event\":\"fix_evidence_recorded\"",
+  "\"event\":\"run_stop\""
+]
+fixtures/typed-reproducer-recovery-preflight.jsonl = [
+  "\"event\":\"recovery_preflight_observation\"",
+  "\"event\":\"recovery_candidate_verify_commands_bound\"",
+  "\"event\":\"recovery_candidate_completion_requirements_bound\"",
+  "\"event\":\"recovery_boundary_snapshot\"",
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"completion_contract_bound\"",
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"event\":\"ultra_plan_complete\"",
+  "\"observation_phase\":\"post_recovery\"",
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"event\":\"recovery_promotion_decision\"",
+  "\"event\":\"recovery_plan_auto_run_complete\""
+]
+fixtures/recovery-implement-write-required.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"event\":\"plan_step_started\"",
+  "\"event\":\"tool_execute\",\"name\":\"Bash\"",
+  "\"event\":\"no_progress_feedback\"",
+  "\"event\":\"tool_execute\",\"name\":\"Write\"",
+  "\"event\":\"plan_step_completed\""
+]
+fixtures/recovery-implement-contract-verification.jsonl = [
+  "\"event\":\"step_obligation_scope\"",
+  "\"event\":\"recovery_fix_safety_verification\"",
+  "\"event\":\"recovery_host_final_success_verification_passed\""
+]
+fixtures/recovery-read-only-inspection.jsonl = [
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"event\":\"recovery_read_only_post_step_repair_suppressed\"",
+  "\"event\":\"plan_step_completed\""
+]
+fixtures/contract-bound-data-observation.jsonl = [
+  "\"event\":\"fix_regression_contract_bound\"",
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"event\":\"recovery_observation_effect_policy_bound\"",
+  "\"event\":\"recovery_preflight_observation\""
+]

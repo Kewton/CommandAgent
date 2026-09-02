@@ -1,0 +1,22 @@
+{
+  "schema_version": "commandagent.goal_verify.exact_sha_ci.v0",
+  "repository": "Kewton/CommandAgent",
+  "head_sha": "d985fa10da1d2834ed72f29fe91dd6694ca9eb24",
+  "observed_at": "2026-08-30T00:58:23Z",
+  "workflows": [
+    {
+      "name": "CI",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 33284200010,
+      "url": "https://github.com/Kewton/CommandAgent/actions/runs/33284200010"
+    },
+    {
+      "name": "acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 33284200103,
+      "url": "https://github.com/Kewton/CommandAgent/actions/runs/33284200103"
+    }
+  ]
+}

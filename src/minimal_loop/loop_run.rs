@@ -60,6 +60,8 @@ use super::repair_progress::{
 mod context;
 #[path = "loop_run/error.rs"]
 mod error;
+#[path = "loop_run/inspect_tool_policy.rs"]
+mod inspect_tool_policy;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -999,7 +1001,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
-                && looks_like_action_prompt(user_prompt)
+                && (options.require_mutation_before_contract_short_circuit
+                    || looks_like_action_prompt(user_prompt))
                 && !setup_step_policy::prompt_references_template_owned_artifacts(
                     &config.profile,
                     user_prompt,
@@ -1203,6 +1206,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             workspace_policy: crate::tools::workspace_policy::WorkspacePolicy::for_task_request(),
             eval_events_path: config.eval_events_path.clone(),
             expected_paths: tool_context_expected_paths(&required_paths, &options),
+            protected_paths: super::protected_paths::from_contract(completion_contract.as_ref()),
         };
         let mut names_seen = BTreeSet::new();
         let mut batch_had_edit = false;
@@ -1221,6 +1225,37 @@ pub(crate) fn run_session_with_outcome_with_options(
             let mut bash_policy_substituted = false;
             if ui.interrupted() {
                 bail!("interrupted by user");
+            }
+            let bash_command = recovered_bash_command(&call.name, &call.arguments);
+            if let Some(reason) = inspect_tool_policy::mutation_rejection(
+                options.step_kind,
+                &call.name,
+                bash_command.as_deref(),
+            ) {
+                batch_had_recoverable_tool_error = true;
+                post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                last_blocking_reason = Some("inspect_mutation_rejected".to_string());
+                let error = anyhow::anyhow!(reason);
+                let repeats = recoverable_tool_error_state.record(&call.name, &error);
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "inspect_mutation_tool_rejected",
+                        "name": call.name.as_str(),
+                        "step_kind": "inspect",
+                        "reason": reason,
+                        "repeat_count": repeats,
+                    }),
+                );
+                if repeats > RECOVERABLE_TOOL_ERROR_REPEAT_LIMIT {
+                    bail!("inspect mutation tool request repeated: {reason}");
+                }
+                session.messages.push(ConversationMessage::tool_result(
+                    call.name,
+                    Some(call.id),
+                    format!("Tool rejected: {reason}. Continue with read-only inspection tools."),
+                ));
+                continue;
             }
             if let Some(rejection) = write_required_state.reject_if_read_only_or_wrong_target(
                 &config.workspace_root,
@@ -1293,9 +1328,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             } else {
                 batch_non_edit_tools += 1;
             }
-            if !names_seen.insert(call.name.clone()) {
-                // Multiple same-tool calls are fine; this keeps clippy from seeing unused state.
-            }
+            let _ = names_seen.insert(call.name.clone());
             if !crate::tools::hidden_path::tool_arguments_reference_hidden(
                 &call.name,
                 &call.arguments,
@@ -4476,7 +4509,6 @@ fn looks_like_progress_without_tool(content: &str) -> bool {
         || lower.contains("実装します")
         || lower.contains("進めます")
 }
-
 fn looks_like_action_prompt(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     lower.contains("create")
@@ -4676,6 +4708,7 @@ mod tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs: 1,
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
@@ -5757,7 +5790,7 @@ export default function Page(){
     }
 
     #[test]
-    fn verify_step_runtime_strips_custom_status_echo_shell_control_before_policy_bail() {
+    fn verify_step_runtime_rejects_custom_status_echo_before_safe_retry() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5768,15 +5801,26 @@ export default function Page(){
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
         cfg.eval_events_path = Some(events_path.clone());
-        let mut fake = Fake::new(vec![Ok(AssistantReply {
-            content: String::new(),
-            tool_calls: vec![ToolCall::new(
-                "Bash",
-                json!({"command":"test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""}),
-            )],
-            prompt_tokens: None,
-            completion_tokens: None,
-        })]);
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Bash",
+                    json!({"command":"test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Bash",
+                    json!({"command":"test -f src/app/page.tsx"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_options(
             &mut fake,
@@ -5790,49 +5834,31 @@ export default function Page(){
         .unwrap();
         assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert_eq!(outcome.final_text, "step tool observation completed");
-        let bash_result = session
-            .messages
-            .iter()
-            .find(|message| message.role == "tool" && message.name.as_deref() == Some("Bash"))
-            .map(|message| message.content.as_str())
-            .unwrap_or_default();
-        assert!(bash_result.contains("outcome: Success"), "{bash_result}");
-        assert!(bash_result.contains("command succeeded"), "{bash_result}");
-        assert!(!bash_result.contains("echo \"EXISTS\""), "{bash_result}");
         let events = event_values(&events_path);
         assert!(
-            !events.iter().any(
+            events.iter().any(
                 |event| event.get("event").and_then(Value::as_str) == Some("tool_policy_error")
             ),
             "{events:?}"
         );
         let policy = events
             .iter()
-            .find(|event| event.get("event").and_then(Value::as_str) == Some("runtime_bash_policy"))
+            .find(|event| {
+                event.get("event").and_then(Value::as_str) == Some("runtime_bash_policy")
+                    && event.get("blocked").and_then(Value::as_bool) == Some(true)
+            })
             .unwrap();
         assert_eq!(
-            policy.get("normalization_kind").and_then(Value::as_str),
+            policy.get("violation_kind").and_then(Value::as_str),
             Some("success_failure_echo_stripped")
         );
-        assert_eq!(policy.get("blocked").and_then(Value::as_bool), Some(false));
+        assert_eq!(policy.get("blocked").and_then(Value::as_bool), Some(true));
+        assert_eq!(policy.get("normalized_commands"), Some(&json!([])));
         let normalization = events.iter().find(|event| {
             event.get("event").and_then(Value::as_str)
                 == Some("verify_command_normalized_at_runtime")
         });
-        assert_eq!(
-            normalization.and_then(|event| event.get("repaired").and_then(Value::as_str)),
-            Some("test -f src/app/page.tsx")
-        );
-        assert_eq!(
-            normalization.and_then(|event| event.get("original_command")),
-            Some(&json!(
-                "test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""
-            ))
-        );
-        assert_eq!(
-            normalization.and_then(|event| event.get("normalized_commands")),
-            Some(&json!(["test -f src/app/page.tsx"]))
-        );
+        assert!(normalization.is_none(), "{events:?}");
     }
 
     #[test]

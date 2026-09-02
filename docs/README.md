@@ -32,20 +32,22 @@ paths.
 | [`guide/en/tutorial.md`](guide/en/tutorial.md) | Real-screen walkthrough: doctor, first REPL request through Gate 1–4, one GUI Trial. | EN | New users |
 | [`guide/en/cli-reference.md`](guide/en/cli-reference.md) | CLI flags, defaults, and conflicts. | EN | End users |
 | [`guide/en/configuration.md`](guide/en/configuration.md) | Configuration files, presets, and precedence. | EN | End users |
+| [`guide/en/extensions.md`](guide/en/extensions.md) | Four GUI extension layers, boundaries, registration, and references. | EN | Extenders |
 | [`guide/en/providers.md`](guide/en/providers.md) | Ollama, LM Studio, OpenAI, and Gemini setup. | EN | End users |
 | [`guide/en/slash-commands.md`](guide/en/slash-commands.md) | Interactive slash-command reference. | EN | End users |
 | [`guide/en/troubleshooting.md`](guide/en/troubleshooting.md) | Startup, provider, and TUI troubleshooting. | EN | End users |
 | [`guide/ja/tutorial.md`](guide/ja/tutorial.md) | 実際の画面で追うウォークスルー: doctor、最初の REPL 依頼から Gate 1〜4、GUI Trial 1 本。 | JA | New users |
 | [`guide/ja/cli-reference.md`](guide/ja/cli-reference.md) | CLI フラグ、既定値、排他関係。 | JA | End users |
 | [`guide/ja/configuration.md`](guide/ja/configuration.md) | 設定ファイル、preset、優先順位。 | JA | End users |
+| [`guide/ja/extensions.md`](guide/ja/extensions.md) | GUI 拡張の 4 レイヤー、境界、登録導線、参照資料。 | JA | Extenders |
 | [`guide/ja/providers.md`](guide/ja/providers.md) | Ollama、LM Studio、OpenAI、Gemini の設定。 | JA | End users |
 | [`guide/ja/slash-commands.md`](guide/ja/slash-commands.md) | 対話型スラッシュコマンドのリファレンス。 | JA | End users |
 | [`guide/ja/troubleshooting.md`](guide/ja/troubleshooting.md) | 起動、プロバイダ、TUI のトラブルシューティング。 | JA | End users |
 | [`user/getting-started-cli.md`](user/getting-started-cli.md) | Install-to-first-loop CLI path, pack A/B, and bilingual glossary. | Mixed | New users |
-| [`user/getting-started-gui.md`](user/getting-started-gui.md) | First GUI landing, readiness, sample Trial, Gate 1, and result reading. | Mixed | New users |
+| [`user/getting-started-gui.md`](user/getting-started-gui.md) | First GUI landing, readiness, and the four fixed Trial pages. | Mixed | New users |
 | [`user/gui.md`](user/gui.md) | Stable compatibility index for the former monolithic GUI guide. | EN | End users |
-| [`user/gui-trial.md`](user/gui-trial.md) | Gate 1–4 Trial flow, explicit/automatic intent, reconnect, and read-only lease recovery. | Mixed | End users |
-| [`user/gui-history.md`](user/gui-history.md) | Trial session source, pack columns, refresh, and A/B reading. | Mixed | End users |
+| [`user/gui-trial.md`](user/gui-trial.md) | Four-route Gate 1–4 Trial flow, copyable session workspace, reconnect, and read-only lease recovery. | Mixed | End users |
+| [`user/gui-history.md`](user/gui-history.md) | Compact Trial session summaries, workspace/result separation, refresh, detail routing, and A/B reading. | Mixed | End users |
 | [`user/gui-extensions.md`](user/gui-extensions.md) | Extension catalog, bounded lifecycle, naming, and review preparation. | Mixed | Extenders |
 | [`user/gui-setup.md`](user/gui-setup.md) | Setup/preflight, base paths, root separation, and proxy routing. | Mixed | Operators |
 | [`user/gui-operations.md`](user/gui-operations.md) | Tokens, Origins, APIs, backups, recovery, and GUI smoke. | Mixed | Operators |

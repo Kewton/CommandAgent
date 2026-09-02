@@ -1,0 +1,30 @@
+{
+  "schema_version": "commandagent.verification_spec.v0",
+  "prompt_version": "commandagent.verification_spec.prompt.v0",
+  "goal": "Print hello from the CLI.",
+  "intent": "create",
+  "profile": "cli",
+  "claims": [
+    {
+      "id": "hello-output",
+      "normalized_requirement": "The CLI prints hello.",
+      "kind": "behavior"
+    }
+  ],
+  "oracles": [
+    {
+      "claim_id": "hello-output",
+      "strategy": "command",
+      "expected_polarity": "success",
+      "minimum_strength": "runtime",
+      "setup": {
+        "argv": ["python3", "cli.py"],
+        "cwd": ".",
+        "fixture_paths": []
+      },
+      "input": {"kind": "none"},
+      "observation": {"kind": "stdout", "expected": "hello"},
+      "timeout_ms": 30000
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": "commandagent.goal_verify.exact_sha_ci_evidence.v1",
+  "head_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+  "checked_at": "2026-08-27",
+  "source": "GitHub Actions public API",
+  "workflows": [
+    {
+      "name": "CI",
+      "head_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 33081537301,
+      "html_url": "https://github.com/Kewton/CommandAgent/actions/runs/33081537301"
+    },
+    {
+      "name": "acceptance",
+      "head_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 33081537251,
+      "html_url": "https://github.com/Kewton/CommandAgent/actions/runs/33081537251"
+    }
+  ]
+}

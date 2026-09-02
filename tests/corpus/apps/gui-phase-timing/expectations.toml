@@ -1,0 +1,35 @@
+case_id = "gui-phase-timing"
+source = "GUI Trial additive phase-boundary timing event contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/phase-timing.jsonl = [
+  "\"event\":\"ultra_plan_generation_attempt\"",
+  "\"occurred_at_epoch_ms\":1000",
+  "\"event\":\"ultra_phase_start\"",
+  "\"occurred_at_epoch_ms\":2000",
+  "\"event\":\"ultra_phase_complete\"",
+  "\"occurred_at_epoch_ms\":7000",
+  "\"time_profile\":{\"total_ms\":8000}"
+]

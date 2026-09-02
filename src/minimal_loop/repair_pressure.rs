@@ -580,6 +580,7 @@ mod anchor_tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 6,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs: 1,
             chat_timeout_source: "override:test".to_string(),
             field_sources: ConfigFieldSources::default(),
@@ -614,7 +615,6 @@ mod anchor_tests {
             None,
         )
         .unwrap();
-
         assert_eq!(decision.stage, ReadOnlyStagnationStage::Intervention);
         assert!(!decision.anchor_interlocked());
         assert!(decision.full_file_write_feedback("fix").is_none());

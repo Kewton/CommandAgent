@@ -1,0 +1,16 @@
+{
+  "code_sha": "c51c414631fefc7c769ca963643085f560d07b65",
+  "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+  "contract_id": "phase6-recovery-v4-20260829-a14-live-01",
+  "contract_sha256": "5409215ce927c9bd33f00ee5d11021b820a5d14015de615f170fc8375bedd26d",
+  "execution_root": "/Volumes/SSD_NX/tmp/commandagent_trial",
+  "run_id": "phase6-recovery-v4-20260829-a14-smoke-01",
+  "schema_version": "commandagent.goal_verify.recovery_campaign.v4_a14",
+  "selected_pair_ids": [
+    "phase6-main-c01-task-01--pair-01",
+    "phase6-main-c04-task-01--pair-01",
+    "phase6-main-c06-task-01--pair-01",
+    "phase6-main-c07-task-01--pair-01"
+  ],
+  "target_pairs": 4
+}

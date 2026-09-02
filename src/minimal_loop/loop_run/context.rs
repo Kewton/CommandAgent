@@ -150,6 +150,12 @@ impl RunSessionOptions {
         self.require_mutation_before_contract_short_circuit |= required;
         self
     }
+    pub(crate) fn with_required_write_for_action_prompt(mut self, required: bool) -> Self {
+        if required {
+            self.action_no_tool_policy = ActionNoToolPolicy::RequireWriteForActionPrompt;
+        }
+        self
+    }
 
     pub(super) fn contract_runtime_enabled(&self) -> bool {
         self.completion_contract_verification == CompletionContractVerification::Enabled

@@ -1,0 +1,599 @@
+{
+  "schema_version": "commandagent.goal_verify.phase6_preflight_contract.v4",
+  "contract_id": "phase6-preflight-v4-20260828-live-12",
+  "status": "frozen",
+  "code_sha": "3c3cab1b5ce4f0f1f23db52f9de7a8ac376464bb",
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-3c3cab1b.json",
+  "endpoint": "http://127.0.0.1:11434/api/generate",
+  "model": "qwen3.6:27b-coding-nvfp4",
+  "model_digest": "42a2d9de99b0e72ab7022637dd3f8ee3103e116e4b287901080b7c9c9cc0ee66",
+  "samples_per_cell": 5,
+  "selected_cells": [
+    {
+      "case_id": "create-build-only-functional",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-ui-copy-style-port-path",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-cli-known-multiple-inputs",
+      "intent": "create",
+      "lane": "primary"
+    },
+    {
+      "case_id": "create-negative-constraint-injection",
+      "intent": "create",
+      "lane": "executor_unavailable"
+    },
+    {
+      "case_id": "fix-reproduced-after-regression",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-baseline-not-reproduced-substitution",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-after-not-run-regression-shrunk",
+      "intent": "fix",
+      "lane": "primary"
+    },
+    {
+      "case_id": "fix-existing-tests-only-dependency-missing",
+      "intent": "fix",
+      "lane": "primary"
+    }
+  ],
+  "runner_sources": [
+    "scripts/eval-goal-verify-blind-v4-export-human.py",
+    "scripts/eval-goal-verify-blind-v4-prepare.py",
+    "scripts/eval-goal-verify-blind-v4-report.py",
+    "scripts/eval-goal-verify-live.py",
+    "scripts/eval-goal-verify-v4-readiness.py",
+    "scripts/eval-goal-verify-v4-report.py",
+    "scripts/eval_lib/goal_verify_additive_v4.py",
+    "scripts/eval_lib/goal_verify_baseline_product_v3.py",
+    "scripts/eval_lib/goal_verify_blind_v4.py",
+    "scripts/eval_lib/goal_verify_live_v4.py",
+    "scripts/eval_lib/goal_verify_next_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_report_v4.py",
+    "scripts/eval_lib/goal_verify_preflight_v4.py",
+    "scripts/eval_lib/goal_verify_repairs_v4.py",
+    "scripts/eval_lib/goal_verify_sandbox.py",
+    "scripts/eval_lib/goal_verify_task_contracts_v4.py",
+    "scripts/eval_lib/goal_verify_v2.py",
+    "scripts/eval_lib/goal_verify_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v3.py",
+    "scripts/eval_lib/goal_verify_workspaces_v4.py",
+    "src/bin/verification_spec_validate.rs"
+  ],
+  "supersedes": "phase6-preflight-v4-20260828-live-11",
+  "superseded_contract": "eval/goal_verify/v0/phase6-preflight-v4-a10-contract.json",
+  "pre_live_amendments": [
+    {
+      "id": "v4-A6",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-06",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-07",
+      "superseded_code_sha": "de99dbacc89ec6a37fcab5d8cdacfa8cf0921897",
+      "replacement_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "reason": "the first live-06 pair exposed that the host-owned Next.js production-build step denied loopback bind even though Turbopack may require an internal loopback port during build; it also exposed that requiring every baseline to reach completion verification contradicts the frozen v4 rule that honest baseline failures remain in the denominator and are never overridden",
+      "change": "allow loopback only, while retaining the external-network deny, for the host-owned production-build step; require every baseline to bind the task contract, discover its product run, and record either a completion-verification attempt or a discovered nonzero product failure as an honest terminal",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none; honest early baseline failures remain included",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "task_input_changes": "none",
+      "superseded_evidence_policy": "retain live-06 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-07 quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-05bda1cc.json"
+    },
+    {
+      "id": "v4-A7",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-07",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-08",
+      "superseded_code_sha": "05bda1cc7047ab37f96e3b45939fed68f8dac3f6",
+      "replacement_code_sha": "4234e0a171deaf9db085e9d3f50a90959d450bee",
+      "reason": "the first live-07 pair and an isolated workspace-copy diagnostic proved that allowing 127.0.0.1 loopback did not cover the bind used internally by Next.js 16 Turbopack; switching to the official webpack production-build path removed that bind, after which child cleanup required signals that the default-deny profile had not allowed",
+      "change": "use the host-owned direct argv [\"npx\",\"next\",\"build\",\"--webpack\"] before [\"npx\",\"next\",\"start\",\"-p\",\"<port>\"]; deny all build network operations; allow signals only when the target is in the same macOS sandbox so candidate processes cannot signal host processes",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "prompt_changes": "none",
+      "schema_content_changes": "none",
+      "scoring_changes": "none",
+      "task_input_changes": "none",
+      "diagnostic_result": "on an isolated copy of the live-07 product snapshot, webpack compiled successfully with bind_denied=false and kill_denied=false; the remaining ENOTCACHED TypeScript dependency failure is retained as a product-snapshot failure",
+      "superseded_evidence_policy": "retain live-07 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-08 quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-4234e0a1.json"
+    },
+    {
+      "id": "v4-A8",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by_bounded_smoke": true,
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-08",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-09",
+      "superseded_code_sha": "4234e0a171deaf9db085e9d3f50a90959d450bee",
+      "replacement_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+      "reason": "the first live-08 pair proved that the host-owned browser prepare path used webpack safely, but an independently proposed npm run build command oracle still invoked Next.js 16 Turbopack and was incorrectly scored as a product failure when the measurement sandbox denied Turbopack's internal network bind",
+      "change": "declare the safely executable Next.js production-build argv [\"npx\",\"next\",\"build\",\"--webpack\"] in the candidate-visible prompt; keep raw candidate argv unchanged; deterministically classify the exact Turbopack sandbox-denial signature as blocked safe_execution_unavailable rather than a product failure",
+      "result_dependent": false,
+      "superseded_run_completed_pairs": 1,
+      "superseded_run_completed_proposals": 2,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none; blocked claims remain unverified in the denominator",
+      "prompt_changes": "add only the candidate-visible safe Next.js production-build argv and honest-unavailable fallback",
+      "schema_content_changes": "none",
+      "scoring_changes": "none; correct sandbox-policy denial classification before scoring",
+      "task_input_changes": "none",
+      "superseded_evidence_policy": "retain live-08 as immutable one-pair instrument-defect evidence; do not resume, rescore, reuse proposals, or include it in live-09 quality inference",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-37df7f95.json"
+    },
+    {
+      "id": "v4-A9",
+      "recorded_at": "2026-08-27",
+      "before_first_provider_response": true,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by": "live-09 full 40-pair collection (NO-GO retained; not rescored)",
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-09",
+      "replacement_run_id": "phase6-preflight-v4-20260827-live-10",
+      "superseded_code_sha": "37df7f95d7ab6c5b2e0d9ff56e1ffe8de62f5bf8",
+      "replacement_code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "reason": "live-09 exposed (1) a contract-internal inconsistency: the A5 execution_goal mixed non-scored operational constraints and unregistered acceptance requirements into the goal string, so 22 conformance lanes emitted extra claims and failed the exact registered-ID rule; (2) a stage-resolution order defect: concretize_candidate_oracle rewrote existing_fix_evidence stage to product after the before workspace had been chosen, producing stage=product with the before snapshot hash; (3) a Next.js version mismatch: the host-owned --webpack prepare is valid on 16.3.1 but unknown on 14.2.35 product workspaces, and candidate dom/http oracles carried build argv without the server port; (4) closed-vocabulary gaps for minimum_strength and fixture_paths item shape",
+      "change": "shared semantic goal plus typed operational_constraints per case (task registry a9); constraints are not independently scored and may only bind oracles for existing registered claim IDs, while the exact registered claim ID rule remains unchanged; effective stage decided once before workspace selection with existing_fix_evidence bound to the product workspace and stage provenance kept inside the binding; version-aware host-owned Next build/start (14.2.35 -> build, 16.3.1 -> build --webpack, unregistered -> safe_execution_unavailable) with next_version and safe argv exposed as candidate-visible executor capabilities; per-oracle port binding retained; prompt states minimum_strength vocabulary, fixture_paths string items, no new claims from constraints, and server-request-only argv for dom/http/interaction; recovery_plan_auto_runs fixed at 0; stratified smoke with both Next versions before live-10",
+      "result_dependent": true,
+      "result_dependency_scope": "instrument-validity failures observed in live-09 only (schema-invalid categories, snapshot-stage mismatch, and executor capability defects)",
+      "quality_effect_estimate_used": false,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "scoring_changes": "none",
+      "schema_content_changes": "VerificationSpec v0 schema content unchanged; task-contract registry schema changes from v4_a5 to v4_a9 and is validated separately",
+      "task_contract_registry_schema_changes": "execution_goal is replaced by goal plus typed operational_constraints; source hash, registered claim IDs, field types, safe paths, direct argv, dependency-set consistency, scored=false, and completion-contract consistency are machine validated",
+      "prompt_changes": "add minimum_strength vocabulary and fixture_paths item shape; state that operational_constraints never create new claims but may bind an oracle for an existing required claim ID; dom/http/interaction argv must be the server start request only; Next build argv comes from executor_capabilities.next.safe_build_argv or is honestly unavailable",
+      "task_input_changes": "execution_goal replaced by shared goal + operational_constraints; unregistered A5 acceptance requirements dropped; app/page.tsx and README/--help requirements removed; D-A9-1 is resolved by restoring the negative cell corpus injection text verbatim for both arms",
+      "harness_changes_required": [
+        "goal_verify_task_contracts_v4.bind: read the semantic goal and attach operational_constraints; baseline product receives a deterministic goal-plus-constraints task envelope while candidate lanes receive the same two components as typed fields",
+        "goal_verify_task_contracts_v4 validation and readiness: machine-validate the v4_a9 registry schema, source hashes, exact registered claim IDs, safe paths/direct argv, dependency-set consistency, scored=false, and completion-contract consistency",
+        "goal_verify_additive_v4.concretize_candidate_oracle / evaluate_candidate_spec_v4: decide effective stage once before workspace selection",
+        "goal_verify_live_v4: detect product workspace next version, select prepare argv from next_build_policy, expose executor_capabilities.next, and reject only unregistered Next build/start flags as policy_rejected",
+        "goal_verify_baseline_product_v3: pass --recovery-plan-auto-runs 0 explicitly and record the configured value in raw argv/evidence",
+        "smoke selector: use the preregistered smoke request namespace and exact 9-pair selection; keep smoke evidence separate from live-10",
+        "Next build policy fixtures: exercise pinned 14.2.35 and 16.3.1 toolchains independently of product-generated version changes"
+      ],
+      "superseded_evidence_policy": "retain live-09 as immutable NO-GO evidence; do not resume, rescore, reuse proposals, or include it in live-10 quality inference",
+      "recovery_plan_auto_runs_decision": {
+        "value": 0,
+        "argv": [
+          "--recovery-plan-auto-runs",
+          "0"
+        ],
+        "decided_by": "repository owner",
+        "decided_at": "2026-08-27",
+        "estimand": "current product default without automatic Recovery Plan execution"
+      },
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-24bcaf05.json"
+    },
+    {
+      "id": "v4-A10",
+      "recorded_at": "2026-08-28",
+      "before_first_provider_response": true,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by": "preregistered A9 stratified smoke phase6-preflight-v4-20260827-a9-smoke-01 (9/9 pairs complete; NO-GO retained)",
+      "superseded_run_id": "phase6-preflight-v4-20260827-live-10",
+      "superseded_run_status": "never_started",
+      "diagnostic_smoke_run_id": "phase6-preflight-v4-20260827-a9-smoke-01",
+      "replacement_run_id": "phase6-preflight-v4-20260828-live-11",
+      "superseded_code_sha": "24bcaf05b659c40918b7248ac3499dac6483ecbd",
+      "replacement_code_sha": "8e73df5701bbc4446c17e7c800c2d08c765c51a6",
+      "reason": "the A9 smoke completed 36/36 provider attempts, but all 72 raw claim objects contained only oracle_ids and omitted id, normalized_requirement, kind, origin, and required; schema-valid yield was 0/18 while CLI and generic cells reproduced the same failure, bounding it to the raw proposal contract rather than the Next executor",
+      "change": "separate the provider-facing closed raw proposal schema from the unchanged canonical VerificationSpec schema; require provider-authored claim id, normalized_requirement, and kind plus candidate oracle semantics; forbid host-owned fields in raw output; validate raw JSON before exact-ID canonicalization; inject origin and UTF-8 byte range, required flag, derived claim/oracle linkage, lifecycle/result, lineage, and generation provenance deterministically afterward; retain the unmodified raw response for semantic blind review",
+      "result_dependent": true,
+      "result_dependency_scope": "A9 smoke instrument-validity failure only; no A9 quality estimate exists because zero lane reached candidate execution",
+      "quality_effect_estimate_used": false,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none",
+      "scoring_changes": "none",
+      "canonical_schema_content_changes": "none; eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json remains the post-canonicalization schema",
+      "raw_schema_content_changes": "new closed A10 raw schema accepts only top-level identity fields, claim semantic fields, and candidate-authored oracle semantics; host-owned fields are additionalProperties violations",
+      "prompt_changes": "state the raw claim/oracle field mapping explicitly; claim.id is the registered ID in conformance and a temporary provider ID in held-out; oracle_ids never substitutes for claim.id; host-owned fields are omitted rather than emitted as ignored placeholders",
+      "task_input_changes": "none; A9 shared semantic goal plus typed operational_constraints remains frozen",
+      "semantic_repair_policy": "unchanged and forbidden; missing id, normalized_requirement, or kind is a hard reject and is never reconstructed from oracle fields",
+      "harness_changes_required": [
+        "goal_verify_live_v4 validates the unmodified provider response against the frozen raw schema before invoking either canonicalizer",
+        "goal_verify_live_v4 records raw_schema_validation per attempt and hashes both raw and canonical schemas in the campaign manifest",
+        "goal_verify_preflight_v4 validates raw/canonical separation, the exact raw semantic field set, absence of host-owned fields, raw shape fixtures, and prompt markers",
+        "legacy v4 contracts without generation.canonical_schema retain their previous generation and validation path"
+      ],
+      "superseded_evidence_policy": "retain the complete A9 smoke as immutable NO-GO instrument evidence; do not resume, rescore, reuse its responses, or copy any record/request/ledger into A10 smoke or live-11",
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-8e73df57.json"
+    },
+    {
+      "id": "v4-A11",
+      "recorded_at": "2026-08-28",
+      "before_first_provider_response": false,
+      "before_first_replacement_provider_response": true,
+      "instrument_defect_detected_by": "live-11 post-collection source-blind semantic item preparation and independent model review (NO-GO retained; human packet not used)",
+      "superseded_run_id": "phase6-preflight-v4-20260828-live-11",
+      "replacement_run_id": "phase6-preflight-v4-20260828-live-12",
+      "superseded_code_sha": "8e73df5701bbc4446c17e7c800c2d08c765c51a6",
+      "replacement_code_sha": "3c3cab1b5ce4f0f1f23db52f9de7a8ac376464bb",
+      "reason": "A10 correctly forbids host-owned oracle.id in raw proposals, but prepare_semantic_items tracked claim-linked raw oracles by oracle.id; the tracked set therefore remained empty and all 178 linked oracles were added a second time as orphan_oracle items, producing 331 items instead of 153 claim groups and placing 8 invalid orphan items in the 10-item human sample; the prepare template also emitted reviews while the validator read parsed_reviews only",
+      "change": "track claim-linked raw oracles by their stable source-list index rather than a host-owned ID; record source oracle indexes only in the secret mapping; fail closed when any pair/lane/oracle-index reference appears more than once; publish claim-group, oracle-reference, unique-reference, and duplicate-reference counts in the blind manifest; accept the prepare template's reviews key while retaining parsed_reviews compatibility",
+      "result_dependent": true,
+      "result_dependency_scope": "live-11 semantic instrument structure only; the invalid 331-item model verdicts, agreement values, and 10-item human packet are diagnostic and are not used to estimate A11 quality",
+      "quality_effect_estimate_used": false,
+      "threshold_changes": "none",
+      "exclusion_rule_changes": "none",
+      "denominator_changes": "none for proposal collection and additive scoring; semantic review units now implement the already-frozen one claim-oracle group rule without duplicate oracle-only units",
+      "scoring_changes": "none",
+      "raw_schema_content_changes": "none",
+      "canonical_schema_content_changes": "none",
+      "prompt_changes": "none",
+      "task_input_changes": "none",
+      "provider_generation_changes": "none",
+      "semantic_repair_policy": "unchanged and forbidden",
+      "harness_changes_required": [
+        "goal_verify_blind_v4.prepare_semantic_items tracks linked oracles by raw list index and creates orphan_oracle only when no raw claim has the oracle claim_id",
+        "the secret mapping records source_oracle_indexes so the prepare step can reject duplicate source oracle references before writing review artifacts",
+        "the blind manifest records item group and oracle reference integrity counts with duplicate_oracle_reference_count required to be zero",
+        "the model review validator accepts both the prepare template reviews array and the historical parsed_reviews representation"
+      ],
+      "superseded_evidence_policy": "retain live-11 raw records, invalid blind items, two model reviews, interim report, and analysis as immutable NO-GO diagnostic evidence; do not complete its human review, resume, rescore, reuse provider responses, or copy any record/request/ledger/review into A11 smoke or live-12",
+      "recovery_plan_auto_runs_decision": {
+        "value": 0,
+        "decided_by": "repository owner",
+        "decided_at": "2026-08-28",
+        "estimand": "current product default without automatic Recovery Plan execution"
+      },
+      "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-3c3cab1b.json"
+    }
+  ],
+  "comparison": {
+    "baseline": "current_product_evidence",
+    "candidate": "baseline_plus_candidate_evidence",
+    "estimand": "score(union(baseline_evidence,candidate_evidence))-score(baseline_evidence)",
+    "task_execution_count_per_pair": 1,
+    "shared_product_snapshot": true,
+    "baseline_failure_override_allowed": false,
+    "unverified_as_pass_allowed": false
+  },
+  "pairing": {
+    "shared": [
+      "source_task_id",
+      "goal",
+      "initial_or_before_snapshot",
+      "product_run",
+      "product_snapshot_sha256",
+      "baseline_evidence",
+      "model",
+      "seed",
+      "wall_budget",
+      "token_budget",
+      "dependency_bundle",
+      "cache_policy",
+      "candidate_visible_completion_contract",
+      "shared_goal",
+      "operational_constraints"
+    ],
+    "candidate_execution_target": "product_snapshot",
+    "fix_before_execution_target": "frozen_before_snapshot",
+    "reference_or_after_fallback": "forbidden",
+    "exclusion_rules": [
+      "timeout remains a failure",
+      "dependency failure remains a failure",
+      "schema failure remains a failure",
+      "concretization failure remains a failure",
+      "baseline unavailable remains a failure",
+      "honest early baseline failure remains included",
+      "no denominator, exclusion, threshold, or lane change after the first provider response"
+    ]
+  },
+  "information_boundary": {
+    "candidate_visible": [
+      "goal",
+      "intent",
+      "profile",
+      "lane-appropriate claim contract",
+      "bounded product workspace manifest",
+      "executor capabilities",
+      "safety policy",
+      "frozen fix or investigation evidence registry",
+      "typed operational_constraints (not independently scored; never a source of new claims; usable only to bind oracles for already-provided required claim IDs)",
+      "executor_capabilities.next: detected next_version, safe_build_argv, safe_start_argv_template (product workspace metadata, not gold)"
+    ],
+    "candidate_hidden": [
+      "gold adapter ids",
+      "gold argv",
+      "gold expected values",
+      "gold observations",
+      "reference implementation contents",
+      "baseline scores and verdict",
+      "blind variant mapping"
+    ],
+    "gold_use": "scoring_only_after_candidate_execution",
+    "provider_argv_policy": "host_validate_then_execute_as_direct_argv_without_shell",
+    "paired_task_input_encoding": "the semantic goal and typed operational_constraints are shared components; baseline --plan-run receives a deterministic labeled goal-plus-canonical-JSON envelope and candidate INPUT JSON receives goal plus task_contract.operational_constraints without merging constraints into claim text",
+    "semantic_repair": "forbidden",
+    "raw_proposal_contract": "provider emits only semantic claim/oracle fields accepted by the closed A10 raw schema; host-owned origin, UTF-8 byte ranges, required flags, derived IDs, lifecycle/result, lineage, and provider provenance are absent from raw output and injected only after raw-schema plus exact-ID validation",
+    "host_normalization_policy": "only the predeclared meaning-preserving fixture_paths default, http route-to-path alias, dom computed_style_property-to-property alias, and uniquely placed interaction actions move; every repair records before/after binding hashes"
+  },
+  "generation": {
+    "prompt": "eval/goal_verify/v0/verification-spec-preflight-v4-a10.prompt.txt",
+    "structured_output_schema": "eval/goal_verify/v0/verification-spec-raw-preflight-v4-a10.schema.json",
+    "canonical_schema": "eval/goal_verify/v0/verification-spec-preflight-v4-a5.schema.json",
+    "model": "qwen3.6:27b-coding-nvfp4",
+    "seed_base": 399600,
+    "temperature": 0.2,
+    "num_predict": 4096,
+    "request_timeout_sec": 900,
+    "regeneration_limit": 1,
+    "regeneration_cost_included": true,
+    "think": false,
+    "keep_alive": "30m",
+    "shape_examples": {
+      "create": "tests/fixtures/goal_verify_v4/raw-proposal-a10-create.json",
+      "fix": "tests/fixtures/goal_verify_v4/raw-proposal-a10-fix.json"
+    }
+  },
+  "execution": {
+    "sandbox": "candidate commands and candidate servers use macos_sandbox_exec",
+    "network": "external denied; candidate build has all network denied; candidate servers are loopback-only; host-fixed browser blocks non-same-origin requests",
+    "browser_boundary": "hash-bound Chromium plus host-fixed script and same-origin request interception",
+    "browser_toolchain": "playwright-core copied from the provisioned bundle before product execution and hash-recorded outside candidate workspaces",
+    "shell": false,
+    "workspace_manifest_schema": "commandagent.goal_verify.workspace_manifest.v4",
+    "same_snapshot_hash_required": true,
+    "candidate_primary_reference_fallback_max_count": 0,
+    "gold_used_for_execution_max_count": 0,
+    "baseline_observation_copy_max_count": 0,
+    "server_policy": "host-owned direct argv Next.js production build then start, selected by the detected product-workspace Next version (see next_build_policy); build network is denied, server is loopback-only, signals are limited to same-sandbox targets, no shell chaining, and selectors/read targets remain candidate-owned",
+    "cli_text_comparison": "remove at most one terminal LF or CRLF from both expected and actual for stdout/stderr only",
+    "command_sandbox_denial_policy": "the exact Next.js 16 Turbopack internal-bind denial signature is blocked safe_execution_unavailable; raw argv is never rewritten and the claim remains unverified",
+    "next_build_policy": {
+      "detection": "read node_modules/next/package.json version inside the frozen product workspace; record it in evidence",
+      "14.2.35": {
+        "prepare_argv": [
+          "npx",
+          "next",
+          "build"
+        ],
+        "start_argv": [
+          "npx",
+          "next",
+          "start",
+          "-p",
+          "<port>"
+        ]
+      },
+      "16.3.1": {
+        "prepare_argv": [
+          "npx",
+          "next",
+          "build",
+          "--webpack"
+        ],
+        "start_argv": [
+          "npx",
+          "next",
+          "start",
+          "-p",
+          "<port>"
+        ]
+      },
+      "unregistered": "safe_execution_unavailable (blocked, claim stays unverified); never guess a flag",
+      "candidate_visible": "next_version and safe_build_argv are exposed via executor_capabilities.next; a candidate command oracle whose argv equals safe_build_argv is executable, any other next build argv is policy_rejected",
+      "verification": "confirmed on 2026-08-27 against direct `node_modules/.bin/next build --help`: 14.2.35 package sha256 851ca2846050593b78eed7d371b530c8eb32935122e1e2fd5fc8fc6d49cb48dd has no --webpack option; 16.3.1 package sha256 dc243091ba95352bbc300be22c6561d24a19a1c0bd2c2cc85d2c5168767ea7b9 exposes --webpack; A9 unit fixtures cover both registered versions and an unregistered version"
+    },
+    "unknown_flag_policy": "scoped to registered Next.js build/start requests only: an unregistered Next build/start option is policy_rejected before execution and recorded; Python, pytest, and other direct argv continue to use the existing safety validator rather than a nonexistent global option allowlist; raw argv is never rewritten",
+    "stage_resolution": "effective stage is decided exactly once from the claim's intent-compatible origin before any workspace is selected; existing_fix_evidence and existing_investigation_binding execute against the product workspace and keep the origin stage (before/after/reproduce) inside the binding record; execution_snapshot_sha256 must equal the frozen hash of the workspace actually used",
+    "per_oracle_port_binding": "retained: each http/dom/interaction oracle's own setup.argv must contain its port as a distinct item; no cross-oracle port inference"
+  },
+  "workspace_registry": "eval/goal_verify/v0/phase6-real-workspaces-v3.json",
+  "workspace_registry_additions": "eval/goal_verify/v0/phase6-real-workspaces-v4-a4.json",
+  "capability_registry": "eval/goal_verify/v0/phase6-execution-capabilities-v3.json",
+  "scoring": {
+    "answer_key": "eval/goal_verify/v0/phase6-command-adapters-v4-a5.json",
+    "answer_key_use": "post_execution_scoring_only",
+    "variants": [
+      "baseline",
+      "baseline_plus_candidate"
+    ],
+    "deduplication_key": [
+      "claim_id",
+      "observation_semantics",
+      "input_binding",
+      "stage"
+    ],
+    "shadow_verdict": true,
+    "candidate_verdict_inherits_baseline_pass": false
+  },
+  "resource_budget_config": "eval/goal_verify/v0/baseline-config.json",
+  "resource_budgets": {
+    "p50_wall_time_max_increase_pct": 10,
+    "p95_wall_time_max_increase_pct": 20,
+    "p50_total_tokens_max_increase_pct": 10,
+    "p95_total_tokens_max_increase_pct": 20,
+    "preflight_use": "report_only"
+  },
+  "preflight": {
+    "purpose": "additive measurement instrument readiness; never product GO",
+    "schema_compliance_yield_floor": 0.95,
+    "same_snapshot_rate": 1,
+    "executable_oracle_execution_record_rate": 1,
+    "union_scorer_determinism_rate": 1,
+    "shadow_false_full_max_count": 0,
+    "semantic_review_required": true
+  },
+  "full_experiment": {
+    "cells": 12,
+    "minimum_pairs_per_cell": 30,
+    "minimum_total_pairs": 360,
+    "minimum_distinct_source_tasks_per_cell": 10,
+    "minimum_runs_per_source_task": 3,
+    "cluster_unit": "source_task_id",
+    "cluster_weighting": "equal",
+    "bootstrap": "hierarchical paired percentile",
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "seed": 39920260826
+  },
+  "semantic_review": {
+    "primary": "source-blind atomic verification item review",
+    "review_unit": "one raw claim plus every raw oracle whose claim_id equals that claim id; an orphan_oracle unit exists only for a raw oracle whose claim_id matches no raw claim",
+    "source_oracle_identity": "zero-based raw oracles list index within pair and lane; provider-visible or host-owned oracle.id is not required",
+    "duplicate_source_oracle_reference_max_count": 0,
+    "human_packet_preflight": "all source oracle references unique, every orphan proven unmatched, and isolated sample bound to the corrected full item hash before distribution",
+    "raw_candidate_proposal_only": true,
+    "canonicalized_spec_visible": false,
+    "execution_result_visible": false,
+    "superset_portfolio_review": "secondary_non_blind",
+    "independent_human_required": true,
+    "different_model_families_required": 2,
+    "independent_human_machine_gate": {
+      "reviewer_type": "human",
+      "contract_authoring_involvement": false,
+      "independence_confirmed": true,
+      "isolated_packet_only": true
+    }
+  },
+  "authorization": {
+    "implementation_authorized": true,
+    "live_collection_authorized": true,
+    "approved_at": "2026-08-28",
+    "approved_by": "repository owner",
+    "scope": "A11 semantic item grouping and review-document compatibility, stratified smoke (9 pairs / 18 lanes), and 40-pair additive preflight live-12 after freeze",
+    "note": "A11 implementation, corrected review-unit invariants, exact SHA, CI evidence, replacement run id, budgets, exclusions, and information boundary must be frozen before the first A11 smoke response; live-11 remains NO-GO and is never rescored"
+  },
+  "integrity": {
+    "exclusive_run_lock": ".campaign.lock",
+    "record_ledger": "record-ledger.jsonl",
+    "runtime_files_excluded": [
+      ".campaign.lock",
+      ".commandagent",
+      ".commandagent-state",
+      ".anvil",
+      ".goal-verify-baseline"
+    ]
+  },
+  "corpus": "eval/goal_verify/v0/corpus.json",
+  "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a9.json",
+  "claim_policy": {
+    "allow_unverifiable_reason": true,
+    "allowed_reasons": [
+      "executor_capability_unavailable",
+      "safe_execution_unavailable",
+      "workspace_binding_unavailable"
+    ],
+    "scoring": "retain claim in denominator as unverified",
+    "passing_credit": false,
+    "claims_from_operational_constraints": "creating a new claim from operational_constraints is forbidden; operational_constraints may only bind an oracle for an already-provided required claim ID; in the conformance lane any extra claim fails the exact registered-ID rule; in the held-out lane decomposed claims follow the existing held-out policy and are never credited without a registered adapter"
+  },
+  "baseline": {
+    "mode": "current_product_live",
+    "task_contract_registry": "eval/goal_verify/v0/phase6-task-contracts-v4-a9.json",
+    "run_namespaces": [
+      ".commandagent/runs",
+      ".anvil/runs",
+      ".commandagent-state/runs"
+    ],
+    "completion_verify_result_required": false,
+    "task_contract_bound_required": true,
+    "product_run_discovered_required": true,
+    "honest_terminal_required": true,
+    "honest_terminal_policy": "completion verification attempted or discovered product run exited nonzero",
+    "runtime_state_excluded_from_candidate_snapshot": true,
+    "recovery_plan_auto_runs": 0,
+    "recovery_plan_argv": [
+      "--recovery-plan-auto-runs",
+      "0"
+    ],
+    "recovery_plan_policy": "the harness passes --recovery-plan-auto-runs 0 explicitly on every baseline product run and records it in raw argv/evidence; the estimand is the current product with automatic Recovery Plan execution disabled; recovery YAML generation is recorded but never executed by the harness",
+    "product_findings_recorded": [
+      "nextjs profile auto-scaffolds tailwind/postcss/typescript configs despite the forbidden-dependency constraint",
+      "product installed next 14.2.35 from cache in 2/5 build-only runs although the bundle provides 16.3.1",
+      "completion contract verify reports missing_required_evidence:bound_verify_command on cli/negative cells (harness-vs-product attribution pending)",
+      "fix reproduce step semantics diverge from the task contract (expected command to fail but it passed)"
+    ]
+  },
+  "provisioning_policy": {
+    "forbidden_dependencies_never_added": [
+      "tailwindcss",
+      "postcss plugins",
+      "autoprefixer"
+    ],
+    "typescript": "not forced; fixtures and required_paths are JS/JSX; if a future cell needs TypeScript, the minimal version-pinned type packages are preregistered explicitly",
+    "host_tooling_dependencies": "playwright-core is frozen host-owned browser tooling copied outside the candidate workspace before product execution; it is not an allowed product dependency and does not relax allowed_dependencies",
+    "bundle_hash_update": "any bundle change updates the shared dependency_bundle hash for both arms and is included in exact-SHA evidence"
+  },
+  "smoke": {
+    "design": "stratified",
+    "run_id": "phase6-preflight-v4-20260828-a11-smoke-01",
+    "request_namespace": "phase6-preflight-v4-20260828-a11-smoke-01",
+    "full_run_id": "phase6-preflight-v4-20260828-live-12",
+    "selection": "the exact 9 pair IDs below are selected before any smoke provider response; product-generated Next versions are observations and do not determine inclusion",
+    "pair_ids": [
+      "create-build-only-functional--pair-01",
+      "create-build-only-functional--pair-02",
+      "create-ui-copy-style-port-path--pair-01",
+      "create-cli-known-multiple-inputs--pair-01",
+      "create-negative-constraint-injection--pair-01",
+      "fix-reproduced-after-regression--pair-02",
+      "fix-baseline-not-reproduced-substitution--pair-01",
+      "fix-after-not-run-regression-shrunk--pair-01",
+      "fix-existing-tests-only-dependency-missing--pair-01"
+    ],
+    "minimum_pairs": 9,
+    "minimum_lanes": 18,
+    "version_policy_fixture_tests": [
+      "pinned Next 14.2.35 fixture -> [\"npx\",\"next\",\"build\"]",
+      "pinned Next 16.3.1 fixture -> [\"npx\",\"next\",\"build\",\"--webpack\"]",
+      "unregistered Next fixture -> blocked safe_execution_unavailable"
+    ],
+    "paths_covered": [
+      "required claim exact set",
+      "CLI shape",
+      "UI port binding",
+      "Next 14.2.35 prepare",
+      "Next 16.3.1 prepare",
+      "fix existing evidence stage resolution",
+      "dependency-missing unverifiable claim"
+    ],
+    "not_used_for": "full experiment quality inference; A11 smoke records, ledgers, request IDs, provider responses, and reviews are never copied into live-12; no live-11 artifact is reused",
+    "limit_flag": "a plain --limit N is not accepted for smoke"
+  },
+  "freeze_checklist": [
+    "focused tests, Python tests, Ruff green",
+    "Rust full verification per repository guardrail",
+    "release binary built; version and code SHA recorded",
+    "exact code SHA CI and acceptance completed/success",
+    "A11 contract, corrected semantic review-unit invariants, raw schema, canonical schema, prompt, task registry, dependency bundle hash, runner source hashes frozen",
+    "readiness blockers 0",
+    "pinned raw-schema/canonicalization, semantic item grouping, review-document compatibility, and Next 14.2.35/16.3.1/unregistered fixtures passed; stratified smoke passed in its preregistered request namespace with evidence isolated from live-12",
+    "live-12 collected on a new run id; defects supersede live-12 with a new amendment and run id, never a rescore"
+  ]
+}

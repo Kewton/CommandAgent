@@ -10,6 +10,7 @@ import {
   fetchSessionArtifact,
   fetchSessionArtifacts,
   fetchSessionEvents,
+  fetchSessionRecoveryDocument,
 } from "../lib/trial-api";
 import type {
   CreatedSession,
@@ -54,6 +55,7 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [evidenceAnnouncement, setEvidenceAnnouncement] = useState<string | null>(null);
 
   const loadArtifacts = useCallback(async () => {
     if (created === null) return;
@@ -136,12 +138,20 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     await readEvidence(() => fetchSessionArtifact(trialToken, created.id, path));
   }
 
+  async function readRecoveryDocument(path: string) {
+    if (created === null) return;
+    await readEvidence(() => fetchSessionRecoveryDocument(trialToken, created.id, path));
+  }
+
   async function readEvidence(load: () => Promise<DocumentRecord>) {
     setEvidenceOpen(true);
     setEvidenceLoading(true);
     setEvidenceError(null);
+    setEvidenceAnnouncement(null);
     try {
-      setEvidenceDocument(await load());
+      const document = await load();
+      setEvidenceDocument(document);
+      setEvidenceAnnouncement(`${document.id} の文書を開きました。`);
     } catch (reason) {
       rejectTrialToken(reason, trialToken);
       setEvidenceError(describeError(reason));
@@ -155,6 +165,7 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     setEvidenceDocument(null);
     setEvidenceOpen(false);
     setEvidenceError(null);
+    setEvidenceAnnouncement(null);
   }
 
   function resetForNewRun() {
@@ -164,9 +175,9 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   }
 
   return {
-    artifacts, confirmDirective, directive, directiveText, evidenceDocument,
+    artifacts, confirmDirective, directive, directiveText, evidenceAnnouncement, evidenceDocument,
     evidenceError, evidenceLoading, evidenceOpen, loadArtifacts, persistDirective,
-    readArtifact, readEvents, resetForLaunch, resetForNewRun, setDirective,
+    readArtifact, readEvents, readRecoveryDocument, resetForLaunch, resetForNewRun, setDirective,
     setDirectiveText, setStage, terminalRef,
   };
 }

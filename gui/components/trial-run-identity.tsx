@@ -2,9 +2,15 @@ import type { ConfirmationIdentity } from "../lib/types";
 
 type TrialRunIdentityProps = {
   identity: ConfirmationIdentity | undefined;
+  recovery?: {
+    current: number;
+    used: number;
+    limit: number;
+    stop_reason: string | null;
+  };
 };
 
-export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
+export function TrialRunIdentity({ identity, recovery }: TrialRunIdentityProps) {
   if (identity === undefined) {
     return (
       <div className="trial-identity-warning" data-testid="trial-identity-unavailable" role="status">
@@ -58,6 +64,21 @@ export function TrialRunIdentity({ identity }: TrialRunIdentityProps) {
           </code>
         </dd>
       </div>
+      <div>
+        <dt>Recovery Plan 自動実行上限</dt>
+        <dd data-testid="trial-run-identity-recovery-limit">
+          <code>{identity.recovery_plan_auto_runs ?? 0} 回</code>
+        </dd>
+      </div>
+      {recovery !== undefined && (
+        <div>
+          <dt>Recovery Plan 実行状況</dt>
+          <dd data-testid="trial-run-identity-recovery-status">
+            現在 {recovery.current} 回目 · 使用 {recovery.used} / {recovery.limit} 回
+            {recovery.stop_reason === null ? "" : ` · 停止理由: ${recovery.stop_reason}`}
+          </dd>
+        </div>
+      )}
       {identity.pins.think !== undefined && (
         <div>
           <dt>Ollama thinking</dt>

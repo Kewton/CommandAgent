@@ -45,6 +45,7 @@ pub mod time_profile;
 pub mod tools;
 pub mod tui;
 pub mod util;
+pub mod verification_spec;
 pub mod workflow;
 mod workspace_lock;
 
@@ -345,29 +346,14 @@ fn run_config(
                 );
                 Ok(())
             }
-            Action::UltraPlanRun(goal) => {
+            Action::UltraPlanRun(_) | Action::RunUltraPlan(_) => {
                 let mut execution = providers::client_from_config(&config, false)?;
                 let mut planner_client = providers::client_from_config(&config, true)?;
                 let ui = DirectActionUi::new(&config);
-                let report = planner::generate_and_run_ultra_plan_with_ui(
+                let report = run_ultra_plan_action_with_ui(
+                    &config.action,
                     &mut *planner_client,
                     &mut *execution,
-                    &goal,
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                drop(ui);
-                println!("{report}");
-                Ok(())
-            }
-            Action::RunUltraPlan(path) => {
-                let mut execution = providers::client_from_config(&config, false)?;
-                let mut planner_client = providers::client_from_config(&config, true)?;
-                let ui = DirectActionUi::new(&config);
-                let report = planner::run_ultra_plan_file_with_ui(
-                    &mut *planner_client,
-                    &mut *execution,
-                    &path,
                     &config,
                     ui.as_interaction(),
                 )?;
@@ -410,6 +396,24 @@ fn run_config(
     }
     emit_run_stop(&config, &result);
     result
+}
+
+fn run_ultra_plan_action_with_ui(
+    action: &Action,
+    planner: &mut dyn providers::ChatClient,
+    execution: &mut dyn providers::ChatClient,
+    config: &Config,
+    ui: &dyn tui::InteractionUi,
+) -> anyhow::Result<String> {
+    match action {
+        Action::UltraPlanRun(goal) => {
+            planner::auto_recovery::generate_and_run_with_ui(planner, execution, goal, config, ui)
+        }
+        Action::RunUltraPlan(path) => {
+            planner::auto_recovery::run_file_with_ui(planner, execution, path, config, ui)
+        }
+        _ => anyhow::bail!("action is not an UltraPlan execution entry point"),
+    }
 }
 
 fn action_uses_workspace_lock(action: &Action) -> bool {
@@ -1043,6 +1047,9 @@ mod tests {
 
     use super::*;
     use crate::config::{Action, Provider};
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::ConversationMessage;
+    use crate::tools::registry::ToolSpec;
     use clap::Parser;
     use serde_json::{Value, json};
 
@@ -1073,6 +1080,7 @@ mod tests {
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
+            recovery_plan_auto_runs: 0,
             chat_timeout_secs: 1,
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
@@ -1087,6 +1095,64 @@ mod tests {
             profile_inference: None,
             style: "default".to_string(),
             action: Action::Repl,
+        }
+    }
+
+    #[derive(Clone)]
+    struct RoutingClient;
+
+    impl ChatClient for RoutingClient {
+        fn label(&self) -> &str {
+            "routing-test"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            Ok(AssistantReply::text("not a valid plan"))
+        }
+    }
+
+    #[test]
+    fn both_top_level_ultra_plan_actions_route_through_shared_auto_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        for (index, action) in [
+            Action::UltraPlanRun("goal".to_string()),
+            Action::RunUltraPlan(PathBuf::from("missing.yaml")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut cfg = config(dir.path().to_path_buf());
+            let events = dir.path().join(format!("events-{index}.jsonl"));
+            cfg.action = action.clone();
+            cfg.eval_events_path = Some(events.clone());
+            cfg.recovery_plan_auto_runs = 1;
+            let mut planner = RoutingClient;
+            let mut execution = RoutingClient;
+            assert!(
+                run_ultra_plan_action_with_ui(
+                    &action,
+                    &mut planner,
+                    &mut execution,
+                    &cfg,
+                    &tui::NOOP_UI,
+                )
+                .is_err()
+            );
+            let emitted = std::fs::read_to_string(events).unwrap();
+            assert!(
+                emitted.contains("\"event\":\"recovery_plan_auto_run_configured\""),
+                "{emitted}"
+            );
         }
     }
 

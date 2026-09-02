@@ -30,10 +30,14 @@ use super::{
 };
 #[allow(unused_imports)]
 use super::{DEV_SERVER_LIFECYCLE_STAGES, ReleaseRecoveryHandoffSummary};
+use crate::planner::profile_contract_observations::{non_recovery_failure_kind, registered_probe};
 use std::io::{Read, Write};
 
 #[path = "acceptance/plan_final_probe.rs"]
 mod plan_final_probe;
+#[path = "acceptance/profile_contract_event.rs"]
+mod profile_contract_event;
+use profile_contract_event::emit_probe_event;
 pub(super) fn emit_browser_probe_event(
     config: &Config,
     observation: &BrowserReadinessObservation,
@@ -276,6 +280,10 @@ pub(super) fn run_profile_behavior_probe(
         return ProfileBehaviorProbeReport::pass();
     }
     let profile_id = ProfileId::parse(profile);
+    if let Some(report) = registered_probe(config, &profile_id) {
+        emit_probe_event(config, profile, &report);
+        return report;
+    }
     match resolve_profile_runtime(profile).run_behavior_probe(
         &profile_id,
         &config.workspace_root,
@@ -284,7 +292,7 @@ pub(super) fn run_profile_behavior_probe(
         config.offline,
     ) {
         Ok(report) => {
-            emit_profile_behavior_probe_event(config, profile, &report);
+            emit_probe_event(config, profile, &report);
             report
         }
         Err(err) => {
@@ -293,32 +301,10 @@ pub(super) fn run_profile_behavior_probe(
                 reasons: vec![format!("profile_behavior_probe_error: {err}")],
                 evidence_path: None,
             };
-            emit_profile_behavior_probe_event(config, profile, &report);
+            emit_probe_event(config, profile, &report);
             report
         }
     }
-}
-
-pub(super) fn emit_profile_behavior_probe_event(
-    config: &Config,
-    profile: &str,
-    report: &ProfileBehaviorProbeReport,
-) {
-    if report.status == "pass" && report.reasons.is_empty() && report.evidence_path.is_none() {
-        return;
-    }
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "profile_behavior_probe",
-            "cycle_index": current_final_acceptance_cycle_index(),
-            "profile": profile,
-            "status": report.status,
-            "ok": report.status == "pass",
-            "reasons": report.reasons.clone(),
-            "evidence_path": report.evidence_path.clone().unwrap_or_default(),
-        }),
-    );
 }
 
 pub(super) fn runtime_acceptance_repair_guidance(
@@ -1705,6 +1691,9 @@ pub(super) fn release_recovery_failure_kind(
     final_acceptance_status: &str,
     primary_reason: &str,
 ) -> String {
+    if let Some(kind) = non_recovery_failure_kind(primary_reason) {
+        return kind;
+    }
     if release_gate.status == "partial" {
         if release_gate
             .reasons

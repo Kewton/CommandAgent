@@ -453,8 +453,10 @@ pub(super) fn bind_completion_contract_for_acceptance(
         return Ok(None);
     }
     let contract = CompletionContract {
+        protected_paths: Vec::new(),
         required_paths: required_paths.to_vec(),
         verify_commands: Vec::new(),
+        fix_reproducer_command: None,
         profile: None,
         goal: Some(goal.to_string()),
         required_capabilities: required_capabilities.to_vec(),

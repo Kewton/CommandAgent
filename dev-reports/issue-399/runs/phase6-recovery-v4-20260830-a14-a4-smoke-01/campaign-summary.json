@@ -1,0 +1,8 @@
+{
+  "completed_pairs": 4,
+  "contract_id": "phase6-recovery-v4-20260830-a14-a4-live-01",
+  "record_ledger_head_sha256": "51213f74e2b1d8549a44492189fbf0d89e5d2b3ab5d28ff02888db890e6a8b3c",
+  "run_id": "phase6-recovery-v4-20260830-a14-a4-smoke-01",
+  "schema_version": "commandagent.goal_verify.recovery_summary.v4_a14",
+  "target_pairs": 4
+}

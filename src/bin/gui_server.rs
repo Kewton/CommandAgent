@@ -25,6 +25,8 @@ mod gui_contract;
 mod pack_catalog;
 #[path = "gui_server/preflight.rs"]
 mod preflight;
+#[path = "gui_server/profile_extensions.rs"]
+mod profile_extensions;
 #[path = "gui_server/public_projection.rs"]
 mod public_projection;
 #[path = "gui_server/runtime_status.rs"]
@@ -37,6 +39,10 @@ mod session_files;
 mod session_index;
 #[path = "gui_server/session_paths.rs"]
 mod session_paths;
+#[path = "gui_server/session_recovery.rs"]
+mod session_recovery;
+#[path = "gui_server/session_tasks.rs"]
+mod session_tasks;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]
@@ -380,6 +386,17 @@ fn dashboard_router() -> Router<AppState> {
             "/api/extensions/packs/{id}/{version}/retire",
             post(extensions::retire),
         )
+        .route("/api/extensions/profiles", get(profile_extensions::list))
+        .route(
+            "/api/extensions/profiles/preview",
+            post(profile_extensions::preview)
+                .layer(DefaultBodyLimit::max(profile_extensions::MAX_BODY_BYTES)),
+        )
+        .route(
+            "/api/extensions/profiles/register",
+            post(profile_extensions::register)
+                .layer(DefaultBodyLimit::max(profile_extensions::MAX_BODY_BYTES)),
+        )
         .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(gate_one::proposal))
         .route("/api/trial-workspace", get(sessions::workspace_status))
@@ -388,11 +405,16 @@ fn dashboard_router() -> Router<AppState> {
             get(session_index::list).post(delegate::create),
         )
         .route("/api/sessions/{id}", get(sessions::status))
+        .route("/api/sessions/{id}/paths", get(session_paths::get))
         .route(
             "/api/sessions/{id}/artifacts",
             get(session_files::artifacts),
         )
         .route("/api/sessions/{id}/events", get(session_files::events))
+        .route(
+            "/api/sessions/{id}/recovery-document",
+            get(session_recovery::get),
+        )
         .route("/api/sessions/{id}/directives", post(directives::propose))
         .route(
             "/api/sessions/{id}/directives/{hash}",

@@ -1,7 +1,9 @@
+mod dependency_family;
 mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
 mod repair_excerpts;
+mod scaffold_mode;
 pub(crate) mod testimony_binding;
 
 pub use domain::{NextjsProfile, PROFILE_ID};
@@ -69,7 +71,8 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure(format!("dependency missing: {dep}"));
         }
     }
-    if let Some(reason) = dependency_coherence_failure(&package) {
+    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
+    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
         return profile_failure(reason);
     }
     let scripts = package.get("scripts").and_then(Value::as_object);
@@ -102,9 +105,10 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
         return profile_failure(format!("start script must run next start on port {port}"));
     }
     let Some(entry) = find_entrypoint(&project.path) else {
-        return profile_failure(project.rel_path(
-            "Next entrypoint missing: expected src/app/page.tsx, app/page.tsx, or pages/index.tsx",
-        ));
+        let expected = knowledge::get().canonical.entrypoint_files.join(", ");
+        return profile_failure(
+            project.rel_path(&format!("Next entrypoint missing: expected {expected}")),
+        );
     };
     if entry.requires_layout && find_app_layout(&project.path, &entry.app_dir).is_none() {
         return profile_failure(project.rel_path(&format!(
@@ -161,7 +165,8 @@ pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure(format!("dependency missing: {dep}"));
         }
     }
-    if let Some(reason) = dependency_coherence_failure(&package) {
+    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
+    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
         return profile_failure(reason);
     }
     let scripts = package.get("scripts").and_then(Value::as_object);
@@ -234,12 +239,11 @@ pub fn guidance(goal: &str) -> String {
     format!(
         "For the nextjs profile, create a runnable Next.js app, not only package metadata. \
          Keep the project in the workspace root unless a project subdirectory already exists. \
-         Required setup scaffold artifacts by completion: package.json, tsconfig.json, postcss.config.js, exactly one tailwind.config.* file, src/app/layout.tsx, src/app/page.tsx, src/app/globals.css, src/app/global.d.ts. \
-         If those files are absent, write the coherent App Router scaffold before further inspection. \
-         Use tailwind.config.ts for new scaffolds unless exactly one existing Tailwind config is already being completed. \
-         src/app/globals.css must contain the @tailwind directives, and src/app/layout.tsx must import ./globals.css. \
-         If any layout imports CSS such as ./globals.css, src/app/global.d.ts must declare module \"*.css\". \
-         package.json must include compatible next, react, react-dom, @types/react, @types/react-dom, and TypeScript 5.x dependencies plus scripts.build = `next build`. \
+         Preserve the language and styling toolchains declared by an existing project. \
+         A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. \
+         A TypeScript project additionally requires a coherent tsconfig and type dependencies. \
+         If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. \
+         package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. \
          If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. \
          For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. \
          Keep a single route-bound implementation; do not leave capability components unimported. \
@@ -315,13 +319,35 @@ pub fn setup_scaffold_paths(root: &Path) -> Vec<String> {
         .as_ref()
         .map(|project| project.path.as_path())
         .unwrap_or(root);
-    knowledge::get()
-        .canonical
-        .scaffold_files
-        .iter()
-        .map(|rel| rel.replace("{tailwind_config}", setup_tailwind_config_rel(project_root)))
+    scaffold_mode::required_paths(project_root)
+        .into_iter()
         .map(|rel| format!("{prefix}{rel}"))
         .collect()
+}
+
+pub(crate) fn canonicalize_existing_app_router_references(
+    root: &Path,
+    step: &mut PlanStep,
+) -> usize {
+    let mut changes = 0;
+    let mut canonicalize = |value: &mut String| {
+        let canonical = scaffold_mode::canonicalize_existing_app_path(root, value);
+        if canonical != *value {
+            *value = canonical;
+            changes += 1;
+        }
+    };
+    canonicalize(&mut step.instruction);
+    step.expected_paths.iter_mut().for_each(&mut canonicalize);
+    step.verify.iter_mut().for_each(&mut canonicalize);
+    changes
+}
+
+pub(crate) fn remove_optional_absent_globals_css(root: &Path, step: &mut PlanStep) -> bool {
+    let original_len = step.expected_paths.len();
+    step.expected_paths
+        .retain(|path| !scaffold_mode::optional_absent_globals_css(root, path));
+    original_len != step.expected_paths.len()
 }
 
 pub fn setup_invariant_required_paths(root: &Path) -> Vec<String> {
@@ -482,7 +508,7 @@ fn scaffold_step_plan(phase_prompt: &str, root: &Path, goal: &str) -> ProfileDet
                     kind: "setup".to_string(),
                     expected_result: "pass".to_string(),
                     instruction: format!(
-                        "Create or complete the Next.js App Router scaffold, package manifest, TypeScript config, styling config, and route-bound page. Keep package.json dev/start scripts on port {port}. Required files: {}.",
+                        "Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language and styling config, and route-bound page. Keep package.json dev/start scripts on port {port}. Required files: {}.",
                         expected_paths.join(", ")
                     ),
                     expected_paths,
@@ -774,6 +800,35 @@ pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Resul
 }
 
 fn scaffold_file_content(project_root: &Path, project_rel: &str) -> Option<&'static str> {
+    let canonical_rel = if project_root.join("app").is_dir()
+        && !project_root.join("src/app").exists()
+        && let Some(suffix) = project_rel.strip_prefix("app/")
+    {
+        format!("src/app/{suffix}")
+    } else {
+        project_rel.to_string()
+    };
+    let project_rel = canonical_rel.as_str();
+    let mode = scaffold_mode::detect(project_root);
+    match mode {
+        scaffold_mode::ScaffoldMode::ExistingPlainJavaScript => match project_rel {
+            "src/app/globals.css" => return Some(scaffold_mode::plain_css()),
+            "src/app/layout.js" => return Some(scaffold_mode::plain_layout()),
+            "src/app/page.js" => return Some(scaffold_mode::plain_page()),
+            _ => {}
+        },
+        scaffold_mode::ScaffoldMode::ExistingJavaScriptTailwind => match project_rel {
+            "src/app/layout.js" => return Some(scaffold_mode::plain_layout()),
+            "src/app/page.js" => return Some(scaffold_mode::plain_page()),
+            _ => {}
+        },
+        scaffold_mode::ScaffoldMode::ExistingTypeScriptPlainCss
+            if project_rel == "src/app/globals.css" =>
+        {
+            return Some(scaffold_mode::plain_css());
+        }
+        _ => {}
+    }
     match project_rel {
         "package.json" => Some(canonical_package_json()),
         "tsconfig.json" => Some(canonical_tsconfig()),
@@ -782,7 +837,9 @@ fn scaffold_file_content(project_root: &Path, project_rel: &str) -> Option<&'sta
         "src/app/global.d.ts" => Some(canonical_global_d_ts()),
         "src/app/layout.tsx" => Some(canonical_layout_tsx()),
         "src/app/page.tsx" => Some(fallback_page()),
-        rel if rel == setup_tailwind_config_rel(project_root) => Some(canonical_tailwind_config()),
+        rel if rel == scaffold_mode::tailwind_config_rel(project_root) => {
+            Some(canonical_tailwind_config())
+        }
         _ => None,
     }
 }
@@ -933,47 +990,14 @@ pub fn auto_repair(root: &Path, goal: &str, report: &VerificationReport) -> anyh
         path: root.to_path_buf(),
         prefix: String::new(),
     });
-    std::fs::create_dir_all(project.path.join("src/app"))?;
-    ensure_package_json(&project.path, goal)?;
-    ensure_file(
+    let mut changed = ensure_package_json_changed(&project.path, goal)?;
+    changed |= write_absent(
         &project.path.join("next.config.js"),
         "/** @type {import('next').NextConfig} */\nconst nextConfig = {};\n\nmodule.exports = nextConfig;\n",
     )?;
-    ensure_file(
-        &project.path.join("tsconfig.json"),
-        r#"{"compilerOptions":{"target":"ES2017","lib":["dom","dom.iterable","esnext"],"allowJs":true,"skipLibCheck":true,"strict":true,"noEmit":true,"esModuleInterop":true,"module":"esnext","moduleResolution":"bundler","resolveJsonModule":true,"isolatedModules":true,"jsx":"preserve","incremental":true,"plugins":[{"name":"next"}],"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["next-env.d.ts","src/**/*","app/**/*","pages/**/*","components/**/*","*.ts","*.tsx",".next/types/**/*.ts"],"exclude":["node_modules"]}"#,
-    )?;
-    ensure_file(
-        &project.path.join("src/app/globals.css"),
-        "* { box-sizing: border-box; }\nhtml, body { margin: 0; min-height: 100%; background: #05070d; color: #eef7ff; }\nbutton { font: inherit; }\n",
-    )?;
-    ensure_file(
-        &project.path.join("src/app/global.d.ts"),
-        "declare module \"*.css\";\n",
-    )?;
-    ensure_file(
-        &project.path.join("src/app/layout.tsx"),
-        r#"import type { Metadata } from "next";
-import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "Interactive Challenge",
-  description: "A compact interactive challenge generated by commandagent",
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
-"#,
-    )?;
-    ensure_file(&project.path.join("src/app/page.tsx"), fallback_page())?;
-    Ok(true)
+    let required_paths = setup_scaffold_paths(root);
+    changed |= !complete_scaffold(root, &required_paths)?.is_empty();
+    Ok(changed)
 }
 
 pub fn repair_tailwind_contract(root: &Path, goal: &str, reason: &str) -> anyhow::Result<bool> {
@@ -994,7 +1018,7 @@ pub fn repair_tailwind_contract(root: &Path, goal: &str, reason: &str) -> anyhow
     if reason.contains("Tailwind config file missing") {
         if !has_tailwind_config(project_root) {
             changed |= write_file_if_changed(
-                &project_root.join(setup_tailwind_config_rel(project_root)),
+                &project_root.join(scaffold_mode::tailwind_config_rel(project_root)),
                 canonical_tailwind_config(),
             )?;
         }
@@ -1103,22 +1127,6 @@ fn locate_project_root(root: &Path) -> Result<ProjectRoot, String> {
     }
 }
 
-fn setup_tailwind_config_rel(project_root: &Path) -> &'static str {
-    knowledge::get()
-        .canonical
-        .tailwind_config_rels
-        .iter()
-        .map(String::as_str)
-        .find(|rel| project_root.join(rel).is_file())
-        .unwrap_or_else(|| {
-            knowledge::get()
-                .canonical
-                .tailwind_config_rels
-                .first()
-                .expect("embedded Next.js tailwind config candidates must not be empty")
-        })
-}
-
 fn ensure_package_json(root: &Path, goal: &str) -> anyhow::Result<()> {
     let path = root.join("package.json");
     let mut package = std::fs::read_to_string(&path)
@@ -1135,20 +1143,27 @@ fn ensure_package_json(root: &Path, goal: &str) -> anyhow::Result<()> {
     package
         .entry("private")
         .or_insert_with(|| Value::Bool(true));
-    let deps = object_entry(&mut package, "dependencies");
-    ensure_dependency(deps, "next", "^14.2.0");
-    ensure_dependency(deps, "react", "^18.3.0");
-    ensure_dependency(deps, "react-dom", "^18.3.0");
-    let tailwind_used = uses_tailwind(root, &Value::Object(package.clone()));
-    let dev_deps = object_entry(&mut package, "devDependencies");
-    ensure_dependency(dev_deps, "typescript", "^5.5.0");
-    ensure_dependency(dev_deps, "@types/node", "^20.14.0");
-    ensure_dependency(dev_deps, "@types/react", "^18.3.0");
-    ensure_dependency(dev_deps, "@types/react-dom", "^18.3.0");
-    if tailwind_used {
-        ensure_dependency(dev_deps, "tailwindcss", "^3.4.19");
-        ensure_dependency(dev_deps, "postcss", "^8.5.15");
-        ensure_dependency(dev_deps, "autoprefixer", "^10.4.20");
+    let react_family = {
+        let deps = object_entry(&mut package, "dependencies");
+        dependency_family::ensure_runtime_dependencies(deps)
+    };
+    let mode = scaffold_mode::detect(root);
+    let tailwind_used = mode.uses_tailwind();
+    let typescript_used = mode.uses_typescript();
+    if typescript_used || tailwind_used {
+        let dev_deps = object_entry(&mut package, "devDependencies");
+        if typescript_used {
+            ensure_dependency(dev_deps, "typescript", "^5.5.0");
+            ensure_dependency(dev_deps, "@types/node", "^20.14.0");
+            if let Some(family) = react_family {
+                dependency_family::ensure_type_dependencies(dev_deps, family);
+            }
+        }
+        if tailwind_used {
+            ensure_dependency(dev_deps, "tailwindcss", "^3.4.19");
+            ensure_dependency(dev_deps, "postcss", "^8.5.15");
+            ensure_dependency(dev_deps, "autoprefixer", "^10.4.20");
+        }
     }
     let scripts = object_entry(&mut package, "scripts");
     let requested_port = requested_or_default_port(goal);
@@ -1183,20 +1198,10 @@ fn ensure_dependency(deps: &mut Map<String, Value>, name: &str, version: &str) {
     let needs_update = deps
         .get(name)
         .and_then(Value::as_str)
-        .is_none_or(|current| dependency_version_needs_repair(name, current));
+        .is_none_or(|current| dependency_family::needs_repair(name, current));
     if needs_update {
         deps.insert(name.to_string(), Value::String(version.to_string()));
     }
-}
-
-fn ensure_file(path: &Path, content: &str) -> anyhow::Result<()> {
-    if !path.is_file() {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, content)?;
-    }
-    Ok(())
 }
 
 fn write_absent(path: &Path, content: &str) -> anyhow::Result<bool> {
@@ -1810,41 +1815,32 @@ export default function Page() {
 }
 
 fn find_entrypoint(root: &Path) -> Option<EntryPoint> {
-    for (rel, app_dir) in [
-        ("src/app/page.tsx", "src/app"),
-        ("src/app/page.jsx", "src/app"),
-        ("src/app/page.ts", "src/app"),
-        ("src/app/page.js", "src/app"),
-        ("app/page.tsx", "app"),
-        ("app/page.jsx", "app"),
-        ("app/page.ts", "app"),
-        ("app/page.js", "app"),
-    ] {
+    for rel in &knowledge::get().canonical.entrypoint_files {
         if root.join(rel).is_file() {
+            let requires_layout = rel.contains("/app/") || rel.starts_with("app/");
             return Some(EntryPoint {
-                app_dir: app_dir.to_string(),
-                requires_layout: true,
-            });
-        }
-    }
-    for rel in [
-        "pages/index.tsx",
-        "pages/index.jsx",
-        "pages/index.ts",
-        "pages/index.js",
-        "src/pages/index.tsx",
-        "src/pages/index.jsx",
-        "src/pages/index.ts",
-        "src/pages/index.js",
-    ] {
-        if root.join(rel).is_file() {
-            return Some(EntryPoint {
-                app_dir: String::new(),
-                requires_layout: false,
+                app_dir: if requires_layout {
+                    Path::new(rel)
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                } else {
+                    String::new()
+                },
+                requires_layout,
             });
         }
     }
     None
+}
+
+pub(crate) fn is_canonical_entrypoint_path(path: &str) -> bool {
+    knowledge::get()
+        .canonical
+        .entrypoint_files
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(path))
 }
 
 fn find_app_layout(root: &Path, app_dir: &str) -> Option<PathBuf> {
@@ -1991,7 +1987,7 @@ fn tailwind_contract_failure(root: &Path, package: &Value) -> Option<String> {
     if tailwind_configs.is_empty() {
         return Some(tailwind_failure(format!(
             "Tailwind config file missing: expected {}",
-            setup_tailwind_config_rel(root)
+            scaffold_mode::tailwind_config_rel(root)
         )));
     }
     if tailwind_configs.len() > 1 {
@@ -2077,16 +2073,12 @@ fn tailwind_stack_scaffold_path(path: &str) -> bool {
 }
 
 fn client_component_contract_failure(root: &Path) -> Option<String> {
-    for rel in [
-        "src/app/page.tsx",
-        "src/app/page.jsx",
-        "src/app/page.ts",
-        "src/app/page.js",
-        "app/page.tsx",
-        "app/page.jsx",
-        "app/page.ts",
-        "app/page.js",
-    ] {
+    for rel in knowledge::get()
+        .canonical
+        .entrypoint_files
+        .iter()
+        .filter(|rel| rel.contains("/app/") || rel.starts_with("app/"))
+    {
         let Ok(content) = std::fs::read_to_string(root.join(rel)) else {
             continue;
         };
@@ -2299,85 +2291,6 @@ fn package_has_dependency(package: &Value, name: &str) -> bool {
         .any(|deps| deps.contains_key(name))
 }
 
-fn dependency_coherence_failure(package: &Value) -> Option<String> {
-    let next = dependency_version(package, "next")?;
-    let react = dependency_version(package, "react")?;
-    let react_dom = dependency_version(package, "react-dom")?;
-    if dependency_version_needs_repair(
-        "typescript",
-        dependency_version(package, "typescript").unwrap_or(""),
-    ) {
-        return Some(
-            "typescript dependency must use a deterministic 5.x range such as ^5.5.0".to_string(),
-        );
-    }
-    let next_major = semver_major(next)?;
-    let react_major = semver_major(react)?;
-    let react_dom_major = semver_major(react_dom)?;
-    if next_major >= 15 && (react_major < 19 || react_dom_major < 19) {
-        return Some("Next 15+ requires React/React DOM 19.x compatibility".to_string());
-    }
-    if next_major <= 14 && (react_major != 18 || react_dom_major != 18) {
-        return Some("Next 14 profile expects React/React DOM 18.x compatibility".to_string());
-    }
-    if let Some(types_react) = dependency_version(package, "@types/react")
-        && let Some(types_major) = semver_major(types_react)
-        && ((react_major >= 19 && types_major < 19) || (react_major == 18 && types_major != 18))
-    {
-        return Some("@types/react major must match React major".to_string());
-    }
-    if let Some(types_react_dom) = dependency_version(package, "@types/react-dom")
-        && let Some(types_major) = semver_major(types_react_dom)
-        && ((react_dom_major >= 19 && types_major < 19)
-            || (react_dom_major == 18 && types_major != 18))
-    {
-        return Some("@types/react-dom major must match React DOM major".to_string());
-    }
-    None
-}
-
-fn dependency_version<'a>(package: &'a Value, name: &str) -> Option<&'a str> {
-    ["dependencies", "devDependencies"]
-        .iter()
-        .filter_map(|key| package.get(*key).and_then(Value::as_object))
-        .find_map(|deps| deps.get(name).and_then(Value::as_str))
-}
-
-fn dependency_version_needs_repair(name: &str, version: &str) -> bool {
-    if version.trim().is_empty() {
-        return true;
-    }
-    match name {
-        "typescript" => {
-            let Some(major) = semver_major(version) else {
-                return false;
-            };
-            major != 5 || version.trim() == "5.0.0"
-        }
-        "@types/node" => semver_major(version).is_none_or(|major| major != 20),
-        "@types/react" | "@types/react-dom" => {
-            semver_major(version).is_none_or(|major| major != 18)
-        }
-        "next" => semver_major(version).is_none_or(|major| major != 14),
-        "react" | "react-dom" => semver_major(version).is_none_or(|major| major != 18),
-        _ => false,
-    }
-}
-
-fn semver_major(version: &str) -> Option<u64> {
-    let trimmed = version.trim();
-    let digits = trimmed
-        .trim_start_matches(['^', '~', '=', 'v'])
-        .split(|ch: char| !ch.is_ascii_digit())
-        .next()
-        .unwrap_or_default();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse().ok()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2389,6 +2302,10 @@ mod tests {
 
     fn package_json() -> &'static str {
         r#"{"dependencies":{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"^5.5.0","@types/node":"^20.14.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#
+    }
+
+    fn dependency_version<'a>(package: &'a Value, name: &str) -> Option<&'a str> {
+        dependency_family::version(package, name)
     }
 
     #[test]
@@ -2879,8 +2796,6 @@ Phase task: Scaffold the Next.js app";
             vec![
                 "space-invaders/package.json",
                 "space-invaders/tsconfig.json",
-                "space-invaders/postcss.config.js",
-                "space-invaders/tailwind.config.ts",
                 "space-invaders/src/app/layout.tsx",
                 "space-invaders/src/app/page.tsx",
                 "space-invaders/src/app/globals.css",
@@ -3146,7 +3061,7 @@ Phase task: Scaffold the Next.js app";
         let dir = complete_app();
         std::fs::write(
             dir.path().join("package.json"),
-            r#"{"dependencies":{"next":"^15.0.0","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"5.0.0","@types/node":"^18.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#,
+            r#"{"dependencies":{"next":"16.3.1","react":"^18.3.0","react-dom":"^18.3.0"},"devDependencies":{"typescript":"5.0.0","@types/node":"^18.0.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0"},"scripts":{"build":"next build","dev":"next dev -p 3011"}}"#,
         )
         .unwrap();
 
@@ -3155,11 +3070,11 @@ Phase task: Scaffold the Next.js app";
             &std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(dependency_version(&package, "next"), Some("^14.2.0"));
-        assert_eq!(dependency_version(&package, "react"), Some("^18.3.0"));
+        assert_eq!(dependency_version(&package, "next"), Some("16.3.1"));
+        assert_eq!(dependency_version(&package, "react"), Some("^19.2.0"));
         assert_eq!(
             dependency_version(&package, "@types/react"),
-            Some("^18.3.0")
+            Some("^19.2.0")
         );
         assert_eq!(dependency_version(&package, "typescript"), Some("^5.5.0"));
         assert!(verify(dir.path(), "3011").is_pass());

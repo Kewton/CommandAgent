@@ -1,0 +1,240 @@
+{
+  "case_id": "phase6-main-c06-task-01",
+  "comparison": null,
+  "eligibility": {
+    "preregistered": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_contract_declares_unavailable_dependencies"
+    },
+    "runtime": {
+      "category": "dependency_or_provisioning",
+      "eligible": false,
+      "policy_id": "commandagent.goal_verify.recovery_eligibility.v4_a14",
+      "reason": "task_contract_declares_unavailable_dependencies",
+      "run_recovery_one_arm": false,
+      "runtime_source": "preregistered_case_policy"
+    }
+  },
+  "initial_only": {
+    "external_oracles": {
+      "fail_count": 1,
+      "oracle_count": 1,
+      "outcomes": [
+        {
+          "adapter_id": "bug-reproducer-executed--phase6-cell-06-source-task-01",
+          "claim_id": "bug-reproducer",
+          "executor_kind": "stage_command",
+          "is_regression": false,
+          "outcome": {
+            "actual": 1,
+            "executed": true,
+            "exit_code": 1,
+            "output_truncated": false,
+            "reason": "observation_mismatch",
+            "result": "fail",
+            "runtime_ms": 58,
+            "stderr": "Traceback (most recent call last):\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before/repro.py\", line 15, in <module>\n    raise SystemExit(main(sys.argv))\n  File \"/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before/repro.py\", line 10, in main\n    importlib.import_module(f\"repro_dep_{int(argv[1]):02d}\")\n  File \"/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py\", line 127, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n  File \"<frozen importlib._bootstrap>\", line 1030, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1007, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 984, in _find_and_load_unlocked\nModuleNotFoundError: No module named 'repro_dep_01'\n",
+            "stdout": "",
+            "timed_out": false
+          }
+        }
+      ],
+      "overall": "fail",
+      "pass_count": 0,
+      "regression_status": "not_applicable",
+      "source": "frozen_host_adapter_post_execution",
+      "unusable_count": 0
+    },
+    "input_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c"
+    },
+    "input_to_output_artifact_delta": {
+      "added": [],
+      "after_snapshot_sha256": "c416f3ffccac06a5deb7ee14f2dc17dd28a3a331be11ab371bf5ce16b1054103",
+      "before_snapshot_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c",
+      "change_count": 0,
+      "changed": [],
+      "removed": []
+    },
+    "output_artifact_manifest": {
+      "candidate_entries_sha256": "0c8a02d9827a4f9b9fec8ed97333602a3d1011a66270f14935c95e4bc26eab1c",
+      "candidate_visibility_policy": "commandagent.goal_verify.candidate_manifest.source_config_v1",
+      "entries": [
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "c416f3ffccac06a5deb7ee14f2dc17dd28a3a331be11ab371bf5ce16b1054103"
+    },
+    "output_full_manifest": {
+      "entries": [
+        {
+          "kind": "file",
+          "path": ".pytest_cache/.gitignore",
+          "sha256": "3ed731b65d06150c138e2dadb0be0697550888a6b47eb8c45ecc9adba8b8e9bd",
+          "size": 37
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/CACHEDIR.TAG",
+          "sha256": "37dc88ef9a0abeddbe81053a6dd8fdfb13afb613045ea1eb4a5c815a74a3bde4",
+          "size": 191
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/README.md",
+          "sha256": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
+          "size": 302
+        },
+        {
+          "kind": "file",
+          "path": ".pytest_cache/v/cache/nodeids",
+          "sha256": "72251808a4bee0ffb9955c2f820a42a9df98bc0e7a80e637e346df46dba5b7f6",
+          "size": 40
+        },
+        {
+          "kind": "file",
+          "path": "lib.py",
+          "sha256": "eb9184498b3b948cf1df00f19b5e6ca8454de9734b45978f733a7ae5ce7df13d",
+          "size": 98
+        },
+        {
+          "kind": "file",
+          "path": "repro.py",
+          "sha256": "86c5265b66bbd2e6e17b32b1845dfde6b41e116d6757f280b7629510d74e0d45",
+          "size": 351
+        },
+        {
+          "kind": "file",
+          "path": "tests/test_lib.py",
+          "sha256": "048f6db326a82a4cca6fe025d83e5066040f748b8f77a292124a5c481b1f540a",
+          "size": 82
+        }
+      ],
+      "schema_version": "commandagent.goal_verify.workspace_manifest.v4",
+      "snapshot_sha256": "c416f3ffccac06a5deb7ee14f2dc17dd28a3a331be11ab371bf5ce16b1054103"
+    },
+    "result": {
+      "argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--cwd",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before",
+        "--state-dir",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before/.commandagent-state",
+        "--offline",
+        "--yes",
+        "--intent",
+        "fix",
+        "--profile",
+        "data",
+        "--provider",
+        "ollama",
+        "--model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--completion-contract-json",
+        "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before/.goal-verify-baseline/completion-contract.json",
+        "--recovery-plan-auto-runs",
+        "0",
+        "--plan-run",
+        "Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailable repro_dep_01. Do not claim the bug fixed from old tests alone.\n\nOperational constraints shared with the verification candidate (execution constraints, not additional acceptance claims):\n{\"extra_tools\":[\"pytest\"],\"install_from_network\":\"forbidden\",\"language\":\"python3\",\"network\":\"denied\",\"scored\":false,\"shell\":\"forbidden\",\"unavailable_dependencies\":[\"repro_dep_01 (intentionally unavailable offline)\"]}"
+      ],
+      "completion_contract_bound": true,
+      "completion_contract_sha256": "73662353b5d065dcefb1826d710bc7f92c25d2eab586a53375e03c020147feaa",
+      "completion_verify_attempt_recorded": false,
+      "completion_verify_passed": false,
+      "operational_constraints_bound": true,
+      "operational_constraints_sha256": "186b11842a9def7c8f6bf2a841bf78520e11fff960fb5d0732bea8997b3d58a2",
+      "product_run_dir": "/Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c06-task-01--pair-01--initial-only/before/.commandagent/runs/01a04d5b-c6a7-7ce2-92f4-ae4d6f2794b5",
+      "product_run_namespace": ".commandagent",
+      "recovery_plan_attempts": {
+        "attempts": [
+          {
+            "attempt_index": 0,
+            "kind": "initial",
+            "status": "failed",
+            "stop_reason": null
+          }
+        ],
+        "configured_matches_events": true,
+        "configured_recovery_runs": 0,
+        "event_telemetry_available": false,
+        "executed_recovery_runs": 0,
+        "terminal_stop_reason": "disabled"
+      },
+      "recovery_plan_auto_runs": 0,
+      "resource_usage": {
+        "input_tokens": 6397,
+        "output_tokens": 2115,
+        "total_tokens": 8512,
+        "wall_time_ms": 69346
+      },
+      "returncode": 1,
+      "status": "failed",
+      "stderr": "warning: workspace is not Git-managed; CommandAgent cannot report workspace changes at exit\nerror: step run-existing-tests failed verification after bounded repair: verify_command_false_negative: deterministic_environment_error:exit_127: the verify command cannot execute in the current environment; command=`pytest`; tool_error=outcome: CommandFailed status: exit status: 127 elapsed_ms: 25 summary: sh: pytest: command not found stdout: stderr: sh: pytest: command not found; failure_kind=deterministic_verify_command_bug; incomplete; Recovery artifact check: prompt_parse_ok=true,\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c53c53a3dfc0.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c54a6f59b0f8.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .commandagent/repairs/repair-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c53c53a3dfc0.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c54a6f59b0f8.yaml\n",
+      "stdout": "→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (32s)\n✗ planner planner_error\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (11s)\n✗ planner planner_error\n→ planning steps (qwen3.6, up to 600s)\n✓ step plan ready (10s)\n#### Phase: Run the frozen existing tests, then assess `python3 repro.py 1` which imports offline-unavailabl...\n1. ○ [inspect] List files in the current directory to identify existing test files, repro.py, and any configura... (verify 0)\n2. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n3. ○ [verify] Run the listed deterministic verification commands without changing files. (verify 1)\n→ step inspect-project-structure [inspect]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (7s)\n→ Bash ls -la /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-ma...\n→ Glob **/*\n✓ Bash ok\n✓ Glob ok\n→ step run-existing-tests [verify]\n→ implementing (model turn: qwen3.6, up to 600s)\n✓ implementation turn finished (6s)\n→ Bash cd /Volumes/SSD_NX/tmp/commandagent_trial/phase6-recovery-v4-20260829-a14-smoke-01/phase6-main-c...\n✓ Bash ok\n✗ verify verify_command_false_negative: deterministic_environment_error:exit_127: the verify command cannot e...\n",
+      "terminal_status": {
+        "event": "tui_command_stop",
+        "failure_kind": "direct_cli_command_failed",
+        "next_action": "fix_command_failure",
+        "ok": false,
+        "recorded": true,
+        "recovery_failure_kind": "deterministic_verify_command_bug",
+        "recovery_handoff_kind": null,
+        "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c54a6f59b0f8.yaml",
+        "status": "failed",
+        "stop_reason": "step run-existing-tests failed verification after bounded repair: verify_command_false_negative: deterministic_environment_error:exit_127: the verify command cannot execute in the current environment; command=`pytest`; tool_error=outcome: CommandFailed status: exit status: 127 elapsed_ms: 25 summary: sh: pytest: command not found stdout: stderr: sh: pytest: command not found; failure_kind=deterministic_verify_command_bug; incomplete; Recovery artifact check: prompt_parse_ok=true,\nPaths:\n- repair prompt saved: .commandagent/repairs/repair-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c53c53a3dfc0.md\n- Recovery UltraPlan YAML saved: .commandagent/plans/recovery-ultra-plan-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c54a6f59b0f8.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile data \"$(cat .commandagent/repairs/repair-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c53c53a3dfc0.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/plans/recovery-ultra-plan-run-existing-tests-01a04d5c-d82a-7ce0-9ee7-c54a6f59b0f8.yaml",
+        "structured_blockers": []
+      },
+      "wall_time_ms": 70137
+    }
+  },
+  "intent": "fix",
+  "pair_id": "phase6-main-c06-task-01--pair-01",
+  "profile": "data",
+  "record_path": "dev-reports/issue-399/runs/phase6-recovery-v4-20260829-a14-smoke-01/raw/phase6-main-c06-task-01/pair-01.json",
+  "recovery_one": {
+    "reason": "task_contract_declares_unavailable_dependencies",
+    "status": "not_run"
+  },
+  "schema_version": "commandagent.goal_verify.recovery_pair.v4_a14",
+  "source_case_id": "phase6-main-c06-task-01"
+}

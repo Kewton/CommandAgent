@@ -1,0 +1,5 @@
+# frozen real workspaces: dependencies and build output are provisioned outside git
+**/node_modules/
+**/.next/
+**/__pycache__/
+**/.pytest_cache/

@@ -1,0 +1,52 @@
+{
+  "schema_version": "commandagent.goal_verify.baseline_config.v0",
+  "seed": 39320260825,
+  "bootstrap_samples": 2000,
+  "target_models": [
+    "qwen3.6:27b-coding-nvfp4"
+  ],
+  "provenance": {
+    "mode": "offline_fixture_replay",
+    "current_path": "goal -> intent/profile -> StepPlan.verify -> CompletionContract -> profile/runtime probe -> adjudication/terminal projection",
+    "live_provider_run": false,
+    "measurement_note": "Durations and tokens are frozen replay observations. They are not a new provider benchmark."
+  },
+  "non_inferiority_budgets": {
+    "required_claim_recall_max_drop_pp": 2.0,
+    "required_claim_precision_max_drop_pp": 1.0,
+    "strong_binding_coverage_max_drop_pp": 2.0,
+    "task_success_max_drop_pp": 2.0,
+    "final_acceptance_max_drop_pp": 2.0,
+    "false_full_max_increase_count": 0,
+    "false_fail_max_increase_pp": 1.0,
+    "false_partial_max_increase_pp": 1.0,
+    "flake_max_increase_pp": 1.0,
+    "schema_compliance_yield_floor": 0.95
+  },
+  "improvement_targets": {
+    "required_claim_recall_min_gain_pp": 10.0,
+    "strong_binding_coverage_min_gain_pp": 15.0,
+    "unverified_rate_min_reduction_pp": 10.0,
+    "false_full_target_count": 0
+  },
+  "resource_budget_registration": {
+    "timing": "once_after_phase_1_shadow_measurement_before_phase_2",
+    "immutable_after_registration": true,
+    "required_fields": [
+      "p50_wall_time_max_increase_pct",
+      "p95_wall_time_max_increase_pct",
+      "p50_total_tokens_max_increase_pct",
+      "p95_total_tokens_max_increase_pct"
+    ],
+    "values": {
+      "p50_wall_time_max_increase_pct": 10.0,
+      "p95_wall_time_max_increase_pct": 20.0,
+      "p50_total_tokens_max_increase_pct": 10.0,
+      "p95_total_tokens_max_increase_pct": 20.0
+    },
+    "registered_at": "2026-08-26",
+    "registered_before_candidate_collection": true,
+    "authorized_by": "repository_owner_in_phase6_session",
+    "code_sha": "b8474aada914855ca4b96c0f81baf370ffa4d539"
+  }
+}

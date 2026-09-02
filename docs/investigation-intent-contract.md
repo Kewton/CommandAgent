@@ -72,3 +72,18 @@ R は決定的であること（時刻・乱数・外部ネットワーク非依
 R が依頼に含まれない場合、診断着手前に R を構築し
 stage=diagnosis の実行で失敗を確認してから診断に入ること。
 
+## 9. VerificationSpec shadow（Phase 4、加算のみ）
+
+VerificationSpec の investigate 投影は、確定済み I1/I2 evidence に
+対する事後の coverage 観測であり、本契約の verdict を変更しない。
+`reproducer_observation` と `diagnosis_binding` のみを観測 claim として
+照合し、それ以外の因果説明は hypothesis として
+`observed_fact=false` のまま保持する。critic が hypothesis を pass と
+評価しても観測済み事実へ昇格しない。
+
+error quote、file path/line、code snippet の shadow binding ID は既存
+claims の順序と種別から安定に導出する。これは shadow report 内だけの
+識別子であり、`output/diagnosis.md`、
+`evidence/investigation-binding.json`、既存 reader/fixture の schema は
+変更しない。shadow は candidate を実行せず、create/fix の scaffold、
+repair、final acceptance を呼び出さない。

@@ -37,12 +37,37 @@ const managedPlaywrightPath =
   join(homedir(), ".anvil", "tools", "interaction-probe", "node_modules", "playwright");
 const helpMapEntries = [
   {
-    copy: "前提を確認し、サンプル目標から Gate 1 の実行前確認を試せます。",
+    copy: "目標を、検証可能なコードに。",
+    owner: "getting-started-gui.md#overview-landing-page",
+    source: "gui/app/page.tsx",
+  },
+  {
+    copy: "失敗を成功に見せない",
+    owner: "getting-started-gui.md#safety-and-honest-results",
+    source: "gui/app/page.tsx",
+  },
+  {
+    copy: "Goal から検証済みの結果まで",
+    owner: "getting-started-gui.md#goal-to-verified-result",
+    source: "gui/app/page.tsx",
+  },
+  {
+    copy: "4 つのレイヤーで安全に拡張する",
+    owner: "gui-extensions.md#four-extension-layers",
+    source: "gui/app/page.tsx",
+  },
+  {
+    copy: "装飾ではなく、gui_server が返した実際の準備状態とセッションだけを表示します。",
+    owner: "getting-started-gui.md#live-readiness-and-session-state",
+    source: "gui/app/page.tsx",
+  },
+  {
+    copy: "前提を確認し、サンプル目標から実行前確認、進行状況、履歴、結果へ順に進みます。",
     owner: "getting-started-gui.md#はじめに",
     source: "gui/components/getting-started.tsx",
   },
   {
-    copy: "初回案内 / はじめに",
+    copy: "FIRST USE / はじめに",
     owner: "getting-started-gui.md#はじめに",
     source: "gui/components/getting-started.tsx",
   },
@@ -92,6 +117,21 @@ const helpMapEntries = [
     source: "gui/app/assets/page.tsx",
   },
   {
+    copy: "4 レイヤーと依存関係",
+    owner: "gui-extensions.md#four-extension-layers",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "安全な登録 Issue を作る",
+    owner: "gui-extensions.md#layer-2-draft-profiles",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
+    copy: "Contract / Suite は拡張種別ではありません",
+    owner: "gui-extensions.md#contract-and-suite-references",
+    source: "gui/app/assets/page.tsx",
+  },
+  {
     copy: "トライアルで使う",
     owner: "gui-extensions.md#extensions-catalog",
     source: "gui/app/assets/page.tsx",
@@ -100,6 +140,11 @@ const helpMapEntries = [
     copy: "パック作成ウィザードを開く",
     owner: "gui-extensions.md#pack-creation-wizard",
     source: "gui/components/pack-wizard.tsx",
+  },
+  {
+    copy: "プロファイル登録ウィザード",
+    owner: "gui-extensions.md#draft-profile-registration-wizard",
+    source: "gui/components/profile-wizard.tsx",
   },
   {
     copy: "確認済みのトライアルセッションはありません。",
@@ -535,7 +580,8 @@ async function runCase(smokeCase) {
     const prefix = displayBasePath(smokeCase.serverBasePath);
     const dashboardUrl = new URL(prefix, server.origin).href;
     const response = await page.goto(dashboardUrl, { waitUntil: "networkidle" });
-    await page.locator("[data-testid='score-time-map']").waitFor();
+    const hero = page.locator("[data-testid='overview-hero']");
+    await hero.waitFor();
     const heading = await page.locator("h1").innerText();
     const dashboardTitle = await page.title();
     await page.locator("[data-testid='runtime-status'][data-trial-available='true'][data-session-state='idle']").waitFor();
@@ -547,85 +593,87 @@ async function runCase(smokeCase) {
     }));
     const runtimeLiveRegionIsPoliteAtomic =
       runtimeLiveRegion.aria_live === "polite" && runtimeLiveRegion.aria_atomic === "true";
-    const map = await page.locator("[data-testid='score-time-map']").evaluate((image) => ({
-      complete: image.complete,
-      naturalWidth: image.naturalWidth,
-      source: image.getAttribute("src"),
-    }));
-    const apiChecks = await page.evaluate(async () => {
-      const endpoints = [
-        "runs",
-        "bands",
-        "maps",
-        "packs",
-        "contracts",
-        "suites",
-        "reports",
-        "runtime-status",
-        "trial-options",
-      ];
-      const apiPrefix = document.querySelector("[data-testid='score-time-map']")
-        ?.getAttribute("src")
-        ?.replace(/maps\/score-time\.svg$/, "");
-      return Promise.all(
-        endpoints.map(async (endpoint) => {
-          const result = await fetch(`${apiPrefix}${endpoint}`);
-          return { endpoint, status: result.status, contentType: result.headers.get("content-type") };
-        }),
-      );
-    });
+    const heroText = await hero.innerText();
+    const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const internalLinks = await page.locator("a[href]").evaluateAll((links) =>
       links.map((link) => link.getAttribute("href") ?? ""),
     );
-    const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
     const primaryNavigation = await page.locator(".sidebar .nav-link").allInnerTexts();
+    const trialCta = page.locator("[data-testid='overview-trial-cta']");
+    const trialCtaHref = await trialCta.getAttribute("href");
     const assetsLink = await page.locator("[data-testid='assets-link']").getAttribute("href");
+    const measurementsLink = await page.locator("[data-testid='overview-measurements-link']").getAttribute("href");
+    const runsLink = await page.locator("[data-testid='overview-runs-link']").getAttribute("href");
+    const firstUseRouteHrefs = await page
+      .locator(".getting-started-route-grid a")
+      .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+    const extensionLayerCount = await page.locator("[data-testid='overview-extension-layers'] > li").count();
+    const detailedDashboardCount = await page.locator(
+      "[data-testid='score-time-map'], [data-testid='run-count'], [data-testid='run-total-count'], .bands-panel, .run-table",
+    ).count();
+    const overviewResourcePaths = await page.evaluate(() =>
+      performance
+        .getEntriesByType("resource")
+        .map((entry) => new URL(entry.name).pathname)
+        .filter((path) => path.includes("/api/")),
+    );
+    const overviewAvoidsOperationalFetches = overviewResourcePaths.every(
+      (path) => !path.endsWith("/api/runs") && !path.endsWith("/api/bands") && !path.includes("/api/maps/"),
+    );
     const runIndex = await page.evaluate(async () => {
-      const mapSource =
-        document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
-      const apiRoot = mapSource.replace(/maps\/score-time\.svg$/, "");
+      const pathname = window.location.pathname;
+      const apiRoot = pathname.endsWith("/proxy/commandagent/")
+        ? "/proxy/commandagent/api/"
+        : "/api/";
       const result = await fetch(`${apiRoot}runs`);
       return result.json();
     });
-    const runCountText = await page.locator("[data-testid='run-count']").innerText();
-    const runTotalCountText = await page.locator("[data-testid='run-total-count']").innerText();
-    const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} 件`;
-    const expectedRunTotalCountText = `${runIndex.total} 件`;
-    const unknownStateCount = runIndex.runs.filter((run) => run.state === "unknown").length;
-    const unknownStateWithinTarget = unknownStateCount * 5 <= runIndex.runs.length;
-    const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
-    const statusBadgeTitles = await page.locator(".status-badge").evaluateAll((badges) =>
-      badges.map((badge) => badge.getAttribute("title")),
-    );
-    const statusBadgesArePlainText = statusBadgeTexts.every(
-      (text) => !text.includes("**") && !text.includes("`"),
-    );
-    const japaneseStatusLabels = new Set(["成功", "失敗", "進行中", "記録あり", "未記録", "判定不能"]);
-    const statusBadgesAreJapanese = statusBadgeTexts.every((text) => japaneseStatusLabels.has(text));
-    const statusBadgeTitlesAreJapanese = statusBadgeTitles.every(
-      (title) =>
-        title !== null &&
-        [...japaneseStatusLabels].some((label) => title === `記録上の状態: ${label}`),
-    );
+    const headingOutline = await page.locator(".overview-landing").evaluate((landing) => {
+      const headings = [...landing.querySelectorAll("h2, h3")];
+      const levels = headings.map((item) => Number(item.tagName.slice(1)));
+      const sections = [...landing.querySelectorAll(":scope > section")];
+      return {
+        headings: headings.map((item) => item.textContent?.trim()),
+        no_skipped_levels: levels.every((level, index) => index === 0 || level <= levels[index - 1] + 1),
+        sections_labelled: sections.every((section) => {
+          const id = section.getAttribute("aria-labelledby");
+          return id !== null && document.getElementById(id) !== null;
+        }),
+      };
+    });
+    await trialCta.focus();
+    const trialCtaFocus = await trialCta.evaluate((link) => {
+      const style = getComputedStyle(link);
+      return {
+        active: document.activeElement === link,
+        outline_style: style.outlineStyle,
+        outline_width: style.outlineWidth,
+      };
+    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const reducedMotion = await page.evaluate(() => ({
+      matches: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      transition_duration: getComputedStyle(document.querySelector("[data-testid='overview-trial-cta']")).transitionDuration,
+    }));
     const dashboard = {
       assets_link: assetsLink,
+      extension_layer_count: extensionLayerCount,
+      first_use_route_hrefs: firstUseRouteHrefs,
+      hero_text: heroText,
+      heading_outline: headingOutline,
+      measurements_link: measurementsLink,
+      operational_dashboard_element_count: detailedDashboardCount,
+      operational_resource_paths: overviewResourcePaths,
+      avoids_operational_fetches: overviewAvoidsOperationalFetches,
       primary_navigation: primaryNavigation,
+      reduced_motion: reducedMotion,
+      runs_link: runsLink,
       status: response?.status() ?? 0,
       heading,
       title: dashboardTitle,
-      run_count: runCountText,
-      expected_run_count: expectedRunCountText,
-      run_total_count: runTotalCountText,
-      expected_run_total_count: expectedRunTotalCountText,
-      indexed_state_count: runIndex.runs.length,
-      unknown_state_count: unknownStateCount,
-      unknown_state_within_20_percent: unknownStateWithinTarget,
-      status_badges: statusBadgeTexts,
-      status_badge_titles: statusBadgeTitles,
-      status_badges_are_plain_text: statusBadgesArePlainText,
-      status_badges_are_japanese: statusBadgesAreJapanese,
-      status_badge_titles_are_japanese: statusBadgeTitlesAreJapanese,
+      trial_cta_focus: trialCtaFocus,
+      trial_cta_href: trialCtaHref,
       runtime_live_region: runtimeLiveRegion,
     };
     const shellNavigation = await probeShellNavigation(
@@ -637,9 +685,8 @@ async function runCase(smokeCase) {
       response?.status() === 200 &&
       heading === "概要" &&
       dashboardTitle === "概要 | CommandAgent" &&
-      map.complete &&
-      map.naturalWidth > 0 &&
-      apiChecks.every((check) => check.status === 200) &&
+      heroText.includes("目標を、検証可能なコードに。") &&
+      heroText.includes("失敗") &&
       linksUseBasePath &&
       JSON.stringify(primaryNavigation) ===
         JSON.stringify([
@@ -649,58 +696,47 @@ async function runCase(smokeCase) {
           "04\nリポジトリ実行記録",
           "05\n計測",
         ]) &&
+      trialCtaHref === `${expectedPrefix}try/` &&
       assetsLink === `${expectedPrefix}assets/` &&
-      runCountText === expectedRunCountText &&
-      runTotalCountText === expectedRunTotalCountText &&
-      unknownStateWithinTarget &&
-      statusBadgesArePlainText &&
-      statusBadgesAreJapanese &&
-      statusBadgeTitlesAreJapanese &&
+      measurementsLink === `${expectedPrefix}measurements/` &&
+      runsLink === `${expectedPrefix}runs/?id=` &&
+      JSON.stringify(firstUseRouteHrefs) === JSON.stringify([
+        `${expectedPrefix}try/`,
+        `${expectedPrefix}try/status/`,
+        `${expectedPrefix}try/history/`,
+        `${expectedPrefix}try/history/detail/`,
+      ]) &&
+      extensionLayerCount === 4 &&
+      detailedDashboardCount === 0 &&
+      overviewAvoidsOperationalFetches &&
+      headingOutline.no_skipped_levels &&
+      headingOutline.sections_labelled &&
+      trialCtaFocus.active &&
+      trialCtaFocus.outline_style !== "none" &&
+      trialCtaFocus.outline_width !== "0px" &&
+      reducedMotion.matches &&
+      reducedMotion.transition_duration !== "0.15s" &&
       runtimeLiveRegionIsPoliteAtomic &&
       shellNavigation.ok;
-    const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => {
-      const directChildrenWithRole = (element, role) =>
-        [...element.children].filter((child) => child.getAttribute("role") === role);
-      const rowGroups = directChildrenWithRole(ledger, "rowgroup");
-      const rows = rowGroups.flatMap((group) => directChildrenWithRole(group, "row"));
-      const headerRows = rowGroups[0] === undefined ? [] : directChildrenWithRole(rowGroups[0], "row");
-      const bodyRows = rowGroups
-        .slice(1)
-        .flatMap((group) => directChildrenWithRole(group, "row"));
-      const ariaRequiredChildrenViolationCount =
-        (ledger.getAttribute("role") === "table" && rowGroups.length > 0 ? 0 : 1) +
-        rowGroups.filter((group) => directChildrenWithRole(group, "row").length === 0).length +
-        headerRows.filter((row) => directChildrenWithRole(row, "columnheader").length === 0).length +
-        bodyRows.filter((row) => directChildrenWithRole(row, "cell").length === 0).length;
-      return {
-        tableRole: ledger.getAttribute("role") === "table",
-        rowGroupCount: rowGroups.length,
-        rowCount: rows.length,
-        ariaRequiredChildrenViolationCount,
-        linksKeepNativeSemantics: [...ledger.querySelectorAll("a[href]")].every(
-          (link) => !link.hasAttribute("role"),
-        ),
-      };
-    });
     const dashboardAccessible =
-      runLedgerAccessibility.tableRole &&
-      runLedgerAccessibility.rowGroupCount === 2 &&
-      runLedgerAccessibility.rowCount === Math.min(runIndex.runs.length, 8) + 1 &&
-      runLedgerAccessibility.ariaRequiredChildrenViolationCount === 0 &&
-      runLedgerAccessibility.linksKeepNativeSemantics;
+      headingOutline.no_skipped_levels &&
+      headingOutline.sections_labelled &&
+      trialCtaFocus.active &&
+      trialCtaFocus.outline_style !== "none";
     await page.addScriptTag({ content: axeSource });
-    const axeAriaRequiredChildren = await page.evaluate(async () => {
+    const axeLanding = await page.evaluate(async () => {
       const result = await window.axe.run(document, {
-        runOnly: { type: "rule", values: ["aria-required-children"] },
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] },
       });
       return {
         violationCount: result.violations.length,
-        targets: result.violations.flatMap((violation) =>
-          violation.nodes.flatMap((node) => node.target),
-        ),
+        violations: result.violations.map((violation) => ({
+          id: violation.id,
+          targets: violation.nodes.flatMap((node) => node.target),
+        })),
       };
     });
-    const dashboardPassesAxe = axeAriaRequiredChildren.violationCount === 0;
+    const dashboardPassesAxe = axeLanding.violationCount === 0;
 
     const gettingStarted = page.locator("[data-testid='getting-started']");
     await gettingStarted.waitFor();
@@ -715,6 +751,11 @@ async function runCase(smokeCase) {
     const prerequisiteStatuses = await page
       .locator("[data-testid='getting-started-prerequisites'] .prerequisite-row")
       .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-status")));
+    const reloadResponse = await page.reload({ waitUntil: "networkidle" });
+    await hero.waitFor();
+    const directReloadKeepsTrialCta =
+      reloadResponse?.status() === 200 &&
+      (await page.locator("[data-testid='overview-trial-cta']").getAttribute("href")) === `${expectedPrefix}try/`;
     await page.locator("[data-testid='getting-started-sample']").click();
     await page.locator("[data-testid='gate-one-primer']").waitFor();
     await page
@@ -742,17 +783,20 @@ async function runCase(smokeCase) {
       sampleIdentityUnchanged;
     await page.goBack({ waitUntil: "networkidle" });
     await gettingStarted.waitFor();
-    await page.locator("[data-testid='getting-started-close']").click();
-    await page.reload({ waitUntil: "networkidle" });
-    await page.locator("[data-testid='runtime-status']").waitFor();
-    await page.waitForTimeout(100);
-    const dismissalPersistsInTab = (await gettingStarted.count()) === 0;
+    const runtimeStates = await probeOverviewRuntimeStates(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
+    const overviewMobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
     const gettingStartedOk =
-      prerequisiteStatuses.length === 3 &&
-      prerequisiteStatuses.every((status) => status === "ready" || status === "action_required") &&
+      prerequisiteStatuses.length === 4 &&
+      prerequisiteStatuses.every((status) =>
+        status === "ready" || status === "unconfigured" || status === "action_required"
+      ) &&
       dashboardHelpCopy &&
       samplePresetOk &&
-      dismissalPersistsInTab;
+      directReloadKeepsTrialCta;
     const trialComposeRegression = await probeTrialComposeRegression(
       browser,
       server.origin,
@@ -766,9 +810,10 @@ async function runCase(smokeCase) {
         identity_is_create_filter: sampleIdentityUnchanged,
         visible_text: sampleGateOne,
       },
-      dismissal_persists_in_tab: dismissalPersistsInTab,
+      direct_reload_keeps_trial_cta: directReloadKeepsTrialCta,
     };
     dashboard.trial_compose_regression = trialComposeRegression;
+    dashboard.runtime_states = runtimeStates;
 
     await page.screenshot({
       fullPage: true,
@@ -780,11 +825,11 @@ async function runCase(smokeCase) {
         base_path: smokeCase.buildBasePath,
         dashboard,
         shell_navigation: shellNavigation,
-        api_checks: apiChecks,
-        svg: map,
         links_use_base_path: linksUseBasePath,
-        run_ledger_accessibility: runLedgerAccessibility,
-        axe_aria_required_children: axeAriaRequiredChildren,
+        landing_accessibility: headingOutline,
+        axe_landing: axeLanding,
+        mobile: overviewMobile,
+        runtime_states: runtimeStates,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
         ok:
@@ -792,6 +837,8 @@ async function runCase(smokeCase) {
           dashboardAccessible &&
           dashboardPassesAxe &&
           gettingStartedOk &&
+          overviewMobile.ok &&
+          runtimeStates.ok &&
           trialComposeRegression.ok &&
           consoleErrors.length === 0,
       };
@@ -828,30 +875,33 @@ async function runCase(smokeCase) {
       consoleErrors.length === 0;
 
     if (readOnly) {
+      const mobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
       return {
         id: smokeCase.id,
         base_path: smokeCase.buildBasePath,
         dashboard,
         shell_navigation: shellNavigation,
-        api_checks: apiChecks,
-        svg: map,
         links_use_base_path: linksUseBasePath,
-        run_ledger_accessibility: runLedgerAccessibility,
-        axe_aria_required_children: axeAriaRequiredChildren,
+        landing_accessibility: headingOutline,
+        axe_landing: axeLanding,
+        runtime_states: runtimeStates,
         pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail },
         issue_75: readOnlyUi,
+        mobile,
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         unexpected_console_errors: consoleErrors,
-        ok: readOnlyOk,
+        ok: readOnlyOk && mobile.ok,
       };
     }
-    const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
-    const trialFeedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
-    const sessionIndexLease = await probeSessionIndexLease(
-      browser,
-      server.origin,
-      smokeCase.serverBasePath,
-    );
+    const pollingBudget = gateOneOnly
+      ? null
+      : await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
+    const trialFeedback = gateOneOnly
+      ? null
+      : await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    const sessionIndexLease = gateOneOnly
+      ? null
+      : await probeSessionIndexLease(browser, server.origin, smokeCase.serverBasePath);
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -959,6 +1009,7 @@ async function runCase(smokeCase) {
         profile: "python-cli",
         provider: "ollama",
         token: trialCredential,
+        workingDirectory: "",
       });
       const expectedNegativeConsoleErrors = consoleErrors.filter(
         (entry) =>
@@ -987,7 +1038,7 @@ async function runCase(smokeCase) {
         unexpected_console_errors: unexpectedConsoleErrors,
         ok:
           trialResponse?.status() === 200 &&
-          trialTitle === "トライアル | CommandAgent" &&
+          trialTitle === "トライアル実行指示 | CommandAgent" &&
           launchDisabledBeforeConfirmation &&
           gateOneCopyIsPlain &&
           gateOneHashLayoutDesktop.ok &&
@@ -1121,6 +1172,15 @@ async function runCase(smokeCase) {
     const executionRootPlaceholderVisible = gateOneText.includes("<execution-root>");
     await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
     const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
+    });
+    await page.goto(new URL(`${prefix}try/history/`, server.origin).href, {
+      waitUntil: "networkidle",
+    });
+    await page.locator("[data-testid='trial-session-index']").waitFor();
     const sessionIndexCallStart = apiCalls.length;
     const sessionIndexResponse = page.waitForResponse((candidate) => {
       const url = new URL(candidate.url());
@@ -1146,23 +1206,17 @@ async function runCase(smokeCase) {
     );
     const sessionIndexText = await indexedSession.innerText();
     const sessionIndexHref = await indexedSession
-      .locator("[data-testid='session-reconnect-link']")
+      .locator("[data-testid='session-route-link']")
       .getAttribute("href");
     const sessionIndexCalls = apiCalls.slice(sessionIndexCallStart);
     const sessionIndexOnlyGets =
       sessionIndexCalls.length >= 1 &&
       sessionIndexCalls.every((call) => call.method === "GET");
-    await page.setViewportSize({ width: 1440, height: 1050 });
-    await page.screenshot({
-      fullPage: true,
-      path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
-    });
-
     const expectedStorageKey = trialTokenStorageKey(smokeCase.serverBasePath);
     const reconnectCallStart = apiCalls.length;
     await Promise.all([
       page.waitForNavigation({ waitUntil: "networkidle" }),
-      indexedSession.locator("[data-testid='session-reconnect-link']").click(),
+      indexedSession.locator("[data-testid='session-route-link']").click(),
     ]);
     await page.locator("[data-testid='terminal-gate']").waitFor();
     const sessionLinkCalls = apiCalls.slice(reconnectCallStart);
@@ -1332,7 +1386,7 @@ async function runCase(smokeCase) {
       readOnlyUi.ok &&
       runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
-      trialTitle === "トライアル | CommandAgent" &&
+      trialTitle === "トライアル実行指示 | CommandAgent" &&
       initialTrialFieldsEmpty &&
       emptyGoalGuidance.includes("目標を入力してください") &&
       providerModelGuidance.includes("実行モデルは自動更新されません") &&
@@ -1423,11 +1477,10 @@ async function runCase(smokeCase) {
       base_path: smokeCase.buildBasePath,
       dashboard,
       shell_navigation: shellNavigation,
-      api_checks: apiChecks,
-      svg: map,
       links_use_base_path: linksUseBasePath,
-      run_ledger_accessibility: runLedgerAccessibility,
-      axe_aria_required_children: axeAriaRequiredChildren,
+      landing_accessibility: headingOutline,
+      axe_landing: axeLanding,
+      runtime_states: runtimeStates,
       pages: { assets, extension_catalog: extensionCatalog, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       issue_75: readOnlyUi,
       mobile,
@@ -2048,6 +2101,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       const packs = await response.json();
       packs.push({
         expected_hash: "sha256:synthetic-fix-only",
+        conformance_ok: true,
         has_assist: true,
         has_eval: true,
         hash_matches_pin: true,
@@ -2067,6 +2121,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       });
       packs.push({
         expected_hash: "sha256:synthetic-investigate-only",
+        conformance_ok: true,
         has_assist: true,
         has_eval: true,
         hash_matches_pin: true,
@@ -2125,13 +2180,14 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         body: JSON.stringify({
           ...proposal,
           card_hash: `sha256:${"5".repeat(64)}`,
-          card_markdown: "# Synthetic Gate 1\n\n- 作業種別: Web アプリ × 既存機能を修正 (fix)",
+          card_markdown: `# Synthetic Gate 1\n\n- 作業種別: Web アプリ × 既存機能を修正 (fix)\n- Plan 実行総数の上限: ${1 + body.recovery_plan_auto_runs} 回\n- 時間・コストの上限目安: 単一 Plan 実行の最大 ${1 + body.recovery_plan_auto_runs} 倍`,
           identity: {
             ...proposal.identity,
             request: body.goal,
             profile: "nextjs",
             intent: "fix",
             task_family: "compile_error_fix",
+            recovery_plan_auto_runs: body.recovery_plan_auto_runs,
           },
         }),
       });
@@ -2139,6 +2195,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
 
     const prefix = displayBasePath(basePath);
     await page.goto(new URL(`${prefix}assets/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("#asset-tab-packs").click();
     const incompatibleRow = page
       .locator("[data-testid='extension-pack-row']")
       .filter({ hasText: fixSelector });
@@ -2155,6 +2212,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         document.querySelector("[data-testid='trial-intent']")?.value === "fix",
       fixSelector,
     );
+    const roleLayouts = await probeTrialRoleLayouts(page);
     const intentOptions = await page.locator("[data-testid='trial-intent'] option").evaluateAll(
       (options) => options.map((option) => ({ label: option.textContent, value: option.value })),
     );
@@ -2183,8 +2241,13 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
 
     const executorDatalist = page.locator("#trial-executor-provider-model-options option");
     const plannerDatalist = page.locator("#trial-planner-provider-model-options option");
+    const executor = page.locator("[data-testid='trial-executor-model']");
+    const planner = page.locator("[data-testid='trial-planner-model']");
     await executorDatalist.first().waitFor({ state: "attached" });
+    await planner.fill("planner-model-preserved");
     await page.locator("[data-testid='trial-planner-provider']").selectOption("lm-studio");
+    const plannerProviderChangePreservedModel =
+      await planner.inputValue() === "planner-model-preserved";
     await page.waitForFunction(
       (expected) =>
         JSON.stringify(
@@ -2201,8 +2264,6 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         options.map((option) => option.value),
       ),
     };
-    const executor = page.locator("[data-testid='trial-executor-model']");
-    const planner = page.locator("[data-testid='trial-planner-model']");
     const inputLists = {
       executor: await executor.getAttribute("list"),
       planner: await planner.getAttribute("list"),
@@ -2224,6 +2285,10 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.waitForFunction(
       () => document.querySelectorAll("#trial-executor-provider-model-options option").length === 0,
     );
+    const providerChangesPreserveModels =
+      plannerProviderChangePreservedModel &&
+      await executor.inputValue() === discoveredModels.ollama[0] &&
+      await planner.inputValue() === discoveredModels["lm-studio"][0];
     await executor.fill("manual-fallback-model");
     const cloudProviderAllowsManualEntry =
       (await page.locator("[data-testid$='-model-warning']").count()) === 0;
@@ -2238,6 +2303,10 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
     await page.locator("[data-testid='trial-intent']").selectOption("fix");
     await page.locator("[data-testid='trial-goal']").fill("Create a fix for the Next.js compile error");
+    const workingDirectory = page.locator("[data-testid='trial-working-directory']");
+    await workingDirectory.fill("projects/alpha");
+    const recoveryControl = page.locator("[data-testid='trial-recovery-plan-auto-runs']");
+    await recoveryControl.fill("3");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const requestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -2256,6 +2325,12 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     const explicitGateOne = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='gate-one-edit']").click();
+    const workingDirectoryEditPreservedAndDiscardedConfirmation =
+      await workingDirectory.inputValue() === "projects/alpha" &&
+      (await page.locator("[data-testid='gate-one-card-markdown']").count()) === 0;
+    await workingDirectory.fill("projects/beta");
+    await workingDirectory.fill("");
+    await recoveryControl.fill("4");
     await page.locator("[data-testid='trial-profile']").selectOption("python-cli");
     await page.locator("[data-testid='trial-intent']").selectOption("");
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
@@ -2294,14 +2369,22 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       profileChangeClearedPack;
     const explicitIntentFrozen =
       explicitBody.intent === "fix" &&
+      explicitBody.working_directory === "projects/alpha" &&
       explicitBody.pack === null &&
+      explicitBody.recovery_plan_auto_runs === 3 &&
       explicitResponse.status() === 200 &&
-      explicitGateOne.includes("修正 (fix)");
+      explicitGateOne.includes("修正 (fix)") &&
+      explicitGateOne.includes("Plan 実行総数の上限: 4 回") &&
+      explicitGateOne.includes("単一 Plan 実行の最大 4 倍");
     const automaticIntentCompatible =
       !("intent" in proposalBody) &&
+      !("working_directory" in proposalBody) &&
       proposalBody.pack === null &&
+      proposalBody.recovery_plan_auto_runs === 4 &&
       automaticResponse.status() === 200 &&
       automaticGateOne.includes("新しい機能を作成 (create)") &&
+      automaticGateOne.includes("Plan 実行総数の上限: 5 回") &&
+      automaticGateOne.includes("単一 Plan 実行の最大 5 倍") &&
       confirmationReset;
     const providersSeparated =
       proposalBody.provider === "openai" &&
@@ -2325,11 +2408,16 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       proposal_provider: proposalBody.provider,
       proposal_planner_provider: proposalBody.planner_provider,
       proposal_think: proposalBody.think,
+      proposal_recovery_plan_auto_runs: proposalBody.recovery_plan_auto_runs,
       proposal_status: automaticResponse.status(),
       provider_requests: providerRequests,
+      provider_changes_preserve_models: providerChangesPreserveModels,
       providers_separated: providersSeparated,
+      role_layouts: roleLayouts,
       think_cleared_without_ollama: thinkClearedWithoutOllama,
       planner_candidates_stay_scoped: plannerCandidatesStayScoped,
+      working_directory_edit_preserved_and_discarded_confirmation:
+        workingDirectoryEditPreservedAndDiscardedConfirmation,
       unknown_warnings: unknownWarnings,
       ok:
         fixCatalogLinkVisible &&
@@ -2346,8 +2434,11 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
         exactCandidatesClearWarnings &&
         cloudProviderAllowsManualEntry &&
         plannerCandidatesStayScoped &&
+        providerChangesPreserveModels &&
         providersSeparated &&
+        roleLayouts.ok &&
         thinkClearedWithoutOllama &&
+        workingDirectoryEditPreservedAndDiscardedConfirmation &&
         omittedThinkPreserved &&
         cloudProviderSkippedDiscovery,
     };
@@ -2371,11 +2462,22 @@ async function probeTrialFeedback(browser, origin, basePath) {
     page.on("pageerror", (error) => pageErrors.push(message(error)));
     await page.addInitScript(() => {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-      window.__commandagentCompletionNotifications = [];
+      const storageKey = "commandagent-smoke-completion-notifications";
+      try {
+        window.__commandagentCompletionNotifications = JSON.parse(
+          sessionStorage.getItem(storageKey) ?? "[]",
+        );
+      } catch {
+        window.__commandagentCompletionNotifications = [];
+      }
       class CompletionNotification {
         static permission = "granted";
         constructor(title, options = {}) {
           window.__commandagentCompletionNotifications.push({ body: options.body ?? "", title });
+          sessionStorage.setItem(
+            storageKey,
+            JSON.stringify(window.__commandagentCompletionNotifications),
+          );
         }
       }
       Object.defineProperty(window, "Notification", {
@@ -2708,6 +2810,8 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                 modified_epoch_seconds: 1_723_769_660,
                 gate: "gate_2",
                 status: "running",
+                profile: "python-cli",
+                intent: "create",
                 pack: {
                   id: "cli-assist",
                   version: "1.0.0",
@@ -2722,6 +2826,8 @@ async function probeSessionIndexLease(browser, origin, basePath) {
                 modified_epoch_seconds: 1_723_769_550,
                 gate: "gate_4",
                 status: "failed",
+                profile: "python-cli",
+                intent: "fix",
                 pack: null,
                 failure_diagnostics: {
                   stop_reason: "release_gate_failed",
@@ -2775,15 +2881,21 @@ async function probeSessionIndexLease(browser, origin, basePath) {
       .fill("synthetic-session-index-lease-token-000000000071");
     await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
-    await page.locator("[data-testid='session-reconnect-link']").first().waitFor();
+    await page.locator("[data-testid='inspect-workspace-lease']").click();
+    await page.locator("[data-testid='lease-inline-notice']").waitFor();
     const leaseText = await page.locator("[data-testid='workspace-lease-status']").innerText();
-    const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
     const checkContractDisabled = await page
       .locator("[data-testid='check-contract']")
       .isDisabled();
     const leaseInlineNotice = await page
       .locator("[data-testid='lease-inline-notice']")
       .innerText();
+    await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='session-route-link']").first().waitFor();
+    const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
+    const inlineDiagnostics = await page
+      .locator("[data-testid='session-failure-diagnostics']")
+      .count();
     return {
       proposal_count: proposalCount,
       dispatch_count: dispatchCount,
@@ -2791,16 +2903,20 @@ async function probeSessionIndexLease(browser, origin, basePath) {
       lease_inline_notice: leaseInlineNotice,
       lease_text: leaseText,
       session_text: sessionText,
+      inline_diagnostics: inlineDiagnostics,
       ok:
         leaseText.includes("実行中") &&
         leaseText.includes(sessionId) &&
         sessionText.includes(sessionId) &&
         sessionText.includes(failedSessionId) &&
         sessionText.includes("GATE 2（実行） / 実行中") &&
+        sessionText.includes("プロファイル: python-cli") &&
+        sessionText.includes("目的: 作成") &&
         sessionText.includes("cli-assist@1.0.0 · 承認済み") &&
-        sessionText.includes("release_gate_failed") &&
-        sessionText.includes("browser_route_unavailable") &&
-        sessionText.includes("browser_readiness") &&
+        !sessionText.includes("release_gate_failed") &&
+        !sessionText.includes("browser_route_unavailable") &&
+        !sessionText.includes("browser_readiness") &&
+        inlineDiagnostics === 0 &&
         checkContractDisabled &&
         leaseInlineNotice.includes(sessionId) &&
         leaseInlineNotice.includes("新しい起動はできません") &&
@@ -3073,6 +3189,135 @@ function syntheticFeedbackIdentityMatches(identity) {
   );
 }
 
+async function probeTrialRoleLayouts(page) {
+  const previousViewport = page.viewportSize();
+  try {
+    const desktop = await probeTrialRoleLayout(page, { width: 1200, height: 900 }, false);
+    const mobile = await probeTrialRoleLayout(page, { width: 390, height: 844 }, true);
+    return {
+      desktop_1200: desktop,
+      mobile_390: mobile,
+      ok: desktop.ok && mobile.ok,
+    };
+  } finally {
+    if (previousViewport !== null) await page.setViewportSize(previousViewport);
+  }
+}
+
+async function probeTrialRoleLayout(page, viewport, compact) {
+  const controlIds = [
+    "trial-provider",
+    "trial-executor-model",
+    "trial-planner-provider",
+    "trial-planner-model",
+  ];
+  await page.setViewportSize(viewport);
+  await page.locator("[data-testid='trial-planner-role']").waitFor();
+
+  const groupNames = ["Executor / 実行", "Planner / 計画"];
+  const labelNames = ["実行プロバイダー", "実行モデル", "計画プロバイダー", "計画モデル"];
+  const groupCounts = await Promise.all(
+    groupNames.map((name) => page.getByRole("group", { exact: true, name }).count()),
+  );
+
+  await page.locator("[data-testid='trial-provider']").focus();
+  const tabOrder = [];
+  for (const [index] of controlIds.entries()) {
+    tabOrder.push(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")));
+    if (index < controlIds.length - 1) await page.keyboard.press("Tab");
+  }
+
+  const layout = await page.locator(".trial-fields").evaluate((root, expectedControlIds) => {
+    const bounds = (element) => {
+      const rectangle = element.getBoundingClientRect();
+      return {
+        bottom: rectangle.bottom,
+        left: rectangle.left,
+        right: rectangle.right,
+        top: rectangle.top,
+      };
+    };
+    const controls = Object.fromEntries(expectedControlIds.map((id) => {
+      const control = root.querySelector(`[data-testid='${id}']`);
+      const label = control?.closest("label");
+      if (control === null || label === null) throw new Error(`Missing Trial role control ${id}`);
+      return [id, {
+        fieldset: control.closest("fieldset")?.getAttribute("data-testid") ?? null,
+        label_count: control.labels?.length ?? 0,
+        label_text: control.labels?.[0]?.textContent?.trim() ?? "",
+        label_bounds: bounds(label),
+      }];
+    }));
+    const fieldsets = [...root.querySelectorAll(".trial-role-fields")].map((fieldset) => ({
+      bounds: bounds(fieldset),
+      columns: getComputedStyle(fieldset.querySelector(".trial-role-controls")).gridTemplateColumns,
+      legend: fieldset.querySelector(":scope > legend")?.textContent?.trim() ?? "",
+      tag_name: fieldset.tagName,
+      test_id: fieldset.getAttribute("data-testid"),
+    }));
+    return {
+      controls,
+      dom_order: [...root.querySelectorAll(".trial-role-controls input, .trial-role-controls select")]
+        .map((control) => control.getAttribute("data-testid")),
+      fieldsets,
+    };
+  }, controlIds);
+
+  const executorProvider = layout.controls["trial-provider"].label_bounds;
+  const executorModel = layout.controls["trial-executor-model"].label_bounds;
+  const plannerProvider = layout.controls["trial-planner-provider"].label_bounds;
+  const plannerModel = layout.controls["trial-planner-model"].label_bounds;
+  const executorGroup = layout.fieldsets.find((group) => group.test_id === "trial-executor-role");
+  const plannerGroup = layout.fieldsets.find((group) => group.test_id === "trial-planner-role");
+  const labelAssociations = controlIds.map((id, index) => ({
+    associated: layout.controls[id].label_count === 1 &&
+      layout.controls[id].label_text.includes(labelNames[index]),
+    control: id,
+    expected_label: labelNames[index],
+  }));
+  const semanticsOk = groupCounts.every((count) => count === 1) &&
+    labelAssociations.every((label) => label.associated);
+  const groupsOk =
+    layout.fieldsets.length === 2 &&
+    executorGroup?.tag_name === "FIELDSET" &&
+    executorGroup.legend === groupNames[0] &&
+    plannerGroup?.tag_name === "FIELDSET" &&
+    plannerGroup.legend === groupNames[1] &&
+    layout.controls["trial-provider"].fieldset === "trial-executor-role" &&
+    layout.controls["trial-executor-model"].fieldset === "trial-executor-role" &&
+    layout.controls["trial-planner-provider"].fieldset === "trial-planner-role" &&
+    layout.controls["trial-planner-model"].fieldset === "trial-planner-role" &&
+    executorGroup.bounds.bottom <= plannerGroup.bounds.top;
+  const visualOrderOk = compact
+    ? executorProvider.bottom <= executorModel.top && plannerProvider.bottom <= plannerModel.top
+    : Math.abs(executorProvider.top - executorModel.top) <= 1 &&
+      executorProvider.right <= executorModel.left &&
+      Math.abs(plannerProvider.top - plannerModel.top) <= 1 &&
+      plannerProvider.right <= plannerModel.left;
+  const columnCountOk = layout.fieldsets.every((group) =>
+    group.columns.trim().split(/\s+/).length === (compact ? 1 : 2)
+  );
+
+  return {
+    ...layout,
+    accessible_group_counts: groupCounts,
+    accessible_label_associations: labelAssociations,
+    compact,
+    groups_ok: groupsOk,
+    semantics_ok: semanticsOk,
+    tab_order: tabOrder,
+    viewport,
+    visual_order_ok: visualOrderOk,
+    ok:
+      semanticsOk &&
+      groupsOk &&
+      visualOrderOk &&
+      columnCountOk &&
+      JSON.stringify(layout.dom_order) === JSON.stringify(controlIds) &&
+      JSON.stringify(tabOrder) === JSON.stringify(controlIds),
+  };
+}
+
 async function trialControlAlignment(page) {
   const [goal, token] = await Promise.all([
     page.locator("[data-testid='trial-goal']").boundingBox(),
@@ -3249,6 +3494,7 @@ async function readTrialComposeValues(page) {
     profile: await page.locator("[data-testid='trial-profile']").inputValue(),
     provider: await page.locator("[data-testid='trial-provider']").inputValue(),
     token: await page.locator("[data-testid='trial-token']").inputValue(),
+    workingDirectory: await page.locator("[data-testid='trial-working-directory']").inputValue(),
   };
 }
 
@@ -3261,7 +3507,8 @@ function trialComposeValuesMatch(actual, expected, requireToken) {
     actual.plannerProvider === expected.plannerProvider &&
     actual.profile === expected.profile &&
     actual.provider === expected.provider &&
-    (!requireToken || actual.token === expected.token)
+    (!requireToken || actual.token === expected.token) &&
+    actual.workingDirectory === expected.workingDirectory
   );
 }
 
@@ -3378,6 +3625,82 @@ async function allEnabled(locator, expectedCount) {
   );
 }
 
+async function probeOverviewRuntimeStates(browser, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  const expectedPrefix = basePath === "/" ? "/" : `${basePath}/`;
+  const sessionId = "overview-active-smoke-session";
+  const runtimeResponse = {
+    gui_contract_version: guiContract.contract_version,
+    trial_available: true,
+    trial_token_auth_enabled: true,
+    prerequisites: {
+      execution_root: { status: "ready", detail: "synthetic execution root ready" },
+      extension_root: { status: "ready", detail: "synthetic extension root ready" },
+      commandagent_binary: { status: "ready", detail: "synthetic commandagent ready" },
+      trial_authentication: { status: "action_required", detail: "synthetic token required" },
+    },
+    session: { id: sessionId, state: "running" },
+  };
+
+  const activePage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const failedPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await activePage.route("**/api/runtime-status", (route) => route.fulfill({
+      body: JSON.stringify(runtimeResponse),
+      contentType: "application/json",
+      status: 200,
+    }));
+    await activePage.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
+    const activeCta = activePage.locator("[data-testid='overview-active-session-cta']");
+    await activeCta.waitFor();
+    const active = {
+      cta_href: await activeCta.getAttribute("href"),
+      cta_text: await activeCta.innerText(),
+      runtime_state: await activePage
+        .locator("[data-testid='overview-live-status']")
+        .getAttribute("data-runtime-state"),
+      status_text: await activePage.locator("[data-testid='overview-live-status']").innerText(),
+    };
+
+    await failedPage.route("**/api/runtime-status", (route) => route.fulfill({
+      body: JSON.stringify({ code: "runtime_unavailable", error: "synthetic runtime failure" }),
+      contentType: "application/json",
+      status: 503,
+    }));
+    await failedPage.goto(new URL(prefix, origin).href, { waitUntil: "domcontentloaded" });
+    await failedPage
+      .locator("[data-testid='overview-live-status'][data-runtime-state='unavailable']")
+      .waitFor();
+    const failed = {
+      active_cta_count: await failedPage.locator("[data-testid='overview-active-session-cta']").count(),
+      first_use_text: await failedPage.locator("[data-testid='getting-started-prerequisites']").innerText(),
+      runtime_state: await failedPage
+        .locator("[data-testid='overview-live-status']")
+        .getAttribute("data-runtime-state"),
+      status_text: await failedPage.locator("[data-testid='overview-live-status']").innerText(),
+    };
+
+    return {
+      active,
+      failed,
+      ok:
+        active.cta_href === `${expectedPrefix}try/status/?session=${sessionId}` &&
+        active.cta_text === "実行中セッションを見る" &&
+        active.runtime_state === "ready" &&
+        active.status_text.includes("実行中") &&
+        active.status_text.includes(sessionId.slice(0, 12)) &&
+        failed.active_cta_count === 0 &&
+        failed.runtime_state === "unavailable" &&
+        failed.status_text.includes("状態取得失敗") &&
+        failed.status_text.includes("利用可能とは判断しません") &&
+        failed.first_use_text.includes("以前の値を準備済みとして扱いません"),
+    };
+  } finally {
+    await activePage.close();
+    await failedPage.close();
+  }
+}
+
 async function probeMobile(browser, origin, basePath) {
   const page = await browser.newPage({
     isMobile: true,
@@ -3388,16 +3711,45 @@ async function probeMobile(browser, origin, basePath) {
     const dashboard = await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
     const dashboardHeading = await page.locator("h1").innerText();
     const dashboardIntroOneLine = await page.locator(".page-intro > p").isHidden();
-    const gettingStartedClose = page.locator("[data-testid='getting-started-close']");
-    await gettingStartedClose.waitFor();
-    const gettingStartedCloseLayout = await singleLineTextLayout(gettingStartedClose);
+    const hero = page.locator("[data-testid='overview-hero']");
+    await hero.waitFor();
+    const heroColumns = await hero.evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+    const trialCta = page.locator("[data-testid='overview-trial-cta']");
+    const trialCtaTarget = await trialCta.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { height: bounds.height, width: bounds.width };
+    });
+    const workflowCount = await page.locator("[data-testid='overview-flow'] > li").count();
+    const layerCount = await page.locator("[data-testid='overview-extension-layers'] > li").count();
+    const firstUseRouteCount = await page.locator(".getting-started-route-grid a").count();
+    const reloadResponse = await page.reload({ waitUntil: "networkidle" });
+    await hero.waitFor();
+    const directReloadKeepsHero =
+      reloadResponse?.status() === 200 &&
+      (await page.locator("[data-testid='overview-trial-cta']").isVisible());
     await page.screenshot({
       fullPage: true,
-      path: join(outputDirectory, `${basePath === "/" ? "root" : "proxy-commandagent"}-getting-started-mobile.png`),
+      path: join(outputDirectory, `${basePath === "/" ? "root" : "proxy-commandagent"}-overview-mobile.png`),
     });
     const dashboardFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
+    const assets = await page.goto(new URL(`${prefix}assets/`, origin).href, {
+      waitUntil: "networkidle",
+    });
+    const assetsHeading = await page.locator("h1").innerText();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='extension-root-status']")?.getAttribute("data-status") === "ready",
+    );
+    const assetsFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    const mobileLayerCount = await page.locator("[data-testid='extension-layer-card']").count();
+    const mobileProfileCount = await page.locator("[data-testid='extension-profile-row']").count();
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${basePath === "/" ? "root" : "proxy-commandagent"}-extensions-mobile.png`),
+    });
     const trial = await page.goto(new URL(`${prefix}try/`, origin).href, {
       waitUntil: "networkidle",
     });
@@ -3409,11 +3761,23 @@ async function probeMobile(browser, origin, basePath) {
     );
     return {
       dashboard: {
+        direct_reload_keeps_hero: directReloadKeepsHero,
         fits_viewport: dashboardFits,
-        getting_started_close: gettingStartedCloseLayout,
+        first_use_route_count: firstUseRouteCount,
         heading: dashboardHeading,
+        hero_columns: heroColumns,
         intro_one_line: dashboardIntroOneLine,
+        layer_count: layerCount,
         status: dashboard?.status() ?? 0,
+        trial_cta_target: trialCtaTarget,
+        workflow_count: workflowCount,
+      },
+      extensions: {
+        fits_viewport: assetsFits,
+        heading: assetsHeading,
+        layer_count: mobileLayerCount,
+        profile_count: mobileProfileCount,
+        status: assets?.status() ?? 0,
       },
       trial: { fits_viewport: trialFits, heading: trialHeading, intro_one_line: trialIntroOneLine, status: trial?.status() ?? 0 },
       ok:
@@ -3421,10 +3785,20 @@ async function probeMobile(browser, origin, basePath) {
         dashboardHeading === "概要" &&
         dashboardIntroOneLine &&
         dashboardFits &&
-        gettingStartedCloseLayout.single_line &&
-        gettingStartedCloseLayout.white_space === "nowrap" &&
+        directReloadKeepsHero &&
+        !heroColumns.includes(" ") &&
+        trialCtaTarget.height >= 44 &&
+        trialCtaTarget.width >= 44 &&
+        workflowCount === 5 &&
+        layerCount === 4 &&
+        firstUseRouteCount === 4 &&
+        assets?.status() === 200 &&
+        assetsHeading === "拡張" &&
+        assetsFits &&
+        mobileLayerCount === 4 &&
+        mobileProfileCount >= 1 &&
         trial?.status() === 200 &&
-        trialHeading === "トライアル" &&
+        trialHeading === "トライアル実行指示" &&
         trialIntroOneLine &&
         trialFits,
     };
@@ -3600,7 +3974,7 @@ async function probeShellNavigation(browser, origin, basePath) {
   const prefix = displayBasePath(basePath);
   const routes = [
     { id: "dashboard", href: prefix, heading: "概要", label: "概要" },
-    { id: "try", href: `${prefix}try/`, heading: "トライアル", label: "トライアル" },
+    { id: "try", href: `${prefix}try/`, heading: "トライアル実行指示", label: "トライアル" },
     { id: "assets", href: `${prefix}assets/`, heading: "拡張", label: "拡張" },
     {
       id: "run",
@@ -3712,6 +4086,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     { key: trialTokenStorageKey(basePath), token: trialCredential },
   );
   await page.reload({ waitUntil: "networkidle" });
+  await page.locator("#asset-tab-packs").click();
   await page.locator("[data-testid='pack-wizard-open']").click();
   await page.locator("[data-testid='pack-wizard-target']").waitFor();
   await page.waitForFunction(
@@ -3892,6 +4267,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinnedNextVersion,
     retiredNextVersion,
   );
+  const profileWizard = await probeProfileWizard(page, origin, basePath);
 
   return {
     active_after_failure: activeAfterFailure,
@@ -3907,6 +4283,7 @@ async function probePackWizard(page, browser, origin, basePath) {
     pinned_next_members_copied: pinnedNextMembersCopied,
     pinned_next_version: pinnedNextVersion,
     pinned_next_version_staged: pinnedNextVersionStaged,
+    profile_wizard: profileWizard,
     retired_editor_disabled: retiredEditorDisabled,
     retired_has_no_trial_link: retiredHasNoTrialLink,
     retired_next_draft_editable: retiredNextDraftEditable,
@@ -3937,12 +4314,77 @@ async function probePackWizard(page, browser, origin, basePath) {
       pinnedNextDraftEditable &&
       pinnedNextMembersCopied &&
       pinnedNextVersionStaged &&
+      profileWizard.ok &&
       selector === "nextjs-acme@1.0.0" &&
       selectedPack === selector &&
       retiredEditorDisabled &&
       retiredHasNoTrialLink &&
       retiredNextDraftEditable &&
       retiredNextMembersCopied,
+  };
+}
+
+async function probeProfileWizard(page, origin, basePath) {
+  const prefix = displayBasePath(basePath);
+  await page.locator("#asset-tab-profiles").click();
+  const launcher = page.locator("[data-testid='profile-wizard-open']");
+  await launcher.waitFor();
+  const launcherEnabled = !(await launcher.isDisabled());
+  await launcher.click();
+  await page.locator("[data-testid='profile-wizard']").waitFor();
+  const token = page.locator("[data-testid='profile-wizard-token']");
+  if ((await token.count()) === 1) await token.fill(trialCredential);
+  await page.locator("[data-testid='profile-wizard-preview']").click();
+  const confirmation = page.locator("[data-testid='profile-wizard-confirmation']");
+  await confirmation.waitFor();
+  const confirmationText = await confirmation.innerText();
+  const hash = await confirmation.locator("code").nth(2).innerText();
+  await page.locator("[data-testid='profile-wizard-confirm']").check();
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  const result = page.locator("[data-testid='profile-registration-result']");
+  await result.waitFor();
+  const restartRequired = await result.getAttribute("data-restart-required");
+  const resultText = await result.innerText();
+  const row = page
+    .locator("[data-testid='profile-supply-row']")
+    .filter({ hasText: "neutral-profile" });
+  await row.waitFor();
+  const rowText = await row.innerText();
+  const trialOptions = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`trial options returned ${response.status}`);
+    return response.json();
+  }, new URL(`${prefix}api/trial-options`, origin).href);
+  const unavailableBeforeRestart = trialOptions.profiles.every(
+    (profile) => profile.id !== "neutral-profile",
+  );
+  await page.locator("[data-testid='profile-wizard-register']").click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='profile-registration-result'] strong")?.textContent?.includes("同一内容"),
+  );
+  const idempotentText = await result.innerText();
+  return {
+    confirmation_text: confirmationText,
+    exact_hash: hash,
+    idempotent_text: idempotentText,
+    launcher_enabled: launcherEnabled,
+    restart_required: restartRequired,
+    result_text: resultText,
+    row_text: rowText,
+    unavailable_before_restart: unavailableBeforeRestart,
+    ok:
+      launcherEnabled &&
+      hash.startsWith("sha256:") &&
+      confirmationText.includes("neutral-profile") &&
+      confirmationText.includes("profiles/neutral-profile/manifest.toml") &&
+      confirmationText.includes("draft / 未承認") &&
+      confirmationText.includes("上限 static") &&
+      restartRequired === "true" &&
+      resultText.includes("保存成功と runtime 反映は別") &&
+      rowText.includes("runtime 未反映") &&
+      rowText.includes(hash) &&
+      unavailableBeforeRestart &&
+      idempotentText.includes("同一内容"),
   };
 }
 
@@ -3957,11 +4399,12 @@ async function probeAssetsAccessibility(page) {
     })),
   );
 
-  const packsTab = page.locator("#asset-tab-packs");
-  await packsTab.focus();
-  await packsTab.press("ArrowRight");
-  const contractsSelected = await selectedAssetTab(page);
-  const disclosure = page.locator("#asset-panel-contracts .document-card > button").first();
+  const profilesTab = page.locator("#asset-tab-profiles");
+  await profilesTab.focus();
+  await profilesTab.press("ArrowRight");
+  const packsSelected = await selectedAssetTab(page);
+  await page.locator("#asset-tab-packs").press("End");
+  const disclosure = page.locator("#asset-panel-references .document-card > button").first();
   await disclosure.waitFor();
   const disclosureCollapsed = await disclosure.getAttribute("aria-expanded");
   const disclosureControls = await disclosure.getAttribute("aria-controls");
@@ -3974,18 +4417,21 @@ async function probeAssetsAccessibility(page) {
 
   await page.addScriptTag({ content: axeSource });
   const axe = [];
-  axe.push(await assetAxeResult(page, "contracts"));
+  axe.push(await assetAxeResult(page, "references"));
 
-  await page.locator("#asset-tab-contracts").press("End");
+  await page.locator("#asset-tab-references").press("End");
   const endSelected = await selectedAssetTab(page);
-  axe.push(await assetAxeResult(page, "suites"));
+  axe.push(await assetAxeResult(page, "references"));
 
-  await page.locator("#asset-tab-suites").press("Home");
+  await page.locator("#asset-tab-references").press("Home");
   const homeSelected = await selectedAssetTab(page);
-  await page.locator("#asset-tab-packs").press("ArrowLeft");
+  await page.locator("#asset-tab-profiles").press("ArrowLeft");
+  await page.locator("#asset-tab-references").press("ArrowLeft");
   const leftWrapped = await selectedAssetTab(page);
-  await page.locator("#asset-tab-suites").press("ArrowRight");
+  await page.locator("#asset-tab-packs").press("ArrowRight");
   const rightWrapped = await selectedAssetTab(page);
+  await page.locator("#asset-tab-references").press("Home");
+  await page.locator("#asset-tab-profiles").press("ArrowRight");
   axe.push(await assetAxeResult(page, "packs"));
 
   const presence = await page
@@ -4005,7 +4451,7 @@ async function probeAssetsAccessibility(page) {
       target_exists: disclosureTargetExists,
     },
     keyboard: {
-      contracts_selected: contractsSelected,
+      packs_selected: packsSelected,
       end_selected: endSelected,
       home_selected: homeSelected,
       left_wrapped: leftWrapped,
@@ -4021,11 +4467,11 @@ async function probeAssetsAccessibility(page) {
           item.selected === (index === 0 ? "true" : "false") &&
           item.tabIndex === (index === 0 ? "0" : "-1"),
       ) &&
-      contractsSelected === "contracts" &&
-      endSelected === "suites" &&
-      homeSelected === "packs" &&
-      leftWrapped === "suites" &&
-      rightWrapped === "packs" &&
+      packsSelected === "packs" &&
+      endSelected === "references" &&
+      homeSelected === "profiles" &&
+      leftWrapped === "packs" &&
+      rightWrapped === "references" &&
       disclosureCollapsed === "false" &&
       disclosureExpanded === "true" &&
       disclosureGlyphHidden &&
@@ -4079,6 +4525,7 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
         prerequisites: {
           commandagent_binary: { detail: "ready", status: "ready" },
           execution_root: { detail: "ready", status: "ready" },
+          extension_root: { detail: "ready", status: "ready" },
           trial_authentication: { detail: "disabled", status: "ready" },
         },
         session: null,
@@ -4106,11 +4553,17 @@ async function probePackWizardAuthOff(browser, origin, basePath) {
     );
     await page.reload({ waitUntil: "networkidle" });
 
+    await page.locator("#asset-tab-packs").click();
     const warningStatus = page.locator("[data-testid='pack-warning-status']");
     await warningStatus.waitFor();
     const warningStatusText = await warningStatus.innerText();
-    const warningNotes = await page.locator("[data-testid='pack-warning'][role='note']").count();
-    const warningAlerts = await page.locator("[data-testid='pack-warning'][role='alert']").count();
+    const warningCards = page.locator("#asset-panel-packs .pack-card.warning");
+    const warningNotes = await warningCards
+      .locator("[data-testid='pack-warning'][role='note']")
+      .count();
+    const warningAlerts = await warningCards
+      .locator("[data-testid='pack-warning'][role='alert']")
+      .count();
 
     await page.locator("[data-testid='pack-wizard-open']").click();
     await page.locator("[data-testid='pack-wizard-target']").waitFor();
@@ -4180,6 +4633,49 @@ function memberMapsMatchNextVersion(previous, next, previousVersion, nextVersion
 }
 
 async function probeExtensionCatalog(page) {
+  const layerCards = page.locator("[data-testid='extension-layer-card']");
+  await layerCards.first().waitFor();
+  const layerLabels = await layerCards.evaluateAll((cards) =>
+    cards.map((card) => card.getAttribute("data-layer")),
+  );
+  const layerMetadataComplete = await layerCards.evaluateAll((cards) =>
+    cards.every((card) => {
+      const labels = [...card.querySelectorAll(".extension-metadata dt")].map((term) =>
+        term.textContent?.trim(),
+      );
+      return ["layer", "source", "status", "hash", "assurance", "登録／昇格"].every((label) =>
+        labels.includes(label),
+      );
+    }),
+  );
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='extension-root-status']")?.getAttribute("data-status") === "ready",
+  );
+  const extensionRootStatus = await page
+    .locator("[data-testid='extension-root-status']")
+    .getAttribute("data-status");
+  const profileRows = page.locator("[data-testid='extension-profile-row']");
+  await profileRows.first().waitFor();
+  const profileCount = await profileRows.count();
+  const profileMetadata = await profileRows.first().locator(".extension-metadata dt").allInnerTexts();
+  const profileIssueHref = await profileRows
+    .first()
+    .locator("[data-testid='profile-registration-issue-link']")
+    .getAttribute("href");
+  const profileHasExactHash = (await profileRows.first().locator(".extension-metadata code").innerText())
+    .startsWith("sha256:");
+  const profileWizardLauncherEnabled = !(await page
+    .locator("[data-testid='profile-wizard-open']")
+    .isDisabled());
+  const suppliedRows = page.locator("[data-testid='profile-supply-row']");
+  await suppliedRows.first().waitFor();
+  const suppliedProfileText = await suppliedRows.first().innerText();
+  const suppliedProfilePath = await suppliedRows.first().locator("code").first().innerText();
+
+  await page.locator("#asset-tab-references").click();
+  const referencesAreNotExtensions = (await page.locator("#asset-panel-references h2").innerText()) ===
+    "Contract / Suite は拡張種別ではありません";
+  await page.locator("#asset-tab-packs").click();
   const rows = page.locator("[data-testid='extension-pack-row']");
   await rows.first().waitFor();
   const rowCount = await rows.count();
@@ -4193,12 +4689,37 @@ async function probeExtensionCatalog(page) {
   const selectedPack = await page.locator("[data-testid='trial-pack']").inputValue();
   return {
     row_count: rowCount,
+    extension_root_status: extensionRootStatus,
+    layer_labels: layerLabels,
+    layer_metadata_complete: layerMetadataComplete,
+    profile_count: profileCount,
+    profile_has_exact_hash: profileHasExactHash,
+    profile_issue_href: profileIssueHref,
+    profile_metadata: profileMetadata,
+    profile_wizard_launcher_enabled: profileWizardLauncherEnabled,
+    supplied_profile_path: suppliedProfilePath,
+    supplied_profile_text: suppliedProfileText,
+    references_are_not_extensions: referencesAreNotExtensions,
     selected_pack: selectedPack,
     selector,
     source_labels: sourceLabels,
     status: response?.status() ?? 0,
     ok:
       response?.status() === 200 &&
+      JSON.stringify(layerLabels) === JSON.stringify(["Layer 1", "Layer 2", "Layer 3", "Layer 4"]) &&
+      layerMetadataComplete &&
+      extensionRootStatus === "ready" &&
+      profileHasExactHash &&
+      profileWizardLauncherEnabled &&
+      suppliedProfilePath.startsWith("profiles/") &&
+      !suppliedProfilePath.startsWith("/") &&
+      suppliedProfileText.includes("Trial 利用可") &&
+      suppliedProfileText.includes("draft / 未承認 / 保証上限 static") &&
+      profileIssueHref?.startsWith("https://github.com/Kewton/CommandAgent/issues/new?") &&
+      ["layer", "source", "status", "hash", "assurance", "登録／昇格"].every((label) =>
+        profileMetadata.includes(label),
+      ) &&
+      referencesAreNotExtensions &&
       sourceLabels.includes("承認済み") &&
       sourceLabels.includes("リポジトリ（未承認）") &&
       trialLinkText.includes("トライアルで使う") &&
@@ -4211,6 +4732,14 @@ async function startServer(basePath, executionRoot, delegateBin = commandagentBi
   const extensionRoot = `${executionRoot}-extensions`;
   await mkdir(extensionRoot, { recursive: true, mode: 0o700 });
   await chmod(extensionRoot, 0o700);
+  await cp(
+    join(
+      repositoryRoot,
+      "tests/corpus/apps/issue117-draft-profile/extension-root/profiles/static-site",
+    ),
+    join(extensionRoot, "profiles/static-site"),
+    { recursive: true },
+  );
   const child = spawn(
     "cargo",
     [

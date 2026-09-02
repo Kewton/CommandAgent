@@ -482,6 +482,9 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | D-2b | data fix計画の機械合成 | 本コミット | dfix-001〜004 v5の24 runはmachine-only 15・model-only 4・複合5で、D-2a後もF1写像ではなくplanner生成StepPlanの所有権重複・空verify・不在成果物参照がキャンペーンごとに新形で支配した。これにより「profile配線不足」を主因とするタイプA仮説は部分反証され、個別rewriteの追加ではなくfixed契約F1〜F3から4段構造を合成する判断へ移行 | `--intent fix --plan-preset profile --profile data`だけを対象に、既存`fix_reproducer`・contract checks・FIX-5 target resolver・凍結F3集合から`reproduce-before → isolate-cause → implement-fix → verify-after`を既存StepPlanへ合成し、既存lint・実行・裁定へ通す。Rをgoalから解決できない場合だけモデルへ構築を委ね、step構造は機械側で再束縛。manifest schemaは不変、nextjs fixはnone同経路、create全経路は不変。pipe/schema snapshot、実F1実行fixture、再発3原文negative、fix conformance 9/9、create byte互換6/6、nextjs fix snapshot、corpus、予算、fmt、clippy `-D warnings`、権限付きfull suiteで検証。`fix_plan_synthesized { profile, phase_count, r_basis }`追加により全intent source event名基準は152→153。作業時間概算: 約60分 | **complete** |
 | D-2c | 計画確定チョークポイントの一本化 | 本コミット | 複数扉一門番病（時間軸版・4例目）の恒久修正。適用範囲は合成経路（fix×data）。planner生成経路は挙動保存のため従来形（repair chain→template lint、変異後再正規化なし）を維持し、第1層の穴は生成経路に残存する。生成経路の恒久解は計画合成の適用拡大であり、もぐら叩き（正規化追加）では行わない | 合成・実行計画のfinalize chokepointと、生成経路3箇所の`lint_template_contract`を字句guardrailで固定。既存fixtureでイベント形・verdict不変を確認。作業時間概算: 約30分 | **complete** |
 | D-3b | investigation intent契約v0 | 本コミット | D-3b開始: investigation intent契約v0をfixed（本コミット）。fix契約の実装済み機構（stage/極性/reproducer_defect/baseline_not_reproduced）を再利用する前提で設計。I2 diagnosis_bound はE2 claims-bindingの診断版であり、虚偽診断をfailedとする（partialではない） | **fixed** |
+| ISSUE-399-A14-A6 | fix completion contractの型付きR束縛 | `404bbfbe` / `1c688aef` / `20176e3d` | A14-A6診断で、候補可視の既知Rが自由生成plan内でshell blockとなりsanitizer後に7 verifyへ分裂してF1契約を満たせなかった。optional `fix_reproducer_command`を共有CompletionContractへ追加し、単一command policy、workflow binding優先、fix先頭phase限定で既存F1実行・lineageへ接続する。field未指定、非fix、後続phase、F1〜F3裁定、外部oracle境界は不変。A14-A6.1 exact-SHA smokeはcell-05 3/3でexact typed bindingを確認したが、全件がRecovery preflightの`input_output_contract`一律拒否で実Recovery 0件となった | **typed binding qualified; Recovery integration residual moved to A14-A7** |
+| ISSUE-399-A14-A7 | typed RによるRecovery read-only preflight | `e4cf4dec` | A14-A6.1の3/3で、`fix_reproducer_command`が同一`verify_commands`に登録済みにもかかわらず、共通preflightが非空`required_capabilities`を一律unavailableにしてRecoveryを開始できなかった。`input_output_contract`だけを、正規化済みtyped Rと登録verifyの完全一致時にread-only観測可能とする。未束縛・不一致・browser等の残余capabilityはfail-closedを維持し、全verify suite・source mutation rollback・外部oracle非露出・最大1回を変更しない。exact-SHA smokeは2/3でRecoveryを各1回開始し、1/3の初回成功を保護したが、treatmentのcompletion-contract path再束縛不足を2/2で検出した | **preflight integration qualified; treatment binding residual moved to A14-A8** |
+| ISSUE-399-A14-A8 | isolated treatmentのCompletionContract再束縛 | 本コミット | A14-A7のRecovery 2件が、control側`.goal-verify-baseline/completion-contract.json`の絶対pathをtreatment Configへ保持し、workspace confinementで正しく拒否された。controlで検証済みcontractの同一byteをhostがtreatment配下`.commandagent/recovery-runtime/`へcreate-newで複製・readonly化し、treatment Configだけを再束縛して再検証する。runtime contractはsource snapshot/promotion対象外、copy・canonicalize・validation失敗は開始前fail-closed。外部oracle非露出、control保持、最大1回、最終promotion gateは不変 | **implemented; exact-SHA qualification pending** |
 | D-3b工程2 | investigation intent実装 | 本コミット | fixed契約I1/I2、diagnosis binding、data profile 3段計画合成、CLI・earned assurance conformanceを実装。create/fix既存経路は差し込み前fixtureで維持 | `investigation_plan_synthesized`・`investigation_adjudicated`追加により全intent source event名基準153→155。作業時間概算: 約120分 | **complete** |
 | INV-1a | investigation完了投影のintent dispatch | 本コミット | `uat-test0718-inv-001`で全6runがdata create由来の`static(data_profile_probe_not_run)`を表示した投影dispatch欠落を修正。T30(B-2c)・B-2jに続く投影層の同属3例目として、profile×intentの両軸dispatchへ移行 | `investigation_adjudicated`を最優先し、I1実行済み未裁定を`failed(investigation_incomplete)`、R未実行を`static(investigation_probe_not_run)`へ固定。inv-001 run 2/run 1/未実行の3形fixtureとcreate/fix既存byte fixtureで非影響を検証 | **complete** |
 | INV-1b | investigation diagnose契約ガイダンス | 本コミット | inv-001 run 6の例示code block 5件全違反とrun 4の不在`output/inspection.json`参照に対し、DATA-1の生成側字義例・存在束縛処方をdiagnosis版として適用 | 実観測で置換するerror/path:line/実在code引用の字義例、修正案code block禁止、hidden/runtime/heavy directory除外済み・辞書順最大64件の実在file一覧を合成diagnoseへ注入。run 6型unbound fixtureをstrictに拒否したまま、ガイダンス準拠対fixtureがviolations 0になることを固定 | **complete** |
@@ -1667,3 +1670,105 @@ cardinality、guidance、profile-bound check、evidence targetの追加専用範
 環境失敗は
 [`20260820-bp1-one-cell/report.md`](../../workspace/management/runs/20260820-bp1-one-cell/report.md)
 を正本とする。
+
+## GUI-370 — Trial の4ページ分離（Issue #370、2026-08-25）
+
+単一のTrial画面を、`try/`の実行指示・Gate 1、
+`try/status/?session=<id>`のread-only実行状況、`try/history/`の要約履歴、
+`try/history/detail/?session=<id>`のterminal結果詳細へ分離した。固定routeはrootと
+proxy base pathのstatic export／direct reloadで同じ意味を持ち、起動、active履歴、
+terminal履歴、runtime badge、旧`try/?session=<id>` deep linkをsession状態に応じた
+routeへ接続する。
+
+履歴行は日時、ID、gate/status、profile、intent、packの不変確認identityに限定し、
+失敗診断・acceptance・events・成果物は結果詳細へ集約した。historyのfocus／visibility／
+runtime遷移再検証、鮮度表示、認証待ち、最後に成功した一覧の保持は維持する。
+session index APIへの`profile`／`intent`はoptionalな加法投影であり、event schema、
+confirmation hash、active lease、honest-failure、verification／acceptance、`.anvil/`
+namespaceは変更しない。Trial tokenはbase pathごとの`sessionStorage`だけに保持し、URL、
+log、`localStorage`へ出さない。
+
+## GUI-374 — Trial session作業ディレクトリ投影（Issue #374、2026-08-25）
+
+GUI Trialの起動直後・実行中・terminal・履歴結果詳細で、委譲CLIの`current_dir`と
+`--cwd`に一致する`<execution-root>/sessions/<session-id>`絶対pathを同一表示し、
+keyboard操作可能なcopy buttonとpolite live通知を追加した。CLI作業directoryは
+`.commandagent/runs/<session-id>`の記録directory、`events.jsonl`、`summary.md`と
+別枠表示し、削除済みworkspaceは`missing`として成果物不在を明示する。
+
+絶対pathはGET-only `api/sessions/{id}/paths`だけが返す。Trial token認証ONではtokenを
+必須とし、管理者が信頼済みloopback向けに認証OFFで起動した場合はtokenなしで読む。
+create/status/index、public artifact/event、runtime-status、static projectionには追加しない。
+session ID検証、runtime/run/workspace
+各directoryのnon-symlink canonical confinement、execution root外拒否を維持し、
+endpointは再作成・削除・lease変更を行わない。既存Origin検証、read-only guard、
+confirmation/event/acceptance schema、`.anvil/` namespaceは不変である。
+
+## GUI-376 — Trial のPlanタスク進捗・結果（Issue #376、2026-08-25）
+
+Issue #375のschema v1 `plan_step_started`／`plan_step_completed`／
+`plan_step_failed`だけから、GUI session statusへtask projectionを加法追加した。
+`plan_execution_id`ごとに実行区間を分離し、`step_execution_id`ごとにtaskを対応付けるため、
+追加依頼と初回実行、または同名Step IDを誤統合しない。成功、short-circuit、失敗、中断は
+typed terminal fieldだけで決まり、phase完了や後続event順から成功を推測しない。
+
+statusは現在phase／task／位置と100 task級の折り畳み一覧、結果詳細は全typed terminal taskを
+表示する。FAILEDは自動展開し、失敗理由、検証失敗、変更path、`events.jsonl`導線を示す。
+旧terminal sessionまたは不完全contractは`unsupported`として成功件数を出さない。history行は
+GUI-370のcompact要約を維持する。pollingはraw eventsではなくbounded fieldだけを返し、既存
+ETag／304を維持する。root／proxyのbrowser smokeでdirect reload、再接続、100 task、2実行区間、
+keyboard、heading、`aria-expanded`、非色依存label、mobile幅を確認する。
+
+## GUI-377 — Trial terminal失敗説明・手動リカバリー導線（Issue #377、2026-08-25）
+
+GUI-370の結果詳細へ、共有leaf `eval_events::failure_explanation`から得るtypedかつboundedな
+失敗説明を追加した。最新`human_directive_continuation_started`より後だけを1実行区間として
+投影し、最終区間が成功なら以前の失敗を混ぜない。Issue #375 schema v1の
+`plan_step_started`／terminal pairは`plan_execution_id`と`step_execution_id`を完全一致させ、
+task内の`step_verify_failure`・失敗command、phase failure、release/probe/acceptance、
+`recovery_prompt_saved`を対応付ける。不完全・旧eventは推測せず`unknown` fallbackにする。
+
+表示分類はplanning／execution／verification／release gate／infrastructure／interrupted／
+unknown。場所、主因、独立上限付きevidence、完了phase/task、repair回数、GUI-374 workspace
+stateとpartial artifact state、viable action、repair prompt、Recovery Plan、推奨command 2種、
+継続可否を別fieldで返す。commandがtruncatedならcopy不可であり、全文字列は既存execution
+root redactionを通す。event名/schema、acceptance/verification/release判定、Gate 1 hash、
+`.anvil/` namespaceは変更しない。
+
+recovery artifactはGET-only `api/sessions/{id}/recovery-document`で、Trial token認証ONなら
+tokenを必須とし、管理者が信頼済みloopback向けに認証OFFで起動した場合はtokenなしで読む。
+どちらも現在区間に投影されたexact path 2種だけをnon-symlink canonical workspace境界内から
+読み、copy/openは実行しない。「追加の依頼へ反映」はtextareaをprefillするだけで、保存・
+credential scrub・exact-byte表示・別確認を迂回しない。
+root／proxyのbrowser smokeはdesktop/mobile、heading、accessible name、polite live region、
+keyboard copy/open/apply、GET-only request、legacy fallbackを検証する。文書read成功後は同一pageの
+viewerへsmooth scrollしてfocusを移し、file名と「文書を開きました」をvisibleなpolite live regionで
+通知する。read失敗時は成功通知もfocus移動も行わない。
+
+## CLI-GUI-387 — bounded Recovery Plan auto-run（Issue #387、2026-08-25）
+
+`--recovery-plan-auto-runs 0..20`を共有Configに追加し、top-level 2 action、
+`/ultra-plan-run`、`/run-ultra-plan`、`/resume`の初回UltraPlan失敗後だけ、runnerがattempt内で
+渡したtyped Recovery candidateを既存resume安全検査とYAML検証に通して上限内で自動実行する。
+event、error文字列、suggested commandは実行判断へ使わない。初回実行は
+回数外であり、`0`は旧分岐・event・confirmation identity/hashを維持する。中断、対象外失敗、
+YAML欠落／破損、review-required、workspace drift、path escape、normalized plan循環は停止し、最新の
+honest failureと手動Recovery導線を残す。`max_iterations`とlocal repairは変更しない。
+
+GUI Trialは同じ値をGate 1 identity/hashへ固定し、`1 + N`の総Plan実行上限と時間／コスト上限
+倍率を表示し、確認済みidentityだけからCLI flagを委譲する。
+Gate 2とterminal／履歴詳細は現在回数、使用回数、上限、停止理由を加法表示する。Recovery文書の
+GET-only閲覧／copy境界は不変であり、自動Recovery成功後は過去失敗のRecovery fieldを最終
+completionからclearする。
+
+## GUI — Trial結果のphase境界時刻投影（2026-08-25）
+
+既存のplan生成開始／terminal、Ultra Plan phase開始／terminal、run terminal eventへ
+`occurred_at_epoch_ms`を加法記録する。既存event名と判定fieldは変えず、すでに時刻があるeventは
+上書きしない。session statusはphaseごとの開始時刻、終了時刻、差分durationと、terminal
+`time_profile.total_ms`を優先するトータル処理時間を加法投影する。
+
+結果詳細は共有日時formatterと経過時間formatterでこれらを表示する。過去sessionのようにphase
+境界時刻がない場合はfile metadataやevent順から推測せず`未記録`とし、terminal time profileが
+存在する場合だけトータル処理時間を表示する。honest-failure、acceptance／verification判定、
+event schema version、`.anvil/` namespaceは変更しない。

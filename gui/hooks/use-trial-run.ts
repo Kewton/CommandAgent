@@ -3,16 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { PolledSession } from "../lib/types";
+import { trialRoutePath, withBasePath } from "../lib/base-path";
 import { useTrialCompose, type ScreenStage } from "./use-trial-compose";
 import { useTrialMonitor } from "./use-trial-monitor";
 import { useTrialTerminal } from "./use-trial-terminal";
 
 export type { ScreenStage } from "./use-trial-compose";
 
-export function useTrialRun(terminalHeading: (session: PolledSession) => string) {
+export function useTrialRun(
+  terminalHeading: (session: PolledSession) => string,
+  { loadComposeOptions = true }: { loadComposeOptions?: boolean } = {},
+) {
   const [stage, setStage] = useState<ScreenStage>("compose");
   const priorStageRef = useRef<ScreenStage>(stage);
-  const compose = useTrialCompose({ stage, setStage });
+  const compose = useTrialCompose({ loadOptions: loadComposeOptions, stage, setStage });
   const monitor = useTrialMonitor({
     reconnectSessionId: compose.reconnectSessionId,
     rejectTrialToken: compose.rejectTrialToken,
@@ -94,6 +98,7 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
     monitor.resetForNewRun();
     terminal.resetForNewRun();
     setStage("compose");
+    window.location.assign(withBasePath(trialRoutePath("compose")));
   }
 
   return {
@@ -111,6 +116,7 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
     editProposal: compose.editProposal,
     error: compose.error,
     errorReconnectSessionId: compose.errorReconnectSessionId,
+    evidenceAnnouncement: terminal.evidenceAnnouncement,
     evidenceDocument: terminal.evidenceDocument,
     evidenceError: terminal.evidenceError,
     evidenceLoading: terminal.evidenceLoading,
@@ -133,6 +139,7 @@ export function useTrialRun(terminalHeading: (session: PolledSession) => string)
     providerChanged: compose.providerChanged,
     readArtifact: terminal.readArtifact,
     readEvents: terminal.readEvents,
+    readRecoveryDocument: terminal.readRecoveryDocument,
     reconnectExisting: monitor.reconnectExisting,
     reconnectSessionId: compose.reconnectSessionId,
     rejectTrialToken: compose.rejectTrialToken,

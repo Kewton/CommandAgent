@@ -9,6 +9,7 @@ import type {
   PolledSession,
   PackOptions,
   SessionProposal,
+  SessionPathProjection,
   SessionSpec,
   TrialIntent,
   TrialOptions,
@@ -70,11 +71,16 @@ export async function createSession(
   });
 }
 
-function sessionRequestSpec(spec: SessionSpec): Omit<SessionSpec, "intent"> & {
+function sessionRequestSpec(spec: SessionSpec): Omit<SessionSpec, "intent" | "working_directory"> & {
   intent?: TrialIntent;
+  working_directory?: string;
 } {
-  const { intent, ...request } = spec;
-  return intent === null ? request : { ...request, intent };
+  const { intent, working_directory, ...request } = spec;
+  return {
+    ...request,
+    ...(intent === null ? {} : { intent }),
+    ...(working_directory.trim() === "" ? {} : { working_directory }),
+  };
 }
 
 export async function createDirective(
@@ -119,6 +125,19 @@ export async function fetchSessionArtifacts(
   );
 }
 
+export async function fetchSessionPaths(
+  token: string,
+  sessionId: string,
+): Promise<SessionPathProjection> {
+  return fetchJson<SessionPathProjection>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/paths`),
+    {
+      cache: "no-store",
+      headers: trialAuthorizationHeaders(token),
+    },
+  );
+}
+
 export async function fetchSessionEvents(
   token: string,
   sessionId: string,
@@ -141,6 +160,20 @@ export async function fetchSessionArtifact(
     token,
     apiPath(
       `sessions/${encodeURIComponent(sessionId)}/artifacts`,
+      new URLSearchParams({ path }),
+    ),
+  );
+}
+
+export async function fetchSessionRecoveryDocument(
+  token: string,
+  sessionId: string,
+  path: string,
+): Promise<DocumentRecord> {
+  return fetchTrialDocument(
+    token,
+    apiPath(
+      `sessions/${encodeURIComponent(sessionId)}/recovery-document`,
       new URLSearchParams({ path }),
     ),
   );

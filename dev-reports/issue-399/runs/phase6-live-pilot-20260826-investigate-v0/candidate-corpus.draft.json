@@ -1,0 +1,76 @@
+{
+  "annotation_protocol": {
+    "disagreements": [],
+    "label_author": "phase6-live-runner",
+    "method": "provider generation projected mechanically; variant-blind review pending",
+    "reviewed_at": "pending",
+    "reviewer": "pending-blind-review",
+    "status": "pending"
+  },
+  "cases": [
+    {
+      "allowed_verdicts": [
+        "full"
+      ],
+      "case_id": "investigate-reproducer-defect--pair-01",
+      "forbidden_verdicts": [
+        "partial",
+        "failed",
+        "unverified"
+      ],
+      "goal": "Determine why the supplied reproducer fails before reaching the claimed code path.",
+      "intent": "investigate",
+      "language": "en",
+      "observation": {
+        "claimed_claim_ids": [],
+        "dependency_blocked": false,
+        "final_acceptance": true,
+        "flake_trials": [
+          true,
+          true,
+          true
+        ],
+        "input_tokens": 862,
+        "output_tokens": 586,
+        "planner_calls": 1,
+        "policy_rejection": false,
+        "repairs": 0,
+        "retries": 0,
+        "schema_valid": false,
+        "source_reference": "dev-reports/issue-399/runs/phase6-live-pilot-20260826-investigate-v0/raw/investigate-reproducer-defect/pair-01.json",
+        "verdict": "full",
+        "verified_claims": [],
+        "verify_runtime_ms": 0,
+        "wall_time_ms": 18298
+      },
+      "optional_claims": [
+        {
+          "id": "cause-deferred",
+          "min_strength": "deterministic",
+          "oracle": {
+            "expected": "report does not assert application root cause",
+            "kind": "report"
+          }
+        }
+      ],
+      "polarity": "positive",
+      "profile": "generic",
+      "required_claims": [
+        {
+          "id": "reproducer-defect",
+          "min_strength": "deterministic",
+          "oracle": {
+            "expected": "trace proves fixture parse fails before target function",
+            "kind": "trace"
+          }
+        }
+      ],
+      "size": "medium",
+      "tags": [
+        "reproducer_defect",
+        "observation_not_cause"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.corpus.v0"
+}

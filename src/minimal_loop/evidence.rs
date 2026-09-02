@@ -88,6 +88,7 @@ enum EvidenceKind {
     LivePreviewEvidence,
     NextJsRouteEvidence,
     RequestedContent,
+    InvestigationBinding,
 }
 
 const GENERIC_INTERACTIVE_CONTRACT_CAPABILITY: &str = "generic_interactive_contract";
@@ -120,6 +121,7 @@ impl EvidenceKind {
             Self::LivePreviewEvidence => "live_preview_evidence",
             Self::NextJsRouteEvidence => "nextjs_route_evidence",
             Self::RequestedContent => "requested_content_evidence",
+            Self::InvestigationBinding => "investigation_binding",
         }
     }
 }
@@ -1003,6 +1005,8 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
     }
 
     let workspace = collect_workspace_evidence(root);
+    let investigation_acceptance =
+        crate::minimal_loop::investigation_acceptance::evaluate_workspace(root);
     let browser_state_dimension_scan_text =
         browser_interaction_state_dimension_scan_text(root, browser_evidence_dirs);
     let artifact_obligations = artifact_obligation_evidence_with_hints_and_scan_text(
@@ -1212,6 +1216,20 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
                     &mut evidence_tiers,
                 );
             }
+            "investigation_binding" => {
+                record_bool_evidence_tier(
+                    evidence,
+                    investigation_acceptance.fully_bound,
+                    &mut missing_evidence,
+                    &mut evidence_tiers,
+                );
+                if !investigation_acceptance.fully_bound {
+                    diagnostics.push(format!(
+                        "investigation_binding:{}",
+                        investigation_acceptance.reason
+                    ));
+                }
+            }
             unknown => {
                 missing_evidence.push(format!("unsupported_required_evidence:{unknown}"));
                 evidence_tiers.insert(
@@ -1254,6 +1272,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         &artifact_obligations,
         &workspace,
         generic_interactive_contract,
+        investigation_acceptance.fully_bound,
     );
     let capability_evidence_bindings = capability_evidence_bindings(
         required_capabilities,
@@ -1533,6 +1552,11 @@ fn obligation_repair_targets(
                     "README.md".to_string(),
                     "missing acceptance evidence obligation; add task-specific acceptance notes",
                 ),
+                "investigation" => (
+                    "investigation",
+                    "output/diagnosis.md".to_string(),
+                    "missing investigation obligation; execute and bind the diagnosis to investigation evidence",
+                ),
                 _ => return None,
             };
             Some(ObligationRepairTarget {
@@ -1716,6 +1740,7 @@ fn evidence_kinds_for_capability(capability: &str) -> Vec<EvidenceKind> {
             EvidenceKind::LivePreviewEvidence,
         ],
         "nextjs_route" | "route" => vec![EvidenceKind::NextJsRouteEvidence],
+        "investigation_binding" => vec![EvidenceKind::InvestigationBinding],
         _ => Vec::new(),
     }
 }
@@ -1963,7 +1988,7 @@ fn contains_assertion(content: &str) -> bool {
 fn has_bound_verify_command(verify_commands: &[String], workspace: &WorkspaceEvidence) -> bool {
     verify_commands
         .iter()
-        .any(|command| verify_command_kind(command, workspace).is_strong_for_capability())
+        .any(|command| verify_command_kind(command, workspace).is_semantic_bound_verify())
 }
 
 fn has_build_command_or_dependency_boundary(
@@ -2290,8 +2315,8 @@ enum VerifyCommandKind {
 }
 
 impl VerifyCommandKind {
-    fn is_strong_for_capability(&self) -> bool {
-        matches!(self, Self::Test | Self::Build | Self::StaticSyntax)
+    fn is_semantic_bound_verify(&self) -> bool {
+        matches!(self, Self::Test | Self::Build)
     }
 
     fn is_build(&self) -> bool {
@@ -2307,6 +2332,8 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
     if lower == "npm run build"
         || lower == "pnpm build"
         || lower == "yarn build"
+        || lower == "npx next build"
+        || lower.starts_with("npx next build ")
         || lower == "cargo build"
         || lower.starts_with("cargo build ")
     {
@@ -2335,11 +2362,13 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
         }
         return VerifyCommandKind::Weak("node_test_without_test_artifact".to_string());
     }
-    if lower.starts_with("python3 -m unittest") || lower.starts_with("python -m unittest") {
+    if let Some(reason) =
+        crate::minimal_loop::test_command_evidence::missing_artifact_reason(&lower)
+    {
         if has_test_artifact(workspace) {
             return VerifyCommandKind::Test;
         }
-        return VerifyCommandKind::Weak("unittest_without_test_artifact".to_string());
+        return VerifyCommandKind::Weak(reason.to_string());
     }
     if lower.starts_with("node ") {
         if has_assertion_or_test_evidence(workspace) {
@@ -2431,17 +2460,8 @@ fn workspace_source_signal(
 
 fn has_nextjs_route_evidence(workspace: &WorkspaceEvidence) -> bool {
     route_bound_source_files(workspace).any(|file| {
-        let path = file.rel.to_ascii_lowercase();
-        matches!(
-            path.as_str(),
-            "src/app/page.tsx"
-                | "src/app/page.jsx"
-                | "app/page.tsx"
-                | "app/page.jsx"
-                | "pages/index.tsx"
-                | "pages/index.jsx"
-                | "pages/index.js"
-        ) && !file.content.trim().is_empty()
+        crate::planner::profiles::nextjs::is_canonical_entrypoint_path(&file.rel)
+            && !file.content.trim().is_empty()
     })
 }
 
@@ -2696,6 +2716,7 @@ fn missing_required_obligations(
     artifact_obligations: &[ArtifactObligationEvidence],
     workspace: &WorkspaceEvidence,
     generic_interactive_contract: bool,
+    investigation_fully_bound: bool,
 ) -> Vec<String> {
     let mut missing = Vec::new();
     for obligation in normalize_obligation_roles(required_obligations) {
@@ -2704,6 +2725,7 @@ fn missing_required_obligations(
             artifact_obligations,
             workspace,
             generic_interactive_contract,
+            investigation_fully_bound,
         ) {
             missing.push(obligation);
         }
@@ -2718,7 +2740,12 @@ fn normalize_obligation_roles(required_obligations: &[String]) -> Vec<String> {
         let normalized = obligation.trim().to_ascii_lowercase().replace('-', "_");
         if matches!(
             normalized.as_str(),
-            "setup" | "scaffold" | "implementation" | "verification" | "acceptance_evidence"
+            "setup"
+                | "scaffold"
+                | "implementation"
+                | "verification"
+                | "acceptance_evidence"
+                | "investigation"
         ) && seen.insert(normalized.clone())
         {
             out.push(normalized);
@@ -2732,6 +2759,7 @@ fn obligation_role_satisfied(
     artifact_obligations: &[ArtifactObligationEvidence],
     workspace: &WorkspaceEvidence,
     generic_interactive_contract: bool,
+    investigation_fully_bound: bool,
 ) -> bool {
     match role {
         "setup" => workspace.package_json.is_some() || workspace.cargo_toml,
@@ -2762,6 +2790,7 @@ fn obligation_role_satisfied(
                     .iter()
                     .any(|obligation| obligation.role == "acceptance_evidence")
         }
+        "investigation" => investigation_fully_bound,
         _ => false,
     }
 }
@@ -4413,8 +4442,10 @@ export default function Page() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         let contract = crate::minimal_loop::completion::CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("シューティングでドラゴンを倒すゲーム".to_string()),
             required_capabilities: Vec::new(),
@@ -4565,8 +4596,10 @@ export default function Page() {
         assert!(!without_hints.passed, "{without_hints:?}");
 
         let contract = crate::minimal_loop::completion::CompletionContract {
+            protected_paths: Vec::new(),
             required_paths: vec!["src/app/page.tsx".to_string()],
             verify_commands: Vec::new(),
+            fix_reproducer_command: None,
             profile: None,
             goal: Some("ブロック崩し".to_string()),
             required_capabilities: Vec::new(),
@@ -4749,6 +4782,14 @@ export default function Page() {
                 .weak_evidence
                 .contains(&"node_smoke_without_assertion".to_string())
         );
+    }
+
+    #[test]
+    fn python_syntax_check_does_not_satisfy_bound_behavior_verification() {
+        assert!(!has_bound_verify_command(
+            &["python3 -m py_compile cli/main.py".to_string()],
+            &WorkspaceEvidence::default()
+        ));
     }
 
     #[test]

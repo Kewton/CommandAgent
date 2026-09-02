@@ -36,9 +36,15 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
     ];
     for path in sources {
         let source = std::fs::read_to_string(&path).unwrap();
+        let production_source = source.split("#[cfg(test)]").next().unwrap();
         for token in globally_forbidden {
+            if path == Path::new(SESSION_PATHS_MODULE)
+                && matches!(token, "OpenOptions" | ".write_all(" | ".write(")
+            {
+                continue;
+            }
             assert!(
-                !source.contains(token),
+                !production_source.contains(token),
                 "{} contains forbidden GUI capability {token:?}",
                 path.display()
             );
@@ -96,6 +102,7 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
         "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
         "paths.create_execution_workspace()",
+        "paths.persist_working_directory()",
         "Command::new(&state.commandagent_bin)",
         "command.env_clear()",
         "DELEGATE_PARENT_ENV_ALLOWLIST",
@@ -119,6 +126,11 @@ fn gui_server_mutates_only_init_roots_or_through_the_confirmed_cli_delegate() {
     }
     assert!(
         delegate.find("shell.confirm(confirmation_hash)")
+            < delegate.find("paths.persist_working_directory()"),
+        "selected working directory binding must remain after Gate 1 confirmation"
+    );
+    assert!(
+        delegate.find("paths.persist_working_directory()")
             < delegate.find("paths.create_execution_workspace()"),
         "session workspace creation must remain after Gate 1 confirmation"
     );
@@ -249,6 +261,13 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
         "extension_invalid_request",
         "extension_conflict",
         "extension_verification_failed",
+        "profile_auth_failed",
+        "profile_origin_not_allowed",
+        "profile_body_too_large",
+        "profile_validation_failed",
+        "profile_confirmation_stale",
+        "profile_conflict",
+        "profile_io_failed",
         "resource_too_large",
         "上流プロキシまたはアクセス認証",
         "isTrialTokenRejected",
@@ -298,27 +317,31 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
 
 #[test]
 fn trial_route_is_wiring_only_and_shared_helpers_have_single_owners() {
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
-    assert!(
-        page.lines().count() <= 20,
-        "Trial route entrypoint grew beyond wiring"
-    );
-    for required in ["<Shell", "<TrialRun />"] {
-        assert!(
-            page.contains(required),
-            "Trial route wiring is missing {required:?}"
-        );
-    }
-    for forbidden in ["useState", "useEffect", "fetch(", "data-testid"] {
-        assert!(
-            !page.contains(forbidden),
-            "Trial route entrypoint owns non-wiring behavior {forbidden:?}"
-        );
+    for (path, surface) in [
+        ("gui/app/try/page.tsx", "compose"),
+        ("gui/app/try/status/page.tsx", "status"),
+        ("gui/app/try/history/page.tsx", "history"),
+        ("gui/app/try/history/detail/page.tsx", "detail"),
+    ] {
+        let page = std::fs::read_to_string(path).unwrap();
+        assert!(page.lines().count() <= 25, "{path} grew beyond wiring");
+        for required in ["<Shell", "<TrialPageNavigation"] {
+            assert!(page.contains(required), "{path} is missing {required:?}");
+        }
+        let run = format!("<TrialRun surface=\"{surface}\" />");
+        assert!(page.contains(&run), "{path} is missing {run:?}");
+        for forbidden in ["useState", "useEffect", "fetch(", "data-testid"] {
+            assert!(
+                !page.contains(forbidden),
+                "{path} owns non-wiring behavior {forbidden:?}"
+            );
+        }
     }
 
     let component = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
-    assert!(component.contains("useTrialRun(terminalHeading)"));
+    assert!(component.contains("useTrialRun(terminalHeading, { loadComposeOptions:"));
     assert!(component.contains("data-testid=\"trial-active-stage\""));
+    assert!(component.contains("useTrialPageRouting(surface, stage, sessionId)"));
 
     let hook = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
     for required in ["export function useTrialRun", "useState", "useEffect"] {
@@ -372,13 +395,21 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
+        "data-testid=\"trial-working-directory\"",
+        "update(\"working_directory\"",
+        "working_directory.trim() === \"\" ? {} : { working_directory }",
+        "未指定: sessions/&lt;session-id&gt;",
         "このディレクトリ内の内容だけを作成・変更・削除できます",
         "apiPath(\"trial-options\")",
         "apiPath(\"pack-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
+        "<fieldset className=\"trial-role-fields\" data-testid=\"trial-executor-role\">",
+        "<legend>Executor / 実行</legend>",
         "data-testid=\"trial-provider\"",
         "data-testid=\"trial-planner-provider\"",
+        "<fieldset className=\"trial-role-fields\" data-testid=\"trial-planner-role\">",
+        "<legend>Planner / 計画</legend>",
         "data-testid=\"trial-intent\"",
         "<option value=\"\">自動判定</option>",
         "<option value=\"create\">作成</option>",
@@ -461,8 +492,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     );
     assert_eq!(
         source.matches("disabled={launchIdentityLocked}").count(),
-        5,
-        "goal, token, intent, and both model controls must share the run-stage lock"
+        7,
+        "goal, token, working directory, intent, recovery limit, and both model controls must share the run-stage lock"
     );
     assert_eq!(
         source
@@ -552,6 +583,9 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "emptyGoalGuidance.includes(\"目標を入力してください\")",
         "selectOption(\"lm-studio\")",
         "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
+        "probeTrialRoleLayouts(page)",
+        "providerChangesPreserveModels",
+        "roleLayouts.ok",
         "terminalTitle === expectedTerminalTitle",
         "!terminalTitle.includes(\"✔\")",
         "code: \"trial_workspace_running\"",
@@ -726,7 +760,7 @@ fn trial_token_storage_is_base_path_scoped_and_non_durable() {
 }
 
 #[test]
-fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
+fn gui_style_and_overview_landing_accessibility_contracts_are_pinned() {
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert_eq!(
         styles.matches(".trial-compose > input,").count(),
@@ -739,56 +773,85 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     assert!(styles.contains(
         ".trial-compose > textarea,\n  .trial-compose > input {\n    width: calc(100% - 2rem);"
     ));
+    assert!(styles.contains(".trial-role-fields {\n  min-width: 0;\n  grid-column: 1 / -1;"));
+    assert!(styles.contains(
+        ".trial-role-controls {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));"
+    ));
+    assert!(
+        styles.contains(
+            "  .trial-fields,\n  .trial-role-controls {\n    grid-template-columns: 1fr;"
+        )
+    );
     assert!(styles.contains(
         ".session-index,\n.session-list li,\n.gate-one-grid,\n.execution-panel,\n.terminal-grid {\n  scroll-margin-top: 4.5rem;"
     ));
     for required in [
         ".runtime-summary {\n  flex: 0 0 auto;\n  gap: 0.4rem;\n  white-space: nowrap;",
         ".runtime-badge {\n  flex: 0 0 auto;",
-        ".getting-started-close {\n  flex: 0 0 auto;",
+        ".overview-hero {\n  position: relative;\n  display: grid;",
+        ".overview-hero-actions .primary-action,\n.overview-hero-actions .secondary-action {",
+        ".overview-flow,\n.overview-extension-grid {",
+        ".overview-status-grid article[data-status=\"unavailable\"] > span {",
+        ".getting-started-route-grid {",
         "  .topbar {\n    gap: 0.5rem;",
     ] {
         assert!(
             styles.contains(required),
-            "mobile single-line header contract is missing {required:?}"
+            "Overview responsive or status contract is missing {required:?}"
         );
     }
+    assert!(styles.contains("@media (prefers-reduced-motion: reduce)"));
+    assert!(styles.contains(":focus-visible {\n  outline: 2px solid var(--accent);"));
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
-        "<div className=\"run-table\" role=\"table\" aria-label=\"最近の実行記録\">",
-        "<div role=\"rowgroup\">",
-        "<div className=\"run-table-head\" role=\"row\">",
-        "<span role=\"columnheader\">実行ID</span>",
-        "<div className=\"run-row\" role=\"row\" data-run-id={run.id}",
-        "<strong role=\"cell\"><a href={href}>{run.id}</a></strong>",
-        "<span role=\"cell\">",
-        "useResource<RunIndex>(\"runs\")",
-        "data-testid=\"run-count\"",
-        "data-testid=\"run-total-count\"",
-        "最近の実行記録（一覧に表示中）",
-        "保存済みの実行記録（総数）",
-        "${recentRuns.length} 件",
-        "${runs.data.total} 件",
-        "statusTone(run.state)",
-        "repositoryRunStatusLabel(run.state, run.status_text)",
-        "title={`記録上の状態: ${label}`}",
-        "{label}",
+        "data-testid=\"overview-hero\"",
+        "目標を、検証可能なコードに。",
+        "data-testid=\"overview-trial-cta\"",
+        "data-testid=\"overview-active-session-cta\"",
+        "trialRoutePath(\"status\", activeSession.id)",
+        "安全と検証を先に設計する",
+        "画面で使う 4 つの言葉",
+        "Goal から検証済みの結果まで",
+        "data-testid=\"overview-flow\"",
+        "data-testid=\"overview-extension-layers\"",
+        "コードとレビューが必要",
+        "ローカル登録可能 / assurance は static まで",
+        "計測・レビュー・昇格が必要",
+        "data-testid=\"overview-live-status\"",
+        "data-runtime-state={readinessStatus}",
+        "runtimeUnavailable ? null : runtimeData?.session",
+        "利用可能とは判断しません",
+        "data-testid=\"overview-measurements-link\"",
+        "data-testid=\"overview-runs-link\"",
     ] {
         assert!(
             dashboard.contains(required),
-            "Overview run contract is missing {required:?}"
+            "Overview landing contract is missing {required:?}"
         );
     }
-    assert!(!dashboard.contains("aria-hidden=\"true\""));
+    for removed in [
+        "useResource<RunIndex>",
+        "useResource<DocumentRecord[]>",
+        "data-testid=\"score-time-map\"",
+        "data-testid=\"run-count\"",
+        "data-testid=\"run-total-count\"",
+        "className=\"run-table\"",
+        "className=\"bands-panel\"",
+    ] {
+        assert!(
+            !dashboard.contains(removed),
+            "Overview retains detailed operational dashboard element {removed:?}"
+        );
+    }
 
     let package = std::fs::read_to_string("gui/package.json").unwrap();
     assert!(package.contains("\"axe-core\": \"4.10.3\""));
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
-        "values: [\"aria-required-children\"]",
-        "axeAriaRequiredChildren.violationCount === 0",
-        "axe_aria_required_children: axeAriaRequiredChildren",
+        "values: [\"wcag2a\", \"wcag2aa\"]",
+        "axeLanding.violationCount === 0",
+        "axe_landing: axeLanding",
     ] {
         assert!(
             smoke.contains(required),
@@ -796,28 +859,19 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
         );
     }
 
-    let types = std::fs::read_to_string("gui/lib/types.ts").unwrap();
-    for required in [
-        "export type RunIndex = {",
-        "status: string;",
-        "status_text: string;",
-        "state: RunState;",
-    ] {
-        assert!(
-            types.contains(required),
-            "RunIndex types are missing {required:?}"
-        );
-    }
-
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "--overview-only",
-        "getting_started_close",
-        "running_header_mobile_390",
-        "runtimeHeaderLayout(page)",
-        "singleLineTextLayout(gettingStartedClose)",
-        "statusBadgesArePlainText",
-        "runCountText === expectedRunCountText",
+        "directReloadKeepsTrialCta",
+        "overviewAvoidsOperationalFetches",
+        "probeOverviewRuntimeStates(",
+        "overview-active-smoke-session",
+        "failed.runtime_state === \"unavailable\"",
+        "headingOutline.no_skipped_levels",
+        "trialCtaFocus.outline_style !== \"none\"",
+        "reducedMotion.matches",
+        "trialCtaTarget.height >= 44",
+        "overviewMobile.ok",
     ] {
         assert!(
             smoke.contains(required),
@@ -1044,8 +1098,13 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     for required in [
         "data-testid=\"getting-started\"",
         "data-testid=\"getting-started-sample\"",
-        "data-testid=\"getting-started-close\"",
-        "window.sessionStorage",
+        "FIRST USE / はじめに",
+        "getting-started-route-grid",
+        "trialRoutePath(route)",
+        "extension_root: \"非公開の拡張ルート\"",
+        "[\"02\", \"実行状況\"",
+        "[\"03\", \"実行履歴\"",
+        "[\"04\", \"結果詳細\"",
         "?sample=python-cli",
     ] {
         assert!(
@@ -1053,13 +1112,27 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
             "getting-started guide is missing {required:?}"
         );
     }
+    assert!(!getting_started.contains("window.sessionStorage"));
+    assert!(!getting_started.contains("getting-started-close"));
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
     assert!(styles.contains("grid-template-columns: repeat(5, minmax(0, 1fr));"));
     assert!(styles.contains(".page-intro > p {\n    display: none;"));
 
     let titles = [
         ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
-        ("gui/app/try/layout.tsx", "title: \"トライアル\""),
+        ("gui/app/try/layout.tsx", "title: \"トライアル実行指示\""),
+        (
+            "gui/app/try/status/layout.tsx",
+            "title: \"トライアル実行状況\"",
+        ),
+        (
+            "gui/app/try/history/layout.tsx",
+            "title: \"トライアル実行履歴\"",
+        ),
+        (
+            "gui/app/try/history/detail/layout.tsx",
+            "title: \"トライアル実行結果詳細\"",
+        ),
         ("gui/app/runs/layout.tsx", "title: \"リポジトリ実行記録\""),
         ("gui/app/assets/layout.tsx", "title: \"拡張\""),
         ("gui/app/measurements/layout.tsx", "title: \"計測\""),
@@ -1077,6 +1150,7 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     for required in [
         "state.trial_workspace.runtime_status(authentication_enabled)",
         "execution_root: execution_root(&state)",
+        "extension_root: extension_root(&state)",
         "commandagent_binary: commandagent_binary(&state.commandagent_bin)",
         "trial_authentication:",
         "status: \"unconfigured\"",
@@ -1097,6 +1171,7 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
         "PackSource::Local",
         "PackSource::Admitted",
         "hash と pin が一致しません。",
+        "pack が現在の profile / intent 契約と非互換です。",
         "ローカル優先: 同名のリポジトリ pack より拡張ルートを優先",
         "trial_eligible",
     ] {
@@ -1157,6 +1232,59 @@ fn extension_catalog_keeps_supply_warnings_and_trial_handoff_explicit() {
             "extension smoke is missing {required:?}"
         );
     }
+}
+
+#[test]
+fn extension_catalog_defines_layers_and_keeps_admission_controls_out_of_the_gui() {
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    for required in [
+        "4 レイヤーと依存関係",
+        "Layer 1",
+        "Layer 2",
+        "Layer 3",
+        "Layer 4",
+        "能力語彙",
+        "下書きプロファイル",
+        "パック供給",
+        "Admission",
+        "GUI 変更不可",
+        "data-testid=\"extension-root-status\"",
+        "runtime?.data?.prerequisites.extension_root",
+        "data-testid=\"extension-profile-row\"",
+        "profile.manifest_hash",
+        "profile.assurance_ceiling",
+        "profile_not_admitted",
+        "data-testid=\"profile-registration-issue-link\"",
+        "github.com/Kewton/CommandAgent/issues/new",
+        "Contract / Suite は拡張種別ではありません",
+        "<PackWizard onCatalogChange={packs.refresh} />",
+        "<ProfileWizard enabled={extensionRootStatus === \"ready\"} />",
+        "packUnavailableReason(pack)",
+        "[\"layer\", \"Layer 3 / pack supply\"]",
+        "[\"source\", pack.source_label]",
+        "[\"status\", packStatusLabel(pack)]",
+        "[\"hash\", pack.observed_hash ?? \"算出不可\"]",
+        "[\"assurance\", packAssuranceLabel(pack)]",
+        "[\"登録／昇格\", packRegistrationLabel(pack)]",
+    ] {
+        assert!(
+            page.contains(required),
+            "extension layer page is missing {required:?}"
+        );
+    }
+
+    for forbidden in ["admitExtension", "promoteExtension", "addCapability"] {
+        assert!(
+            !page.contains(forbidden),
+            "extension page exposes forbidden self-promotion control {forbidden:?}"
+        );
+    }
+
+    let trial = std::fs::read_to_string("src/bin/gui_server/gate_one.rs").unwrap();
+    let delegate = std::fs::read_to_string("src/bin/gui_server/delegate.rs").unwrap();
+    assert!(trial.contains("pack_catalog::select_with_locator"));
+    assert!(trial.contains("render_gate_one_for_gui(&identity, &locator)"));
+    assert!(delegate.contains("--pack-hash"));
 }
 
 #[test]
@@ -1278,6 +1406,78 @@ fn extension_pack_wizard_delegates_lifecycle_and_keeps_failures_actionable() {
 }
 
 #[test]
+fn extension_profile_wizard_requires_root_preview_hash_and_restart_boundary() {
+    let page = std::fs::read_to_string("gui/app/assets/page.tsx").unwrap();
+    assert!(page.contains("<ProfileWizard enabled={extensionRootStatus === \"ready\"} />"));
+
+    let wizard = std::fs::read_to_string("gui/components/profile-wizard.tsx").unwrap();
+    for required in [
+        "disabled={!enabled}",
+        "compact manifest v2",
+        "additive overlay v1",
+        "previewExtensionProfile",
+        "registerExtensionProfile",
+        "expected_hash: preview.hash",
+        "profile id",
+        "normalized path",
+        "exact hash",
+        "draft / 未承認",
+        "上限 {preview.assurance_ceiling}",
+        "data-testid=\"profile-wizard-confirm\"",
+        "data-restart-required={registration.restart_required}",
+        "保存成功と runtime 反映は別です。",
+        "restart_required:",
+        "data-testid=\"profile-supply-row\"",
+        "runtime 未反映",
+    ] {
+        assert!(
+            wizard.contains(required),
+            "profile wizard is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "admitted = true",
+        "promote",
+        "method: \"PUT\"",
+        "method: \"DELETE\"",
+    ] {
+        assert!(
+            !wizard.contains(forbidden),
+            "profile wizard exposes forbidden capability {forbidden:?}"
+        );
+    }
+
+    let api = std::fs::read_to_string("gui/lib/extension-api.ts").unwrap();
+    for required in [
+        "extensions/profiles",
+        "extensions/profiles/preview",
+        "extensions/profiles/register",
+        "trialAuthorizationHeaders(token, true)",
+        "restart_required: boolean",
+    ] {
+        assert!(
+            api.contains(required),
+            "profile API is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeProfileWizard",
+        "profile-wizard-preview",
+        "profile-wizard-register",
+        "profile-registration-result",
+        "unavailable_before_restart",
+        "同一内容",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "profile wizard smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupted() {
     let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
     for required in [
@@ -1341,17 +1541,21 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         "assurance_reason:",
         "stop_reason:",
         "failure_diagnostics?:",
+        "failure_explanation?:",
         "next_action:",
         "phases:",
+        "total_processing_duration_ms?:",
+        "task_progress:",
         "event_count:",
         "acceptance_sheet:",
         "section5:",
         "events_path:",
         "identity?:",
+        "recovery_auto_run:",
     ] {
         assert!(schema.contains(field), "PolledSession lost {field}");
     }
-    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 17);
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 25);
 
     let identity = std::fs::read_to_string("gui/components/trial-run-identity.tsx").unwrap();
     for required in [
@@ -1389,6 +1593,196 @@ fn trial_status_polling_revalidates_with_durable_timing_metadata() {
         !smoke.contains("document.body.textContent?.includes(\"running\")"),
         "polling readiness must observe the localized visible status"
     );
+}
+
+#[test]
+fn trial_task_projection_is_typed_read_only_and_keeps_history_compact() {
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    let projection = std::fs::read_to_string("src/bin/gui_server/session_tasks.rs").unwrap();
+    for required in [
+        "task_progress: super::session_tasks::TaskProgress",
+        "session_tasks::project(&events, terminal_is_current)",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "Trial session response lost task projection wiring {required:?}"
+        );
+    }
+    for required in [
+        "plan_step_started",
+        "plan_step_completed",
+        "plan_step_failed",
+        "plan_step_schema_version",
+        "plan_execution_id",
+        "step_execution_id",
+        "short_circuited",
+        "status: if terminal { \"unsupported\" } else { \"pending\" }",
+        "return unsupported()",
+    ] {
+        assert!(
+            projection.contains(required),
+            "typed task projection lost {required:?}"
+        );
+    }
+    let production_projection = projection.split("#[cfg(test)]").next().unwrap();
+    for forbidden in ["ultra_phase_complete", "tui_command_stop", "run_stop"] {
+        assert!(
+            !production_projection.contains(forbidden),
+            "task results must not infer outcomes from {forbidden}"
+        );
+    }
+
+    let component = std::fs::read_to_string("gui/components/trial-task-progress.tsx").unwrap();
+    for required in [
+        "data-testid=\"current-task-progress\"",
+        "現在のフェーズ:",
+        "現在のタスク:",
+        "short-circuited（実行省略）",
+        "FAILED（失敗）",
+        "interrupted（中断）",
+        "aria-expanded={open}",
+        "useState(task.status === \"failed\")",
+        "data-testid=\"task-failure-reason\"",
+        "data-testid=\"task-evidence-link\"",
+        "typed event がなく、未実行か未記録かを推測しません",
+    ] {
+        assert!(component.contains(required), "task UI lost {required:?}");
+    }
+    let history = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    assert!(!history.contains("TrialTaskProgress"));
+    assert!(!history.contains("task_progress"));
+
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert!(styles.contains("content-visibility: auto"));
+    assert!(styles.contains("contain-intrinsic-size: auto 3.25rem"));
+}
+
+#[test]
+fn trial_failure_explanation_is_bounded_typed_and_never_auto_runs_recovery() {
+    let model = std::fs::read_to_string("src/eval_events/failure_explanation.rs").unwrap();
+    for required in [
+        "pub enum FailureCategory",
+        "Planning,",
+        "Execution,",
+        "Verification,",
+        "ReleaseGate,",
+        "Infrastructure,",
+        "Interrupted,",
+        "Unknown,",
+        "const MAX_TEXT_CHARS: usize = 512",
+        "const MAX_COMMAND_CHARS: usize = 2_048",
+        "const MAX_OUTPUT_CHARS: usize = 1_024",
+        "const MAX_LIST_ITEMS: usize = 16",
+        "plan_step_schema_version",
+        "plan_execution_id",
+        "step_execution_id",
+        "changed_paths_truncated",
+        "verification_failures_truncated",
+    ] {
+        assert!(
+            model.contains(required),
+            "failure projection lost {required:?}"
+        );
+    }
+
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    for required in [
+        "failure_explanation: Option<FailureExplanation>",
+        "current_event_interval(&events)",
+        "project_failure(",
+        "WorkspaceState::Available",
+        "explanation.transform_text",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "session projection lost {required:?}"
+        );
+    }
+
+    let router = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(router.contains(
+        "\"/api/sessions/{id}/recovery-document\",\n            get(session_recovery::get),"
+    ));
+    let recovery = std::fs::read_to_string("src/bin/gui_server/session_recovery.rs").unwrap();
+    for required in [
+        "require_trial(&state, &headers, false)",
+        "current_event_interval(&events)",
+        "path is not a current projected recovery document",
+        "checked_existing_path_without_symlinks",
+        "private, no-store",
+    ] {
+        assert!(
+            recovery.contains(required),
+            "recovery reader lost {required:?}"
+        );
+    }
+    for forbidden in [
+        "authentication_enabled()",
+        "Command::new",
+        "tokio::process",
+        "std::fs::write",
+        "post(",
+    ] {
+        assert!(
+            !recovery.contains(forbidden),
+            "read-only recovery reader contains mutation primitive {forbidden:?}"
+        );
+    }
+
+    let component =
+        std::fs::read_to_string("gui/components/trial-failure-explanation.tsx").unwrap();
+    let ordered_sections = [
+        "1. 失敗した場所",
+        "2. 原因",
+        "3. 根拠",
+        "4. 完了範囲と部分成果物",
+        "5. 推奨アクション",
+    ];
+    let mut offset = 0;
+    for section in ordered_sections {
+        let index = component[offset..]
+            .find(section)
+            .unwrap_or_else(|| panic!("failure result lost section {section:?}"));
+        offset += index + section.len();
+    }
+    for required in [
+        "data-testid=\"terminal-failure-explanation\"",
+        "testId=\"copy-recovery-command\"",
+        "testId=\"copy-recovery-yaml-command\"",
+        "testId=\"open-repair-prompt\"",
+        "testId=\"open-recovery-plan\"",
+        "data-testid=\"apply-recovery-to-continuation\"",
+        "aria-live=\"polite\"",
+        "window.requestAnimationFrame",
+        "この画面はリカバリーを自動実行しません",
+        "まだ保存、確認、実行はしていません",
+    ] {
+        assert!(
+            component.contains(required),
+            "failure result lost {required:?}"
+        );
+    }
+    for forbidden in ["persistDirective(", "confirmDirective(", "fetch(", "eval("] {
+        assert!(
+            !component.contains(forbidden),
+            "failure action can bypass confirmation via {forbidden:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
+    for required in [
+        "failure_sections_ordered",
+        "recovery_documents_authenticated_get_only",
+        "recovery_documents_focus_viewer_and_announce",
+        "recovery_command_copied_by_keyboard",
+        "apply_prepared_continuation_only",
+        "failure_heading_hierarchy_valid",
+        "failure_actions_have_accessible_names",
+        "failure_detail_mobile_fits",
+        "legacy_failure_fallback",
+    ] {
+        assert!(smoke.contains(required), "failure smoke lost {required:?}");
+    }
 }
 
 #[test]
@@ -1455,7 +1849,7 @@ fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
         "[\"実行\", \"Gate 2\"]",
         "[\"結果\", \"Gate 3 / 4\"]",
         "data-testid=\"trial-active-stage\"",
-        "data-stage={stage}",
+        "data-stage={displayedStage}",
         "stage === \"compose\"",
         "if (proposal === null || stage !== \"gate_1\") return null",
         "if (stage !== \"gate_2\" || created === null) return null",
@@ -1565,6 +1959,23 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         4,
         "every extension POST handler must require Trial access and Origin"
     );
+
+    let profiles = std::fs::read_to_string("src/bin/gui_server/profile_extensions.rs").unwrap();
+    assert_eq!(
+        profiles
+            .matches("require_access(&state, &headers, false)")
+            .count(),
+        1,
+        "profile catalog must require extension access"
+    );
+    assert_eq!(
+        profiles
+            .matches("require_access(&state, &headers, true)")
+            .count(),
+        2,
+        "profile preview and register must require Origin"
+    );
+    assert!(profiles.contains(".trial_access\n        .authorize(headers, require_origin)"));
 }
 
 #[test]
@@ -1576,6 +1987,9 @@ fn extension_supply_routes_are_post_only_for_mutation_and_delegate_writes_to_sup
         "\"/api/extensions/packs/{id}/{version}/verify\"",
         "\"/api/extensions/packs/{id}/{version}/pin\"",
         "\"/api/extensions/packs/{id}/{version}/retire\"",
+        "\"/api/extensions/profiles\"",
+        "\"/api/extensions/profiles/preview\"",
+        "\"/api/extensions/profiles/register\"",
     ] {
         assert!(entry.contains(route), "missing extension route {route}");
     }
@@ -1605,6 +2019,26 @@ fn extension_supply_routes_are_post_only_for_mutation_and_delegate_writes_to_sup
         assert!(
             extensions.contains(required),
             "extension handler bypasses required supply behavior {required:?}"
+        );
+    }
+
+    let profiles = std::fs::read_to_string("src/bin/gui_server/profile_extensions.rs").unwrap();
+    for required in [
+        "ProfileSupplyRoot::open(root)",
+        "root.preview(",
+        "root.register(",
+        "tokio::task::spawn_blocking",
+        "MAX_PROFILE_BODY_BYTES",
+        "profile_auth_failed",
+        "profile_origin_not_allowed",
+        "profile_body_too_large",
+        "profile_validation_failed",
+        "profile_conflict",
+        "profile_io_failed",
+    ] {
+        assert!(
+            profiles.contains(required),
+            "profile handler bypasses required supply behavior {required:?}"
         );
     }
 }
@@ -1714,6 +2148,11 @@ fn trial_session_files_are_get_only_authenticated_views() {
         "data-testid=\"trial-events-open\"",
         "data-testid={artifact.path === \"summary.md\" ? \"trial-summary-open\" : undefined}",
         "data-testid=\"trial-file-viewer\"",
+        "data-testid=\"trial-document-open-announcement\"",
+        "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
+        "target.focus({ preventScroll: true })",
+        "tabIndex={-1}",
+        "文書を開きました",
         "headers: trialAuthorizationHeaders(token)",
         "直近 200 行",
     ] {
@@ -1726,6 +2165,124 @@ fn trial_session_files_are_get_only_authenticated_views() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     assert_eq!(delegate.matches(".stdout(Stdio::null())").count(), 1);
     assert_eq!(delegate.matches(".stderr(Stdio::null())").count(), 1);
+}
+
+#[test]
+fn trial_session_paths_follow_configured_auth_and_are_copyable() {
+    let entry = std::fs::read_to_string(SERVER_ROOT_MODULE).unwrap();
+    assert!(entry.contains(".route(\"/api/sessions/{id}/paths\", get(session_paths::get))"));
+    assert!(!entry.contains("post(session_paths::get)"));
+
+    let paths = std::fs::read_to_string(SESSION_PATHS_MODULE).unwrap();
+    for required in [
+        "require_trial(&state, &headers, false)",
+        "require_session_id(&id)",
+        "SessionPaths::existing(&workspace, &id)",
+        "execution_workspace_state()",
+        "std::fs::symlink_metadata",
+        "require_canonical_real_directory",
+        "WorkingDirectoryState::Missing",
+        "HeaderValue::from_static(\"private, no-store\")",
+    ] {
+        assert!(
+            paths.contains(required),
+            "session path projection is missing {required:?}"
+        );
+    }
+
+    let component = std::fs::read_to_string("gui/components/trial-session-paths.tsx").unwrap();
+    for required in [
+        "fetchSessionPaths(token, sessionId)",
+        "sessionId === null || (authenticationEnabled && token === \"\")",
+        "if (authenticationEnabled) onAccessTokenRejected(reason, token)",
+        "navigator.clipboard.writeText(path)",
+        "aria-live=\"polite\"",
+        "data-testid=\"copy-working-directory\"",
+        "data-testid=\"trial-working-directory-state\"",
+        "この作業ディレクトリは削除済みです",
+        "実行記録の保存先（作業ディレクトリとは別）",
+        "paths.run_records.events",
+        "paths.run_records.summary",
+    ] {
+        assert!(
+            component.contains(required),
+            "session path UI is missing {required:?}"
+        );
+    }
+    assert!(!component.contains("trial-session-paths-auth-required"));
+    let run = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
+    assert!(run.contains("surface === \"status\" || surface === \"detail\""));
+    assert!(run.contains("<TrialSessionPaths"));
+
+    for public_projection in [
+        "src/bin/gui_server/delegate.rs",
+        "src/bin/gui_server/sessions.rs",
+        "src/bin/gui_server/session_index.rs",
+        "src/bin/gui_server/public_projection.rs",
+        "src/bin/gui_server/runtime_status.rs",
+    ] {
+        let source = std::fs::read_to_string(public_projection).unwrap();
+        assert!(
+            !source.contains("WorkingDirectoryProjection"),
+            "{public_projection} exposes the dedicated absolute path projection"
+        );
+    }
+}
+
+#[test]
+fn trial_result_projects_recorded_phase_timing_without_guessing_legacy_values() {
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    for required in [
+        "started_at_epoch_ms: Option<u64>",
+        "ended_at_epoch_ms: Option<u64>",
+        "duration_ms: Option<u64>",
+        "total_processing_duration_ms: Option<u64>",
+        "STATUS_PROJECTION_REVISION",
+        ".get(\"time_profile\")",
+        ".get(\"total_ms\")",
+    ] {
+        assert!(
+            sessions.contains(required),
+            "session timing projection is missing {required:?}"
+        );
+    }
+
+    let events = std::fs::read_to_string("src/eval_events/timing.rs").unwrap();
+    for required in [
+        "ultra_plan_generation_attempt",
+        "ultra_plan_generation_succeeded",
+        "ultra_plan_generation_failed",
+        "ultra_phase_start",
+        "ultra_phase_complete",
+        "ultra_phase_failed",
+        "occurred_at_epoch_ms",
+    ] {
+        assert!(
+            events.contains(required),
+            "phase boundary timing is missing {required:?}"
+        );
+    }
+
+    let terminal = std::fs::read_to_string("gui/components/trial-terminal.tsx").unwrap();
+    assert!(terminal.contains("<TrialPhaseTiming"));
+    assert!(terminal.contains("session.total_processing_duration_ms ?? null"));
+
+    let timing = std::fs::read_to_string("gui/components/trial-phase-timing.tsx").unwrap();
+    for required in [
+        "data-testid=\"trial-phase-timing\"",
+        "フェーズ別タイムライン",
+        "開始時刻",
+        "終了時刻",
+        "所要時間",
+        "トータル処理時間",
+        "dateTimeLabel(date, \"未記録\")",
+        "このセッションにはフェーズ境界時刻が記録されていない",
+    ] {
+        assert!(
+            timing.contains(required),
+            "phase timing UI is missing {required:?}"
+        );
+    }
 }
 
 #[test]
@@ -1743,6 +2300,10 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         ".lease_snapshot()",
         "started_epoch_seconds",
         "gate: Option<&'static str>",
+        "profile: Option<String>",
+        "intent: Option<String>",
+        "record.identity().profile.clone()",
+        "record.identity().intent.clone()",
         "full_terminal_without_sheet",
         "let right_is_active = active_session == Some(right.id.as_str())",
         ".cmp(&left_is_active)",
@@ -1788,9 +2349,11 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "dateTimeLabel(session.modified_epoch_seconds, \"反映待ち\")",
         "trialGateLabel(session.gate)",
         "trialStatusLabel(session.status)",
-        "href={sessionLink(session.id)}",
-        "return `?session=${encodeURIComponent(id)}`",
-        "data-testid=\"session-reconnect-link\"",
+        "href={sessionLink(session)}",
+        "trialRoutePath(isTerminalSession(session) ? \"detail\" : \"status\", session.id)",
+        "data-testid=\"session-route-link\"",
+        "data-testid=\"session-profile\"",
+        "data-testid=\"session-intent\"",
         "data-testid=\"session-pack\"",
         "session.pack.id}@${session.pack.version}",
         "data-testid=\"trial-session-auth-required\"",
@@ -1800,10 +2363,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
         "previous === \"running\"",
         "runtimeLease === \"idle\" || runtimeLease === \"recovery_required\"",
-        "mergeObservedSession",
         "data-session-id={session.id}",
-        "aria-current={highlight === session.id ? \"true\" : undefined}",
-        "className={highlight === session.id ? \"highlight\" : undefined}",
+        "data-terminal={isTerminalSession(session)}",
     ] {
         assert!(
             panel.contains(required),
@@ -1818,19 +2379,22 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         !panel.contains("useRuntimeStatus("),
         "Trial session index must share the Shell runtime projection"
     );
+    assert!(
+        !panel.contains("<TrialFailureDiagnostics"),
+        "compact Trial history must not expand diagnostics inline"
+    );
     for required in [
         "<TrialSessionIndexPanel",
         "trialTokenAuthEnabled",
         "trialAccessReady",
         "data-testid=\"trial-token-auth-disabled\"",
-        "observedSession={observedSession}",
         "onLeaseChange={setWorkspaceLease}",
-        "revalidationKey={sessionIndexRevision}",
-        "setSessionIndexRevision((current) => current + 1)",
         "data-testid=\"terminal-session-history-link\"",
-        "highlight={highlightedSessionId}",
-        "onHighlightSession={setHighlightedSessionId}",
-        "onHighlightSession(session.id)",
+        "trialRoutePath(\"history\")",
+        "surface === \"compose\" && stage === \"compose\"",
+        "surface === \"status\" && <TrialGateTwo",
+        "surface === \"history\"",
+        "surface === \"detail\"",
         "launchBlockReason !== null",
         "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
     ] {
@@ -1876,8 +2440,8 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "buildBasePath: \"/\"",
         "buildBasePath: \"/proxy/commandagent/\"",
         "no_periodic_index_polling",
-        "optimistic launch row state",
-        "terminal transition refresh",
+        "running history row state",
+        "status_navigated_to_detail",
         "refresh failure removed the last successful row",
         "focus refresh",
         "visible-tab refresh",
@@ -1887,12 +2451,27 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "runtime_paused_while_hidden",
         "runtime_resumed_when_visible",
         "runtime_live_region",
-        "terminal_row_highlighted",
-        "terminal_row_aria_current",
-        "GATE 2（実行） / 開始中",
+        "terminal_row_targeted",
+        "terminal_row_compact",
+        "GATE 2（実行） / 実行中",
         "time_labels_use_shared_ja_jp_format",
         "runtime_badge_navigated",
         "runtime_badge_reconnected",
+        "route_ownership",
+        "legacy_running_to_status",
+        "legacy_terminal_to_detail",
+        "mobile_fits",
+        "live_task_count",
+        "terminal_task_count",
+        "task_payloads_bounded",
+        "128 * 1024",
+        "execution_interval_count",
+        "duplicate_step_ids_kept_separate",
+        "failed_task_auto_expanded",
+        "keyboard_disclosure_expanded",
+        "heading_hierarchy_valid",
+        "task_detail_mobile_fits",
+        "legacy_task_unsupported",
         "resource_revalidation",
         "failure_retained_previous_data",
         "repository-only",
@@ -1910,7 +2489,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     assert!(shell.contains("RuntimeStatusContext.Provider value={runtime}"));
     assert!(shell.contains("label: \"リポジトリ実行記録\""));
     assert!(shell.contains("data-testid=\"runtime-session-link\""));
-    assert!(shell.contains("routePath(\"try\", runtimeSession.id)"));
+    assert!(shell.contains("trialRoutePath(\"status\", runtimeSession.id)"));
     let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
     for required in [
@@ -1922,7 +2501,9 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
             "repository report source UI is missing {required:?}"
         );
     }
-    assert!(dashboard.contains("参照元: workspace/management/runs"));
+    assert!(dashboard.contains("data-testid=\"overview-runs-link\""));
+    assert!(dashboard.contains("workspace/management/runs の記録を確認"));
+    assert!(!dashboard.contains("className=\"run-table\""));
     assert!(panel.contains("実行ルート / .commandagent/runs"));
 }
 
@@ -1999,7 +2580,6 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
     assert_eq!(format.matches("Intl.DateTimeFormat").count(), 1);
     assert!(format.contains("export function dateTimeLabel"));
     for path in [
-        "gui/app/page.tsx",
         "gui/app/runs/page.tsx",
         "gui/components/trial-gate-two.tsx",
         "gui/components/trial-session-index.tsx",
@@ -2011,11 +2591,28 @@ fn gui_visibility_revalidation_and_shared_time_format_are_pinned() {
             "{path} does not use the shared GUI date-time formatter"
         );
     }
+    assert!(
+        !std::fs::read_to_string("gui/app/page.tsx")
+            .unwrap()
+            .contains("dateTimeLabel("),
+        "Overview must leave timestamped records on their owning pages"
+    );
 
     let base_path = std::fs::read_to_string("gui/lib/base-path.ts").unwrap();
-    assert!(base_path.contains("`/try/?session=${encodeURIComponent(resourceId)}`"));
+    for route in [
+        "\"/try/\"",
+        "\"/try/status/\"",
+        "\"/try/history/\"",
+        "\"/try/history/detail/\"",
+    ] {
+        assert!(
+            base_path.contains(route),
+            "Trial route helper is missing {route}"
+        );
+    }
+    assert!(base_path.contains("?session=${encodeURIComponent(sessionId)}"));
     let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
-    assert!(styles.contains(".session-list li.highlight"));
+    assert!(styles.contains(".session-list li:target"));
     assert!(styles.contains("@keyframes session-row-highlight"));
 
     let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
@@ -2041,13 +2638,22 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
 fn trial_ui_sources() -> String {
     [
         "gui/app/try/page.tsx",
+        "gui/app/try/status/page.tsx",
+        "gui/app/try/history/page.tsx",
+        "gui/app/try/history/detail/page.tsx",
+        "gui/components/trial-access-panel.tsx",
         "gui/components/trial-compose.tsx",
         "gui/components/trial-gate-one.tsx",
         "gui/components/trial-gate-two.tsx",
+        "gui/components/trial-failure-explanation.tsx",
+        "gui/components/trial-page-nav.tsx",
         "gui/components/trial-run.tsx",
+        "gui/components/trial-session-paths.tsx",
         "gui/components/trial-terminal.tsx",
+        "gui/components/trial-task-progress.tsx",
         "gui/hooks/use-trial-compose.ts",
         "gui/hooks/use-trial-monitor.ts",
+        "gui/hooks/use-trial-page-routing.ts",
         "gui/hooks/use-trial-run.ts",
         "gui/hooks/use-trial-terminal.ts",
         "gui/lib/trial-api.ts",
