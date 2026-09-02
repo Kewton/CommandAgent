@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -31,6 +32,11 @@ def _design():
 
 def test_valid_design():
     assert validate_design(_design()) == {"valid": True, "errors": []}
+
+
+def test_registered_fixture_is_valid():
+    fixture = ROOT / "tests/fixtures/goal_verify_recovery_confirmatory/design-v1.json"
+    assert validate_design(json.loads(fixture.read_text(encoding="utf-8")))["valid"]
 
 
 def test_rejects_sample_and_safety_changes():
