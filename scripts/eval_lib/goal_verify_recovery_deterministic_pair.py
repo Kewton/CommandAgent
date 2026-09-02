@@ -276,6 +276,9 @@ class ScriptedNextjsFixRecoveryProvider(ScriptedRecoveryProvider):
         )
 
     def _execution_response(self, text: str) -> tuple[dict[str, Any], str]:
+        if self.phase == "nextjs_initial" and not self.initial_inspected:
+            self.initial_inspected = True
+            return self._tool("Read", {"path": "lib/label.mjs"}), "Read"
         if self.phase == "nextjs_recovery_inspect" and not self.inspected:
             self.inspected = True
             return self._tool("Read", {"path": "lib/label.mjs"}), "Read"
@@ -711,6 +714,14 @@ def _build_arm_report(
         endpoint_success = False
     else:
         registered_commands = list(scenario.verify_commands)
+        response_kinds = [row.get("response_kind") for row in provider_trace]
+        read_before_write = any(
+            read_index < write_index
+            for read_index, kind in enumerate(response_kinds)
+            if kind == "Read"
+            for write_index, later_kind in enumerate(response_kinds)
+            if later_kind == "Write"
+        )
         after_passed = any(
             row.get("requirement_id") == "after_passes"
             and row.get("binding_id") == scenario.verify_commands[0]
@@ -728,10 +739,7 @@ def _build_arm_report(
                 row.get("status") == "captured"
                 for row in _events(rows, "recovery_boundary_snapshot")
             ),
-            "scripted_read_write_sequence": all(
-                kind in [row.get("response_kind") for row in provider_trace]
-                for kind in ("Read", "Write")
-            ),
+            "scripted_read_write_sequence": read_before_write,
             "repair_target_changed": target_changed,
             "registered_fix_safety_passed": any(
                 row.get("ok") is True

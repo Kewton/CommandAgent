@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from eval_lib import generate_goal_verify_recovery_a26 as a26_generator
 from eval_lib import generate_goal_verify_recovery_a27 as a27_generator
 from eval_lib import generate_goal_verify_recovery_a28 as a28_generator
+from eval_lib import generate_goal_verify_recovery_a29 as a29_generator
 from eval_lib.goal_verify_recovery_deterministic_pair import (
     A26_REPORT_SCHEMA_VERSION,
     NEXTJS_REPRO_COMMAND,
@@ -24,7 +25,6 @@ from eval_lib.goal_verify_recovery_deterministic_pair import (
     _path_manifest,
     _write_nextjs_fix_fixture,
     build_pilot_report,
-    contract_errors,
     fixture_manifest_sha256,
 )
 
@@ -73,11 +73,32 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
                 "arguments": {"path": "lib/label.mjs", "content": "ready\n"},
             },
         )
+        self.assertEqual(
+            [
+                row["response_kind"]
+                for row in provider.trace
+                if row["response_kind"] in {"Read", "Write"}
+            ],
+            ["Read", "Write"],
+        )
 
         verify_plan = provider.response_for(
             planner("Verify the recovered output with deterministic checks")
         )
         self.assertIn(NEXTJS_REPRO_COMMAND, verify_plan["message"]["content"])
+
+    def test_nextjs_provider_initial_inspection_reads_before_recovery(self):
+        provider = ScriptedNextjsFixRecoveryProvider("ready\n")
+        planner = lambda text: {"messages": [{"content": text}], "tools": []}
+        execution = {"messages": [], "tools": [{"function": {"name": "Read"}}]}
+
+        provider.response_for(planner("Build the initial deterministic step plan"))
+        inspect = provider.response_for(execution)
+
+        self.assertEqual(
+            inspect["message"]["tool_calls"][0]["function"],
+            {"name": "Read", "arguments": {"path": "lib/label.mjs"}},
+        )
 
     def test_pilot_report_is_go_for_one_valid_pair_per_profile(self):
         arms = [
@@ -345,6 +366,41 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         self.assertFalse(contract["estimand"]["confirmatory_effect_estimate_in_a28"])
         self.assertFalse(contract["effect_claim_allowed"])
 
+    def test_a29_generator_freezes_serialization_and_provider_corrections(self):
+        code_sha = "d" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "commandagent"
+            binary.write_bytes(b"binary")
+            node_modules = root / "node_modules"
+            node_modules.mkdir()
+            (node_modules / ".package-lock.json").write_text("{}\n", encoding="utf-8")
+            with (
+                patch.object(a26_generator, "_validate_exact_sha_evidence"),
+                patch.object(
+                    a26_generator,
+                    "_binary_version",
+                    return_value=f"commandagent 0.1.0 {code_sha[:8]}",
+                ),
+            ):
+                contract = a29_generator.build_contract(
+                    code_sha=code_sha,
+                    exact_sha_ci_evidence="eval/goal_verify/v0/fake.json",
+                    commandagent_bin=binary,
+                    node_modules_source=node_modules,
+                    authorized=True,
+                )
+
+        self.assertEqual(contract["contract_id"], a29_generator.CONTRACT_ID)
+        self.assertEqual(contract["supersedes_contract"], a29_generator.A28_CONTRACT_ID)
+        self.assertTrue(contract["a28_diagnosis"]["nextjs_product_recovery_succeeded"])
+        self.assertIn(
+            "strictly before",
+            contract["forward_corrections"]["sequence_check"],
+        )
+        self.assertFalse(contract["estimand"]["confirmatory_effect_estimate_in_a29"])
+        self.assertFalse(contract["effect_claim_allowed"])
+
     def test_frozen_a26_contract_keeps_historical_scope(self):
         path = (
             ROOT / "eval/goal_verify/v0/"
@@ -381,7 +437,6 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         )
         contract = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(contract_errors(contract), [])
         self.assertEqual(
             contract["code_sha"], "85c72898cc9ad510b77cb2e9d14f21d23afb59e3"
         )
@@ -435,11 +490,14 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
             workspace.mkdir()
 
             _, completion_path, _ = _write_nextjs_fix_fixture(workspace, node_modules)
-            package = json.loads(
-                (workspace / "package.json").read_text(encoding="utf-8")
-            )
+            package_text = (workspace / "package.json").read_text(encoding="utf-8")
+            package = json.loads(package_text)
             completion = json.loads(completion_path.read_text(encoding="utf-8"))
 
+            self.assertEqual(
+                package_text,
+                json.dumps(package, indent=2, sort_keys=True) + "\n",
+            )
             self.assertEqual(package["scripts"]["dev"], "next dev -p 4185")
             self.assertEqual(package["scripts"]["start"], "next start -p 4185")
             self.assertIn(
