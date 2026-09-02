@@ -8,6 +8,14 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from eval_lib import generate_goal_verify_recovery_v4_a17 as a17_generator
+from eval_lib import generate_goal_verify_recovery_v4_a21 as a21_generator
+from eval_lib import generate_goal_verify_recovery_v4_a23 as a23_generator
+from eval_lib import generate_goal_verify_recovery_v4_a24 as a24_generator
+from eval_lib import generate_goal_verify_recovery_v4_a25 as a25_generator
+from eval_lib.goal_verify_recovery_a23_report import (
+    authoritative_report_source_errors,
+)
 from eval_lib.goal_verify_recovery_a25_report import (
     RECOVERY_INNER_VERIFY_BINDING_POLICY_V2,
     _valid_inner_recovery_bindings_v2,
@@ -74,6 +82,58 @@ def rejected_attempts(*, changed_field: str | None = None) -> dict:
 
 
 class RecoveryA25ReportTest(unittest.TestCase):
+    def test_a25_freezes_policy_sources_and_independent_denominator(self):
+        contract = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a25-pilot-contract.json"
+        )
+        self.assertEqual(recovery_a25_contract_errors(contract), [])
+        self.assertEqual(
+            contract["code_sha"], "f5f189c2316bbadbd90f64a08174bc2ee6096519"
+        )
+        self.assertEqual(contract["model"], a25_generator.MODEL)
+        self.assertEqual(contract["model_digest"], a25_generator.MODEL_DIGEST)
+        self.assertEqual(
+            contract["smoke"]["selected_pair_ids"],
+            a25_generator.SELECTED_PAIR_IDS,
+        )
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 6)
+        self.assertEqual(
+            contract["smoke"]["recovery_inner_verify_binding_policy"],
+            RECOVERY_INNER_VERIFY_BINDING_POLICY_V2,
+        )
+        self.assertEqual(
+            contract["smoke"]["recovery_fix_terminal_outcome_policy"]["schema_version"],
+            "commandagent.goal_verify.recovery_fix_terminal_policy.v2",
+        )
+        self.assertEqual(
+            contract["smoke"]["recovery_fix_attempt_evidence_policy"]["schema_version"],
+            "commandagent.goal_verify.recovery_fix_attempt_evidence.v2",
+        )
+        self.assertEqual(
+            authoritative_report_source_errors(root=ROOT, contract=contract), []
+        )
+        historical_cases = set()
+        for generator in (
+            a17_generator,
+            a21_generator,
+            a23_generator,
+            a24_generator,
+        ):
+            historical_cases.update(
+                pair_id.rsplit("--pair-", 1)[0]
+                for pair_id in generator.SELECTED_PAIR_IDS
+            )
+        self.assertTrue(
+            set(a25_generator.SELECTED_CASE_IDS).isdisjoint(historical_cases)
+        )
+        self.assertTrue(contract["authorization"]["smoke_collection_authorized"])
+        self.assertFalse(contract["authorization"]["full_collection_authorized"])
+        self.assertFalse(contract["pilot_design"]["effect_claim_allowed"])
+        self.assertIn(
+            "eval-goal-verify-recovery-a25-report.py",
+            contract["pilot_design"]["authoritative_report_command"],
+        )
+
     def test_contract_requires_exact_versioned_inner_binding_policy(self):
         contract = load(
             "eval/goal_verify/v0/phase6-recovery-v4-a24-pilot-contract.json"
