@@ -6,6 +6,21 @@ from typing import Any
 REQUIRED_PROFILES = ("generic", "data", "nextjs")
 
 
+def materialize_pair_ids(seed: int, pairs_per_profile: int = 30) -> list[str]:
+    """Return the frozen pair ordering for a confirmatory campaign."""
+    if pairs_per_profile < 1:
+        raise ValueError("pairs_per_profile must be positive")
+    # Seed is part of the preregistration surface even though ordering is fixed;
+    # rejecting non-integer seeds prevents accidental implicit randomness.
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        raise TypeError("seed must be an integer")
+    return [
+        f"{profile}--pair-{index:02d}"
+        for profile in REQUIRED_PROFILES
+        for index in range(1, pairs_per_profile + 1)
+    ]
+
+
 def design_errors(design: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if design.get("profiles") != list(REQUIRED_PROFILES):

@@ -5,7 +5,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from eval_lib.goal_verify_recovery_confirmatory_design import validate_design
+from eval_lib.goal_verify_recovery_confirmatory_design import (
+    materialize_pair_ids,
+    validate_design,
+)
 
 
 def _design():
@@ -47,3 +50,11 @@ def test_rejects_sample_and_safety_changes():
     assert result["valid"] is False
     assert "pairs_per_profile_must_be_30" in result["errors"]
     assert "discarded_valid_treatment_zero_required" in result["errors"]
+
+
+def test_materializes_frozen_pair_order():
+    pair_ids = materialize_pair_ids(39320260902)
+    assert len(pair_ids) == 90
+    assert pair_ids[:2] == ["generic--pair-01", "generic--pair-02"]
+    assert pair_ids[-1] == "nextjs--pair-30"
+    assert pair_ids == materialize_pair_ids(39320260902)
