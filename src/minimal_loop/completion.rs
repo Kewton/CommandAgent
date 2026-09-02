@@ -201,6 +201,12 @@ impl CompletionContract {
             || !self.deferred_verify_requirements.is_empty()
     }
 
+    pub(crate) fn has_registered_fix_reproducer(&self) -> bool {
+        self.fix_reproducer_command
+            .as_ref()
+            .is_some_and(|command| self.verify_commands.contains(command))
+    }
+
     pub fn dependency_precondition_active(&self, root: &Path) -> bool {
         self.verify_commands.iter().any(|command| {
             build_verifier::requires_next_binary(command)
@@ -476,10 +482,19 @@ impl CompletionContract {
                     acceptance.missing_capabilities.join(",")
                 ));
             }
-            if !acceptance.missing_evidence.is_empty() {
+            let missing_evidence = acceptance
+                .missing_evidence
+                .iter()
+                .filter(|evidence| {
+                    evidence.as_str() != "bound_verify_command"
+                        || !self.has_registered_fix_reproducer()
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if !missing_evidence.is_empty() {
                 report.push_profile_failure(format!(
                     "missing_required_evidence:{}",
-                    acceptance.missing_evidence.join(",")
+                    missing_evidence.join(",")
                 ));
             }
             if !acceptance.weak_evidence.is_empty() {
@@ -2564,6 +2579,38 @@ export class SpaceInvadersEngine {\n\
             Some("python3 cli.py 7")
         );
         assert_eq!(contract.verify_repair_cap, 2);
+    }
+
+    #[test]
+    fn successful_registered_fix_reproducer_satisfies_bound_observation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.py"), "raise SystemExit(0)\n").unwrap();
+        let contract = CompletionContract {
+            protected_paths: Vec::new(),
+            required_paths: vec!["app.py".to_string()],
+            verify_commands: vec!["python3 app.py".to_string()],
+            fix_reproducer_command: Some("python3 app.py".to_string()),
+            profile: None,
+            goal: None,
+            required_capabilities: Vec::new(),
+            deterministic_oracles: Vec::new(),
+            required_evidence: vec![
+                "implementation_artifact".to_string(),
+                "bound_verify_command".to_string(),
+            ],
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 1,
+        }
+        .validate(dir.path())
+        .unwrap();
+
+        assert!(!contract.runtime_acceptance_report(dir.path()).passed);
+        assert!(contract.verify(dir.path()).is_pass());
+
+        std::fs::write(dir.path().join("app.py"), "raise SystemExit(1)\n").unwrap();
+        assert!(!contract.verify(dir.path()).is_pass());
     }
 
     #[test]

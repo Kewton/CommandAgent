@@ -95,6 +95,15 @@ fixtures/recovery-implement-write-required.jsonl = [
   "\"name\":\"Write\"",
   "\"event\":\"plan_step_completed\""
 ]
+fixtures/recovery-implement-contract-verification.jsonl = [
+  "\"event\":\"step_obligation_scope\"",
+  "\"step_kind\":\"implement\"",
+  "\"completion_contract_verification_enabled\":false",
+  "\"event\":\"recovery_fix_safety_verification\"",
+  "\"registered_verify_commands\":[\"python3 app.py fixture/task-02.json\"]",
+  "\"ok\":true",
+  "\"event\":\"recovery_host_final_success_verification_passed\""
+]
 fixtures/contract-bound-data-observation.jsonl = [
   "\"event\":\"fix_regression_contract_bound\"",
   "\"source\":\"completion_contract\"",
@@ -147,6 +156,11 @@ fixtures/recovery-implement-write-required.jsonl = [
   "\"event\":\"no_progress_feedback\"",
   "\"event\":\"tool_execute\",\"name\":\"Write\"",
   "\"event\":\"plan_step_completed\""
+]
+fixtures/recovery-implement-contract-verification.jsonl = [
+  "\"event\":\"step_obligation_scope\"",
+  "\"event\":\"recovery_fix_safety_verification\"",
+  "\"event\":\"recovery_host_final_success_verification_passed\""
 ]
 fixtures/contract-bound-data-observation.jsonl = [
   "\"event\":\"fix_regression_contract_bound\"",

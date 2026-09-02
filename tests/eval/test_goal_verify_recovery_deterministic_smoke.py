@@ -11,9 +11,12 @@ from eval_lib.goal_verify_recovery_deterministic_smoke import (
     DATA_REGRESSION_COMMANDS,
     DATA_REGRESSION_IDS,
     DATA_REPRO_COMMAND,
+    GENERIC_FIX_REPRO_COMMAND,
     ScriptedDataFixRecoveryProvider,
+    ScriptedGenericFixRecoveryProvider,
     ScriptedRecoveryProvider,
     build_data_fix_report,
+    build_generic_fix_report,
     build_report,
 )
 
@@ -153,6 +156,107 @@ class DeterministicRecoverySmokeTest(unittest.TestCase):
                 },
             },
         )
+
+    def test_generic_fix_provider_reads_then_writes_the_app(self):
+        provider = ScriptedGenericFixRecoveryProvider("corrected app\n")
+        planner = lambda text: {"messages": [{"content": text}], "tools": []}
+        execution = {"messages": [], "tools": [{"function": {"name": "Read"}}]}
+
+        provider.response_for(
+            planner("Inspect the current workspace before changing files")
+        )
+        inspect = provider.response_for(execution)
+        self.assertEqual(
+            inspect["message"]["tool_calls"][0]["function"],
+            {"name": "Read", "arguments": {"path": "app.py"}},
+        )
+
+        provider.response_for(
+            planner("Repair the incomplete work for the failed phase")
+        )
+        repair = provider.response_for(execution)
+        self.assertEqual(
+            repair["message"]["tool_calls"][0]["function"],
+            {
+                "name": "Write",
+                "arguments": {"path": "app.py", "content": "corrected app\n"},
+            },
+        )
+
+    def test_generic_fix_report_requires_deferred_then_host_owned_verification(self):
+        rows = [
+            event(
+                "fix_evidence_recorded",
+                requirement_id="before_fails",
+                binding_id=GENERIC_FIX_REPRO_COMMAND,
+                executed=True,
+                outcome="failure",
+            ),
+            event(
+                "recovery_preflight_observation",
+                observation_phase="pre_recovery",
+                status="fail",
+                source="product_visible_completion_contract",
+            ),
+            event(
+                "step_obligation_scope",
+                step_kind="implement",
+                completion_contract_verification_enabled=False,
+            ),
+            event(
+                "recovery_treatment_delta",
+                attempted_product_delta={"changed_paths": ["app.py"]},
+            ),
+            event(
+                "recovery_fix_safety_verification",
+                ok=True,
+                registered_verify_commands=[GENERIC_FIX_REPRO_COMMAND],
+            ),
+            event(
+                "recovery_host_final_success_verification_passed",
+                model_execution_skipped=True,
+                registered_verify_commands=[GENERIC_FIX_REPRO_COMMAND],
+            ),
+            event(
+                "fix_evidence_recorded",
+                requirement_id="after_passes",
+                binding_id=GENERIC_FIX_REPRO_COMMAND,
+                executed=True,
+                outcome="success",
+            ),
+            event(
+                "recovery_preflight_observation",
+                observation_phase="post_recovery",
+                status="pass",
+                source="product_visible_completion_contract",
+            ),
+            event("recovery_promotion_decision", decision="promoted"),
+            event(
+                "recovery_plan_auto_run_complete",
+                recovery_plan_auto_run_stop_reason="recovery_succeeded",
+            ),
+        ]
+        trace = [{"response_kind": "Read"}, {"response_kind": "Write"}]
+        report = build_generic_fix_report(
+            rows=rows,
+            returncode=0,
+            final_app='item.get("amount", 0)\n',
+            provider_trace=trace,
+            binary_sha256="a" * 64,
+            diagnostic_returncode=0,
+        )
+        self.assertTrue(report["instrument_ready"])
+
+        rows[4]["ok"] = False
+        rejected = build_generic_fix_report(
+            rows=rows,
+            returncode=0,
+            final_app='item.get("amount", 0)\n',
+            provider_trace=trace,
+            binary_sha256="a" * 64,
+            diagnostic_returncode=0,
+        )
+        self.assertFalse(rejected["instrument_ready"])
 
     def test_data_fix_report_requires_full_bound_regression_lineage(self):
         rows = [

@@ -1,7 +1,10 @@
 use super::{
-    Config, NodeDependencySetupAuthority, PlanStep, StepKind, StepPromptContext, StepRunError,
-    StepRunOutcome, VerificationReport, merge_unique_strings, merge_verification_report,
+    Config, NodeDependencySetupAuthority, PlanStep, RunSessionOptions, StepKind, StepPromptContext,
+    StepRunError, StepRunOutcome, VerificationReport, merge_unique_strings,
+    merge_verification_report,
 };
+
+use crate::minimal_loop::loop_run::CompletionContractVerification;
 
 pub(super) struct BoundRecoveryFix<'a> {
     config: &'a Config,
@@ -48,6 +51,16 @@ pub(in crate::planner::runner) fn requires_write(
 ) -> anyhow::Result<bool> {
     Ok(step.step_kind() == StepKind::Implement
         && crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_some())
+}
+
+pub(super) fn defer_contract_verification(
+    options: &mut RunSessionOptions,
+    recovery_write_required: bool,
+) {
+    if recovery_write_required {
+        options.completion_contract_verification =
+            CompletionContractVerification::DisabledDuringStep;
+    }
 }
 
 impl BoundRecoveryFix<'_> {
@@ -101,5 +114,28 @@ impl BoundRecoveryFix<'_> {
             "bounded_local_repair",
             self.config.eval_events_path.as_deref(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::minimal_loop::loop_run::{RunSessionOptions, RunSessionStepKind};
+
+    #[test]
+    fn recovery_implement_defers_contract_verification_to_host_observation() {
+        let mut recovery = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
+        defer_contract_verification(&mut recovery, true);
+        assert_eq!(
+            recovery.completion_contract_verification,
+            CompletionContractVerification::DisabledDuringStep
+        );
+
+        let mut ordinary = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
+        defer_contract_verification(&mut ordinary, false);
+        assert_eq!(
+            ordinary.completion_contract_verification,
+            CompletionContractVerification::Enabled
+        );
     }
 }

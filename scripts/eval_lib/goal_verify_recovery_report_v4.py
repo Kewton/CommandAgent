@@ -712,7 +712,7 @@ def _valid_fix_safety_verifications(value: Any) -> bool:
             and row["referenced_api_surface_count"] >= 0
             and isinstance(row.get("referenced_api_violations"), list)
             and isinstance(row.get("changed_paths"), list)
-            and isinstance(row.get("ok"), bool)
+            and row.get("ok") is True
             for row in value
         )
     )

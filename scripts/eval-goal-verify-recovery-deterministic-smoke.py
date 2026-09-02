@@ -20,7 +20,7 @@ def main() -> int:
     parser.add_argument("--timeout-sec", type=int, default=60)
     parser.add_argument(
         "--scenario",
-        choices=("generic-create", "data-fix"),
+        choices=("generic-create", "generic-fix", "data-fix"),
         default="generic-create",
     )
     args = parser.parse_args()

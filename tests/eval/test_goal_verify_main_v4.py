@@ -2530,6 +2530,17 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             self.assertTrue(fidelity_report["checks"][check], fidelity_report)
         self.assertTrue(fidelity_report["checks"]["discarded_valid_treatment_zero"])
 
+        failed_safety = copy.deepcopy(records)
+        failed_safety[0]["recovery_one"]["result"]["recovery_plan_attempts"][
+            "fix_safety_verifications"
+        ][0]["ok"] = False
+        failed_safety_report = build_recovery_report(
+            records=failed_safety, contract=contract
+        )
+        self.assertFalse(
+            failed_safety_report["checks"]["recovery_fix_safety_verification"]
+        )
+
         discarded = copy.deepcopy(records)
         discarded[0]["recovery_one"]["result"]["recovery_plan_attempts"][
             "discarded_valid_treatment"

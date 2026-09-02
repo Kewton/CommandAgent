@@ -33,6 +33,15 @@ DATA_GOAL = (
     "+ excluded rows. Preserve the frozen pytest and contract-check regressions "
     "and regenerate the standard data profile outputs."
 )
+GENERIC_FIX_REPRO_COMMAND = "python3 app.py fixture/task-02.json"
+GENERIC_FIXTURE = (
+    Path(__file__).resolve().parents[2]
+    / "tests/fixtures/goal_verify_v4/main/fix-generic-fixtures/before"
+)
+GENERIC_FIX_GOAL = (
+    "Fix app.py so the registered reproducer handles items without amount while "
+    "preserving the existing command-line interface."
+)
 
 
 def _step_plan(
@@ -288,6 +297,91 @@ class ScriptedDataFixRecoveryProvider(ScriptedRecoveryProvider):
         }
 
 
+class ScriptedGenericFixRecoveryProvider(ScriptedRecoveryProvider):
+    """Deterministic generic/fix provider covering host-owned final verification."""
+
+    def __init__(self, corrected_app: str) -> None:
+        super().__init__()
+        self.corrected_app = corrected_app
+        self.initial_inspected = False
+
+    def _planner_response(self, text: str) -> dict[str, Any]:
+        if "Inspect the current workspace before changing files" in text:
+            self.phase = "generic_recovery_inspect"
+            content = _step_plan(
+                "Inspect generic fix",
+                "inspect-state",
+                "inspect",
+                "Inspect app.py",
+            )
+        elif "Repair the incomplete work for the failed phase" in text:
+            self.phase = "generic_recovery_repair"
+            content = _step_plan(
+                "Repair generic fix",
+                "repair-app",
+                "implement",
+                "Repair app.py",
+                expected_paths=["app.py"],
+                verify=[GENERIC_FIX_REPRO_COMMAND],
+            )
+        elif "Verify the recovered output with deterministic checks" in text:
+            self.phase = "generic_recovery_verify"
+            content = _step_plan(
+                "Verify generic fix",
+                "verify-generic-fix",
+                "verify",
+                "Verify the registered generic fix command",
+                verify=[GENERIC_FIX_REPRO_COMMAND],
+            )
+        else:
+            self.phase = "generic_initial"
+            content = _step_plan(
+                "Inspect generic fix",
+                "inspect-state",
+                "inspect",
+                "Inspect app.py",
+            )
+        return {"content": content}
+
+    def _execution_response(self, text: str) -> tuple[dict[str, Any], str]:
+        if self.phase == "generic_recovery_inspect" and not self.inspected:
+            self.inspected = True
+            return self._tool("Read", {"path": "app.py"}), "Read"
+        if self.phase == "generic_recovery_repair" and not self.wrote:
+            self.wrote = True
+            return (
+                self._tool(
+                    "Write",
+                    {"path": "app.py", "content": self.corrected_app},
+                ),
+                "Write",
+            )
+        if self.phase == "generic_recovery_verify" and not self.verified:
+            self.verified = True
+            return self._tool("Bash", {"command": GENERIC_FIX_REPRO_COMMAND}), "Bash"
+        if "Read only the executed runtime-bound F1 failure evidence" in text:
+            if not self.initial_inspected:
+                self.initial_inspected = True
+                return self._tool("Read", {"path": "app.py"}), "Read"
+            return {"content": "Cause isolated."}, "complete"
+        if (
+            "Repair the F1-diagnosed defect" in text
+            or "Fix F1 failure diagnostic" in text
+        ):
+            return (
+                {"content": "Initial repair intentionally made no edit."},
+                "intentional_no_tool",
+            )
+        return {"content": "Scripted generic Recovery step complete."}, "complete"
+
+    @staticmethod
+    def _tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "content": "",
+            "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
+        }
+
+
 class _ProviderServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -466,6 +560,69 @@ def _write_data_fix_fixture(workspace: Path) -> tuple[Path, Path, str]:
         encoding="utf-8",
     )
     return initial_plan, completion_contract, corrected_pipeline
+
+
+def _write_generic_fix_fixture(workspace: Path) -> tuple[Path, Path, str]:
+    if not GENERIC_FIXTURE.is_dir():
+        raise ValueError(f"generic fix fixture is missing:{GENERIC_FIXTURE}")
+    shutil.copytree(GENERIC_FIXTURE, workspace, dirs_exist_ok=True)
+    app_path = workspace / "app.py"
+    original_app = app_path.read_text(encoding="utf-8")
+    corrected_app = original_app.replace(
+        'item["amount"]',
+        'item.get("amount", 0)',
+    )
+    if corrected_app == original_app:
+        raise ValueError("generic fix fixture no longer contains the expected defect")
+    initial_plan = workspace / "initial.yaml"
+    initial_plan.write_text(
+        "\n".join(
+            [
+                f"goal: {json.dumps(GENERIC_FIX_GOAL)}",
+                'profile: "generic"',
+                'style: "default"',
+                'intent: "fix"',
+                "phases:",
+                '  - id: "reproduce-before"',
+                '    prompt: "Bind and run the deterministic failing reproducer."',
+                '  - id: "isolate-cause"',
+                '    prompt: "Isolate the cause without editing."',
+                '  - id: "repair"',
+                '    prompt: "Repair the diagnosed defect."',
+                '  - id: "verify-regressions"',
+                '    prompt: "Verify the registered reproducer."',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completion_contract = workspace / "completion.json"
+    completion_contract.write_text(
+        json.dumps(
+            {
+                "goal": GENERIC_FIX_GOAL,
+                "profile": "generic",
+                "protected_paths": ["fixture"],
+                "required_paths": ["app.py", "fixture/task-02.json"],
+                "verify_commands": [GENERIC_FIX_REPRO_COMMAND],
+                "fix_reproducer_command": GENERIC_FIX_REPRO_COMMAND,
+                "required_capabilities": [],
+                "required_evidence": [
+                    "implementation_artifact",
+                    "bound_verify_command",
+                ],
+                "required_obligations": ["implementation"],
+                "deferred_verify_requirements": [],
+                "evidence_hint_tokens": ["fixture/task-02.json"],
+                "verify_repair_cap": 1,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return initial_plan, completion_contract, corrected_app
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:
@@ -686,6 +843,102 @@ def build_data_fix_report(
     }
 
 
+def build_generic_fix_report(
+    *,
+    rows: list[dict[str, Any]],
+    returncode: int,
+    final_app: str | None,
+    provider_trace: list[dict[str, Any]],
+    binary_sha256: str,
+    diagnostic_returncode: int,
+) -> dict[str, Any]:
+    preflight = _event(rows, "recovery_preflight_observation")
+    scopes = _event(rows, "step_obligation_scope")
+    safety = _event(rows, "recovery_fix_safety_verification")
+    host_final = _event(rows, "recovery_host_final_success_verification_passed")
+    promotions = _event(rows, "recovery_promotion_decision")
+    completions = _event(rows, "recovery_plan_auto_run_complete")
+    deltas = _event(rows, "recovery_treatment_delta")
+    fix_evidence = _event(rows, "fix_evidence_recorded")
+    checks = {
+        "process_exit_zero": returncode == 0,
+        "initial_reproducer_failed": any(
+            row.get("requirement_id") == "before_fails"
+            and row.get("binding_id") == GENERIC_FIX_REPRO_COMMAND
+            and row.get("executed") is True
+            and row.get("outcome") == "failure"
+            for row in fix_evidence
+        ),
+        "pre_recovery_registered_observation_failed": any(
+            row.get("observation_phase") == "pre_recovery"
+            and row.get("status") == "fail"
+            and row.get("source") == "product_visible_completion_contract"
+            for row in preflight
+        ),
+        "recovery_implement_contract_verification_deferred": any(
+            row.get("step_kind") == "implement"
+            and row.get("completion_contract_verification_enabled") is False
+            for row in scopes
+        ),
+        "scripted_read_write_sequence": all(
+            kind in [row["response_kind"] for row in provider_trace]
+            for kind in ("Read", "Write")
+        ),
+        "app_treatment_delta_observed": any(
+            "app.py" in row.get("attempted_product_delta", {}).get("changed_paths", [])
+            for row in deltas
+        ),
+        "fix_safety_verification_passed": any(
+            row.get("ok") is True
+            and row.get("registered_verify_commands") == [GENERIC_FIX_REPRO_COMMAND]
+            for row in safety
+        ),
+        "host_final_registered_reproducer_passed": any(
+            row.get("model_execution_skipped") is True
+            and row.get("registered_verify_commands") == [GENERIC_FIX_REPRO_COMMAND]
+            for row in host_final
+        ),
+        "after_reproducer_passed": any(
+            row.get("requirement_id") == "after_passes"
+            and row.get("binding_id") == GENERIC_FIX_REPRO_COMMAND
+            and row.get("executed") is True
+            and row.get("outcome") == "success"
+            for row in fix_evidence
+        ),
+        "post_recovery_registered_observation_passed": any(
+            row.get("observation_phase") == "post_recovery"
+            and row.get("status") == "pass"
+            and row.get("source") == "product_visible_completion_contract"
+            for row in preflight
+        ),
+        "treatment_promoted": len(promotions) == 1
+        and promotions[0].get("decision") == "promoted",
+        "recovery_completed": len(completions) == 1
+        and completions[0].get("recovery_plan_auto_run_stop_reason")
+        == "recovery_succeeded",
+        "final_app_repaired": final_app is not None
+        and 'item.get("amount", 0)' in final_app,
+        "diagnostic_reproducer_passed": diagnostic_returncode == 0,
+    }
+    ready = all(checks.values())
+    return {
+        "schema_version": (
+            "commandagent.goal_verify.recovery_generic_fix_deterministic_smoke.v1"
+        ),
+        "inference_role": "instrument_path_coverage_only",
+        "effect_claim_allowed": False,
+        "provider": "local_scripted_ollama_compatible",
+        "scenario": "generic-fix",
+        "binary_sha256": binary_sha256,
+        "event_count": len(rows),
+        "provider_request_count": len(provider_trace),
+        "diagnostic_returncode": diagnostic_returncode,
+        "checks": checks,
+        "instrument_ready": ready,
+        "go_no_go": "GO" if ready else "NO-GO",
+    }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -702,7 +955,7 @@ def run_smoke(
     timeout_sec: int = 60,
     scenario: str = "generic-create",
 ) -> dict[str, Any]:
-    if scenario not in {"generic-create", "data-fix"}:
+    if scenario not in {"generic-create", "generic-fix", "data-fix"}:
         raise ValueError(f"unsupported deterministic Recovery scenario:{scenario}")
     commandagent_bin = commandagent_bin.resolve()
     if not commandagent_bin.is_file():
@@ -722,6 +975,14 @@ def run_smoke(
             intent = "fix"
             profile = "data"
             model = "scripted-data-recovery"
+        elif scenario == "generic-fix":
+            initial_plan, completion_contract, corrected_app = (
+                _write_generic_fix_fixture(workspace)
+            )
+            provider = ScriptedGenericFixRecoveryProvider(corrected_app)
+            intent = "fix"
+            profile = "generic"
+            model = "scripted-generic-fix-recovery"
         else:
             initial_plan, completion_contract = _write_fixture(workspace)
             provider = ScriptedRecoveryProvider()
@@ -834,6 +1095,39 @@ def run_smoke(
                     provider_trace=provider.trace,
                     binary_sha256=_sha256(commandagent_bin),
                     diagnostic_returncodes=diagnostics,
+                )
+            elif scenario == "generic-fix":
+                diagnostic_returncode = subprocess.run(
+                    ["python3", "app.py", "fixture/task-02.json"],
+                    cwd=workspace,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    capture_output=True,
+                    timeout=timeout_sec,
+                    check=False,
+                ).returncode
+                (run_dir / "diagnostic-returncode.json").write_text(
+                    json.dumps(
+                        {GENERIC_FIX_REPRO_COMMAND: diagnostic_returncode},
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                evidence_names.append("diagnostic-returncode.json")
+                app_path = workspace / "app.py"
+                report = build_generic_fix_report(
+                    rows=rows,
+                    returncode=completed.returncode,
+                    final_app=(
+                        app_path.read_text(encoding="utf-8")
+                        if app_path.is_file()
+                        else None
+                    ),
+                    provider_trace=provider.trace,
+                    binary_sha256=_sha256(commandagent_bin),
+                    diagnostic_returncode=diagnostic_returncode,
                 )
             else:
                 artifact_path = workspace / "result.txt"

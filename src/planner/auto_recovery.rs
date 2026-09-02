@@ -865,7 +865,7 @@ fn recovery_preflight_capability_commands(
 ) -> (Vec<String>, Vec<String>) {
     let mut commands = Vec::new();
     let mut unsupported = Vec::new();
-    let input_output_bound = has_registered_fix_reproducer(contract);
+    let input_output_bound = contract.has_registered_fix_reproducer();
     for capability in &contract.required_capabilities {
         if capability == "input_output_contract" && input_output_bound {
             continue;
@@ -1042,7 +1042,7 @@ fn bind_candidate_completion_requirements(
         );
     }
     for evidence in &acceptance.missing_evidence {
-        if evidence == "bound_verify_command" && has_registered_fix_reproducer(contract) {
+        if evidence == "bound_verify_command" && contract.has_registered_fix_reproducer() {
             continue;
         }
         added |= push_unique(
@@ -1086,27 +1086,13 @@ fn completion_acceptance_passes_after_registered_observation(
     contract: &crate::minimal_loop::completion::CompletionContract,
 ) -> bool {
     acceptance.passed
-        || (has_registered_fix_reproducer(contract)
+        || (contract.has_registered_fix_reproducer()
             && acceptance.missing_capabilities.is_empty()
             && acceptance.missing_obligations.is_empty()
             && acceptance.missing_evidence.len() == 1
             && acceptance.missing_evidence[0] == "bound_verify_command"
             && acceptance.weak_evidence.is_empty()
             && !acceptance.inconclusive)
-}
-
-fn has_registered_fix_reproducer(
-    contract: &crate::minimal_loop::completion::CompletionContract,
-) -> bool {
-    contract
-        .fix_reproducer_command
-        .as_ref()
-        .is_some_and(|command| {
-            contract
-                .verify_commands
-                .iter()
-                .any(|verify| verify == command)
-        })
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) -> bool {
