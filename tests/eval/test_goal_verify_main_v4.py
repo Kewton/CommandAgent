@@ -115,7 +115,9 @@ from eval_lib.goal_verify_main_report_v4 import (
     evaluate_main_semantic_review,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
+    RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2,
     RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+    RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2,
     artifact_delta,
     classify_case_recovery_eligibility,
     classify_initial_recovery_eligibility,
@@ -999,6 +1001,21 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertIn(
             "smoke_execution_action_not_recovery_capable",
             recovery_contract_errors(wrong_action),
+        )
+        versioned = copy.deepcopy(contract)
+        versioned["smoke"]["recovery_fix_terminal_outcome_policy"] = copy.deepcopy(
+            RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2
+        )
+        versioned["smoke"]["recovery_fix_attempt_evidence_policy"] = copy.deepcopy(
+            RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2
+        )
+        self.assertEqual(recovery_contract_errors(versioned), [])
+        versioned["smoke"]["recovery_fix_attempt_evidence_policy"]["schema_version"] = (
+            "invalid"
+        )
+        self.assertIn(
+            "recovery_fix_attempt_evidence_policy_invalid",
+            recovery_contract_errors(versioned),
         )
 
     def test_a14_a2_contract_uses_shared_boundary_and_typed_oracles(self):
@@ -2633,6 +2650,92 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertTrue(
             admitted_honest_failure["checks"]["recovery_fix_terminal_completion"]
         )
+        v2_honest_failure = copy.deepcopy(honest_failure_records)
+        v2_honest_failure[0]["comparison"]["recovery_regression_status"] = "fail"
+        contract["smoke"]["recovery_fix_terminal_outcome_policy"] = copy.deepcopy(
+            RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2
+        )
+        admitted_v2_honest_failure = build_recovery_report(
+            records=v2_honest_failure, contract=contract
+        )
+        self.assertTrue(
+            admitted_v2_honest_failure["checks"]["recovery_fix_terminal_completion"]
+        )
+
+        contract["smoke"]["recovery_fix_attempt_evidence_policy"] = copy.deepcopy(
+            RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2
+        )
+        rejected_failed_safety = copy.deepcopy(v2_honest_failure)
+        rejected_attempts = rejected_failed_safety[0]["recovery_one"]["result"][
+            "recovery_plan_attempts"
+        ]
+        rejected_attempts["fix_safety_verifications"][0]["ok"] = False
+        rejected_report = build_recovery_report(
+            records=rejected_failed_safety, contract=contract
+        )
+        self.assertTrue(rejected_report["checks"]["recovery_fix_safety_verification"])
+
+        rejected_before_mutation = copy.deepcopy(v2_honest_failure)
+        before_attempts = rejected_before_mutation[0]["recovery_one"]["result"][
+            "recovery_plan_attempts"
+        ]
+        before_attempts["product_mutation_observations"] = []
+        before_attempts["fix_safety_verifications"] = []
+        before_attempts["treatment_deltas"][0]["attempted_product_delta"] = {
+            "changed_paths": [],
+            "added_paths": [],
+            "removed_paths": [],
+        }
+        before_report = build_recovery_report(
+            records=rejected_before_mutation, contract=contract
+        )
+        self.assertTrue(
+            before_report["checks"]["recovery_product_mutation_observation"]
+        )
+        self.assertTrue(before_report["checks"]["recovery_fix_safety_verification"])
+        self.assertTrue(
+            before_report["checks"]["recovery_bounded_local_repair_max_one"]
+        )
+
+        missing_mutation_evidence = copy.deepcopy(rejected_before_mutation)
+        missing_attempts = missing_mutation_evidence[0]["recovery_one"]["result"][
+            "recovery_plan_attempts"
+        ]
+        missing_attempts["treatment_deltas"][0]["attempted_product_delta"][
+            "changed_paths"
+        ] = ["app.py"]
+        missing_report = build_recovery_report(
+            records=missing_mutation_evidence, contract=contract
+        )
+        self.assertFalse(
+            missing_report["checks"]["recovery_product_mutation_observation"]
+        )
+        self.assertFalse(missing_report["checks"]["recovery_fix_safety_verification"])
+
+        added_without_evidence = copy.deepcopy(rejected_before_mutation)
+        added_attempts = added_without_evidence[0]["recovery_one"]["result"][
+            "recovery_plan_attempts"
+        ]
+        added_attempts["treatment_deltas"][0]["attempted_product_delta"][
+            "added_paths"
+        ] = ["new.py"]
+        added_report = build_recovery_report(
+            records=added_without_evidence, contract=contract
+        )
+        self.assertFalse(
+            added_report["checks"]["recovery_product_mutation_observation"]
+        )
+        self.assertFalse(added_report["checks"]["recovery_fix_safety_verification"])
+
+        promoted_failed_safety = copy.deepcopy(records)
+        promoted_attempts = promoted_failed_safety[0]["recovery_one"]["result"][
+            "recovery_plan_attempts"
+        ]
+        promoted_attempts["fix_safety_verifications"][0]["ok"] = False
+        promoted_report = build_recovery_report(
+            records=promoted_failed_safety, contract=contract
+        )
+        self.assertFalse(promoted_report["checks"]["recovery_fix_safety_verification"])
         honest_failure_records[0]["comparison"]["existing_artifact_harmed"] = True
         harmful_failure = build_recovery_report(
             records=honest_failure_records, contract=contract

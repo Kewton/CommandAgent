@@ -5,12 +5,18 @@ use super::{
 };
 
 use crate::minimal_loop::loop_run::CompletionContractVerification;
+use crate::planner::profile_behavior::ProfileRuntime;
+use crate::{eval_events, planner::recovery_contract_binding::load_fix_origin};
+use serde_json::json;
+use std::path::Path;
 
 pub(super) struct BoundRecoveryFix<'a> {
     config: &'a Config,
     goal: String,
     setup_authority: NodeDependencySetupAuthority,
     requires_write: bool,
+    suppress_profile_post_step_repair: bool,
+    step_id: String,
     safety: crate::planner::recovery_fix_safety::RecoveryFixSafety,
 }
 
@@ -26,6 +32,21 @@ pub(super) fn bind<'a>(
             outcome: StepRunOutcome::default(),
         })
     })?;
+    let step_kind = step.step_kind();
+    let inspection_fix_origin_bound = if step_kind == StepKind::Inspect {
+        load_fix_origin(step_config)
+            .map_err(|err| {
+                Box::new(StepRunError {
+                    message: format!("Recovery fix origin validation failed: {err}"),
+                    outcome: StepRunOutcome::default(),
+                })
+            })?
+            .is_some()
+    } else {
+        false
+    };
+    let suppress_profile_post_step_repair =
+        suppress_profile_post_step_repair(&step_kind, inspection_fix_origin_bound);
     let safety = crate::planner::recovery_fix_safety::RecoveryFixSafety::capture(
         step_config,
         requires_write,
@@ -41,6 +62,8 @@ pub(super) fn bind<'a>(
         goal: prompt_context.overall_goal.clone(),
         setup_authority,
         requires_write,
+        suppress_profile_post_step_repair,
+        step_id: step.id.clone(),
         safety,
     })
 }
@@ -49,8 +72,11 @@ pub(in crate::planner::runner) fn requires_write(
     config: &Config,
     step: &PlanStep,
 ) -> anyhow::Result<bool> {
-    Ok(step.step_kind() == StepKind::Implement
-        && crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_some())
+    Ok(step.step_kind() == StepKind::Implement && load_fix_origin(config)?.is_some())
+}
+
+fn suppress_profile_post_step_repair(step_kind: &StepKind, fix_origin_bound: bool) -> bool {
+    fix_origin_bound && *step_kind == StepKind::Inspect
 }
 
 pub(super) fn defer_contract_verification(
@@ -70,6 +96,27 @@ impl BoundRecoveryFix<'_> {
 
     pub(super) fn local_repair_turns(&self, default: usize) -> usize {
         if self.requires_write { 1 } else { default }
+    }
+
+    pub(super) fn post_repair(
+        &self,
+        runtime: &dyn ProfileRuntime,
+        root: &Path,
+        goal: &str,
+    ) -> anyhow::Result<bool> {
+        if !self.suppress_profile_post_step_repair {
+            return runtime.post_step_repair(root, goal);
+        }
+        eval_events::emit(
+            self.config.eval_events_path.as_deref(),
+            json!({
+                "event": "recovery_read_only_post_step_repair_suppressed",
+                "step_id": self.step_id,
+                "step_kind": "inspect",
+                "reason": "recovery_read_only_inspection",
+            }),
+        );
+        Ok(false)
     }
 
     pub(super) fn merge_verification(
@@ -137,5 +184,18 @@ mod tests {
             ordinary.completion_contract_verification,
             CompletionContractVerification::Enabled
         );
+    }
+
+    #[test]
+    fn recovery_inspection_suppresses_profile_post_step_repair() {
+        assert!(suppress_profile_post_step_repair(&StepKind::Inspect, true));
+        assert!(!suppress_profile_post_step_repair(
+            &StepKind::Implement,
+            true
+        ));
+        assert!(!suppress_profile_post_step_repair(
+            &StepKind::Inspect,
+            false
+        ));
     }
 }

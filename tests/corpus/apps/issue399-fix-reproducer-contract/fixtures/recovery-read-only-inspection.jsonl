@@ -1,0 +1,4 @@
+{"contract_origin":"fix_intent_v0","event":"recovery_fix_contract_resumed","original_intent":"fix","source":"host_owned_recovery_fix_origin"}
+{"binding_mode":"read_only_inspection","binding_stage":"pre_lint","bound_verify_commands":[],"event":"recovery_step_plan_verify_commands_bound","external_oracle_used":false,"source":"product_visible_completion_contract"}
+{"event":"recovery_read_only_post_step_repair_suppressed","reason":"recovery_read_only_inspection","step_id":"inspect-recovery-state","step_kind":"inspect"}
+{"event":"plan_step_completed","step_id":"inspect-recovery-state","step_kind":"inspect"}

@@ -104,6 +104,14 @@ fixtures/recovery-implement-contract-verification.jsonl = [
   "\"ok\":true",
   "\"event\":\"recovery_host_final_success_verification_passed\""
 ]
+fixtures/recovery-read-only-inspection.jsonl = [
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"binding_mode\":\"read_only_inspection\"",
+  "\"event\":\"recovery_read_only_post_step_repair_suppressed\"",
+  "\"reason\":\"recovery_read_only_inspection\"",
+  "\"step_kind\":\"inspect\""
+]
 fixtures/contract-bound-data-observation.jsonl = [
   "\"event\":\"fix_regression_contract_bound\"",
   "\"source\":\"completion_contract\"",
@@ -161,6 +169,12 @@ fixtures/recovery-implement-contract-verification.jsonl = [
   "\"event\":\"step_obligation_scope\"",
   "\"event\":\"recovery_fix_safety_verification\"",
   "\"event\":\"recovery_host_final_success_verification_passed\""
+]
+fixtures/recovery-read-only-inspection.jsonl = [
+  "\"event\":\"recovery_fix_contract_resumed\"",
+  "\"event\":\"recovery_step_plan_verify_commands_bound\"",
+  "\"event\":\"recovery_read_only_post_step_repair_suppressed\"",
+  "\"event\":\"plan_step_completed\""
 ]
 fixtures/contract-bound-data-observation.jsonl = [
   "\"event\":\"fix_regression_contract_bound\"",

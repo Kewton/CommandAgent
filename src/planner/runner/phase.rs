@@ -1288,7 +1288,7 @@ pub(super) fn run_step(
         ..StepRunOutcome::default()
     };
     let overall_goal = prompt_context.overall_goal.as_str();
-    match runtime.post_step_repair(&config.workspace_root, overall_goal) {
+    match recovery_fix.post_repair(runtime, &config.workspace_root, overall_goal) {
         Ok(true) => {
             if let Some(state) = run_setup_authority.as_deref_mut() {
                 state.grant("manifest_repair");
@@ -1554,7 +1554,7 @@ pub(super) fn run_step(
                 &mut outcome.repair_changed_paths,
                 &repair_turn_changed_paths,
             );
-            match runtime.post_step_repair(&config.workspace_root, overall_goal) {
+            match recovery_fix.post_repair(runtime, &config.workspace_root, overall_goal) {
                 Ok(true) => {
                     if let Some(state) = run_setup_authority.as_deref_mut() {
                         state.grant("manifest_repair");

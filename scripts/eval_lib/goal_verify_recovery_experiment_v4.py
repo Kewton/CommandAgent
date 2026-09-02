@@ -26,6 +26,44 @@ RECOVERY_FIX_TERMINAL_OUTCOME_POLICY = {
     ],
 }
 
+RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2 = {
+    "schema_version": "commandagent.goal_verify.recovery_fix_terminal_policy.v2",
+    "allowed_outcomes": [
+        "promoted_success",
+        "honest_not_recoverable_control_retained",
+    ],
+    "honest_not_recoverable_control_retained_requires": [
+        "failed product terminal with a nonzero return code",
+        "recorded failed completion observation",
+        "one failed Recovery attempt ending as not_recoverable",
+        "one rejected promotion decision with recovery_execution_failed",
+        "exactly one retained control and zero restore failures",
+        "unchanged external failure after control retention",
+        "candidate regression status recorded as pass, fail, or not_applicable",
+        "zero adopted regression introduction and zero existing-artifact harm",
+    ],
+}
+
+RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2 = {
+    "schema_version": "commandagent.goal_verify.recovery_fix_attempt_evidence.v2",
+    "promoted_success": (
+        "requires a non-empty product mutation observation and every recorded "
+        "fix-safety verification to pass"
+    ),
+    "rejected_after_product_mutation": (
+        "requires a non-empty schema-complete mutation observation and safety "
+        "verification; failed safety is valid only with rejection and retained control"
+    ),
+    "rejected_before_product_mutation": (
+        "permits empty mutation and safety observations only when the attempted product "
+        "delta is empty, the treatment is rejected, and control is retained"
+    ),
+    "bounded_local_repair": (
+        "counts bounded_local_repair observation stages independently from mutation "
+        "schema completeness and requires at most one"
+    ),
+}
+
 SMOKE_PROFILE_PATH_COVERAGE_POLICY = {
     "allowed_paths": [
         "executed_recovery",
@@ -113,11 +151,17 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         errors.append("recovery_attribution_must_require_one_executed_run")
     smoke = contract.get("smoke", {})
     terminal_policy = smoke.get("recovery_fix_terminal_outcome_policy")
-    if (
-        terminal_policy is not None
-        and terminal_policy != RECOVERY_FIX_TERMINAL_OUTCOME_POLICY
+    if terminal_policy is not None and terminal_policy not in (
+        RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+        RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2,
     ):
         errors.append("recovery_fix_terminal_outcome_policy_invalid")
+    attempt_evidence_policy = smoke.get("recovery_fix_attempt_evidence_policy")
+    if (
+        attempt_evidence_policy is not None
+        and attempt_evidence_policy != RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2
+    ):
+        errors.append("recovery_fix_attempt_evidence_policy_invalid")
     profile_path_policy = smoke.get("real_profile_path_coverage_policy")
     if profile_path_policy is not None and profile_path_policy not in (
         SMOKE_PROFILE_PATH_COVERAGE_POLICY,

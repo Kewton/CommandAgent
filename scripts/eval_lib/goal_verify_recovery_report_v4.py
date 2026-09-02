@@ -4,7 +4,9 @@ import statistics
 from typing import Any
 
 from eval_lib.goal_verify_recovery_experiment_v4 import (
+    RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2,
     RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+    RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2,
 )
 
 
@@ -223,7 +225,16 @@ def build_recovery_report(
                     contract.get("smoke", {}).get(
                         "recovery_fix_terminal_outcome_policy"
                     )
-                    == RECOVERY_FIX_TERMINAL_OUTCOME_POLICY
+                    in (
+                        RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
+                        RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2,
+                    )
+                ),
+                allow_rejected_candidate_regression=(
+                    contract.get("smoke", {}).get(
+                        "recovery_fix_terminal_outcome_policy"
+                    )
+                    == RECOVERY_FIX_TERMINAL_OUTCOME_POLICY_V2
                 ),
             ):
                 recovery_fix_terminal_completion_violations.append(str(pair_id))
@@ -236,21 +247,40 @@ def build_recovery_report(
             mutation_observations = recovery_attempts.get(
                 "product_mutation_observations"
             )
+            attempt_evidence_v2 = (
+                contract.get("smoke", {}).get("recovery_fix_attempt_evidence_policy")
+                == RECOVERY_FIX_ATTEMPT_EVIDENCE_POLICY_V2
+            )
             if contract.get("smoke", {}).get(
                 "require_recovery_product_mutation_observation"
-            ) is True and not _valid_product_mutation_observations(
-                mutation_observations
+            ) is True and not (
+                _valid_product_mutation_observations_v2(
+                    mutation_observations, recovery_attempts
+                )
+                if attempt_evidence_v2
+                else _valid_product_mutation_observations(mutation_observations)
             ):
                 recovery_product_mutation_observation_violations.append(str(pair_id))
             if contract.get("smoke", {}).get(
                 "require_recovery_fix_safety_verification"
-            ) is True and not _valid_fix_safety_verifications(
-                recovery_attempts.get("fix_safety_verifications")
+            ) is True and not (
+                _valid_fix_safety_verifications_v2(
+                    recovery_attempts.get("fix_safety_verifications"),
+                    recovery_attempts,
+                )
+                if attempt_evidence_v2
+                else _valid_fix_safety_verifications(
+                    recovery_attempts.get("fix_safety_verifications")
+                )
             ):
                 recovery_fix_safety_verification_violations.append(str(pair_id))
             if contract.get("smoke", {}).get(
                 "require_recovery_bounded_local_repair_max_one"
-            ) is True and not _bounded_local_repair_at_most_one(mutation_observations):
+            ) is True and not (
+                _bounded_local_repair_at_most_one_v2(mutation_observations)
+                if attempt_evidence_v2
+                else _bounded_local_repair_at_most_one(mutation_observations)
+            ):
                 recovery_bounded_local_repair_violations.append(str(pair_id))
             if contract.get("smoke", {}).get(
                 "require_recovery_treatment_delta"
@@ -699,6 +729,35 @@ def _bounded_local_repair_at_most_one(value: Any) -> bool:
     )
 
 
+def _valid_product_mutation_observations_v2(
+    value: Any, attempts: dict[str, Any]
+) -> bool:
+    if not isinstance(value, list) or not all(
+        _valid_product_mutation_observation(row) for row in value
+    ):
+        return False
+    attempted_paths = _attempted_product_changed_paths(attempts)
+    disposition = _treatment_disposition(attempts)
+    if attempted_paths is None or disposition is None:
+        return False
+    mutation_observed = any(row["mutation_observed"] for row in value)
+    if disposition == "promoted":
+        return bool(attempted_paths) and mutation_observed
+    return mutation_observed or not attempted_paths
+
+
+def _bounded_local_repair_at_most_one_v2(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and all(
+            isinstance(row, dict)
+            and row.get("stage") in {"initial", "bounded_local_repair"}
+            for row in value
+        )
+        and sum(row.get("stage") == "bounded_local_repair" for row in value) <= 1
+    )
+
+
 def _valid_fix_safety_verifications(value: Any) -> bool:
     return (
         isinstance(value, list)
@@ -716,6 +775,88 @@ def _valid_fix_safety_verifications(value: Any) -> bool:
             for row in value
         )
     )
+
+
+def _valid_fix_safety_verifications_v2(value: Any, attempts: dict[str, Any]) -> bool:
+    if not isinstance(value, list) or not all(
+        _valid_fix_safety_verification_schema(row) for row in value
+    ):
+        return False
+    attempted_paths = _attempted_product_changed_paths(attempts)
+    disposition = _treatment_disposition(attempts)
+    if attempted_paths is None or disposition is None:
+        return False
+    mutation_observed = any(
+        row.get("mutation_observed") is True
+        for row in attempts.get("product_mutation_observations", [])
+        if isinstance(row, dict)
+    )
+    if disposition == "promoted":
+        return bool(attempted_paths) and bool(value) and all(row["ok"] for row in value)
+    return bool(value) or (not attempted_paths and not mutation_observed)
+
+
+def _valid_product_mutation_observation(row: Any) -> bool:
+    return (
+        isinstance(row, dict)
+        and row.get("stage") in {"initial", "bounded_local_repair"}
+        and isinstance(row.get("reported_changed_paths"), list)
+        and isinstance(row.get("observed_changed_paths"), list)
+        and isinstance(row.get("no_op_reported_paths"), list)
+        and isinstance(row.get("unreported_mutation_paths"), list)
+        and isinstance(row.get("mutation_observed"), bool)
+    )
+
+
+def _valid_fix_safety_verification_schema(row: Any) -> bool:
+    return (
+        isinstance(row, dict)
+        and isinstance(row.get("registered_verify_commands"), list)
+        and bool(row["registered_verify_commands"])
+        and isinstance(row.get("referenced_api_surface_count"), int)
+        and not isinstance(row.get("referenced_api_surface_count"), bool)
+        and row["referenced_api_surface_count"] >= 0
+        and isinstance(row.get("referenced_api_violations"), list)
+        and isinstance(row.get("changed_paths"), list)
+        and isinstance(row.get("ok"), bool)
+    )
+
+
+def _attempted_product_changed_paths(attempts: dict[str, Any]) -> list[str] | None:
+    deltas = attempts.get("treatment_deltas")
+    if not isinstance(deltas, list) or len(deltas) != 1:
+        return None
+    delta = deltas[0]
+    if not isinstance(delta, dict):
+        return None
+    product = delta.get("attempted_product_delta")
+    if not isinstance(product, dict):
+        return None
+    paths = []
+    for field in ("changed_paths", "added_paths", "removed_paths"):
+        values = product.get(field)
+        if not isinstance(values, list) or not all(
+            isinstance(path, str) for path in values
+        ):
+            return None
+        paths.extend(values)
+    return sorted(set(paths))
+
+
+def _treatment_disposition(attempts: dict[str, Any]) -> str | None:
+    decisions = attempts.get("promotion_decisions")
+    if not isinstance(decisions, list) or len(decisions) != 1:
+        return None
+    decision = decisions[0].get("decision")
+    if decision == "promoted":
+        return "promoted"
+    if (
+        decision == "rejected"
+        and attempts.get("control_retained_count") == 1
+        and attempts.get("control_restore_failed_count") == 0
+    ):
+        return "rejected_control_retained"
+    return None
 
 
 def _valid_recovery_treatment_delta(value: Any) -> bool:
@@ -772,6 +913,7 @@ def _valid_recovery_fix_terminal_completion(
     comparison: dict[str, Any],
     *,
     allow_honest_not_recoverable: bool = False,
+    allow_rejected_candidate_regression: bool = False,
 ) -> bool:
     recovery_attempt = next(
         (row for row in attempts.get("attempts", []) if row.get("attempt_index") == 1),
@@ -818,7 +960,14 @@ def _valid_recovery_fix_terminal_completion(
         and comparison.get("raw_oracle_transition") == "unchanged_fail"
         and comparison.get("initial_oracle_status") == "fail"
         and comparison.get("recovery_oracle_status") == "fail"
-        and comparison.get("recovery_regression_status") == "pass"
+        and (
+            comparison.get("recovery_regression_status") == "pass"
+            or (
+                allow_rejected_candidate_regression
+                and comparison.get("recovery_regression_status")
+                in {"pass", "fail", "not_applicable"}
+            )
+        )
         and comparison.get("regression_introduced") is False
         and comparison.get("existing_artifact_harmed") is False
         and comparison.get("control_snapshot_matches_boundary") is True
