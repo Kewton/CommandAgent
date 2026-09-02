@@ -88,6 +88,35 @@ def contract_errors(contract: dict[str, Any]) -> list[str]:
             errors.append(f"{field}_must_be_false")
     if contract.get("conditional_effect_claim_allowed") is not True:
         errors.append("conditional_effect_claim_not_authorized")
+    evidence_relative = contract.get("exact_sha_ci_evidence")
+    evidence_relative_path = Path(str(evidence_relative))
+    evidence_path = ROOT / evidence_relative_path
+    unsafe_evidence_path = (
+        not isinstance(evidence_relative, str)
+        or evidence_relative_path.is_absolute()
+        or ".." in evidence_relative_path.parts
+    )
+    try:
+        if unsafe_evidence_path:
+            raise OSError("unsafe evidence path")
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        errors.append("exact_sha_ci_evidence_invalid")
+    else:
+        workflows = evidence.get("workflows", [])
+        required = {"CI", "acceptance"}
+        successful = {
+            row.get("name")
+            for row in workflows
+            if row.get("head_sha") == contract.get("code_sha")
+            and row.get("status") == "completed"
+            and row.get("conclusion") == "success"
+        }
+        if (
+            evidence.get("head_sha") != contract.get("code_sha")
+            or not required.issubset(successful)
+        ):
+            errors.append("exact_sha_ci_evidence_invalid")
     task_ids = contract.get("design", {}).get("task_ids", [])
     try:
         actual_task_corpus = task_corpus_sha256(task_ids)

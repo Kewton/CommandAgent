@@ -53,6 +53,8 @@ class ConfirmatoryRunnerTest(unittest.TestCase):
             "conditional_effect_claim_allowed": True,
             "generalization_claim_allowed": False,
             "default_rollout_allowed": False,
+            "code_sha": "cbea9fa019c949394dcfceb6cfedb8b98eafee10",
+            "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-cbea9fa0.json",
             "task_corpus_sha256": task_corpus_sha256(_design()["task_ids"]),
             "authoritative_source_sha256": {
                 relative: sha256_file(ROOT / relative) for relative in SOURCE_PATHS
