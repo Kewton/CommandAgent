@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib import generate_goal_verify_recovery_a26 as a26_generator
+from eval_lib import generate_goal_verify_recovery_a27 as a27_generator
 from eval_lib.goal_verify_recovery_deterministic_pair import (
     A26_REPORT_SCHEMA_VERSION,
     NEXTJS_REPRO_COMMAND,
@@ -18,8 +19,9 @@ from eval_lib.goal_verify_recovery_deterministic_pair import (
     SCENARIOS,
     ScriptedNextjsFixRecoveryProvider,
     _build_arm_report,
+    _path_manifest,
+    _write_nextjs_fix_fixture,
     build_pilot_report,
-    contract_errors,
     fixture_manifest_sha256,
 )
 
@@ -221,20 +223,95 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
             contract["authorization"]["confirmatory_collection_authorized"]
         )
 
-    def test_frozen_a26_contract_matches_authoritative_sources(self):
+    def test_a27_generator_keeps_scope_and_freezes_forward_corrections(self):
+        code_sha = "b" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "commandagent"
+            binary.write_bytes(b"binary")
+            node_modules = root / "node_modules"
+            node_modules.mkdir()
+            (node_modules / ".package-lock.json").write_text("{}\n", encoding="utf-8")
+            with (
+                patch.object(a26_generator, "_validate_exact_sha_evidence"),
+                patch.object(
+                    a26_generator,
+                    "_binary_version",
+                    return_value=f"commandagent 0.1.0 {code_sha[:8]}",
+                ),
+            ):
+                contract = a27_generator.build_contract(
+                    code_sha=code_sha,
+                    exact_sha_ci_evidence="eval/goal_verify/v0/fake.json",
+                    commandagent_bin=binary,
+                    node_modules_source=node_modules,
+                    authorized=True,
+                )
+
+        self.assertEqual(contract["contract_id"], a27_generator.CONTRACT_ID)
+        self.assertEqual(contract["supersedes_contract"], a27_generator.A26_CONTRACT_ID)
+        self.assertEqual(contract["design"]["scenario_order"], list(SCENARIO_ORDER))
+        self.assertIn(
+            "__pycache__",
+            contract["forward_corrections"][
+                "protected_manifest_runtime_cache_exclusions"
+            ],
+        )
+        self.assertIn(
+            "symlinks=True",
+            contract["forward_corrections"]["nextjs_provisioning_symlink_policy"],
+        )
+        self.assertFalse(contract["effect_claim_allowed"])
+
+    def test_frozen_a26_contract_keeps_historical_scope(self):
         path = (
             ROOT / "eval/goal_verify/v0/"
             "phase6-recovery-deterministic-a26-pilot-contract.json"
         )
         contract = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(contract_errors(contract), [])
         self.assertEqual(
             contract["code_sha"], "1ba6a257baa0625e29833584d76a6609518f0dd3"
         )
         self.assertEqual(contract["design"]["scenario_order"], list(SCENARIO_ORDER))
         self.assertFalse(contract["effect_claim_allowed"])
         self.assertFalse(contract["generalization_claim_allowed"])
+
+    def test_protected_manifest_ignores_runtime_cache_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_pipeline.py").write_text("assert True\n", encoding="utf-8")
+            before = _path_manifest(root, ("tests",))
+            cache = tests / "__pycache__"
+            cache.mkdir()
+            (cache / "test_pipeline.pyc").write_bytes(b"cache")
+            pytest_cache = tests / ".pytest_cache"
+            pytest_cache.mkdir()
+            (pytest_cache / "state").write_text("state\n", encoding="utf-8")
+            after = _path_manifest(root, ("tests",))
+
+        self.assertEqual(before, after)
+
+    def test_nextjs_provisioning_copy_preserves_executable_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            executable = source / "next/dist/bin/next"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+            bin_dir = source / ".bin"
+            bin_dir.mkdir()
+            (bin_dir / "next").symlink_to("../next/dist/bin/next")
+            workspace = root / "workspace"
+            workspace.mkdir()
+
+            _write_nextjs_fix_fixture(workspace, source)
+            copied = workspace / "node_modules/.bin/next"
+
+            self.assertTrue(copied.is_symlink())
+            self.assertEqual(copied.readlink(), Path("../next/dist/bin/next"))
 
 
 if __name__ == "__main__":

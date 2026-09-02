@@ -311,7 +311,11 @@ def _write_nextjs_fix_fixture(
         dirs_exist_ok=True,
         ignore=shutil.ignore_patterns(".next", "node_modules"),
     )
-    shutil.copytree(node_modules_source, workspace / "node_modules")
+    shutil.copytree(
+        node_modules_source,
+        workspace / "node_modules",
+        symlinks=True,
+    )
     corrected_label = (NEXTJS_REFERENCE / "lib/label.mjs").read_text(encoding="utf-8")
     if corrected_label == (workspace / "lib/label.mjs").read_text(encoding="utf-8"):
         raise ValueError("Next.js fixture no longer contains the expected defect")
@@ -436,7 +440,12 @@ def _path_manifest(root: Path, relative_texts: tuple[str, ...]) -> dict[str, str
             rows[relative.as_posix()] = sha256_file(target)
         elif target.is_dir():
             for path in sorted(target.rglob("*")):
-                if path.is_file() and not path.is_symlink():
+                relative_path = path.relative_to(root)
+                if (
+                    path.is_file()
+                    and not path.is_symlink()
+                    and not any(part in _RUNTIME_PARTS for part in relative_path.parts)
+                ):
                     rows[path.relative_to(root).as_posix()] = sha256_file(path)
     return rows
 
