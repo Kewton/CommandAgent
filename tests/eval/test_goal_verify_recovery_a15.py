@@ -28,6 +28,7 @@ from eval_lib import generate_goal_verify_recovery_v4_a15_a10_2 as a15_a10_2_gen
 from eval_lib import generate_goal_verify_recovery_v4_a16 as a16_generator
 from eval_lib import generate_goal_verify_recovery_v4_a16_1 as a16_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a17 as a17_generator
+from eval_lib import generate_goal_verify_recovery_v4_a21 as a21_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
@@ -57,6 +58,111 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a21_frozen_contract_preserves_preregistered_exposure_gates(self):
+        contract = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a21-smoke-contract.json"
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["code_sha"], "0c0759d352ee805a48e8cbbd0adfe2ba47fa942c"
+        )
+        self.assertEqual(
+            contract["smoke"]["selected_pair_ids"], a21_generator.SELECTED_PAIR_IDS
+        )
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 27)
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 12)
+        self.assertEqual(
+            contract["smoke"]["minimum_executed_recovery_clusters_per_real_profile"],
+            2,
+        )
+        self.assertTrue(contract["smoke"]["require_preselected_pair_denominator_exact"])
+        self.assertTrue(contract["smoke"]["require_recovery_safety_zero"])
+        self.assertFalse(contract["smoke"]["effect_claim_allowed"])
+        self.assertFalse(contract["authorization"]["full_collection_authorized"])
+        self.assertEqual(
+            [
+                row["sha256"]
+                for row in contract["candidate_exposure_evidence"]["reports"]
+            ],
+            [
+                "9f12fafb425d55c4587465cc773b1a538de818593c983918fc2f9c2d9c11eec9",
+                "0b6fddc582ea685b0b28a9da11eced0e127a0bde2c14097aaf578ca20bf03b12",
+            ],
+        )
+
+    def test_a21_freezes_exact_exposure_denominator_without_effect_claim(self):
+        report = {
+            "schema_version": a21_generator.EXPOSURE_SCHEMA,
+            "inference_role": "candidate_visible_failure_corpus_qualification_only",
+            "effect_claim_allowed": False,
+            "full_effect_execution_authorized": False,
+            "task_registry_sha256": a21_generator.TASK_REGISTRY_SHA256,
+            "workspace_registry_sha256": a21_generator.WORKSPACE_REGISTRY_SHA256,
+            "provisioning_sha256": a21_generator.PROVISIONING_SHA256,
+            "case_count": 9,
+            "case_ids": sorted(a21_generator.SELECTED_CASE_IDS),
+            "profile_case_counts": {"generic": 3, "data": 3, "nextjs": 3},
+            "profiles": ["data", "generic", "nextjs"],
+            "selection_policy": {
+                "all_preselected_cases_remain_in_denominator": True,
+                "runtime_case_exclusion_allowed": False,
+            },
+            "checks": {check: True for check in a21_generator.EXPECTED_EXPOSURE_CHECKS},
+            "corpus_ready_for_preregistration": True,
+            "go_no_go": "GO",
+            "evidence_sha256": {"case-evidence.json": "c" * 64},
+        }
+        repeated = copy.deepcopy(report)
+        repeated["evidence_sha256"]["case-evidence.json"] = "d" * 64
+        contract = a21_generator.build_contract(
+            code_sha="acd2068faca1e9bef0fec36c5e2aad8dc5f4aee5",
+            exact_sha_ci_evidence="eval/goal_verify/v0/exact-sha-ci-acd2068f.json",
+            exposure_bindings=[
+                ("dev-reports/issue-399/a20-1.json", report, "a" * 64),
+                ("dev-reports/issue-399/a20-2.json", repeated, "b" * 64),
+            ],
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 27)
+        self.assertEqual(
+            contract["smoke"]["selected_pair_ids"],
+            a21_generator.SELECTED_PAIR_IDS,
+        )
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 12)
+        self.assertEqual(
+            contract["smoke"]["minimum_executed_recovery_clusters_per_real_profile"],
+            2,
+        )
+        self.assertTrue(contract["smoke"]["require_preselected_pair_denominator_exact"])
+        self.assertTrue(contract["smoke"]["require_recovery_safety_zero"])
+        self.assertFalse(contract["smoke"]["effect_claim_allowed"])
+        self.assertFalse(contract["authorization"]["full_collection_authorized"])
+        self.assertTrue(contract["candidate_exposure_evidence"]["repeated_semantic_go"])
+        invalid_safety_gate = copy.deepcopy(contract)
+        invalid_safety_gate["smoke"]["require_recovery_safety_zero"] = "yes"
+        self.assertIn(
+            "smoke_recovery_safety_zero_gate_invalid",
+            recovery_contract_errors(invalid_safety_gate),
+        )
+
+        selected = copy.deepcopy(repeated)
+        selected["selection_policy"]["runtime_case_exclusion_allowed"] = True
+        with self.assertRaisesRegex(ValueError, "selection policy"):
+            a21_generator.build_contract(
+                code_sha="acd2068faca1e9bef0fec36c5e2aad8dc5f4aee5",
+                exact_sha_ci_evidence=(
+                    "eval/goal_verify/v0/exact-sha-ci-acd2068f.json"
+                ),
+                exposure_bindings=[
+                    ("dev-reports/issue-399/a20-1.json", report, "a" * 64),
+                    ("dev-reports/issue-399/a20-2.json", selected, "b" * 64),
+                ],
+                authorized=True,
+            )
+
     def test_a17_freezes_regression_lineage_smoke_without_weakening_gates(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a16-1-smoke-contract.json")
         amended = a17_generator.build_contract(
