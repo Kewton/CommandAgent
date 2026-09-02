@@ -24,6 +24,7 @@ from eval_lib.goal_verify_recovery_deterministic_pair import (
     _path_manifest,
     _write_nextjs_fix_fixture,
     build_pilot_report,
+    contract_errors,
     fixture_manifest_sha256,
 )
 
@@ -370,6 +371,22 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         )
         self.assertEqual(contract["supersedes_contract"], a27_generator.A26_CONTRACT_ID)
         self.assertFalse(contract["estimand"]["confirmatory_effect_estimate_in_a27"])
+        self.assertFalse(contract["effect_claim_allowed"])
+        self.assertFalse(contract["generalization_claim_allowed"])
+
+    def test_frozen_a28_contract_matches_forward_only_sources(self):
+        path = (
+            ROOT / "eval/goal_verify/v0/"
+            "phase6-recovery-deterministic-a28-pilot-contract.json"
+        )
+        contract = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(contract_errors(contract), [])
+        self.assertEqual(
+            contract["code_sha"], "85c72898cc9ad510b77cb2e9d14f21d23afb59e3"
+        )
+        self.assertEqual(contract["supersedes_contract"], a28_generator.A27_CONTRACT_ID)
+        self.assertFalse(contract["estimand"]["confirmatory_effect_estimate_in_a28"])
         self.assertFalse(contract["effect_claim_allowed"])
         self.assertFalse(contract["generalization_claim_allowed"])
 
