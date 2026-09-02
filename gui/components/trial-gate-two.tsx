@@ -12,8 +12,9 @@ import { TrialTaskProgress } from "./trial-task-progress";
 
 export function TrialGateTwo({ run }: { run: TrialRunState }) {
   const {
-    created, currentPhase, elapsedSeconds, evidenceLoading, executionRef,
+    busy, cancelStop, confirmStop, created, currentPhase, elapsedSeconds, evidenceLoading, executionRef,
     loadArtifacts, monitor, priceDuration, proposal, readEvents, session, stage,
+    stopActiveSession, stopError, stopState,
   } = run;
   if (stage !== "gate_2" || created === null) return null;
   const runIdentity = session?.identity ?? proposal?.identity ?? null;
@@ -79,6 +80,57 @@ export function TrialGateTwo({ run }: { run: TrialRunState }) {
           </div>
         )}
       </div>
+      {created.process_generation !== null && (
+        <div className="trial-stop-control" data-stop-state={stopState} data-testid="trial-stop-control">
+          {stopState === "idle" && (
+            <button
+              className="danger-action"
+              data-testid="trial-stop-open"
+              disabled={busy}
+              onClick={confirmStop}
+              type="button"
+            >
+              実行を停止
+            </button>
+          )}
+          {stopState === "confirming" && (
+            <div
+              aria-labelledby="trial-stop-confirm-heading"
+              aria-modal="false"
+              className="trial-stop-confirmation"
+              data-testid="trial-stop-confirmation"
+              role="alertdialog"
+            >
+              <strong id="trial-stop-confirm-heading">この実行を中断しますか？</strong>
+              <p>対象セッションの現在のプロセスだけに割り込みを送り、結果は Gate 4 として記録します。</p>
+              <div>
+                <button autoFocus onClick={cancelStop} type="button">戻る</button>
+                <button
+                  className="danger-action"
+                  data-testid="trial-stop-confirm"
+                  onClick={() => void stopActiveSession()}
+                  type="button"
+                >
+                  停止する
+                </button>
+              </div>
+            </div>
+          )}
+          {stopState === "stopping" && (
+            <p aria-live="assertive" data-testid="trial-stop-pending" role="status">
+              停止処理中です。プロセスの終了と監査記録を確認しています。
+            </p>
+          )}
+          {stopState === "failed" && (
+            <div className="trial-stop-error" data-testid="trial-stop-error" role="alert">
+              <strong>停止要求を完了できませんでした。</strong>
+              <p>{stopError}</p>
+              <button onClick={confirmStop} type="button">停止を再試行</button>
+              <button onClick={cancelStop} type="button">閉じる</button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="phase-list">
         {session === null && <p>実行状態を取得しています。イベント件数はまだ未取得です。</p>}
         {session !== null && session.phases.length === 0 && (

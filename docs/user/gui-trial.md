@@ -122,8 +122,30 @@ The confirmed intent is shown with the other launch identity fields. It is not
 editable after Gate 1, and reconnect restores it from the persisted
 confirmation rather than re-running request inference.
 
-Use recent events and artifact browsing for bounded, read-only evidence. There
-is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
+Use recent events and artifact browsing for bounded, read-only evidence. An
+active Gate 2 also shows **実行を停止**. The first activation opens a keyboard-
+operable confirmation instead of sending a signal. Confirming sends the exact
+session ID and the server-issued process generation to the authenticated,
+same-Origin stop API; the control then says **停止処理中** until polling
+observes Gate 4. A failed request remains visibly labeled as a failure and can
+be retried. Terminal and recovery-required sessions do not expose the control.
+
+The server starts each confirmed initial run and each confirmed additional
+request in a fresh process group. One accepted stop sends `SIGINT` only to that
+session/generation group and returns HTTP 202. Repeating it while the same
+generation is stopping is idempotent. After a bounded grace period, a group
+that ignored `SIGINT` receives `SIGKILL`. The operation is always an
+interruption/failure outcome, never Gate 3: a cooperative CLI records
+`tui_command_stop.status=interrupted`, `ok=false`, and exits 130; forced or
+otherwise incomplete CLI evidence receives a separate server-owned
+`gui_trial_stop_completed` record with `ok=false`.
+
+The stop API rejects a different session, stale generation, terminal session,
+recovery-required lease, or a process identity from before server restart. The
+lease returns to Idle only after terminal evidence exists and the complete
+target process group is confirmed absent. If that disappearance cannot be
+confirmed, the lease remains Recovery required for operator inspection. There
+is no phase-edit, gate-override, or force-success control in the GUI.
 
 ### Working directory and run records
 
@@ -283,8 +305,9 @@ If the configured binary cannot be spawned, HTTP 500 names its path and the OS
 cause. Because no child exists, the server rolls back that new session and
 releases the lease. Fix `--commandagent-bin` and retry.
 
-`Recovery required` means a confirmed child may have existed but no current
-terminal event was observed. Treat it as a possible live process:
+`Recovery required` means a confirmed child may have existed without a current
+terminal event, or a GUI stop could not confirm that its process group
+disappeared. Treat it as a possible live process:
 
 1. Record the session ID and stop `gui_server` so no new Trial is admitted.
 2. Use operating-system process inspection to verify that no delegated

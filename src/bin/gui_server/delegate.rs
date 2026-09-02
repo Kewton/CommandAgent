@@ -70,6 +70,7 @@ pub struct CreateSessionRequest {
 #[derive(Debug, Serialize)]
 pub struct CreatedSession {
     id: String,
+    process_generation: String,
     started_epoch_seconds: u64,
     gate: &'static str,
     status: &'static str,
@@ -121,12 +122,15 @@ pub async fn create(
         return Err(internal(error));
     }
     let events_path = paths.events_path();
+    let process_generation = super::trial_process::TrialProcesses::new_generation();
     let dispatch = shell.dispatch(|confirmed| {
-        let child = spawn_cli(&state, &paths, confirmed)?;
+        let (process, child) = spawn_cli(&state, &paths, confirmed, &id, &process_generation)?;
         monitor_cli(
             state.trial_workspace.clone(),
+            state.trial_processes.clone(),
             id.clone(),
             events_path.clone(),
+            process,
             child,
         );
         Ok("delegated".to_string())
@@ -153,6 +157,7 @@ pub async fn create(
         StatusCode::ACCEPTED,
         Json(CreatedSession {
             id,
+            process_generation,
             started_epoch_seconds,
             gate: "gate_2",
             status: "starting",
@@ -165,10 +170,13 @@ fn spawn_cli(
     state: &AppState,
     paths: &SessionPaths,
     identity: &ConfirmationIdentity,
-) -> anyhow::Result<Child> {
+    session_id: &str,
+    generation: &str,
+) -> anyhow::Result<(super::trial_process::ProcessIdentity, Child)> {
     paths.create_execution_workspace()?;
     let result = delegated_cli_command(state, paths, identity, DELEGATION_WORKSPACE_CHANGED)
         .and_then(|mut command| {
+            super::trial_process::TrialProcesses::prepare_command(&mut command);
             command
                 .arg("--ultra-plan-run")
                 .arg("--")
@@ -182,7 +190,20 @@ fn spawn_cli(
                 })
         });
     match result {
-        Ok(child) => Ok(child),
+        Ok(child) => match state.trial_processes.register(
+            session_id,
+            generation,
+            child,
+            &paths.events_path(),
+        ) {
+            Ok(process) => Ok(process),
+            Err(error) => match paths.rollback_execution_workspace() {
+                Ok(()) => Err(error),
+                Err(rollback_error) => Err(anyhow::anyhow!(
+                    "{error:#}; failed to roll back session execution workspace: {rollback_error:#}"
+                )),
+            },
+        },
         Err(error) => match paths.rollback_execution_workspace() {
             Ok(()) => Err(error),
             Err(rollback_error) => Err(anyhow::anyhow!(
@@ -194,34 +215,42 @@ fn spawn_cli(
 
 fn monitor_cli(
     lease: TrialWorkspace,
+    processes: super::trial_process::TrialProcesses,
     session_id: String,
     events_path: std::path::PathBuf,
-    mut child: Child,
+    process: super::trial_process::ProcessIdentity,
+    child: Child,
 ) {
     std::thread::spawn(move || {
-        if let Err(error) = child.wait() {
-            eprintln!("GUI delegated CLI wait failed: {error:#}");
-        }
-        lease.complete_from_events(&session_id, &events_path);
+        let process_tree_gone = match processes.wait(&process, child) {
+            Ok(completion) => completion.process_tree_gone,
+            Err(error) => {
+                eprintln!("GUI delegated CLI wait failed: {error:#}");
+                false
+            }
+        };
+        lease.complete_after_process(&session_id, &events_path, process_tree_gone);
     });
 }
 
-pub(super) fn run_cli_continuation(
+pub(super) fn spawn_cli_continuation(
     state: &AppState,
     paths: &SessionPaths,
     identity: &ConfirmationIdentity,
     continuation: &commandagent::tui::boundary_shell::directive::DirectiveContinuation,
-) -> anyhow::Result<String> {
+    session_id: &str,
+    generation: &str,
+) -> anyhow::Result<(super::trial_process::ProcessIdentity, Child)> {
     let mut command =
         delegated_cli_command(state, paths, identity, CONTINUATION_WORKSPACE_CHANGED)?;
-    let status = command
+    super::trial_process::TrialProcesses::prepare_command(&mut command);
+    let child = command
         .arg("--run-ultra-plan")
         .arg(&continuation.plan_path)
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("delegated CLI exited with {status}");
-    }
-    Ok("delegated directive completed".to_string())
+        .spawn()?;
+    state
+        .trial_processes
+        .register(session_id, generation, child, &paths.events_path())
 }
 
 fn delegated_cli_command(

@@ -3,6 +3,7 @@ import { responseError } from "./errors";
 import { responseFailure, thrownFailure, type MonitorFailure } from "./trial-monitor";
 import type {
   CreatedSession,
+  ConfirmedContinuation,
   DirectiveProposal,
   DocumentRecord,
   DocumentSummary,
@@ -11,6 +12,7 @@ import type {
   SessionProposal,
   SessionPathProjection,
   SessionSpec,
+  StopSessionResponse,
   TrialIntent,
   TrialOptions,
   TrialSessionIndex,
@@ -102,8 +104,8 @@ export async function confirmDirective(
   token: string,
   sessionId: string,
   directiveHash: string,
-): Promise<void> {
-  await fetchOk(
+): Promise<ConfirmedContinuation> {
+  return fetchJson<ConfirmedContinuation>(
     apiPath(
       `sessions/${encodeURIComponent(sessionId)}/directives/${encodeURIComponent(directiveHash)}`,
     ),
@@ -111,6 +113,21 @@ export async function confirmDirective(
       method: "POST",
       headers: trialAuthorizationHeaders(token, true),
       body: "{}",
+    },
+  );
+}
+
+export async function stopSession(
+  token: string,
+  sessionId: string,
+  processGeneration: string,
+): Promise<StopSessionResponse> {
+  return fetchJson<StopSessionResponse>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/stop`),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: JSON.stringify({ generation: processGeneration }),
     },
   );
 }
@@ -246,9 +263,4 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) throw await responseError(response);
   return (await response.json()) as T;
-}
-
-async function fetchOk(url: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(url, init);
-  if (!response.ok) throw await responseError(response);
 }

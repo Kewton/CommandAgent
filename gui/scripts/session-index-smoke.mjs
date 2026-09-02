@@ -16,6 +16,7 @@ const trialToken = "commandagent-session-index-smoke-token-000000000100";
 const rejectedTrialToken = `${trialToken}-wrong`;
 const createdSessionId = "0198b9c8-fab8-7000-8000-000000000100";
 const existingSessionId = "0198b9c8-fab8-7000-8000-000000000101";
+const processGeneration = "0198b9c8-fab8-7000-8000-000000000102";
 const scratchRoot = await mkdtemp(join(tmpdir(), "commandagent-session-index-smoke-"));
 const require = createRequire(import.meta.url);
 const { chromium } = require(managedPlaywrightPath);
@@ -130,6 +131,8 @@ async function probeLifecycle(browser, origin, basePath) {
   const sessionRequests = [];
   const sessionPathRequests = [];
   const recoveryDocumentRequests = [];
+  const stopRequests = [];
+  let failNextStop = true;
 
   page.on("request", (request) => {
     if (!isRuntimeStatusRequest(request)) return;
@@ -201,11 +204,36 @@ async function probeLifecycle(browser, origin, basePath) {
         indexSessions = [runningSummary(createdSessionId)];
         await json(route, 202, {
           id: createdSessionId,
+          process_generation: processGeneration,
           started_epoch_seconds: 1_723_769_600,
           gate: "gate_2",
           status: "starting",
           events_path: `.commandagent/runs/${createdSessionId}/events.jsonl`,
         });
+        return;
+      }
+      if (
+        pathname.endsWith(`/api/sessions/${createdSessionId}/stop`) && method === "POST"
+      ) {
+        stopRequests.push({
+          authorization,
+          body: request.postDataJSON(),
+          method,
+          pathname,
+        });
+        if (failNextStop) {
+          failNextStop = false;
+          await json(route, 409, {
+            code: "trial_session_conflict",
+            error: "synthetic stale stop boundary",
+          });
+        } else {
+          await json(route, 202, {
+            session_id: createdSessionId,
+            process_generation: processGeneration,
+            status: "stopping",
+          });
+        }
         return;
       }
       if (pathname.endsWith(`/api/sessions/${createdSessionId}`)) {
@@ -340,6 +368,48 @@ async function probeLifecycle(browser, origin, basePath) {
     const launchNavigatedToStatus =
       launchUrl.pathname === new URL(`${prefix}try/status/`, origin).pathname &&
       launchUrl.searchParams.get("session") === createdSessionId;
+
+    const stopOpen = page.locator("[data-testid='trial-stop-open']");
+    await stopOpen.focus();
+    await page.keyboard.press("Enter");
+    const stopConfirmation = page.locator("[data-testid='trial-stop-confirmation']");
+    await stopConfirmation.waitFor();
+    const stopConfirmationExplicit =
+      (await stopConfirmation.getAttribute("role")) === "alertdialog" &&
+      (await stopConfirmation.innerText()).includes("この実行を中断しますか？");
+    const cancelButton = stopConfirmation.getByRole("button", { name: "戻る" });
+    const cancelKeyboardFocused = await cancelButton.evaluate(
+      (button) => document.activeElement === button,
+    );
+    await page.keyboard.press("Enter");
+    await stopConfirmation.waitFor({ state: "detached" });
+    await stopOpen.focus();
+    await page.keyboard.press("Space");
+    const confirmStop = page.locator("[data-testid='trial-stop-confirm']");
+    await confirmStop.focus();
+    await page.keyboard.press("Enter");
+    const stopError = page.locator("[data-testid='trial-stop-error']");
+    await stopError.waitFor();
+    const stopFailureExplicit =
+      (await stopError.getAttribute("role")) === "alert" &&
+      (await stopError.innerText()).includes("停止要求を完了できませんでした");
+    const retryStop = stopError.getByRole("button", { name: "停止を再試行" });
+    await retryStop.focus();
+    await page.keyboard.press("Enter");
+    await confirmStop.focus();
+    await page.keyboard.press("Enter");
+    const stopPending = page.locator("[data-testid='trial-stop-pending']");
+    await stopPending.waitFor();
+    const stopPendingExplicit =
+      (await stopPending.getAttribute("role")) === "status" &&
+      (await stopPending.innerText()).includes("停止処理中");
+    const stopRequestsBound =
+      stopRequests.length === 2 &&
+      stopRequests.every((request) =>
+        request.method === "POST" &&
+        request.authorization === `Bearer ${trialToken}` &&
+        request.body.generation === processGeneration
+      );
 
     await page.goto(new URL(`${prefix}try/history/`, origin).href, { waitUntil: "networkidle" });
     const launchedRow = page.locator(`#trial-session-${createdSessionId}`);
@@ -719,10 +789,14 @@ async function probeLifecycle(browser, origin, basePath) {
       reconnectRequests.length > 0 && reconnectRequests.every((request) => request.method === "GET");
 
     const copyButton = page.locator("[data-testid='copy-working-directory']");
-    await copyButton.focus();
-    const copyButtonKeyboardFocused = await copyButton.evaluate(
-      (button) => document.activeElement === button,
-    );
+    const copyButtonKeyboardFocused = await page
+      .waitForFunction(() => {
+        const button = document.querySelector("[data-testid='copy-working-directory']");
+        if (!(button instanceof HTMLButtonElement)) return false;
+        button.focus();
+        return document.activeElement === button;
+      })
+      .then((focused) => focused.jsonValue());
     await copyButton.press("Enter");
     await page.waitForFunction(
       (expected) => window.__commandagentCopiedPath === expected,
@@ -798,6 +872,12 @@ async function probeLifecycle(browser, origin, basePath) {
       terminal_row_targeted: terminalRowSelection.targeted,
       terminal_row_compact: terminalDiagnosticsCount === 0,
       launch_navigated_to_status: launchNavigatedToStatus,
+      stop_confirmation_explicit: stopConfirmationExplicit,
+      stop_cancel_keyboard_focused: cancelKeyboardFocused,
+      stop_failure_explicit: stopFailureExplicit,
+      stop_pending_explicit: stopPendingExplicit,
+      stop_requests: stopRequests,
+      stop_requests_bound: stopRequestsBound,
       status_navigated_to_detail: statusNavigatedToDetail,
       live_task_text: liveTaskText,
       live_task_count: liveTaskCount,
@@ -873,6 +953,11 @@ async function probeLifecycle(browser, origin, basePath) {
         terminalRowSelection.targeted &&
         terminalDiagnosticsCount === 0 &&
         launchNavigatedToStatus &&
+        stopConfirmationExplicit &&
+        cancelKeyboardFocused &&
+        stopFailureExplicit &&
+        stopPendingExplicit &&
+        stopRequestsBound &&
         statusNavigatedToDetail &&
         liveTaskCount === 100 &&
         terminalTaskCount === 101 &&
@@ -1486,6 +1571,7 @@ function runningSummary(id) {
 function runningSession(id) {
   return {
     ...terminalSession(id),
+    process_generation: processGeneration,
     gate: "gate_2",
     status: "running",
     verdict: null,
@@ -1500,6 +1586,7 @@ function runningSession(id) {
 function terminalSession(id) {
   return {
     id,
+    process_generation: null,
     started_epoch_seconds: 1_723_769_600,
     average_duration_seconds: null,
     gate: "gate_4",

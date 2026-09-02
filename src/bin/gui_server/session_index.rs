@@ -235,7 +235,7 @@ async fn session_projection(events_path: &Path, execution_root: &Path) -> Sessio
         };
         saw_event = true;
         match event.get("event").and_then(Value::as_str) {
-            Some("tui_command_stop") => {
+            Some("tui_command_stop" | "gui_trial_stop_completed") => {
                 let status = recorded_status(&event);
                 terminal = Some((
                     index,

@@ -41,6 +41,7 @@ pub struct PhaseStatus {
 #[derive(Debug, Serialize)]
 pub struct PolledSession {
     id: String,
+    process_generation: Option<String>,
     started_epoch_seconds: u64,
     average_duration_seconds: Option<f64>,
     gate: String,
@@ -108,7 +109,8 @@ pub async fn status(
     let (current_event_start, interval_index) = current_event_interval(&events);
     let continuation_index = current_event_start.checked_sub(1);
     let current_events = &events[current_event_start..];
-    let terminal = latest_event(current_events, "tui_command_stop");
+    let cli_terminal = latest_event(current_events, "tui_command_stop");
+    let terminal = latest_terminal_event(current_events);
     let run_stop = latest_event(current_events, "run_stop");
     let terminal_is_current = terminal.is_some();
     let terminal_seen = terminal_is_current;
@@ -142,11 +144,11 @@ pub async fn status(
         .filter(|reason| reason.as_str() != "completed")
         .cloned()
         .or(terminal_details.stop_reason);
-    let command_succeeded = terminal
+    let command_succeeded = cli_terminal
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let mut generated = terminal
+    let mut generated = cli_terminal
         .filter(|_| terminal_is_current)
         .map(|_| sheet::generate(confirmed.identity(), Some(&events_path), command_succeeded))
         .transpose()
@@ -163,7 +165,7 @@ pub async fn status(
         .flatten()
         .or_else(|| terminal.and_then(|event| string(event, "assurance_level")))
         .map(str::to_string);
-    let assurance = terminal
+    let assurance = cli_terminal
         .filter(|_| terminal_is_current)
         .and_then(|event| string(event, "assurance_level"))
         .map(str::to_string);
@@ -190,6 +192,7 @@ pub async fn status(
     let phases = phase_statuses(&events);
     let total_processing_duration_ms = total_processing_duration_ms(current_events, &phases);
     let session = PolledSession {
+        process_generation: state.trial_processes.generation_for(&id),
         id,
         started_epoch_seconds,
         average_duration_seconds,
@@ -312,8 +315,7 @@ fn is_acceptance_outcome_event(event: &Value) -> bool {
 }
 
 fn project_terminal_details(events: &[Value]) -> TerminalDetails {
-    let terminal =
-        latest_event(events, "run_stop").or_else(|| latest_event(events, "tui_command_stop"));
+    let terminal = latest_terminal_event(events);
     TerminalDetails {
         assurance_reason: terminal
             .and_then(|event| non_empty_string(event, "assurance_reason"))
@@ -351,7 +353,10 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
     let mut terminal_seen = false;
     for event in events {
         let event_name = string(event, "event").unwrap_or("unknown");
-        if matches!(event_name, "tui_command_stop" | "run_stop") {
+        if matches!(
+            event_name,
+            "tui_command_stop" | "run_stop" | "gui_trial_stop_completed"
+        ) {
             terminal_seen = true;
             let ended_at = event_epoch_ms(event);
             for phase in phases.values_mut() {
@@ -660,6 +665,22 @@ pub(super) async fn require_current_terminal(path: &FilePath) -> Result<(), Sess
     Ok(())
 }
 
+pub(super) async fn require_current_active(path: &FilePath) -> Result<(), SessionError> {
+    let events = parse_events(&read_events(path).await?)?;
+    let continuation = latest_event_index(&events, "human_directive_continuation_started");
+    let terminal = events.iter().enumerate().rev().find_map(|(index, event)| {
+        matches!(
+            string(event, "event"),
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed")
+        )
+        .then_some(index)
+    });
+    if terminal.is_some_and(|terminal| continuation.is_none_or(|start| terminal > start)) {
+        return Err(conflict("the session is already terminal"));
+    }
+    Ok(())
+}
+
 pub(super) async fn require_no_pending_directive(path: &FilePath) -> Result<(), SessionError> {
     let events = parse_events(&read_events(path).await?)?;
     let terminal = latest_event_index(&events, "tui_command_stop")
@@ -686,6 +707,15 @@ fn latest_event<'a>(events: &'a [Value], name: &str) -> Option<&'a Value> {
         .iter()
         .rev()
         .find(|event| string(event, "event") == Some(name))
+}
+
+fn latest_terminal_event(events: &[Value]) -> Option<&Value> {
+    events.iter().rev().find(|event| {
+        matches!(
+            string(event, "event"),
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed")
+        )
+    })
 }
 
 fn latest_event_index(events: &[Value], name: &str) -> Option<usize> {
@@ -777,12 +807,16 @@ pub(super) fn not_found(message: impl ToString) -> SessionError {
     )
 }
 
-fn conflict(message: impl ToString) -> SessionError {
+pub(super) fn session_conflict(message: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::CONFLICT,
         "trial_session_conflict",
         message.to_string(),
     )
+}
+
+fn conflict(message: impl ToString) -> SessionError {
+    session_conflict(message)
 }
 
 pub(super) fn workspace_conflict(message: impl ToString) -> SessionError {

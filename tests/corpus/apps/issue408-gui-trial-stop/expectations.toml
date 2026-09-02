@@ -1,0 +1,52 @@
+case_id = "issue408-gui-trial-stop"
+source = "Issue #408 GUI Trial stop event and recovery contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["interrupted", "process_tree_gone", "recovery_required"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/stop-events.jsonl = [
+  "\"event\":\"gui_trial_stop_requested\"",
+  "\"signal\":\"SIGINT\"",
+  "\"event\":\"tui_command_stop\"",
+  "\"status\":\"interrupted\"",
+  "\"task_status\":\"interrupted\"",
+  "\"command_completion_state\":\"interrupted\"",
+  "\"exit_code\":130",
+  "\"forced\":false",
+  "\"cli_terminal_observed\":true",
+  "\"failure_kind\":\"gui_trial_stop_forced\"",
+  "\"process_tree_gone\":true",
+  "\"failure_kind\":\"gui_trial_stop_process_tree_unverified\"",
+  "\"process_tree_gone\":false",
+  "\"status\":\"recovery_required\""
+]
+
+[fixture_ordered]
+fixtures/stop-events.jsonl = [
+  "\"event\":\"gui_trial_stop_requested\"",
+  "\"event\":\"tui_command_stop\"",
+  "\"event\":\"gui_trial_stop_completed\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"failure_kind\":\"gui_trial_stop_forced\"",
+  "\"failure_kind\":\"gui_trial_stop_process_tree_unverified\""
+]
