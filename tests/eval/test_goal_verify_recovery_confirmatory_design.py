@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_recovery_confirmatory_design import (
     materialize_pair_ids,
+    paired_effect_ci,
     validate_design,
 )
 
@@ -58,3 +59,10 @@ def test_materializes_frozen_pair_order():
     assert pair_ids[:2] == ["generic--pair-01", "generic--pair-02"]
     assert pair_ids[-1] == "nextjs--pair-30"
     assert pair_ids == materialize_pair_ids(39320260902)
+
+
+def test_paired_effect_ci_is_reproducible():
+    result = paired_effect_ci([0, 0, 1, 0], [1, 1, 1, 0], seed=7, samples=100)
+    assert result["estimate"] == 0.5
+    assert result["samples"] == 100
+    assert result == paired_effect_ci([0, 0, 1, 0], [1, 1, 1, 0], seed=7, samples=100)

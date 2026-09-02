@@ -1,6 +1,7 @@
 """Validation for the preregistered conditional-effect experiment design."""
 from __future__ import annotations
 
+import random
 from typing import Any
 
 REQUIRED_PROFILES = ("generic", "data", "nextjs")
@@ -19,6 +20,36 @@ def materialize_pair_ids(seed: int, pairs_per_profile: int = 30) -> list[str]:
         for profile in REQUIRED_PROFILES
         for index in range(1, pairs_per_profile + 1)
     ]
+
+
+def paired_effect_ci(
+    control: list[int],
+    treatment: list[int],
+    *,
+    seed: int,
+    samples: int = 2000,
+    confidence: float = 0.95,
+) -> dict[str, float | int | bool]:
+    """Estimate treatment-control paired endpoint contrast with percentile bootstrap."""
+    if len(control) != len(treatment) or not control:
+        raise ValueError("paired observations must be non-empty and equal length")
+    if any(value not in (0, 1) for value in control + treatment):
+        raise ValueError("endpoints must be binary")
+    if samples < 1 or not 0 < confidence < 1:
+        raise ValueError("invalid bootstrap configuration")
+    differences = [t - c for c, t in zip(control, treatment)]
+    rng = random.Random(seed)
+    estimates = [
+        sum(differences[rng.randrange(len(differences))] for _ in differences)
+        / len(differences)
+        for _ in range(samples)
+    ]
+    estimates.sort()
+    alpha = (1 - confidence) / 2
+    lower = estimates[int(alpha * (samples - 1))]
+    upper = estimates[int((1 - alpha) * (samples - 1))]
+    estimate = sum(differences) / len(differences)
+    return {"estimate": estimate, "lower": lower, "upper": upper, "samples": samples}
 
 
 def design_errors(design: dict[str, Any]) -> list[str]:
