@@ -3665,6 +3665,153 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
 
 #[cfg(unix)]
 #[test]
+fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("unmeasured-nextjs-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nsleep 0.1\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"nextjs\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let spec = serde_json::json!({
+        "goal": "Create a personal portfolio site",
+        "profile": "nextjs",
+        "intent": "create",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner"
+    });
+
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(proposal["identity"]["profile"], "nextjs");
+    assert_eq!(proposal["identity"]["intent"], "create");
+    assert_eq!(proposal["identity"]["task_family"], "unknown");
+    assert_eq!(proposal["identity"]["band_full"], 0);
+    assert_eq!(proposal["identity"]["band_denominator"], 0);
+    assert_eq!(proposal["identity"]["band_rate"], "未計測");
+    assert_eq!(proposal["identity"]["band_arm"], "未計測");
+    assert_eq!(proposal["identity"]["band_measurement"], "未計測");
+    assert_eq!(proposal["identity"]["band_source"], "未計測");
+    assert_eq!(
+        proposal["identity"]["contract_checks"],
+        serde_json::json!([
+            "build",
+            "browser_route",
+            "interaction_state",
+            "T1_testimony"
+        ])
+    );
+    assert!(
+        proposal["identity"]["route_bases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|basis| basis == "gui.family.unmeasured=未計測")
+    );
+    assert_eq!(
+        proposal["price"],
+        serde_json::json!({
+            "duration_n": 0,
+            "average_duration_seconds": null,
+            "cost_n": 0,
+            "average_cost_usd": null,
+            "source": "未計測"
+        })
+    );
+    let card = proposal["card_markdown"].as_str().unwrap();
+    for expected in [
+        "# Gate 1 — 実行前の確認",
+        "unknown (unknown)",
+        "全必須チェックに合格した実行: 0件中0件 (未計測)",
+        "比較対象: 未計測; 未計測 までの証跡",
+        "類似実行の平均所要時間: 未計測",
+        "証跡の参照先: 未計測",
+    ] {
+        assert!(card.contains(expected), "missing {expected:?}: {card}");
+    }
+
+    let repeated = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(repeated.status, 200, "{}", repeated.body);
+    assert_eq!(repeated.json()["card_hash"], proposal["card_hash"]);
+
+    let mut confirmed = spec.clone();
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    assert_eq!(created.json()["gate"], "gate_2");
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let run_root = runs_dir(&workspace).join(&id);
+    wait_for_path(&run_root.join("delegated-args.txt"), Duration::from_secs(5));
+    let delegated = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
+    let delegated = delegated.lines().collect::<Vec<_>>();
+    assert!(
+        delegated
+            .windows(2)
+            .any(|pair| pair == ["--profile", "nextjs"]),
+        "{delegated:?}"
+    );
+    assert!(
+        delegated
+            .windows(2)
+            .any(|pair| pair == ["--intent", "create"]),
+        "{delegated:?}"
+    );
+    let confirmation_root = run_root.join("state/boundary-confirmations");
+    let confirmation_path = std::fs::read_dir(&confirmation_root)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let confirmation: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(confirmation_path).unwrap()).unwrap();
+    assert_eq!(confirmation["card_hash"], proposal["card_hash"]);
+    assert_eq!(confirmation["identity"]["task_family"], "unknown");
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let mut known_family = spec.clone();
+    known_family["goal"] = serde_json::json!("Create a Quiz");
+    let known = server.request("POST", "/api/session-proposals", Some(&known_family));
+    assert_eq!(known.status, 200, "{}", known.body);
+    assert_eq!(known.json()["identity"]["task_family"], "Quiz");
+    assert_eq!(known.json()["identity"]["band_denominator"], 26);
+    assert_eq!(known.json()["identity"]["band_rate"], "88%");
+    assert_eq!(
+        known.json()["identity"]["band_source"],
+        "workspace/management/runs/band_summary.md"
+    );
+
+    for (profile, goal) in [
+        ("nextjs", "Create a Quiz and Breakout game"),
+        ("python-cli", "Create a CLI tool"),
+        ("nextjs", "Create a schema explorer"),
+    ] {
+        let mut rejected = spec.clone();
+        rejected["profile"] = serde_json::json!(profile);
+        rejected["goal"] = serde_json::json!(goal);
+        let response = server.request("POST", "/api/session-proposals", Some(&rejected));
+        assert_eq!(
+            response.status, 422,
+            "{profile} / {goal}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
     use std::os::unix::fs::PermissionsExt;
 

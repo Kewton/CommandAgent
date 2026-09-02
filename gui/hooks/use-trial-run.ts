@@ -77,13 +77,15 @@ export function useTrialRun(
   const priceDuration = useMemo(() => {
     const seconds =
       monitor.session?.average_duration_seconds ?? compose.proposal?.price.average_duration_seconds;
+    const unavailable = compose.proposal?.price.source === "未計測" ? "未計測" : "未記録";
     return seconds === null || seconds === undefined
-      ? "未記録"
+      ? unavailable
       : `平均 ${(seconds / 60).toFixed(1)} 分`;
   }, [compose.proposal, monitor.session]);
   const priceCost = useMemo(() => {
     const cost = compose.proposal?.price.average_cost_usd;
-    return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
+    const unavailable = compose.proposal?.price.source === "未計測" ? "未計測" : "未記録";
+    return cost === null || cost === undefined ? unavailable : `平均 $${cost.toFixed(4)}`;
   }, [compose.proposal]);
 
   function launchConfirmed() {

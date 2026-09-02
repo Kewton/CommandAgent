@@ -1,0 +1,43 @@
+case_id = "issue409-gui-trial-unmeasured-nextjs"
+source = "Issue #409 GUI Trial unclassified Next.js create Gate 1 projection"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/proposal.json = [
+  "\"profile\": \"nextjs\"",
+  "\"intent\": \"create\"",
+  "\"task_family\": \"unknown\"",
+  "\"band_rate\": \"未計測\"",
+  "\"band_source\": \"未計測\"",
+  "\"source\": \"未計測\""
+]
+
+[fixture_ordered]
+fixtures/proposal.json = [
+  "\"confirmation_required\": true",
+  "\"identity\"",
+  "\"task_family\": \"unknown\"",
+  "\"price\"",
+  "\"source\": \"未計測\""
+]

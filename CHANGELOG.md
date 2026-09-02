@@ -35,6 +35,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Let GUI Trial show an honest unmeasured Gate 1 card for unclassified
+  Next.js create requests while preserving measured family routing and all
+  other ambiguity rejections.
 - Scroll and focus the Trial document viewer after a successful recovery-file
   open, and announce the opened document without reporting failed reads as
   successful.
