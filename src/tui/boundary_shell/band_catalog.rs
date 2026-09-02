@@ -38,7 +38,7 @@ impl BandDurationEstimate {
     }
 }
 
-const NEXTJS_MEANING: &str = "build + real-browser route, interaction, and state-change evidence; T1 testimony binding is active, with violations failing and claims_absent/unrecognized prose recorded without promotion.";
+pub(super) const NEXTJS_MEANING: &str = "build + real-browser route, interaction, and state-change evidence; T1 testimony binding is active, with violations failing and claims_absent/unrecognized prose recorded without promotion.";
 const DATA_MEANING: &str = "pipeline execution plus E1 inspection, E2 claim binding, E3 rerun consistency, and E4 schema conformance; testimony binding is active as E2.";
 const CLI_MEANING: &str = "C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.";
 const INGEST_MEANING: &str = "N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.";

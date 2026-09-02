@@ -349,6 +349,10 @@ async function probeLifecycle(browser, origin, basePath) {
     await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
+    const gateOnePriceText = await page.locator(".price-card").innerText();
+    const unmeasuredPriceVisible =
+      (gateOnePriceText.match(/未計測 \(0 件\)/g) ?? []).length === 2;
+    assert(unmeasuredPriceVisible, "unmeasured Gate 1 time and cost were not explicit");
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     await page.locator("[data-testid='session-progress']").waitFor();
@@ -871,6 +875,7 @@ async function probeLifecycle(browser, origin, basePath) {
       runtime_live_region: runtimeLiveRegion,
       terminal_row_targeted: terminalRowSelection.targeted,
       terminal_row_compact: terminalDiagnosticsCount === 0,
+      unmeasured_price_visible: unmeasuredPriceVisible,
       launch_navigated_to_status: launchNavigatedToStatus,
       stop_confirmation_explicit: stopConfirmationExplicit,
       stop_cancel_keyboard_focused: cancelKeyboardFocused,
@@ -952,6 +957,7 @@ async function probeLifecycle(browser, origin, basePath) {
         runtimeLiveRegionIsPoliteAtomic &&
         terminalRowSelection.targeted &&
         terminalDiagnosticsCount === 0 &&
+        unmeasuredPriceVisible &&
         launchNavigatedToStatus &&
         stopConfirmationExplicit &&
         cancelKeyboardFocused &&
@@ -1531,7 +1537,7 @@ function syntheticProposal() {
       average_duration_seconds: null,
       cost_n: 0,
       average_cost_usd: null,
-      source: "synthetic",
+      source: "未計測",
     },
   };
 }

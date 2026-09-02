@@ -1,0 +1,21 @@
+{
+  "confirmation_required": true,
+  "identity": {
+    "profile": "nextjs",
+    "intent": "create",
+    "task_family": "unknown",
+    "band_full": 0,
+    "band_denominator": 0,
+    "band_rate": "未計測",
+    "band_arm": "未計測",
+    "band_measurement": "未計測",
+    "band_source": "未計測"
+  },
+  "price": {
+    "duration_n": 0,
+    "average_duration_seconds": null,
+    "cost_n": 0,
+    "average_cost_usd": null,
+    "source": "未計測"
+  }
+}

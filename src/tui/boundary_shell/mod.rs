@@ -11,6 +11,7 @@ pub mod presentation;
 pub mod route;
 pub mod sheet;
 pub mod transcript;
+pub mod unmeasured_route;
 
 use std::path::{Path, PathBuf};
 
@@ -244,6 +245,7 @@ impl BoundaryShell {
         } else {
             let band = selected
                 .band()
+                .or_else(|| unmeasured_route::band_for(&selected))
                 .context("registered route is missing a capability band")?;
             if let Some(locator) = options.locator {
                 ConfirmationIdentity::new_with_locator(

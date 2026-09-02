@@ -500,7 +500,9 @@ fn validate_identity_fields(identity: &ConfirmationIdentity) -> anyhow::Result<(
     if !missing.is_empty()
         || identity.route_bases.is_empty()
         || identity.contract_checks.is_empty()
-        || (identity.band_denominator == 0 && identity.draft_manifest.is_none())
+        || (identity.band_denominator == 0
+            && identity.draft_manifest.is_none()
+            && !super::unmeasured_route::is_unmeasured_identity(identity))
         || !draft_complete
     {
         bail!(

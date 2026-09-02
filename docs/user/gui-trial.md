@@ -91,6 +91,14 @@ exposed by the server. The delegate uses the CLI's host option and inherits
    until this explicit action, and the API independently requires the exact
    card hash. An accepted launch moves to that session's **実行状況** page.
 
+For the admitted Next.js profile with the effective `create` intent, a request
+that contains no recognized family term is still eligible for Gate 1. Its
+family is shown as `unknown`, and both comparable-run results and the estimate
+are labeled **未計測**; confirmation still launches the CLI with
+`--profile nextjs --intent create`. A recognized family such as `Quiz` keeps
+its measured family band. Multiple family terms and other ambiguous or typed
+unknown routes continue to be rejected rather than guessed.
+
 GUI confirmation never lowers, replaces, or satisfies a required check.
 
 ### Gate 2: execution and monitoring
