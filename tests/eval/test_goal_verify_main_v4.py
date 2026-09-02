@@ -2325,6 +2325,28 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             duplicated_pair["checks"]["preselected_pair_denominator_exact"]
         )
 
+        contract["smoke"]["require_recovery_safety_zero"] = True
+        safe_report = build_recovery_report(records=records, contract=contract)
+        for check in (
+            "attributed_harm_zero",
+            "regression_introduced_zero",
+            "existing_artifact_harm_zero",
+            "instrumentation_unusable_zero",
+        ):
+            self.assertTrue(safe_report["checks"][check])
+        harmful = copy.deepcopy(records)
+        harmful[0]["comparison"].update(
+            {
+                "quality_transition": "harmed",
+                "regression_introduced": True,
+                "existing_artifact_harmed": True,
+            }
+        )
+        harmful_report = build_recovery_report(records=harmful, contract=contract)
+        self.assertFalse(harmful_report["checks"]["attributed_harm_zero"])
+        self.assertFalse(harmful_report["checks"]["regression_introduced_zero"])
+        self.assertFalse(harmful_report["checks"]["existing_artifact_harm_zero"])
+
         contract["smoke"]["require_registered_recovery_verify_commands"] = True
         missing_source = build_recovery_report(records=records, contract=contract)
         self.assertFalse(

@@ -347,6 +347,28 @@ def build_recovery_report(
     smoke = contract.get("smoke", {})
     minimum_executed = smoke.get("minimum_executed_recovery_pairs", 0)
     minimum_suppressions = smoke.get("minimum_current_success_suppressions", 0)
+    attributed_harm_pair_ids = [
+        str(record.get("pair_id"))
+        for record in records
+        if (record.get("comparison") or {}).get("quality_transition") == "harmed"
+    ]
+    regression_introduced_pair_ids = [
+        str(record.get("pair_id"))
+        for record in records
+        if (record.get("comparison") or {}).get("regression_introduced") is True
+    ]
+    existing_artifact_harmed_pair_ids = [
+        str(record.get("pair_id"))
+        for record in records
+        if (record.get("comparison") or {}).get("existing_artifact_harmed") is True
+    ]
+    instrumentation_unusable_pair_ids = [
+        str(record.get("pair_id"))
+        for record in records
+        if record.get("eligibility", {}).get("runtime", {}).get("category")
+        == "instrumentation_unavailable"
+        or (record.get("comparison") or {}).get("quality_transition") == "unusable"
+    ]
     if smoke.get("require_separate_browser_oracle_preflight") is True:
         browser_oracle_unavailable.extend(
             _browser_preflight_errors(
@@ -403,6 +425,17 @@ def build_recovery_report(
             len(observed_pair_ids) == len(selected_pair_ids)
             and len(set(observed_pair_ids)) == len(observed_pair_ids)
             and set(observed_pair_ids) == set(selected_pair_ids)
+        )
+    if smoke.get("require_recovery_safety_zero") is True:
+        checks.update(
+            {
+                "attributed_harm_zero": not attributed_harm_pair_ids,
+                "regression_introduced_zero": not regression_introduced_pair_ids,
+                "existing_artifact_harm_zero": (not existing_artifact_harmed_pair_ids),
+                "instrumentation_unusable_zero": (
+                    not instrumentation_unusable_pair_ids
+                ),
+            }
         )
     if smoke.get("require_registered_recovery_verify_commands") is True:
         checks[
@@ -530,6 +563,10 @@ def build_recovery_report(
                 - set(smoke.get("selected_pair_ids", []))
                 if isinstance(pair_id, str)
             ),
+            "attributed_harm_pair_ids": attributed_harm_pair_ids,
+            "regression_introduced_pair_ids": regression_introduced_pair_ids,
+            "existing_artifact_harmed_pair_ids": (existing_artifact_harmed_pair_ids),
+            "instrumentation_unusable_pair_ids": instrumentation_unusable_pair_ids,
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
             ),

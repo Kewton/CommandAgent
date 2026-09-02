@@ -159,6 +159,8 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
     )
     if not isinstance(require_exact_denominator, bool):
         errors.append("smoke_preselected_pair_denominator_gate_invalid")
+    if not isinstance(smoke.get("require_recovery_safety_zero", False), bool):
+        errors.append("smoke_recovery_safety_zero_gate_invalid")
     if (
         smoke.get("require_recovery_capable_execution_action") is True
         and execution_action != "ultra_plan_run"
