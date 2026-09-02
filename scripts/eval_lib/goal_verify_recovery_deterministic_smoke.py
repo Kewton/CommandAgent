@@ -14,6 +14,25 @@ VERIFY_COMMAND = (
     'python3 -c "from pathlib import Path; '
     "assert Path('result.txt').read_text() == 'recovered\\n'\""
 )
+DATA_REPRO_COMMAND = "python3 scripts/repro.py data/task-02.csv"
+DATA_REGRESSION_COMMANDS = (
+    "python3 -m pytest -q tests",
+    "python3 scripts/contract_check.py",
+)
+DATA_REGRESSION_IDS = (
+    "completion_contract_verify_2",
+    "completion_contract_verify_3",
+)
+DATA_FIXTURE = (
+    Path(__file__).resolve().parents[2]
+    / "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before"
+)
+DATA_GOAL = (
+    "Fix the existing deterministic data pipeline so `python3 scripts/repro.py "
+    "data/task-02.csv` changes from exit 1 to exit 0, with input_rows = used_rows "
+    "+ excluded rows. Preserve the frozen pytest and contract-check regressions "
+    "and regenerate the standard data profile outputs."
+)
 
 
 def _step_plan(
@@ -65,7 +84,7 @@ class ScriptedRecoveryProvider:
                 response = self._planner_response(text)
                 response_kind = "step_plan"
             else:
-                response, response_kind = self._execution_response()
+                response, response_kind = self._execution_response(text)
             self.trace.append(
                 {
                     "request_index": self.request_count,
@@ -121,7 +140,7 @@ class ScriptedRecoveryProvider:
             )
         return {"content": content}
 
-    def _execution_response(self) -> tuple[dict[str, Any], str]:
+    def _execution_response(self, _text: str) -> tuple[dict[str, Any], str]:
         if self.phase == "inspect" and not self.inspected:
             self.inspected = True
             return (
@@ -179,6 +198,94 @@ class ScriptedRecoveryProvider:
                 "intentional_no_tool",
             )
         return {"content": "Scripted Recovery step complete."}, "complete"
+
+
+class ScriptedDataFixRecoveryProvider(ScriptedRecoveryProvider):
+    """Deterministic data/fix provider covering bound regression execution."""
+
+    def __init__(self, corrected_pipeline: str) -> None:
+        super().__init__()
+        self.corrected_pipeline = corrected_pipeline
+        self.initial_inspected = False
+
+    def _planner_response(self, text: str) -> dict[str, Any]:
+        if "Inspect the current workspace before changing files" in text:
+            self.phase = "data_recovery_inspect"
+            content = _step_plan(
+                "Inspect data fix",
+                "inspect-state",
+                "inspect",
+                "Inspect pipeline/main.py",
+            )
+        elif "Repair the incomplete work for the failed phase" in text:
+            self.phase = "data_recovery_repair"
+            content = _step_plan(
+                "Repair data fix",
+                "repair-pipeline",
+                "implement",
+                "Repair pipeline/main.py",
+                expected_paths=["pipeline/main.py"],
+                verify=[DATA_REPRO_COMMAND],
+            )
+        elif "Verify the recovered output with deterministic checks" in text:
+            self.phase = "data_recovery_verify"
+            content = _step_plan(
+                "Verify data fix",
+                "verify-data-fix",
+                "verify",
+                "Verify registered data fix commands",
+                verify=[DATA_REPRO_COMMAND, *DATA_REGRESSION_COMMANDS],
+            )
+        else:
+            self.phase = "data_initial"
+            content = _step_plan(
+                "Inspect data fix",
+                "inspect-state",
+                "inspect",
+                "Inspect pipeline/main.py",
+            )
+        return {"content": content}
+
+    def _execution_response(self, text: str) -> tuple[dict[str, Any], str]:
+        if self.phase == "data_recovery_inspect" and not self.inspected:
+            self.inspected = True
+            return self._tool("Read", {"path": "pipeline/main.py"}), "Read"
+        if self.phase == "data_recovery_repair" and not self.wrote:
+            self.wrote = True
+            return (
+                self._tool(
+                    "Write",
+                    {
+                        "path": "pipeline/main.py",
+                        "content": self.corrected_pipeline,
+                    },
+                ),
+                "Write",
+            )
+        if self.phase == "data_recovery_verify" and not self.verified:
+            self.verified = True
+            return self._tool("Bash", {"command": DATA_REPRO_COMMAND}), "Bash"
+        if "Read only the executed runtime-bound F1 failure evidence" in text:
+            if not self.initial_inspected:
+                self.initial_inspected = True
+                return self._tool("Read", {"path": "pipeline/main.py"}), "Read"
+            return {"content": "Cause isolated."}, "complete"
+        if (
+            "Repair the F1-diagnosed defect" in text
+            or "Fix F1 failure diagnostic" in text
+        ):
+            return (
+                {"content": "Initial repair intentionally made no edit."},
+                "intentional_no_tool",
+            )
+        return {"content": "Scripted data Recovery step complete."}, "complete"
+
+    @staticmethod
+    def _tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "content": "",
+            "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
+        }
 
 
 class _ProviderServer(ThreadingHTTPServer):
@@ -260,6 +367,105 @@ phases:
     )
     (workspace / "result.txt").write_text("broken\n", encoding="utf-8")
     return initial_plan, completion_contract
+
+
+def _write_data_fix_fixture(workspace: Path) -> tuple[Path, Path, str]:
+    if not DATA_FIXTURE.is_dir():
+        raise ValueError(f"data fix fixture is missing:{DATA_FIXTURE}")
+    shutil.copytree(
+        DATA_FIXTURE,
+        workspace,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(".pytest_cache", "__pycache__", "*.pyc"),
+    )
+    pipeline_path = workspace / "pipeline/main.py"
+    corrected_pipeline = pipeline_path.read_text(encoding="utf-8").replace(
+        '"used_rows": len(rows),',
+        '"used_rows": len(valid_rows),',
+    )
+    if corrected_pipeline == pipeline_path.read_text(encoding="utf-8"):
+        raise ValueError("data fix fixture no longer contains the expected defect")
+    initial_plan = workspace / "initial.yaml"
+    initial_plan.write_text(
+        "\n".join(
+            [
+                f"goal: {json.dumps(DATA_GOAL)}",
+                'profile: "data"',
+                'style: "default"',
+                'intent: "fix"',
+                "phases:",
+                '  - id: "reproduce-before"',
+                '    prompt: "Bind and run the deterministic failing reproducer."',
+                '  - id: "isolate-cause"',
+                '    prompt: "Isolate the cause without editing."',
+                '  - id: "repair"',
+                '    prompt: "Repair the diagnosed defect."',
+                '  - id: "verify-regressions"',
+                '    prompt: "Verify the exact reproducer and registered regressions."',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completion_contract = workspace / "completion.json"
+    completion_contract.write_text(
+        json.dumps(
+            {
+                "goal": DATA_GOAL,
+                "profile": "data",
+                "protected_paths": [
+                    "data",
+                    "scripts/repro.py",
+                    "scripts/contract_check.py",
+                    "tests",
+                ],
+                "required_paths": [
+                    "pipeline/main.py",
+                    "data/task-02.csv",
+                    "scripts/repro.py",
+                    "scripts/contract_check.py",
+                    "tests/test_pipeline.py",
+                    "output/inspection.json",
+                    "output/results.json",
+                    "output/report.md",
+                ],
+                "verify_commands": [
+                    DATA_REPRO_COMMAND,
+                    *DATA_REGRESSION_COMMANDS,
+                ],
+                "fix_reproducer_command": DATA_REPRO_COMMAND,
+                "required_capabilities": [
+                    "data_reconciliation",
+                    "data_claims_binding",
+                    "data_rerun_consistency",
+                    "data_results_schema",
+                ],
+                "required_evidence": [
+                    "implementation_artifact",
+                    "test_artifact",
+                    "bound_verify_command",
+                    "non_zero_test_or_assertion_evidence",
+                ],
+                "required_obligations": [
+                    "implementation",
+                    "verification",
+                    "acceptance_evidence",
+                ],
+                "deferred_verify_requirements": [],
+                "evidence_hint_tokens": [
+                    "data/task-02.csv",
+                    "data_reconciliation",
+                    "contract-check",
+                ],
+                "verify_repair_cap": 1,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return initial_plan, completion_contract, corrected_pipeline
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:
@@ -352,6 +558,134 @@ def build_report(
     }
 
 
+def build_data_fix_report(
+    *,
+    rows: list[dict[str, Any]],
+    returncode: int,
+    final_pipeline: str | None,
+    provider_trace: list[dict[str, Any]],
+    binary_sha256: str,
+    diagnostic_returncodes: dict[str, int],
+) -> dict[str, Any]:
+    preflight = _event(rows, "recovery_preflight_observation")
+    promotions = _event(rows, "recovery_promotion_decision")
+    completions = _event(rows, "recovery_plan_auto_run_complete")
+    resumed = _event(rows, "recovery_fix_contract_resumed")
+    fix_evidence = _event(rows, "fix_evidence_recorded")
+    acceptances = _event(rows, "ultra_final_acceptance")
+    terminals = _event(rows, "tui_command_stop")
+    deltas = _event(rows, "recovery_treatment_delta")
+    effect_policies = _event(rows, "recovery_observation_effect_policy_bound")
+    regression_evidence = {
+        row.get("binding_id"): row
+        for row in fix_evidence
+        if row.get("requirement_id") == "no_regression"
+    }
+    final_acceptance = acceptances[-1] if acceptances else {}
+    terminal = terminals[-1] if terminals else {}
+    observation_events = preflight + resumed + promotions + effect_policies
+    checks = {
+        "process_exit_zero": returncode == 0,
+        "initial_reproducer_failed": any(
+            row.get("requirement_id") == "before_fails"
+            and row.get("executed") is True
+            and row.get("outcome") == "failure"
+            and row.get("binding_id") == DATA_REPRO_COMMAND
+            for row in fix_evidence
+        ),
+        "pre_recovery_registered_observation_failed": any(
+            row.get("observation_phase") == "pre_recovery"
+            and row.get("status") == "fail"
+            and row.get("source") == "product_visible_completion_contract"
+            for row in preflight
+        ),
+        "registered_fix_contract_resumed": len(resumed) == 1
+        and resumed[0].get("regression_source") == "completion_contract"
+        and resumed[0].get("bound_regression_ids") == list(DATA_REGRESSION_IDS)
+        and "pipeline_probe" in resumed[0].get("omitted_supplemental_ids", []),
+        "registered_input_bound": any(
+            row.get("registered_data_input_fixture") == "data/task-02.csv"
+            and row.get("source") == "product_visible_completion_contract"
+            for row in effect_policies
+        ),
+        "scripted_read_write_sequence": all(
+            kind in [row["response_kind"] for row in provider_trace]
+            for kind in ("Read", "Write")
+        ),
+        "pipeline_treatment_delta_observed": any(
+            "pipeline/main.py"
+            in row.get("attempted_product_delta", {}).get("changed_paths", [])
+            for row in deltas
+        ),
+        "after_reproducer_passed": any(
+            row.get("requirement_id") == "after_passes"
+            and row.get("executed") is True
+            and row.get("outcome") == "success"
+            and row.get("binding_id") == DATA_REPRO_COMMAND
+            for row in fix_evidence
+        ),
+        "registered_regressions_executed_successfully": all(
+            regression_evidence.get(binding_id, {}).get("executed") is True
+            and regression_evidence.get(binding_id, {}).get("outcome") == "success"
+            and regression_evidence.get(binding_id, {}).get("reason") == ""
+            for binding_id in DATA_REGRESSION_IDS
+        ),
+        "full_fix_acceptance": final_acceptance.get("verdict") == "full"
+        and final_acceptance.get("external_contract_ok") is True
+        and final_acceptance.get("requirement_statuses")
+        == {
+            "after_passes": "passed",
+            "before_fails": "passed",
+            "no_regression": "passed",
+        },
+        "post_recovery_registered_observation_passed": any(
+            row.get("observation_phase") == "post_recovery"
+            and row.get("status") == "pass"
+            and row.get("source") == "product_visible_completion_contract"
+            and row.get("verify_command_count") == 3
+            for row in preflight
+        ),
+        "treatment_promoted": len(promotions) == 1
+        and promotions[0].get("decision") == "promoted",
+        "discarded_valid_treatment_zero": not _event(rows, "recovery_control_retained"),
+        "recovery_completed": len(completions) == 1
+        and completions[0].get("recovery_plan_auto_run_stop_reason")
+        == "recovery_succeeded",
+        "terminal_full_success": terminal.get("completion_status") == "complete"
+        and terminal.get("final_acceptance_status") == "full_success"
+        and terminal.get("assurance_level") == "full"
+        and terminal.get("ok") is True,
+        "registered_observations_are_product_internal": all(
+            row.get("external_oracle_used") is False for row in observation_events
+        ),
+        "final_pipeline_repaired": final_pipeline is not None
+        and '"used_rows": len(valid_rows),' in final_pipeline,
+        "diagnostic_commands_passed": diagnostic_returncodes
+        == {
+            DATA_REPRO_COMMAND: 0,
+            DATA_REGRESSION_COMMANDS[0]: 0,
+            DATA_REGRESSION_COMMANDS[1]: 0,
+        },
+    }
+    ready = all(checks.values())
+    return {
+        "schema_version": (
+            "commandagent.goal_verify.recovery_data_fix_deterministic_smoke.v1"
+        ),
+        "inference_role": "instrument_path_coverage_only",
+        "effect_claim_allowed": False,
+        "provider": "local_scripted_ollama_compatible",
+        "scenario": "data-fix",
+        "binary_sha256": binary_sha256,
+        "event_count": len(rows),
+        "provider_request_count": len(provider_trace),
+        "diagnostic_returncodes": diagnostic_returncodes,
+        "checks": checks,
+        "instrument_ready": ready,
+        "go_no_go": "GO" if ready else "NO-GO",
+    }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -366,23 +700,38 @@ def run_smoke(
     run_dir: Path,
     execution_root: Path | None = None,
     timeout_sec: int = 60,
+    scenario: str = "generic-create",
 ) -> dict[str, Any]:
+    if scenario not in {"generic-create", "data-fix"}:
+        raise ValueError(f"unsupported deterministic Recovery scenario:{scenario}")
     commandagent_bin = commandagent_bin.resolve()
     if not commandagent_bin.is_file():
         raise ValueError(f"commandagent binary is missing:{commandagent_bin}")
     run_dir = run_dir.resolve()
     run_dir.mkdir(parents=True, exist_ok=False)
-    provider = ScriptedRecoveryProvider()
-    server = _ProviderServer(provider)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        with tempfile.TemporaryDirectory(
-            prefix="commandagent-recovery-deterministic-",
-            dir=execution_root,
-        ) as temporary:
-            workspace = Path(temporary)
+    with tempfile.TemporaryDirectory(
+        prefix="commandagent-recovery-deterministic-",
+        dir=execution_root,
+    ) as temporary:
+        workspace = Path(temporary)
+        if scenario == "data-fix":
+            initial_plan, completion_contract, corrected_pipeline = (
+                _write_data_fix_fixture(workspace)
+            )
+            provider = ScriptedDataFixRecoveryProvider(corrected_pipeline)
+            intent = "fix"
+            profile = "data"
+            model = "scripted-data-recovery"
+        else:
             initial_plan, completion_contract = _write_fixture(workspace)
+            provider = ScriptedRecoveryProvider()
+            intent = "create"
+            profile = "generic"
+            model = "scripted-recovery"
+        server = _ProviderServer(provider)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
             host, port = server.server_address
             argv = [
                 str(commandagent_bin),
@@ -393,13 +742,13 @@ def run_smoke(
                 "--offline",
                 "--yes",
                 "--intent",
-                "create",
+                intent,
                 "--profile",
-                "generic",
+                profile,
                 "--provider",
                 "ollama",
                 "--model",
-                "scripted-recovery",
+                model,
                 "--ollama-host",
                 f"http://{host}:{port}",
                 "--completion-contract-json",
@@ -425,12 +774,6 @@ def run_smoke(
                 )
             events_path = event_paths[0]
             rows = _rows(events_path)
-            artifact_path = workspace / "result.txt"
-            final_artifact = (
-                artifact_path.read_text(encoding="utf-8")
-                if artifact_path.is_file()
-                else None
-            )
             shutil.copyfile(events_path, run_dir / "events.jsonl")
             (run_dir / "stdout.txt").write_text(completed.stdout, encoding="utf-8")
             (run_dir / "stderr.txt").write_text(completed.stderr, encoding="utf-8")
@@ -438,28 +781,82 @@ def run_smoke(
                 json.dumps(provider.trace, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            report = build_report(
-                rows=rows,
-                returncode=completed.returncode,
-                final_artifact=final_artifact,
-                provider_trace=provider.trace,
-                binary_sha256=_sha256(commandagent_bin),
-            )
-            report["evidence_sha256"] = {
-                name: _sha256(run_dir / name)
-                for name in (
-                    "events.jsonl",
-                    "provider-trace.json",
-                    "stderr.txt",
-                    "stdout.txt",
+            evidence_names = [
+                "events.jsonl",
+                "provider-trace.json",
+                "stderr.txt",
+                "stdout.txt",
+            ]
+            if scenario == "data-fix":
+                diagnostics = {
+                    DATA_REPRO_COMMAND: subprocess.run(
+                        ["python3", "scripts/repro.py", "data/task-02.csv"],
+                        cwd=workspace,
+                        stdin=subprocess.DEVNULL,
+                        text=True,
+                        capture_output=True,
+                        timeout=timeout_sec,
+                        check=False,
+                    ).returncode,
+                    DATA_REGRESSION_COMMANDS[0]: subprocess.run(
+                        ["python3", "-m", "pytest", "-q", "tests"],
+                        cwd=workspace,
+                        stdin=subprocess.DEVNULL,
+                        text=True,
+                        capture_output=True,
+                        timeout=timeout_sec,
+                        check=False,
+                    ).returncode,
+                    DATA_REGRESSION_COMMANDS[1]: subprocess.run(
+                        ["python3", "scripts/contract_check.py"],
+                        cwd=workspace,
+                        stdin=subprocess.DEVNULL,
+                        text=True,
+                        capture_output=True,
+                        timeout=timeout_sec,
+                        check=False,
+                    ).returncode,
+                }
+                (run_dir / "diagnostic-returncodes.json").write_text(
+                    json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
                 )
+                evidence_names.append("diagnostic-returncodes.json")
+                pipeline_path = workspace / "pipeline/main.py"
+                report = build_data_fix_report(
+                    rows=rows,
+                    returncode=completed.returncode,
+                    final_pipeline=(
+                        pipeline_path.read_text(encoding="utf-8")
+                        if pipeline_path.is_file()
+                        else None
+                    ),
+                    provider_trace=provider.trace,
+                    binary_sha256=_sha256(commandagent_bin),
+                    diagnostic_returncodes=diagnostics,
+                )
+            else:
+                artifact_path = workspace / "result.txt"
+                report = build_report(
+                    rows=rows,
+                    returncode=completed.returncode,
+                    final_artifact=(
+                        artifact_path.read_text(encoding="utf-8")
+                        if artifact_path.is_file()
+                        else None
+                    ),
+                    provider_trace=provider.trace,
+                    binary_sha256=_sha256(commandagent_bin),
+                )
+            report["evidence_sha256"] = {
+                name: _sha256(run_dir / name) for name in evidence_names
             }
             (run_dir / "report.json").write_text(
                 json.dumps(report, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             return report
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
