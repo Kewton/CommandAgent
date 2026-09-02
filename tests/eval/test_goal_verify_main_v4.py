@@ -706,9 +706,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             TypeError,
             r"\$\.recovery_one\.result\.stdout: bytes",
         ):
-            _require_json_safe(
-                {"recovery_one": {"result": {"stdout": b"partial"}}}
-            )
+            _require_json_safe({"recovery_one": {"result": {"stdout": b"partial"}}})
 
     def test_registered_browser_timeout_capture_is_json_safe(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2308,6 +2306,25 @@ class GoalVerifyMainV4Test(unittest.TestCase):
         self.assertEqual(report["median_resource_delta"]["wall_time_ms"], 50)
         self.assertNotIn("registered_recovery_verify_commands", report["checks"])
 
+        contract["smoke"].update(
+            {
+                "require_preselected_pair_denominator_exact": True,
+                "selected_pair_ids": ["eligible", "excluded"],
+            }
+        )
+        exact_denominator = build_recovery_report(records=records, contract=contract)
+        self.assertTrue(
+            exact_denominator["checks"]["preselected_pair_denominator_exact"]
+        )
+        missing_pair = build_recovery_report(records=records[:1], contract=contract)
+        self.assertFalse(missing_pair["checks"]["preselected_pair_denominator_exact"])
+        duplicated_pair = build_recovery_report(
+            records=[records[0], records[0]], contract=contract
+        )
+        self.assertFalse(
+            duplicated_pair["checks"]["preselected_pair_denominator_exact"]
+        )
+
         contract["smoke"]["require_registered_recovery_verify_commands"] = True
         missing_source = build_recovery_report(records=records, contract=contract)
         self.assertFalse(
@@ -2489,9 +2506,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "recovery_treatment_delta",
         ):
             self.assertTrue(fidelity_report["checks"][check], fidelity_report)
-        self.assertTrue(
-            fidelity_report["checks"]["discarded_valid_treatment_zero"]
-        )
+        self.assertTrue(fidelity_report["checks"]["discarded_valid_treatment_zero"])
 
         discarded = copy.deepcopy(records)
         discarded[0]["recovery_one"]["result"]["recovery_plan_attempts"][
@@ -2501,9 +2516,7 @@ class GoalVerifyMainV4Test(unittest.TestCase):
             "discarded_valid_treatment_count"
         ] = 1
         discarded_report = build_recovery_report(records=discarded, contract=contract)
-        self.assertFalse(
-            discarded_report["checks"]["discarded_valid_treatment_zero"]
-        )
+        self.assertFalse(discarded_report["checks"]["discarded_valid_treatment_zero"])
         self.assertEqual(
             discarded_report["diagnostics"]["discarded_valid_treatment_pair_ids"],
             ["eligible"],

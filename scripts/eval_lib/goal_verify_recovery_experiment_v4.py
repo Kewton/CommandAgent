@@ -154,6 +154,11 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         or minimum_executed_clusters < 0
     ):
         errors.append("smoke_minimum_executed_recovery_clusters_invalid")
+    require_exact_denominator = smoke.get(
+        "require_preselected_pair_denominator_exact", False
+    )
+    if not isinstance(require_exact_denominator, bool):
+        errors.append("smoke_preselected_pair_denominator_gate_invalid")
     if (
         smoke.get("require_recovery_capable_execution_action") is True
         and execution_action != "ultra_plan_run"

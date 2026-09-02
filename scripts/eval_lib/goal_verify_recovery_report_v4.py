@@ -51,6 +51,7 @@ def build_recovery_report(
     recovery_bounded_local_repair_violations = []
     discarded_valid_treatments = []
     discarded_valid_treatment_count = 0
+    observed_pair_ids = [record.get("pair_id") for record in records]
     typed_reproducer_commands = contract.get("smoke", {}).get(
         "typed_fix_reproducer_commands", {}
     )
@@ -396,6 +397,13 @@ def build_recovery_report(
         ),
         "typed_fix_reproducer_binding": not typed_reproducer_violations,
     }
+    if smoke.get("require_preselected_pair_denominator_exact") is True:
+        selected_pair_ids = smoke.get("selected_pair_ids", [])
+        checks["preselected_pair_denominator_exact"] = (
+            len(observed_pair_ids) == len(selected_pair_ids)
+            and len(set(observed_pair_ids)) == len(observed_pair_ids)
+            and set(observed_pair_ids) == set(selected_pair_ids)
+        )
     if smoke.get("require_registered_recovery_verify_commands") is True:
         checks[
             "registered_recovery_verify_commands"
@@ -427,9 +435,7 @@ def build_recovery_report(
             "recovery_bounded_local_repair_max_one"
         ] = not recovery_bounded_local_repair_violations
     if smoke.get("require_recovery_treatment_delta") is True:
-        checks[
-            "recovery_treatment_delta"
-        ] = not recovery_treatment_delta_violations
+        checks["recovery_treatment_delta"] = not recovery_treatment_delta_violations
     if smoke.get("require_discarded_valid_treatment_zero") is True:
         checks["discarded_valid_treatment_zero"] = not discarded_valid_treatments
     shared_pairing = contract.get("paired_run_contract", {}).get("pairing_unit") == (
@@ -515,6 +521,15 @@ def build_recovery_report(
             "treatment_isolation_violations": treatment_isolation_violations,
             "typed_reproducer_violations": typed_reproducer_violations,
             "discarded_valid_treatment_pair_ids": discarded_valid_treatments,
+            "missing_preselected_pair_ids": sorted(
+                set(smoke.get("selected_pair_ids", [])) - set(observed_pair_ids)
+            ),
+            "unexpected_observed_pair_ids": sorted(
+                pair_id
+                for pair_id in set(observed_pair_ids)
+                - set(smoke.get("selected_pair_ids", []))
+                if isinstance(pair_id, str)
+            ),
             "initial_success_attribution_violations": (
                 initial_success_attribution_violations
             ),
@@ -624,36 +639,45 @@ def _valid_recovery_handoff_fidelity_v2(value: Any) -> bool:
 
 
 def _valid_product_mutation_observations(value: Any) -> bool:
-    return isinstance(value, list) and bool(value) and all(
-        isinstance(row, dict)
-        and row.get("stage") in {"initial", "bounded_local_repair"}
-        and isinstance(row.get("reported_changed_paths"), list)
-        and isinstance(row.get("observed_changed_paths"), list)
-        and isinstance(row.get("no_op_reported_paths"), list)
-        and isinstance(row.get("unreported_mutation_paths"), list)
-        and isinstance(row.get("mutation_observed"), bool)
-        for row in value
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(row, dict)
+            and row.get("stage") in {"initial", "bounded_local_repair"}
+            and isinstance(row.get("reported_changed_paths"), list)
+            and isinstance(row.get("observed_changed_paths"), list)
+            and isinstance(row.get("no_op_reported_paths"), list)
+            and isinstance(row.get("unreported_mutation_paths"), list)
+            and isinstance(row.get("mutation_observed"), bool)
+            for row in value
+        )
     )
 
 
 def _bounded_local_repair_at_most_one(value: Any) -> bool:
-    return _valid_product_mutation_observations(value) and sum(
-        row.get("stage") == "bounded_local_repair" for row in value
-    ) <= 1
+    return (
+        _valid_product_mutation_observations(value)
+        and sum(row.get("stage") == "bounded_local_repair" for row in value) <= 1
+    )
 
 
 def _valid_fix_safety_verifications(value: Any) -> bool:
-    return isinstance(value, list) and bool(value) and all(
-        isinstance(row, dict)
-        and isinstance(row.get("registered_verify_commands"), list)
-        and bool(row["registered_verify_commands"])
-        and isinstance(row.get("referenced_api_surface_count"), int)
-        and not isinstance(row.get("referenced_api_surface_count"), bool)
-        and row["referenced_api_surface_count"] >= 0
-        and isinstance(row.get("referenced_api_violations"), list)
-        and isinstance(row.get("changed_paths"), list)
-        and isinstance(row.get("ok"), bool)
-        for row in value
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(row, dict)
+            and isinstance(row.get("registered_verify_commands"), list)
+            and bool(row["registered_verify_commands"])
+            and isinstance(row.get("referenced_api_surface_count"), int)
+            and not isinstance(row.get("referenced_api_surface_count"), bool)
+            and row["referenced_api_surface_count"] >= 0
+            and isinstance(row.get("referenced_api_violations"), list)
+            and isinstance(row.get("changed_paths"), list)
+            and isinstance(row.get("ok"), bool)
+            for row in value
+        )
     )
 
 
