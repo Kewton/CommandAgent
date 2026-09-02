@@ -30,6 +30,14 @@ def _design():
 
 
 class ConfirmatoryRunnerTest(unittest.TestCase):
+    def test_frozen_a30_contract_matches_bound_sources(self):
+        path = (
+            ROOT
+            / "eval/goal_verify/v0/phase6-recovery-confirmatory-a30-contract.json"
+        )
+        contract = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(contract_errors(contract), [])
+
     def test_task_prepare_binds_distinct_source_to_registered_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
