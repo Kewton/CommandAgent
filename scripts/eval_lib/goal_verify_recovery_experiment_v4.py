@@ -119,13 +119,9 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
     ):
         errors.append("recovery_fix_terminal_outcome_policy_invalid")
     profile_path_policy = smoke.get("real_profile_path_coverage_policy")
-    if (
-        profile_path_policy is not None
-        and profile_path_policy
-        not in (
-            SMOKE_PROFILE_PATH_COVERAGE_POLICY,
-            SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
-        )
+    if profile_path_policy is not None and profile_path_policy not in (
+        SMOKE_PROFILE_PATH_COVERAGE_POLICY,
+        SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
     ):
         errors.append("smoke_profile_path_coverage_policy_invalid")
     pair_ids = smoke.get("selected_pair_ids")
@@ -149,6 +145,15 @@ def recovery_contract_errors(contract: dict[str, Any]) -> list[str]:
         and minimum_executed > smoke["expected_pair_count"]
     ):
         errors.append("smoke_minimum_executed_recovery_pairs_exceeds_total")
+    minimum_executed_clusters = smoke.get(
+        "minimum_executed_recovery_clusters_per_real_profile", 0
+    )
+    if (
+        not isinstance(minimum_executed_clusters, int)
+        or isinstance(minimum_executed_clusters, bool)
+        or minimum_executed_clusters < 0
+    ):
+        errors.append("smoke_minimum_executed_recovery_clusters_invalid")
     if (
         smoke.get("require_recovery_capable_execution_action") is True
         and execution_action != "ultra_plan_run"

@@ -36,6 +36,9 @@ def build_recovery_a15_smoke_report(
     required_profiles = smoke["required_real_profiles"]
     minimum_pairs = int(smoke["minimum_pairs_per_real_profile"])
     minimum_executed = int(smoke["minimum_executed_recovery_pairs_per_real_profile"])
+    minimum_executed_clusters = int(
+        smoke.get("minimum_executed_recovery_clusters_per_real_profile", 0)
+    )
     profile_path_policy = smoke.get("real_profile_path_coverage_policy")
     allow_current_success_coverage = profile_path_policy in (
         SMOKE_PROFILE_PATH_COVERAGE_POLICY,
@@ -57,11 +60,20 @@ def build_recovery_a15_smoke_report(
             for row in rows
             if (row.get("comparison") or {}).get("executed_recovery_runs") == 1
         ]
+        executed_clusters = sorted(
+            {
+                cluster
+                for row in executed
+                if isinstance((cluster := _source_task_id(row)), str)
+            }
+        )
         unusable = [
             row.get("pair_id") for row in rows if _instrumentation_unusable(row)
         ]
         explicit_suppressions = [
-            row.get("pair_id") for row in rows if _explicit_current_success_suppressed(row)
+            row.get("pair_id")
+            for row in rows
+            if _explicit_current_success_suppressed(row)
         ]
         minimum_executed_met = len(executed) >= minimum_executed
         current_success_only_coverage = (
@@ -75,11 +87,16 @@ def build_recovery_a15_smoke_report(
         profile_readiness[profile] = {
             "pair_count": len(rows),
             "executed_recovery_pairs": len(executed),
+            "executed_recovery_clusters": len(executed_clusters),
+            "executed_recovery_cluster_ids": executed_clusters,
             "instrumentation_unusable_pair_ids": unusable,
             "explicit_current_success_suppression_pair_ids": explicit_suppressions,
             "explicit_current_success_suppression_count": len(explicit_suppressions),
             "minimum_pairs_met": len(rows) >= minimum_pairs,
             "minimum_executed_recovery_met": minimum_executed_met,
+            "minimum_executed_recovery_clusters_met": (
+                len(executed_clusters) >= minimum_executed_clusters
+            ),
             "current_success_only_coverage": current_success_only_coverage,
             "path_coverage_mode": (
                 "executed_recovery"
@@ -111,6 +128,11 @@ def build_recovery_a15_smoke_report(
     else:
         a15_checks["recovery_executed_in_every_real_profile"] = all(
             row["minimum_executed_recovery_met"] for row in profile_readiness.values()
+        )
+    if minimum_executed_clusters > 0:
+        a15_checks["minimum_executed_recovery_clusters_in_every_real_profile"] = all(
+            row["minimum_executed_recovery_clusters_met"]
+            for row in profile_readiness.values()
         )
     ready = base["instrument_ready"] and all(a15_checks.values())
     resource_analysis = _smoke_resource_analysis(records, required_profiles)
@@ -242,6 +264,17 @@ def _instrumentation_unusable(record: dict[str, Any]) -> bool:
     return False
 
 
+def _source_task_id(record: dict[str, Any]) -> str | None:
+    for field in ("source_task_id", "case_id"):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            return value
+    pair_id = record.get("pair_id")
+    if isinstance(pair_id, str) and "--pair-" in pair_id:
+        return pair_id.rsplit("--pair-", 1)[0]
+    return None
+
+
 def _smoke_resource_analysis(
     records: list[dict[str, Any]], required_profiles: list[str]
 ) -> dict[str, Any]:
@@ -260,9 +293,7 @@ def _smoke_resource_analysis(
         "all_selected_pairs": _resource_distribution(records),
         "executed_recovery_pairs": _resource_distribution(executed),
         "improved_pairs": _resource_distribution(improved),
-        "non_improving_executed_recovery_pairs": _resource_distribution(
-            non_improving
-        ),
+        "non_improving_executed_recovery_pairs": _resource_distribution(non_improving),
         "by_profile": {
             profile: {
                 "all_pairs": _resource_distribution(

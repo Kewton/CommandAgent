@@ -58,9 +58,7 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
     def test_a17_freezes_regression_lineage_smoke_without_weakening_gates(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a16-1-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a16-1-smoke-contract.json")
         amended = a17_generator.build_contract(
             code_sha="acd2068faca1e9bef0fec36c5e2aad8dc5f4aee5",
             exact_sha_ci_evidence="eval/goal_verify/v0/exact-sha-ci-acd2068f.json",
@@ -84,8 +82,14 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(amended["runner_sources"], base["runner_sources"])
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
         self.assertFalse(amended["authorization"]["full_collection_authorized"])
-        self.assertEqual(
-            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A17"
+        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A17")
+        invalid_cluster_gate = copy.deepcopy(amended)
+        invalid_cluster_gate["smoke"][
+            "minimum_executed_recovery_clusters_per_real_profile"
+        ] = True
+        self.assertIn(
+            "smoke_minimum_executed_recovery_clusters_invalid",
+            recovery_contract_errors(invalid_cluster_gate),
         )
 
     def test_a16_1_only_corrects_pre_collection_runner_source_metadata(self):
@@ -102,9 +106,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(
             amended["task_contract_registry"], base["task_contract_registry"]
         )
-        self.assertEqual(
-            amended["paired_run_contract"], base["paired_run_contract"]
-        )
+        self.assertEqual(amended["paired_run_contract"], base["paired_run_contract"])
         self.assertNotIn(
             a16_1_generator.GENERATOR_SOURCE,
             amended["runner_sources"],
@@ -113,9 +115,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             amended["supersedes_contract"],
             base["contract_id"],
         )
-        self.assertEqual(
-            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16.1"
-        )
+        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16.1")
 
     def test_a16_freezes_focused_contract_bound_recovery_smoke(self):
         base = load(
@@ -144,18 +144,14 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             "real_profile_path_coverage_policy",
             amended["smoke"],
         )
-        self.assertTrue(
-            amended["smoke"]["require_discarded_valid_treatment_zero"]
-        )
+        self.assertTrue(amended["smoke"]["require_discarded_valid_treatment_zero"])
         self.assertIn(
             a16_generator.READINESS_CHECK,
             amended["smoke"]["required_readiness_checks"],
         )
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
         self.assertFalse(amended["authorization"]["full_collection_authorized"])
-        self.assertEqual(
-            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16"
-        )
+        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A16")
 
     def test_a15_a1_inherits_the_frozen_smoke_without_changing_design(self):
         base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-smoke-contract.json")
@@ -185,9 +181,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         )
 
     def test_a15_a5_adds_host_verification_safety_and_protected_data_inputs(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a4-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a4-smoke-contract.json")
         tasks = a15_a5_generator.build_tasks()
         amended = a15_a5_generator.build_contract(
             code_sha=base["code_sha"],
@@ -197,7 +191,9 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         )
 
         self.assertEqual(recovery_contract_errors(amended), [])
-        self.assertEqual(amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"]
+        )
         self.assertNotEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
         self.assertEqual(
             amended["task_contract_registry"],
@@ -207,7 +203,9 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             amended["smoke"]["real_profile_path_coverage_policy"],
             SMOKE_PROFILE_PATH_COVERAGE_POLICY_V2,
         )
-        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A5")
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A5"
+        )
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
         data = [
             row
@@ -225,9 +223,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(task_contract_registry_errors(tasks), [])
 
     def test_a15_a6_preserves_design_and_forbids_post_binding_profile_rewrite(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a5-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a5-smoke-contract.json")
         amended = a15_a6_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -235,22 +231,24 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         )
 
         self.assertEqual(recovery_contract_errors(amended), [])
-        self.assertEqual(amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"])
+        self.assertEqual(
+            amended["smoke"]["selected_pair_ids"], base["smoke"]["selected_pair_ids"]
+        )
         self.assertEqual(
             amended["task_contract_registry"], base["task_contract_registry"]
         )
         self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
-        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A6")
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A6"
+        )
         self.assertIn(
             "bypass profile runtime command canonicalization",
             amended["analysis"]["host_owned_recovery_verify_profile_policy"],
         )
 
     def test_a15_a7_preserves_design_and_requires_a_recovery_fix_mutation(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a6-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a6-smoke-contract.json")
         amended = a15_a7_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -259,19 +257,21 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
 
         self.assertEqual(recovery_contract_errors(amended), [])
         self.assertEqual(amended["smoke"], base["smoke"])
-        self.assertEqual(amended["task_contract_registry"], base["task_contract_registry"])
+        self.assertEqual(
+            amended["task_contract_registry"], base["task_contract_registry"]
+        )
         self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
-        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A7")
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A7"
+        )
         self.assertIn(
             "may not complete successfully before a Write or Edit tool call",
             amended["analysis"]["recovery_fix_implement_mutation_policy"],
         )
 
     def test_a15_a8_preserves_design_and_uses_typed_mutation_enforcement(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a7-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a7-smoke-contract.json")
         amended = a15_a8_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -280,19 +280,21 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
 
         self.assertEqual(recovery_contract_errors(amended), [])
         self.assertEqual(amended["smoke"], base["smoke"])
-        self.assertEqual(amended["task_contract_registry"], base["task_contract_registry"])
+        self.assertEqual(
+            amended["task_contract_registry"], base["task_contract_registry"]
+        )
         self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
-        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A8")
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A8"
+        )
         self.assertIn(
             "does not depend on action words",
             amended["analysis"]["recovery_fix_typed_mutation_gate_policy"],
         )
 
     def test_a15_a9_preserves_design_and_requires_fidelity_safety_telemetry(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a8-smoke-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a8-smoke-contract.json")
         amended = a15_a9_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -309,11 +311,15 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             "real_profile_path_coverage_policy",
         ):
             self.assertEqual(amended["smoke"][field], base["smoke"][field])
-        self.assertEqual(amended["task_contract_registry"], base["task_contract_registry"])
+        self.assertEqual(
+            amended["task_contract_registry"], base["task_contract_registry"]
+        )
         self.assertEqual(amended["frozen_input_sha256"], base["frozen_input_sha256"])
         self.assertFalse(amended["smoke"]["effect_claim_allowed"])
         self.assertEqual(amended["paired_run_contract"]["maximum_recovery_runs"], 1)
-        self.assertEqual(amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A9")
+        self.assertEqual(
+            amended["pre_live_amendments"][-1]["amendment_id"], "v4-A15-A9"
+        )
         for check in a15_a9_generator.READINESS_CHECKS:
             self.assertTrue(amended["smoke"][f"require_{check}"])
             self.assertIn(check, amended["smoke"]["required_readiness_checks"])
@@ -322,9 +328,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         smoke = load(
             "eval/goal_verify/v0/phase6-recovery-v4-a15-a9-smoke-contract.json"
         )
-        old_full = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-full-contract.json"
-        )
+        old_full = load("eval/goal_verify/v0/phase6-recovery-v4-a15-full-contract.json")
         report = {
             "contract_id": smoke["contract_id"],
             "record_count": 14,
@@ -382,9 +386,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         )
 
     def test_a15_a10_1_only_corrects_the_pre_collection_run_identifier(self):
-        base = load(
-            "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-full-contract.json"
-        )
+        base = load("eval/goal_verify/v0/phase6-recovery-v4-a15-a10-full-contract.json")
         amended = a15_a10_1_generator.build_contract(
             code_sha=base["code_sha"],
             exact_sha_ci_evidence=base["exact_sha_ci_evidence"],
@@ -406,8 +408,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
             "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-1-full-contract.json"
         )
         partial_path = (
-            "eval/goal_verify/v0/"
-            "phase6-recovery-v4-a15-a10-1-partial-failure.json"
+            "eval/goal_verify/v0/phase6-recovery-v4-a15-a10-1-partial-failure.json"
         )
         partial = load(partial_path)
         amended = a15_a10_2_generator.build_contract(
@@ -425,9 +426,7 @@ class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
         self.assertEqual(amended["contract_id"], amended["smoke_run_id"])
         self.assertEqual(amended["smoke"], base["smoke"])
         self.assertEqual(amended["full_experiment"], base["full_experiment"])
-        self.assertEqual(
-            amended["paired_run_contract"], base["paired_run_contract"]
-        )
+        self.assertEqual(amended["paired_run_contract"], base["paired_run_contract"])
         self.assertEqual(amended["product_timeout_sec"], 900)
         self.assertEqual(amended["partial_run_evidence"]["completed_pairs"], 73)
         self.assertEqual(
@@ -764,6 +763,7 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
                 "required_real_profiles": ["cli", "generic", "data", "nextjs"],
                 "minimum_pairs_per_real_profile": 3,
                 "minimum_executed_recovery_pairs_per_real_profile": 1,
+                "minimum_executed_recovery_clusters_per_real_profile": 1,
             }
         }
         records = []
@@ -772,6 +772,7 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
                 records.append(
                     {
                         "pair_id": f"{profile}-{sample}",
+                        "case_id": f"{profile}-task-{sample}",
                         "profile": profile,
                         "eligibility": {
                             "preregistered": {"eligible": True},
@@ -794,6 +795,11 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
             set(report["smoke_resource_analysis"]["by_profile"]),
             {"cli", "generic", "data", "nextjs"},
         )
+        self.assertTrue(
+            report["a15_profile_smoke_checks"][
+                "minimum_executed_recovery_clusters_in_every_real_profile"
+            ]
+        )
 
         no_next_recovery = copy.deepcopy(records)
         for record in no_next_recovery:
@@ -808,6 +814,32 @@ class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
                 "recovery_executed_in_every_real_profile"
             ]
         )
+
+        clustered = copy.deepcopy(records)
+        contract["smoke"]["minimum_executed_recovery_clusters_per_real_profile"] = 2
+        one_cluster = build_recovery_a15_smoke_report(
+            records=clustered, contract=contract
+        )
+        self.assertEqual(one_cluster["go_no_go"], "NO-GO")
+        self.assertFalse(
+            one_cluster["a15_profile_smoke_checks"][
+                "minimum_executed_recovery_clusters_in_every_real_profile"
+            ]
+        )
+        for profile in contract["smoke"]["required_real_profiles"]:
+            profile_rows = [row for row in clustered if row["profile"] == profile]
+            profile_rows[1]["comparison"]["executed_recovery_runs"] = 1
+        two_clusters = build_recovery_a15_smoke_report(
+            records=clustered, contract=contract
+        )
+        self.assertEqual(two_clusters["go_no_go"], "GO")
+        self.assertTrue(
+            two_clusters["a15_profile_smoke_checks"][
+                "minimum_executed_recovery_clusters_in_every_real_profile"
+            ]
+        )
+
+        contract["smoke"]["minimum_executed_recovery_clusters_per_real_profile"] = 0
 
         current_success_covered = copy.deepcopy(no_next_recovery)
         for index, record in enumerate(current_success_covered):
