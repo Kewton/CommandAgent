@@ -1,0 +1,191 @@
+{
+  "a28_diagnosis": {
+    "false_nextjs_arm_checks": [
+      "protected_paths_unchanged",
+      "scripted_read_write_sequence"
+    ],
+    "frozen_report_sha256": "efd948481c3e9df3a897012ade507664e29243924d6df1d467f7a6c56ba36477",
+    "nextjs_product_recovery_succeeded": true,
+    "nextjs_registered_endpoint_contrast": 1,
+    "product_recovery_defect_established": false,
+    "root_causes": [
+      "the readiness package.json was semantically complete but not in serde_json canonical key order, so deterministic post-step repair created a formatting-only byte delta",
+      "the scripted provider matched an obsolete initial-inspection prompt substring and therefore emitted Write without the preregistered preceding Read trace"
+    ],
+    "valid_pairs": [
+      "generic-fix",
+      "data-fix"
+    ]
+  },
+  "analysis": {
+    "a28_reuse_policy": "no A28 arm, endpoint, report result, or descriptive contrast is reused in A29",
+    "arm_count": 6,
+    "descriptive_contrast_policy": "record each paired binary endpoint contrast solely to validate the instrument; do not aggregate or report it as an effect estimate",
+    "go_next_action": "request repository-owner review before preregistering or collecting a separate confirmatory conditional-effect experiment",
+    "go_rule": "GO requires exactly one valid pair in generic, data, and Next.js; identical input and initial failure boundary within every pair; failed control endpoint; passed and promoted treatment endpoint; unchanged protected paths; pinned binary and provisioning",
+    "invalid_policy": "freeze all A29 evidence, diagnose forward-only, and never replace, rerun, rescore, resize, or pool an A29 arm",
+    "no_go_next_action": "perform forward-only instrument diagnosis without effect estimation",
+    "pair_count": 3,
+    "pilot_generation": "A29 forward-only instrument correction"
+  },
+  "authoritative_command": "scripts/eval-goal-verify-recovery-deterministic-pair.py --contract eval/goal_verify/v0/phase6-recovery-deterministic-a29-pilot-contract.json --commandagent-bin <PINNED_BINARY> --nextjs-node-modules tests/fixtures/goal_verify_v3/create-ui-copy-style-port-path/reference/node_modules --run-dir dev-reports/issue-399/runs/phase6-recovery-deterministic-20260902-a29-pilot-01",
+  "authoritative_source_sha256": {
+    "scripts/eval-goal-verify-recovery-deterministic-pair.py": "2bc7855db63ef4630f271ed09b846c579f74a0c0964eae00b1b7d6d7bee24d8f",
+    "scripts/eval_lib/goal_verify_recovery_deterministic_pair.py": "74412bfdc2efed5fa20e33c7b33d03a470700195471fb0c2f5811e5988d641ea",
+    "scripts/eval_lib/goal_verify_recovery_deterministic_smoke.py": "9ae347be12443de33615ebdae883e2cebe11853e6ba24c2bb3ba9fa9f3f8bdc3"
+  },
+  "authorization": {
+    "approved_at": "2026-09-02",
+    "approved_by": "repository owner",
+    "confirmatory_collection_authorized": false,
+    "pilot_collection_authorized": true
+  },
+  "binary_sha256": "cc6c2948c39fa0a6e204b493d79a6dfd07133b736af72ff1a3eef89b7a4c7131",
+  "binary_version": "commandagent 0.1.0 cbea9fa0 2026-09-02T18:25:32+09:00",
+  "code_sha": "cbea9fa019c949394dcfceb6cfedb8b98eafee10",
+  "contract_id": "phase6-recovery-deterministic-20260902-a29-pilot-01",
+  "default_rollout_allowed": false,
+  "design": {
+    "allocation": "deterministic control then treatment order on independent fresh copies; no arm replacement or rerun",
+    "arm_order": [
+      "control",
+      "treatment"
+    ],
+    "control_endpoint": "the registered reproducer remains at exit 1, all registered regressions remain at exit 0, and the repair target is unchanged",
+    "endpoint": "all scenario-registered verify commands pass; Next.js additionally requires the frozen / route selector to render ready-02",
+    "fresh_workspace_per_arm": true,
+    "inference_role": "paired_instrument_validation_only",
+    "process_returncode_is_endpoint": false,
+    "recovery_auto_runs": {
+      "control": 0,
+      "treatment": 1
+    },
+    "required_profiles": [
+      "generic",
+      "data",
+      "nextjs"
+    ],
+    "same_binary_required_for_all_arms": true,
+    "same_initial_failure_boundary_required_within_pair": true,
+    "same_input_snapshot_required_within_pair": true,
+    "scenario_order": [
+      "generic-fix",
+      "data-fix",
+      "nextjs-fix"
+    ],
+    "treatment_endpoint": "one Recovery run mutates only the intended target/probe outputs, passes all registered commands, passes the Next.js route endpoint, and is promoted"
+  },
+  "effect_claim_allowed": false,
+  "estimand": {
+    "confirmatory_effect_estimate_in_a26": false,
+    "confirmatory_effect_estimate_in_a29": false,
+    "contrast": "Recovery auto-runs 1 versus 0 on the registered endpoint",
+    "cross_profile_generalization": false,
+    "name": "conditional scripted fault-boundary Recovery availability",
+    "natural_operation_effect": false,
+    "population": "the three frozen A29 fixtures at the scripted, reproducible failure boundary only"
+  },
+  "exact_sha_ci_evidence": "eval/goal_verify/v0/exact-sha-ci-cbea9fa0.json",
+  "forward_corrections": {
+    "nextjs_package_serialization": "preformat package.json in the same recursively key-sorted pretty JSON form produced by the deterministic profile repair",
+    "nextjs_readiness_overlay": {
+      "manifest_sha256": "23a93096916b1614d236201d52a6fd2c35672504841d93d4aed9279f6a1122d5",
+      "path": "tests/fixtures/goal_verify_v4/a28/fix-nextjs-route-label-readiness"
+    },
+    "scope_change": "none; retain all A28 scenarios, arms, registered commands, endpoints, port binding, and order",
+    "scripted_provider_sequence": "the initial nextjs_initial execution deterministically emits Read for lib/label.mjs before the Recovery repair emits Write",
+    "sequence_check": "scripted_read_write_sequence requires an observed Read index strictly before an observed Write index"
+  },
+  "frozen_at": "2026-09-02",
+  "full_collection_allowed": false,
+  "generalization_claim_allowed": false,
+  "generator_source_sha256": "382a09068ad2347ef075c1285d906f2c4bd554fa9cfc692eb4b96a4807c0b9c0",
+  "historical_evidence_policy": {
+    "A23": "immutable INVALID natural-exposure pilot; never rescore or pool",
+    "A24": "immutable INVALID natural-exposure pilot; never rescore or pool",
+    "A25": "immutable GO instrument / NOT_MET natural-exposure pilot; never rescore or pool",
+    "A26": "immutable INVALID deterministic paired pilot; never rerun, rescore, replace, or pool any arm",
+    "A27": "immutable INVALID deterministic paired pilot; never rerun, rescore, replace, or pool any arm",
+    "A28": "immutable INVALID deterministic paired pilot; never rerun, rescore, replace, or pool any arm"
+  },
+  "nextjs_node_modules_manifest_sha256": "f82a3eeda3197e6ab7f27b5adb172126046eebd3de5edfe31cca1911c1de930b",
+  "nextjs_provisioning": {
+    "copy_policy": "fresh private symlink-preserving copy before each A29 arm",
+    "manifest_sha256": "f82a3eeda3197e6ab7f27b5adb172126046eebd3de5edfe31cca1911c1de930b",
+    "mode": "external_hash_bound_directory_copy",
+    "network": "denied",
+    "source_hint": "tests/fixtures/goal_verify_v3/create-ui-copy-style-port-path/reference/node_modules"
+  },
+  "report_exit_semantics": "zero iff all preregistered paired instrument checks pass; nonzero freezes A29 as INVALID and requires forward-only diagnosis",
+  "run_id": "phase6-recovery-deterministic-20260902-a29-pilot-01",
+  "scenarios": [
+    {
+      "fixture_manifest_sha256": "7a734537b9f8cb504da2340c12ecbec0a2de9a30bc67bf4fa3f4f2722bbdd00f",
+      "host_route_endpoint": null,
+      "profile": "generic",
+      "protected_paths": [
+        "fixture"
+      ],
+      "scenario_id": "generic-fix",
+      "source_fixture": "tests/fixtures/goal_verify_v4/main/fix-generic-fixtures/before",
+      "target_path": "app.py",
+      "verify_commands": [
+        "python3 app.py fixture/task-02.json"
+      ]
+    },
+    {
+      "fixture_manifest_sha256": "b90b27b0d9935fc1859c931d6128d608723030f9309996692ac2c79f6bbf3073",
+      "host_route_endpoint": null,
+      "profile": "data",
+      "protected_paths": [
+        "data",
+        "scripts/repro.py",
+        "scripts/contract_check.py",
+        "tests"
+      ],
+      "scenario_id": "data-fix",
+      "source_fixture": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before",
+      "target_path": "pipeline/main.py",
+      "verify_commands": [
+        "python3 scripts/repro.py data/task-02.csv",
+        "python3 -m pytest -q tests",
+        "python3 scripts/contract_check.py"
+      ]
+    },
+    {
+      "fixture_manifest_sha256": "7df3d9fcc5f841553fc84ee793a90896378cf9c3745daebf9014186b71da5106",
+      "host_route_endpoint": {
+        "control_expected_text": "stale-02",
+        "path": "/",
+        "port": 4185,
+        "selector": "#result-02",
+        "treatment_expected_text": "ready-02"
+      },
+      "profile": "nextjs",
+      "protected_paths": [
+        "fixture",
+        "scripts/repro.mjs",
+        "scripts/regression.mjs",
+        "tests/label.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json"
+      ],
+      "scenario_id": "nextjs-fix",
+      "source_fixture": [
+        "tests/fixtures/goal_verify_v4/a15/fix-nextjs-route-label/before",
+        "tests/fixtures/goal_verify_v4/a28/fix-nextjs-route-label-readiness"
+      ],
+      "target_path": "lib/label.mjs",
+      "verify_commands": [
+        "node scripts/repro.mjs fixture/task-02.json",
+        "node scripts/regression.mjs",
+        "node tests/label.test.mjs",
+        "npx next build --webpack"
+      ]
+    }
+  ],
+  "schema_version": "commandagent.goal_verify.recovery_deterministic_fault_boundary_pilot.v1",
+  "status": "frozen",
+  "supersedes_contract": "phase6-recovery-deterministic-20260902-a28-pilot-01"
+}
