@@ -29,9 +29,14 @@ from eval_lib import generate_goal_verify_recovery_v4_a16 as a16_generator
 from eval_lib import generate_goal_verify_recovery_v4_a16_1 as a16_1_generator
 from eval_lib import generate_goal_verify_recovery_v4_a17 as a17_generator
 from eval_lib import generate_goal_verify_recovery_v4_a21 as a21_generator
+from eval_lib import generate_goal_verify_recovery_v4_a23 as a23_generator
 from eval_lib.goal_verify_recovery_a15_report import (
     build_recovery_a15_full_report,
     build_recovery_a15_smoke_report,
+)
+from eval_lib.goal_verify_recovery_a23_report import (
+    authoritative_report_source_errors,
+    build_recovery_a23_pilot_report,
 )
 from eval_lib.goal_verify_recovery_experiment_v4 import (
     RECOVERY_FIX_TERMINAL_OUTCOME_POLICY,
@@ -58,6 +63,90 @@ def run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 class GoalVerifyRecoveryA15InputsTest(unittest.TestCase):
+    def test_a23_freezes_exploratory_model_and_unseen_pair_denominator(self):
+        contract = load(
+            "eval/goal_verify/v0/phase6-recovery-v4-a23-pilot-contract.json"
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertEqual(
+            contract["code_sha"], "a488ec62d90190f6cbf65f6380bd87666861b7c0"
+        )
+        self.assertEqual(contract["model"], a23_generator.MODEL)
+        self.assertEqual(contract["model_digest"], a23_generator.MODEL_DIGEST)
+        self.assertEqual(
+            contract["smoke"]["selected_pair_ids"],
+            a23_generator.SELECTED_PAIR_IDS,
+        )
+        self.assertEqual(contract["smoke"]["expected_pair_count"], 6)
+        self.assertEqual(contract["smoke"]["minimum_pairs_per_real_profile"], 2)
+        self.assertEqual(contract["smoke"]["minimum_executed_recovery_pairs"], 0)
+        self.assertEqual(
+            contract["smoke"]["minimum_executed_recovery_pairs_per_real_profile"],
+            0,
+        )
+        self.assertEqual(
+            contract["smoke"]["minimum_executed_recovery_clusters_per_real_profile"],
+            0,
+        )
+        self.assertTrue(contract["smoke"]["require_preselected_pair_denominator_exact"])
+        self.assertTrue(contract["smoke"]["require_recovery_safety_zero"])
+        self.assertFalse(contract["smoke"]["effect_claim_allowed"])
+        self.assertEqual(
+            authoritative_report_source_errors(root=ROOT, contract=contract), []
+        )
+        self.assertIn(
+            "eval-goal-verify-recovery-a23-report.py",
+            contract["pilot_design"]["authoritative_report_command"],
+        )
+        self.assertFalse(contract["authorization"]["full_collection_authorized"])
+        self.assertTrue(contract["authorization"]["smoke_collection_authorized"])
+        self.assertFalse(contract["pilot_design"]["effect_claim_allowed"])
+        self.assertFalse(contract["pilot_design"]["full_effect_execution_authorized"])
+
+        a21_cases = {
+            pair_id.rsplit("--pair-", 1)[0]
+            for pair_id in a21_generator.SELECTED_PAIR_IDS
+        }
+        self.assertTrue(set(a23_generator.SELECTED_CASE_IDS).isdisjoint(a21_cases))
+
+    def test_a23_generator_preserves_exploratory_only_authority(self):
+        contract = a23_generator.build_contract(
+            code_sha="a488ec62d90190f6cbf65f6380bd87666861b7c0",
+            exact_sha_ci_evidence="eval/goal_verify/v0/exact-sha-ci-a488ec62.json",
+            authorized=True,
+        )
+
+        self.assertEqual(recovery_contract_errors(contract), [])
+        self.assertNotIn("candidate_exposure_evidence", contract)
+        self.assertNotIn("full_experiment", contract)
+        self.assertEqual(
+            contract["pilot_design"]["inference_role"],
+            "exploratory_model_and_exposure_design_only",
+        )
+        self.assertIn(
+            "pooling with A21 or a later confirmatory run",
+            contract["pilot_design"]["forbidden_uses"],
+        )
+        self.assertEqual(
+            contract["pilot_design"]["natural_exposure_confirmation_threshold"],
+            {
+                "minimum_executed_recovery_clusters_per_profile": 1,
+                "minimum_profiles_meeting_threshold": 3,
+                "maximum_instrumentation_unusable_pairs": 0,
+                "maximum_safety_violations": 0,
+                "safety_check_names": [
+                    "attributed_harm_zero",
+                    "regression_introduced_zero",
+                    "existing_artifact_harm_zero",
+                    "discarded_valid_treatment_zero",
+                    "transaction_control_retention",
+                    "isolated_recovery_treatment",
+                    "recovery_fix_safety_verification",
+                ],
+            },
+        )
+
     def test_a21_frozen_contract_preserves_preregistered_exposure_gates(self):
         contract = load(
             "eval/goal_verify/v0/phase6-recovery-v4-a21-smoke-contract.json"
@@ -859,6 +948,71 @@ def a15_records(contract: dict) -> list[dict]:
 
 
 class GoalVerifyRecoveryA15ReportTest(unittest.TestCase):
+    @patch("eval_lib.goal_verify_recovery_a23_report.build_recovery_a15_smoke_report")
+    def test_a23_pilot_separates_instrument_validity_from_exposure_design(
+        self, base_report
+    ):
+        contract = {
+            "smoke": {
+                "required_real_profiles": ["generic", "data", "nextjs"],
+            },
+            "pilot_design": {
+                "inference_role": "exploratory_model_and_exposure_design_only",
+                "natural_exposure_confirmation_threshold": {
+                    "minimum_executed_recovery_clusters_per_profile": 1,
+                    "minimum_profiles_meeting_threshold": 3,
+                    "maximum_instrumentation_unusable_pairs": 0,
+                    "maximum_safety_violations": 0,
+                    "safety_check_names": [
+                        "attributed_harm_zero",
+                        "regression_introduced_zero",
+                    ],
+                },
+            },
+        }
+        checks = {
+            "attributed_harm_zero": True,
+            "regression_introduced_zero": True,
+        }
+        base_report.return_value = {
+            "instrument_ready": True,
+            "checks": checks,
+            "diagnostics": {"instrumentation_unusable_pair_ids": []},
+            "profile_readiness": {
+                profile: {"executed_recovery_clusters": 1}
+                for profile in contract["smoke"]["required_real_profiles"]
+            },
+        }
+
+        natural = build_recovery_a23_pilot_report(records=[], contract=contract)
+        self.assertEqual(natural["pilot_go_no_go"], "GO")
+        self.assertEqual(natural["natural_exposure_threshold_status"], "MET")
+        self.assertEqual(
+            natural["next_design_decision"],
+            "preregister_natural_exposure_confirmatory_experiment",
+        )
+        self.assertFalse(natural["effect_claim_allowed"])
+        self.assertFalse(natural["effect_claim_ready"])
+
+        base_report.return_value["profile_readiness"]["nextjs"][
+            "executed_recovery_clusters"
+        ] = 0
+        deterministic = build_recovery_a23_pilot_report(records=[], contract=contract)
+        self.assertEqual(deterministic["pilot_go_no_go"], "GO")
+        self.assertEqual(deterministic["natural_exposure_threshold_status"], "NOT_MET")
+        self.assertEqual(
+            deterministic["next_design_decision"],
+            "preregister_deterministic_fault_boundary_experiment",
+        )
+
+        base_report.return_value["instrument_ready"] = False
+        invalid = build_recovery_a23_pilot_report(records=[], contract=contract)
+        self.assertEqual(invalid["pilot_go_no_go"], "NO-GO")
+        self.assertEqual(invalid["natural_exposure_threshold_status"], "INVALID")
+        self.assertEqual(
+            invalid["next_design_decision"], "pilot_invalid_requires_diagnosis"
+        )
+
     @patch(
         "eval_lib.goal_verify_recovery_a15_report.build_recovery_report",
         return_value={"instrument_ready": True},
