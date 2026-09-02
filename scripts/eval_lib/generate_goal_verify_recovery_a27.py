@@ -109,7 +109,18 @@ def build_contract(
                 "request repository-owner review before preregistering or collecting "
                 "a separate confirmatory conditional-effect experiment"
             ),
+            "invalid_policy": (
+                "freeze all A27 evidence, diagnose forward-only, and never replace, "
+                "rerun, rescore, resize, or pool an A27 arm"
+            ),
         }
+    )
+    contract["estimand"]["confirmatory_effect_estimate_in_a27"] = contract["estimand"][
+        "confirmatory_effect_estimate_in_a26"
+    ]
+    contract["estimand"]["population"] = (
+        "the three frozen A27 fixtures, scope-identical to A26, at the scripted, "
+        "reproducible failure boundary only"
     )
     contract["authoritative_command"] = (
         "scripts/eval-goal-verify-recovery-deterministic-pair.py --contract "
@@ -118,6 +129,10 @@ def build_contract(
         "tests/fixtures/goal_verify_v3/create-ui-copy-style-port-path/reference/"
         "node_modules --run-dir dev-reports/issue-399/runs/"
         f"{CONTRACT_ID}"
+    )
+    contract["report_exit_semantics"] = (
+        "zero iff all preregistered paired instrument checks pass; nonzero freezes "
+        "A27 as INVALID and requires forward-only diagnosis"
     )
     return contract
 
