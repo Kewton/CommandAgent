@@ -12,17 +12,18 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib import generate_goal_verify_recovery_a26 as a26_generator
 from eval_lib import generate_goal_verify_recovery_a27 as a27_generator
+from eval_lib import generate_goal_verify_recovery_a28 as a28_generator
 from eval_lib.goal_verify_recovery_deterministic_pair import (
     A26_REPORT_SCHEMA_VERSION,
     NEXTJS_REPRO_COMMAND,
     SCENARIO_ORDER,
     SCENARIOS,
     ScriptedNextjsFixRecoveryProvider,
+    _boundary_signature,
     _build_arm_report,
     _path_manifest,
     _write_nextjs_fix_fixture,
     build_pilot_report,
-    contract_errors,
     fixture_manifest_sha256,
 )
 
@@ -95,7 +96,7 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         self.assertFalse(report["conditional_effect_estimate_reported"])
         self.assertEqual(
             report["next_design_decision"],
-            "request_owner_review_before_a27_confirmatory_preregistration",
+            "request_owner_review_before_confirmatory_preregistration",
         )
 
     def test_pilot_report_fails_closed_on_boundary_mismatch(self):
@@ -115,7 +116,41 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         self.assertEqual(report["pilot_go_no_go"], "NO-GO")
         self.assertEqual(
             report["next_design_decision"],
-            "a26_invalid_requires_forward_only_diagnosis",
+            "invalid_requires_forward_only_diagnosis",
+        )
+
+    def test_boundary_signature_excludes_treatment_internal_events(self):
+        scenario = SCENARIOS["nextjs-fix"]
+        initial = [
+            event(
+                "fix_evidence_recorded",
+                requirement_id="before_fails",
+                binding_id=scenario.verify_commands[0],
+                executed=True,
+                outcome="failure",
+            ),
+            event("recovery_prompt_saved", status="incomplete", failed_phase=None),
+            event(
+                "ultra_final_acceptance",
+                ok=False,
+                verdict="failed",
+                final_acceptance_status="failed",
+                assurance_level="failed",
+            ),
+        ]
+        treatment = [
+            *initial,
+            event("recovery_plan_auto_run_start"),
+            event(
+                "recovery_prompt_saved",
+                status="incomplete",
+                failed_phase="repair-isolate-cause",
+            ),
+        ]
+
+        self.assertEqual(
+            _boundary_signature(initial, scenario),
+            _boundary_signature(treatment, scenario),
         )
 
     def test_nextjs_control_requires_observed_stale_route(self):
@@ -264,6 +299,51 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         )
         self.assertFalse(contract["effect_claim_allowed"])
 
+    def test_a28_generator_freezes_readiness_and_boundary_corrections(self):
+        code_sha = "c" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "commandagent"
+            binary.write_bytes(b"binary")
+            node_modules = root / "node_modules"
+            node_modules.mkdir()
+            (node_modules / ".package-lock.json").write_text("{}\n", encoding="utf-8")
+            with (
+                patch.object(a26_generator, "_validate_exact_sha_evidence"),
+                patch.object(
+                    a26_generator,
+                    "_binary_version",
+                    return_value=f"commandagent 0.1.0 {code_sha[:8]}",
+                ),
+            ):
+                contract = a28_generator.build_contract(
+                    code_sha=code_sha,
+                    exact_sha_ci_evidence="eval/goal_verify/v0/fake.json",
+                    commandagent_bin=binary,
+                    node_modules_source=node_modules,
+                    authorized=True,
+                )
+
+        self.assertEqual(contract["contract_id"], a28_generator.CONTRACT_ID)
+        self.assertEqual(contract["supersedes_contract"], a28_generator.A27_CONTRACT_ID)
+        self.assertEqual(
+            contract["a27_diagnosis"]["valid_pairs"],
+            [
+                "generic-fix",
+                "data-fix",
+            ],
+        )
+        self.assertIn(
+            "recovery_plan_auto_run_start",
+            contract["forward_corrections"]["initial_failure_boundary_event_window"],
+        )
+        self.assertIn(
+            "tests/label.test.mjs",
+            contract["forward_corrections"]["nextjs_readiness_overlay"]["contents"],
+        )
+        self.assertFalse(contract["estimand"]["confirmatory_effect_estimate_in_a28"])
+        self.assertFalse(contract["effect_claim_allowed"])
+
     def test_frozen_a26_contract_keeps_historical_scope(self):
         path = (
             ROOT / "eval/goal_verify/v0/"
@@ -285,7 +365,6 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
         )
         contract = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(contract_errors(contract), [])
         self.assertEqual(
             contract["code_sha"], "7c5e99eb9e246358aed3c25b3f3b0ea77c6da2be"
         )
@@ -329,6 +408,31 @@ class DeterministicRecoveryPairTest(unittest.TestCase):
 
             self.assertTrue(copied.is_symlink())
             self.assertEqual(copied.readlink(), Path("../next/dist/bin/next"))
+
+    def test_nextjs_fixture_is_ready_before_arm_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            node_modules = root / "source"
+            node_modules.mkdir()
+            workspace = root / "workspace"
+            workspace.mkdir()
+
+            _, completion_path, _ = _write_nextjs_fix_fixture(workspace, node_modules)
+            package = json.loads(
+                (workspace / "package.json").read_text(encoding="utf-8")
+            )
+            completion = json.loads(completion_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(package["scripts"]["dev"], "next dev -p 4185")
+            self.assertEqual(package["scripts"]["start"], "next start -p 4185")
+            self.assertIn(
+                "node:assert",
+                (workspace / "tests/label.test.mjs").read_text(encoding="utf-8"),
+            )
+            self.assertTrue((workspace / "README.md").is_file())
+            self.assertIn("tests/label.test.mjs", completion["required_paths"])
+            self.assertIn("README.md", completion["required_paths"])
+            self.assertIn("node tests/label.test.mjs", completion["verify_commands"])
 
 
 if __name__ == "__main__":

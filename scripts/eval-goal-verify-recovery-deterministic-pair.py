@@ -10,7 +10,7 @@ from eval_lib.goal_verify_recovery_deterministic_pair import run_pilot
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run the preregistered A26 paired Recovery instrument pilot"
+        description="Run a preregistered deterministic paired Recovery instrument pilot"
     )
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--commandagent-bin", type=Path, required=True)

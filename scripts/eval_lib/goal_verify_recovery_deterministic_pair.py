@@ -45,6 +45,7 @@ A26_SOURCE_PATHS = (
 NEXTJS_REPRO_COMMAND = "node scripts/repro.mjs fixture/task-02.json"
 NEXTJS_REGRESSION_COMMANDS = (
     "node scripts/regression.mjs",
+    "node tests/label.test.mjs",
     "npx next build --webpack",
 )
 NEXTJS_VERIFY_COMMANDS = (NEXTJS_REPRO_COMMAND, *NEXTJS_REGRESSION_COMMANDS)
@@ -54,11 +55,14 @@ NEXTJS_FIXTURE = (
 NEXTJS_REFERENCE = (
     ROOT / "tests/fixtures/goal_verify_v4/a15/fix-nextjs-route-label/after"
 )
+NEXTJS_READINESS_OVERLAY = (
+    ROOT / "tests/fixtures/goal_verify_v4/a28/fix-nextjs-route-label-readiness"
+)
 NEXTJS_GOAL = (
     "Fix the existing offline Next.js App Router project so "
     "`node scripts/repro.mjs fixture/task-02.json` changes from exit 1 to "
-    "exit 0 and / renders #result-02 as ready-02. Preserve the frozen Node "
-    "regression and complete a production build."
+    "exit 0 and / renders #result-02 as ready-02 on port 4185. Preserve the "
+    "frozen Node regressions and complete a production build."
 )
 NEXTJS_PORT = 4185
 
@@ -115,6 +119,8 @@ SCENARIOS = {
             "fixture",
             "scripts/repro.mjs",
             "scripts/regression.mjs",
+            "tests/label.test.mjs",
+            "README.md",
             "package.json",
             "package-lock.json",
         ),
@@ -173,6 +179,17 @@ def fixture_manifest_sha256(scenario_id: str) -> str:
         raise ValueError(f"unsupported deterministic scenario:{scenario_id}") from error
     if not fixture.is_dir():
         raise ValueError(f"deterministic fixture is missing:{fixture}")
+    if scenario_id == "nextjs-fix":
+        if not NEXTJS_READINESS_OVERLAY.is_dir():
+            raise ValueError(
+                f"Next.js readiness overlay is missing:{NEXTJS_READINESS_OVERLAY}"
+            )
+        return _canonical_sha256(
+            {
+                "base": _manifest(fixture),
+                "readiness_overlay": _manifest(NEXTJS_READINESS_OVERLAY),
+            }
+        )
     return manifest_sha256(fixture)
 
 
@@ -303,13 +320,22 @@ class ScriptedNextjsFixRecoveryProvider(ScriptedRecoveryProvider):
 def _write_nextjs_fix_fixture(
     workspace: Path, node_modules_source: Path
 ) -> tuple[Path, Path, str]:
-    if not NEXTJS_FIXTURE.is_dir() or not NEXTJS_REFERENCE.is_dir():
+    if (
+        not NEXTJS_FIXTURE.is_dir()
+        or not NEXTJS_REFERENCE.is_dir()
+        or not NEXTJS_READINESS_OVERLAY.is_dir()
+    ):
         raise ValueError("Next.js deterministic fixture is missing")
     shutil.copytree(
         NEXTJS_FIXTURE,
         workspace,
         dirs_exist_ok=True,
         ignore=shutil.ignore_patterns(".next", "node_modules"),
+    )
+    shutil.copytree(
+        NEXTJS_READINESS_OVERLAY,
+        workspace,
+        dirs_exist_ok=True,
     )
     shutil.copytree(
         node_modules_source,
@@ -358,6 +384,8 @@ def _write_nextjs_fix_fixture(
                     "fixture/task-02.json",
                     "scripts/repro.mjs",
                     "scripts/regression.mjs",
+                    "tests/label.test.mjs",
+                    "README.md",
                 ],
                 "verify_commands": list(NEXTJS_VERIFY_COMMANDS),
                 "fix_reproducer_command": NEXTJS_REPRO_COMMAND,
@@ -558,6 +586,15 @@ def _route_observation(
 def _boundary_signature(
     rows: list[dict[str, Any]], scenario: Scenario
 ) -> dict[str, Any]:
+    first_recovery_start = next(
+        (
+            index
+            for index, row in enumerate(rows)
+            if row.get("event") == "recovery_plan_auto_run_start"
+        ),
+        len(rows),
+    )
+    initial_rows = rows[:first_recovery_start]
     before = [
         {
             "requirement_id": row.get("requirement_id"),
@@ -565,14 +602,14 @@ def _boundary_signature(
             "executed": row.get("executed"),
             "outcome": row.get("outcome"),
         }
-        for row in _events(rows, "fix_evidence_recorded")
+        for row in _events(initial_rows, "fix_evidence_recorded")
         if row.get("requirement_id") == "before_fails"
     ]
     prompts = [
         {"status": row.get("status"), "failed_phase": row.get("failed_phase")}
-        for row in _events(rows, "recovery_prompt_saved")
+        for row in _events(initial_rows, "recovery_prompt_saved")
     ]
-    initial_acceptance = _events(rows, "ultra_final_acceptance")[:1]
+    initial_acceptance = _events(initial_rows, "ultra_final_acceptance")[:1]
     acceptance = [
         {
             "ok": row.get("ok"),
@@ -1082,9 +1119,9 @@ def build_pilot_report(
         "instrument_ready": ready,
         "pilot_go_no_go": "GO" if ready else "NO-GO",
         "next_design_decision": (
-            "request_owner_review_before_a27_confirmatory_preregistration"
+            "request_owner_review_before_confirmatory_preregistration"
             if ready
-            else "a26_invalid_requires_forward_only_diagnosis"
+            else "invalid_requires_forward_only_diagnosis"
         ),
     }
 
@@ -1101,21 +1138,27 @@ def run_pilot(
 ) -> dict[str, Any]:
     errors = contract_errors(contract)
     if errors:
-        raise ValueError("invalid A26 contract:" + ",".join(errors))
+        raise ValueError("invalid deterministic paired contract:" + ",".join(errors))
     commandagent_bin = commandagent_bin.resolve()
     if not commandagent_bin.is_file():
         raise ValueError(f"commandagent binary is missing:{commandagent_bin}")
     actual_binary_sha = sha256_file(commandagent_bin)
     if actual_binary_sha != contract.get("binary_sha256"):
-        raise ValueError("commandagent binary SHA-256 does not match A26 contract")
+        raise ValueError(
+            "commandagent binary SHA-256 does not match deterministic paired contract"
+        )
     node_modules_source = node_modules_source.resolve()
     if provisioning_manifest_sha256(node_modules_source) != contract.get(
         "nextjs_node_modules_manifest_sha256"
     ):
-        raise ValueError("Next.js provisioning manifest does not match A26 contract")
+        raise ValueError(
+            "Next.js provisioning manifest does not match deterministic paired contract"
+        )
     run_dir = run_dir.resolve()
     if run_dir.name != contract.get("run_id"):
-        raise ValueError("A26 run directory name does not match the frozen run id")
+        raise ValueError(
+            "run directory name does not match the frozen deterministic paired run id"
+        )
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "contract-copy.json").write_text(
         contract_path.read_text(encoding="utf-8"), encoding="utf-8"
