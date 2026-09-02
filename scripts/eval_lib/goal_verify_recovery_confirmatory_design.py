@@ -69,6 +69,8 @@ def design_errors(design: dict[str, Any]) -> list[str]:
         errors.append("allocation_seed_must_be_integer")
     if design.get("arm_order") != ["control", "treatment"]:
         errors.append("arm_order_invalid")
+    if design.get("concurrency") != 1:
+        errors.append("concurrency_must_be_1")
     if design.get("recovery_auto_runs") != {"control": 0, "treatment": 1}:
         errors.append("arm_assignment_invalid")
     for field in ("fresh_workspace_per_arm", "same_input_snapshot", "same_failure_boundary"):

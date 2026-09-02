@@ -39,10 +39,11 @@ class ConfirmatoryRunnerTest(unittest.TestCase):
                 workspace,
                 workspace / "unused-node-modules",
             )
-            self.assertEqual(
-                (workspace / "fixture/task-02.json").read_bytes(),
-                (workspace / "fixture/task-01.json").read_bytes(),
+            completion = json.loads(
+                (workspace / "completion.json").read_text(encoding="utf-8")
             )
+            self.assertIn("fixture/task-01.json", completion["required_paths"])
+            self.assertNotIn("fixture/task-02.json", completion["required_paths"])
 
     def test_contract_validation_accepts_bound_sources(self):
         contract = {

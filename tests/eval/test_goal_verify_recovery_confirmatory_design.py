@@ -21,6 +21,7 @@ def _design():
         "task_ids": [f"{index:02d}" for index in range(1, 11)],
         "allocation_seed": 39320260902,
         "arm_order": ["control", "treatment"],
+        "concurrency": 1,
         "recovery_auto_runs": {"control": 0, "treatment": 1},
         "fresh_workspace_per_arm": True,
         "same_input_snapshot": True,

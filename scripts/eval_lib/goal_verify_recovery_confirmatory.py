@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from eval_lib import goal_verify_recovery_deterministic_pair as instrument
+from eval_lib import goal_verify_recovery_deterministic_smoke as smoke
 from eval_lib.goal_verify_recovery_confirmatory_design import (
     analyze_pair_results,
     design_errors,
@@ -25,11 +26,6 @@ SOURCE_PATHS = (
     "scripts/eval_lib/goal_verify_recovery_deterministic_pair.py",
     "scripts/eval_lib/goal_verify_recovery_deterministic_smoke.py",
 )
-TASK_TARGETS = {
-    "generic": Path("fixture/task-02.json"),
-    "data": Path("data/task-02.csv"),
-    "nextjs": Path("fixture/task-02.json"),
-}
 TASK_SOURCES = {
     "generic": "fixture/task-{task_id}.json",
     "data": "data/task-{task_id}.csv",
@@ -139,15 +135,81 @@ def _task_prepare(task_id: str):
         scenario: instrument.Scenario, workspace: Path, node_modules_source: Path
     ):
         result = original_prepare(scenario, workspace, node_modules_source)
-        source = workspace / TASK_SOURCES[scenario.profile].format(task_id=task_id)
-        target = workspace / TASK_TARGETS[scenario.profile]
-        if not source.is_file():
-            raise ValueError(f"registered task source is missing:{source}")
-        if source != target:
-            shutil.copyfile(source, target)
+        completion_path = result[1]
+        completion = json.loads(completion_path.read_text(encoding="utf-8"))
+        old_path = TASK_SOURCES[scenario.profile].format(task_id="02")
+        new_path = TASK_SOURCES[scenario.profile].format(task_id=task_id)
+        completion["required_paths"] = [
+            new_path if value == old_path else value
+            for value in completion.get("required_paths", [])
+        ]
+        completion["evidence_hint_tokens"] = [
+            value.replace(old_path, new_path)
+            for value in completion.get("evidence_hint_tokens", [])
+        ]
+        completion_path.write_text(
+            json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         return result
 
     return prepare
+
+
+def _scenario(profile: str, task_id: str) -> instrument.Scenario:
+    base = instrument.SCENARIOS[SCENARIO_IDS[profile]]
+    if profile == "generic":
+        repro = f"python3 app.py fixture/task-{task_id}.json"
+        commands = (repro,)
+    elif profile == "data":
+        repro = f"python3 scripts/repro.py data/task-{task_id}.csv"
+        commands = (repro, *smoke.DATA_REGRESSION_COMMANDS)
+    else:
+        repro = f"node scripts/repro.mjs fixture/task-{task_id}.json"
+        commands = (repro, *instrument.NEXTJS_REGRESSION_COMMANDS)
+    return instrument.Scenario(
+        scenario_id=base.scenario_id,
+        profile=base.profile,
+        target_path=base.target_path,
+        verify_commands=commands,
+        protected_paths=base.protected_paths,
+    )
+
+
+@contextmanager
+def _task_bindings(profile: str, task_id: str):
+    if profile == "generic":
+        command = f"python3 app.py fixture/task-{task_id}.json"
+        patches = (
+            patch.object(smoke, "GENERIC_FIX_REPRO_COMMAND", command),
+            patch.object(
+                smoke,
+                "GENERIC_FIX_GOAL",
+                smoke.GENERIC_FIX_GOAL.replace("task-02", f"task-{task_id}"),
+            ),
+        )
+    elif profile == "data":
+        command = f"python3 scripts/repro.py data/task-{task_id}.csv"
+        patches = (
+            patch.object(smoke, "DATA_REPRO_COMMAND", command),
+            patch.object(
+                smoke,
+                "DATA_GOAL",
+                smoke.DATA_GOAL.replace("task-02", f"task-{task_id}"),
+            ),
+        )
+    else:
+        command = f"node scripts/repro.mjs fixture/task-{task_id}.json"
+        commands = (command, *instrument.NEXTJS_REGRESSION_COMMANDS)
+        goal = instrument.NEXTJS_GOAL.replace("task-02", f"task-{task_id}")
+        patches = (
+            patch.object(instrument, "NEXTJS_REPRO_COMMAND", command),
+            patch.object(instrument, "NEXTJS_VERIFY_COMMANDS", commands),
+            patch.object(instrument, "NEXTJS_GOAL", goal),
+        )
+    with ExitStack() as stack:
+        for binding in patches:
+            stack.enter_context(binding)
+        yield
 
 
 def run_task_arm(
@@ -161,8 +223,10 @@ def run_task_arm(
     execution_root: Path | None,
     timeout_sec: int,
 ) -> dict[str, Any]:
-    scenario = instrument.SCENARIOS[SCENARIO_IDS[profile]]
-    with patch.object(instrument, "_prepare", _task_prepare(task_id)):
+    scenario = _scenario(profile, task_id)
+    with _task_bindings(profile, task_id), patch.object(
+        instrument, "_prepare", _task_prepare(task_id)
+    ):
         report = instrument._run_arm(
             commandagent_bin=commandagent_bin,
             scenario=scenario,
