@@ -29,6 +29,8 @@ const fixtureRoot = resolve(
 );
 const model = valueArgument(arguments_, "--model") ?? "qwen3:8b";
 const japaneseSampleGoal = "--pattern で行を絞り込む CLI コマンドを作ってください";
+const ambiguousNextjsGoal =
+  "・あなたが考える最高にかっこいいToDoアプリを60302ポートで起動可能なnext.jsアプリとして開発してください。";
 const trialCredential = process.env.GUI_TRIAL_TOKEN ?? randomBytes(32).toString("hex");
 const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ?? 1_800_000);
 const expectedNextjsAcmeHash = "sha256:6dab3671f1750a85830185486cf94f199b227cd4f3d4eccfe03a30742cee7ac0";
@@ -1035,6 +1037,7 @@ async function runCase(smokeCase) {
         },
         elapsed_seconds: (Date.now() - startedAt) / 1000,
         expected_negative_console_errors: expectedNegativeConsoleErrors,
+        trial_compose_regression: trialComposeRegression,
         unexpected_console_errors: unexpectedConsoleErrors,
         ok:
           trialResponse?.status() === 200 &&
@@ -1045,6 +1048,7 @@ async function runCase(smokeCase) {
           gateOneHashLayoutMobile.ok &&
           gateOneLayout.ok &&
           gateOneRecovery.ok &&
+          trialComposeRegression.ok &&
           deniedWithoutConfirmation.status === 428 &&
           ["status of 401", "status of 412", "status of 428"].every((status) =>
             expectedNegativeConsoleErrors.some((entry) => entry.includes(status)),
@@ -2169,6 +2173,52 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.route("**/api/session-proposals", async (route) => {
       const request = route.request();
       const body = request.postDataJSON();
+      if (body.goal === ambiguousNextjsGoal && body.intent === undefined) {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 422,
+          body: JSON.stringify({
+            code: "trial_intent_ambiguous",
+            error:
+              "Gate 1 requires one deterministic registered route; candidates: nextjs × create × Quiz; nextjs × fix × compile_error_fix",
+          }),
+        });
+        return;
+      }
+      if (body.goal === ambiguousNextjsGoal && body.intent === "create") {
+        const proposal = syntheticProposal();
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify({
+            ...proposal,
+            card_hash: `sha256:${"4".repeat(64)}`,
+            card_markdown:
+              "# Synthetic Gate 1\n\n- 作業種別: Web アプリ × unknown (unknown)\n- 全必須チェックに合格した実行: 0件中0件 (未計測)\n- 類似実行の平均所要時間: 未計測",
+            identity: {
+              ...proposal.identity,
+              request: body.goal,
+              profile: "nextjs",
+              intent: "create",
+              task_family: "unknown",
+              band_full: 0,
+              band_denominator: 0,
+              band_rate: "未計測",
+              band_arm: "未計測",
+              band_measurement: "未計測",
+              band_source: "未計測",
+            },
+            price: {
+              duration_n: 0,
+              average_duration_seconds: null,
+              cost_n: 0,
+              average_cost_usd: null,
+              source: "未計測",
+            },
+          }),
+        });
+        return;
+      }
       if (body.intent !== "fix") {
         await route.continue();
         return;
@@ -2238,6 +2288,55 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
     await page.locator("[data-testid='trial-profile']").selectOption("nextjs");
     const profileChangeClearedPack =
       await page.locator("[data-testid='trial-pack']").inputValue() === "";
+
+    const intentControl = page.locator("[data-testid='trial-intent']");
+    await intentControl.selectOption("");
+    await page.locator("[data-testid='trial-goal']").fill(ambiguousNextjsGoal);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='trial-executor-model']").fill(discoveredModels.ollama[0]);
+    await page.locator("[data-testid='trial-planner-model']").fill(discoveredModels.ollama[0]);
+    const ambiguityResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    await page.locator("[data-testid='check-contract']").click();
+    const ambiguityResponse = await ambiguityResponsePromise;
+    const ambiguityAlert = page.locator(".trial-compose > .trial-error[role='alert']");
+    await ambiguityAlert.waitFor();
+    const ambiguityGuidance = await ambiguityAlert.innerText();
+    const ambiguityAlertRole = await ambiguityAlert.getAttribute("role");
+    await intentControl.focus();
+    const intentControlKeyboardFocusable = await intentControl.evaluate(
+      (control) => document.activeElement === control,
+    );
+    await intentControl.selectOption("create");
+    const retryResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname.endsWith("/api/session-proposals");
+    });
+    await page.locator("[data-testid='check-contract']").click();
+    const retryResponse = await retryResponsePromise;
+    const retryCard = await page.locator("[data-testid='gate-one-card-markdown']").innerText();
+    const intentAmbiguity = {
+      alert_role: ambiguityAlertRole,
+      automatic_status: ambiguityResponse.status(),
+      guidance: ambiguityGuidance,
+      intent_control_keyboard_focusable: intentControlKeyboardFocusable,
+      retry_status: retryResponse.status(),
+      retry_card: retryCard,
+      ok:
+        ambiguityResponse.status() === 422 &&
+        ambiguityGuidance.includes("実行目的を自動判定できませんでした") &&
+        ambiguityGuidance.includes("新しいアプリを開発する場合は「実行目的」で「作成」を選択") &&
+        ambiguityGuidance.includes("既存アプリを修正する場合は「修正」を選択") &&
+        ambiguityGuidance.includes("詳細: Gate 1 requires one deterministic registered route; candidates:") &&
+        ambiguityAlertRole === "alert" &&
+        intentControlKeyboardFocusable &&
+        retryResponse.status() === 200 &&
+        retryCard.includes("unknown (unknown)") &&
+        retryCard.includes("未計測"),
+    };
+    await page.locator("[data-testid='gate-one-edit']").click();
 
     const executorDatalist = page.locator("#trial-executor-provider-model-options option");
     const plannerDatalist = page.locator("#trial-planner-provider-model-options option");
@@ -2402,6 +2501,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       explicit_intent_frozen: explicitIntentFrozen,
       fix_catalog_link_visible: fixCatalogLinkVisible,
       fix_pack: fixPack,
+      intent_ambiguity: intentAmbiguity,
       intent_options: intentOptions,
       input_lists: inputLists,
       proposal_pack: proposalBody.pack,
@@ -2421,6 +2521,7 @@ async function probeTrialComposeRegression(browser, origin, basePath) {
       unknown_warnings: unknownWarnings,
       ok:
         fixCatalogLinkVisible &&
+        intentAmbiguity.ok &&
         intentSelectionOk &&
         compatibleIntentPacks &&
         explicitIntentFrozen &&

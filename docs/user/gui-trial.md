@@ -34,6 +34,14 @@ choices send the typed `create`, `fix`, or `investigate` value to Gate 1;
 request wording cannot replace that explicit choice. Gate 1 displays and
 freezes the effective value before delegation to CLI `--intent`.
 
+If automatic detection leaves candidates from more than one intent, the GUI
+reports that the execution purpose could not be detected and gives a concrete
+retry: select **作成** for a new application or **修正** for changes to an
+existing application. The registered route candidates remain available after
+**詳細** for troubleshooting. Family ambiguity within one intent and unrelated
+authentication, Origin, workspace-lease, or input failures keep their own
+guidance. This behavior is identical at `/` and a configured proxy base path.
+
 The browser obtains profiles/providers from `GET api/trial-options` and
 admitted plus conformant pinned local packs from `GET api/pack-options`.
 External profile rows are labeled **下書き**, show their exact-byte manifest
