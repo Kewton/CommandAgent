@@ -791,6 +791,14 @@ pub(super) fn unprocessable(message: impl ToString) -> SessionError {
     )
 }
 
+pub(super) fn ambiguous_intent(message: impl ToString) -> SessionError {
+    GuiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "trial_intent_ambiguous",
+        message.to_string(),
+    )
+}
+
 pub(super) fn bad_request(error: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::BAD_REQUEST,

@@ -3682,7 +3682,7 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
     std::fs::set_permissions(&cli, permissions).unwrap();
     let mut server = Server::start(&workspace, &cli);
     let spec = serde_json::json!({
-        "goal": "Create a personal portfolio site",
+        "goal": "・あなたが考える最高にかっこいいToDoアプリを60302ポートで起動可能なnext.jsアプリとして開発してください。",
         "profile": "nextjs",
         "intent": "create",
         "provider": "ollama",
@@ -3690,6 +3690,22 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
         "planner_provider": "ollama",
         "planner_model": "fixture-planner"
     });
+
+    let mut automatic = spec.clone();
+    automatic.as_object_mut().unwrap().remove("intent");
+    let ambiguous = server.request("POST", "/api/session-proposals", Some(&automatic));
+    assert_eq!(ambiguous.status, 422, "{}", ambiguous.body);
+    assert_eq!(ambiguous.json()["code"], "trial_intent_ambiguous");
+    for candidate in ["nextjs × create × Quiz", "nextjs × fix × compile_error_fix"] {
+        assert!(
+            ambiguous.json()["error"]
+                .as_str()
+                .unwrap()
+                .contains(candidate),
+            "missing {candidate:?}: {}",
+            ambiguous.body
+        );
+    }
 
     let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
     assert_eq!(proposal.status, 200, "{}", proposal.body);
@@ -3803,6 +3819,12 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
         let response = server.request("POST", "/api/session-proposals", Some(&rejected));
         assert_eq!(
             response.status, 422,
+            "{profile} / {goal}: {}",
+            response.body
+        );
+        assert_eq!(
+            response.json()["code"],
+            "trial_request_invalid",
             "{profile} / {goal}: {}",
             response.body
         );

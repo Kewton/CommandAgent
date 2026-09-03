@@ -119,6 +119,11 @@ export function describeError(reason: unknown): string {
         "入力を受け付けられませんでした。表示中の入力条件を確認し、Gate 1 を再確認してから再試行してください。",
         detail,
       );
+    case "trial_intent_ambiguous":
+      return withDetail(
+        "実行目的を自動判定できませんでした。新しいアプリを開発する場合は「実行目的」で「作成」を選択し、再試行してください。既存アプリを修正する場合は「修正」を選択し、再試行してください。",
+        detail,
+      );
     case "trial_events_too_large":
     case "resource_too_large":
       return withDetail(

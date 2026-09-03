@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use super::session_paths::{
     SESSION_WORKSPACES_DIRECTORY, proposal_confirmation_root, selected_gate_workspace,
 };
-use super::sessions::{SessionError, internal, require_trial, unprocessable};
+use super::sessions::{SessionError, ambiguous_intent, internal, require_trial, unprocessable};
 use super::{AppState, trial_options};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
@@ -147,9 +147,20 @@ pub(super) fn gate_one(
             })
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(unprocessable(format!(
-            "Gate 1 requires one deterministic registered route; candidates: {candidates}"
-        )));
+        let message =
+            format!("Gate 1 requires one deterministic registered route; candidates: {candidates}");
+        let multiple_intents = deterministic.candidates.first().is_some_and(|first| {
+            deterministic
+                .candidates
+                .iter()
+                .skip(1)
+                .any(|candidate| candidate.intent != first.intent)
+        });
+        return Err(if spec.intent.is_none() && multiple_intents {
+            ambiguous_intent(message)
+        } else {
+            unprocessable(message)
+        });
     };
     let locator =
         PackLocator::with_extension_root(&state.repository_root, state.extension_root.clone());
