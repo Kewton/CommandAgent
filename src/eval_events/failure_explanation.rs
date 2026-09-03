@@ -335,7 +335,12 @@ pub fn project(events: &[Value], context: ProjectionContext) -> Option<FailureEx
     });
     let phase_failure = latest_event(events, "ultra_phase_failed");
     let release_failure = latest_release_failure(events);
-    let recovery_event = latest_recovery_event(events, failed_step.as_ref(), phase_failure);
+    let resolved_recovery_events = super::recovery_resolution::resolved_recovery_events(events);
+    let recovery_event = latest_recovery_event(
+        &resolved_recovery_events,
+        failed_step.as_ref(),
+        phase_failure,
+    );
     let failed_command =
         latest_failed_command(exact_step_events.unwrap_or(events), failed_step.as_ref());
     let category = classify(
@@ -592,7 +597,7 @@ fn latest_matching_step_event<'a>(
 }
 
 fn latest_recovery_event<'a>(
-    events: &'a [Value],
+    events: &[&'a Value],
     step: Option<&ValidatedTerminalStep>,
     phase_failure: Option<&Value>,
 ) -> Option<&'a Value> {
@@ -604,6 +609,7 @@ fn latest_recovery_event<'a>(
         .iter()
         .rev()
         .filter(|event| text(event, "event") == Some("recovery_prompt_saved"))
+        .copied()
         .find(
             |event| match (text(event, "step_id"), text(event, "phase_id")) {
                 (Some(event_step), _) => step_id == Some(event_step),
@@ -1446,6 +1452,71 @@ mod tests {
         assert_eq!(
             projection.recovery.recovery_plan_path.unwrap().value,
             ".anvil/plans/recovery-build.yaml"
+        );
+    }
+
+    #[test]
+    fn rejected_treatment_does_not_replace_gui_recovery_handoff() {
+        let events = vec![
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/repairs/control.md",
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/plans/control.yaml",
+            }),
+            serde_json::json!({
+                "event": "recovery_plan_auto_run_start",
+                "recovery_plan_auto_run_current": 1,
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "recovery_treatment_path": ".commandagent/recovery-treatments/attempt-1/workspace",
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md",
+                "recovery_ultra_plan_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_failed",
+                "phase_id": "verify-recovery",
+                "stage": "verify",
+                "reason": "treatment verification failed",
+            }),
+            serde_json::json!({"event": "recovery_control_retained"}),
+            serde_json::json!({
+                "event": "recovery_promotion_decision",
+                "decision": "rejected",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "status": "failed",
+                "ok": false,
+                "stop_reason": "automatic Recovery treatment rejected",
+                "recovery_prompt_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md",
+                "recovery_ultra_plan_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+            }),
+        ];
+
+        let projection = project(
+            &events,
+            ProjectionContext::new(1, WorkspaceState::Available),
+        )
+        .unwrap();
+
+        assert_eq!(
+            projection.recovery.repair_prompt_path.unwrap().value,
+            ".commandagent/repairs/control.md"
+        );
+        assert_eq!(
+            projection.recovery.recovery_plan_path.unwrap().value,
+            ".commandagent/plans/control.yaml"
+        );
+        assert_eq!(
+            projection.recovery.suggested_yaml_command.unwrap().value,
+            "/run-ultra-plan .commandagent/plans/control.yaml"
         );
     }
 
