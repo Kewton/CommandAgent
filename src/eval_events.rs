@@ -12,6 +12,7 @@ use crate::planner::adjudication::{
 
 pub mod failure_explanation;
 mod human_summary;
+mod recovery_resolution;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;
 mod timing;
@@ -534,12 +535,17 @@ pub fn latest_tui_command_stop_event(path: Option<&Path>) -> Option<Value> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return None;
     };
-    text.lines()
+    let events = text
+        .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .collect::<Vec<_>>();
+    let mut terminal = events
+        .iter()
         .rev()
-        .find(|event: &Value| {
-            event.get("event").and_then(Value::as_str) == Some("tui_command_stop")
-        })
+        .find(|event| event.get("event").and_then(Value::as_str) == Some("tui_command_stop"))
+        .cloned()?;
+    latest_recovery_fields(&events).apply_to_event(&mut terminal);
+    Some(terminal)
 }
 
 pub fn apply_tui_command_stop_projection(projection: &mut CompletionProjection, event: &Value) {
@@ -996,17 +1002,28 @@ struct RecoveryFields {
 
 impl RecoveryFields {
     fn apply_to(&self, snapshot: &mut CompletionSnapshot) {
-        if !self.recovery_prompt_path.is_empty() {
-            snapshot.recovery_prompt_path = self.recovery_prompt_path.clone();
-        }
-        if !self.recovery_ultra_plan_path.is_empty() {
-            snapshot.recovery_ultra_plan_path = self.recovery_ultra_plan_path.clone();
-        }
-        if !self.suggested_recovery_command.is_empty() {
-            snapshot.suggested_recovery_command = self.suggested_recovery_command.clone();
-        }
-        if !self.suggested_recovery_yaml_command.is_empty() {
-            snapshot.suggested_recovery_yaml_command = self.suggested_recovery_yaml_command.clone();
+        snapshot.recovery_prompt_path = self.recovery_prompt_path.clone();
+        snapshot.recovery_ultra_plan_path = self.recovery_ultra_plan_path.clone();
+        snapshot.suggested_recovery_command = self.suggested_recovery_command.clone();
+        snapshot.suggested_recovery_yaml_command = self.suggested_recovery_yaml_command.clone();
+    }
+
+    fn apply_to_event(&self, event: &mut Value) {
+        for (field, value) in [
+            ("recovery_prompt_path", &self.recovery_prompt_path),
+            ("recovery_ultra_plan_path", &self.recovery_ultra_plan_path),
+            (
+                "suggested_recovery_command",
+                &self.suggested_recovery_command,
+            ),
+            (
+                "suggested_recovery_yaml_command",
+                &self.suggested_recovery_yaml_command,
+            ),
+        ] {
+            if event.get(field).is_some() || !value.is_empty() {
+                event[field] = Value::String(value.clone());
+            }
         }
     }
 }
@@ -1052,15 +1069,8 @@ fn latest_persistence_fields(events: &[Value]) -> PersistenceFields {
 
 fn latest_recovery_fields(events: &[Value]) -> RecoveryFields {
     let mut fields = RecoveryFields::default();
-    for event in events.iter().rev() {
-        if event.get("event").and_then(Value::as_str) == Some("recovery_plan_auto_run_complete")
-            && event
-                .get("recovery_plan_auto_run_stop_reason")
-                .and_then(Value::as_str)
-                == Some("recovery_succeeded")
-        {
-            break;
-        }
+    let resolved = recovery_resolution::resolved_recovery_events(events);
+    for event in resolved.into_iter().rev() {
         if fields.recovery_prompt_path.is_empty()
             && let Some(value) = non_empty_event_field(event, "recovery_prompt_path")
         {

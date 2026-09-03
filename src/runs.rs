@@ -1293,6 +1293,64 @@ phases:
     }
 
     #[test]
+    fn resume_uses_retained_control_plan_after_rejected_treatment() {
+        let dir = tempfile::tempdir().unwrap();
+        write_recovery_yaml(
+            dir.path(),
+            "control.yaml",
+            r#"
+goal: "resume retained control"
+profile: "generic"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "repair"
+    prompt: "repair from control"
+"#,
+        );
+        let run_dir = dir.path().join(".anvil/runs/018f4140-run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let treatment = ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml";
+        let events = [
+            json!({
+                "event": "recovery_prompt_saved",
+                "recovery_ultra_plan_path": ".anvil/plans/control.yaml",
+            }),
+            json!({
+                "event": "recovery_plan_auto_run_start",
+                "recovery_ultra_plan_path": ".anvil/plans/control.yaml",
+                "recovery_treatment_path": ".commandagent/recovery-treatments/attempt-1/workspace",
+            }),
+            json!({
+                "event": "recovery_prompt_saved",
+                "recovery_ultra_plan_path": treatment,
+            }),
+            json!({"event": "recovery_control_retained"}),
+            json!({
+                "event": "recovery_promotion_decision",
+                "decision": "rejected",
+            }),
+            json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "failed",
+                "recovery_ultra_plan_path": treatment,
+            }),
+        ];
+        let text = events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(run_dir.join("events.jsonl"), format!("{text}\n")).unwrap();
+
+        let resume = prepare_resume(dir.path(), "018f4140").unwrap();
+
+        assert_eq!(resume.yaml_display_path, ".anvil/plans/control.yaml");
+        assert_eq!(resume.original_goal, "resume retained control");
+    }
+
+    #[test]
     fn resume_old_yaml_degrades_with_compatibility_note() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_recovery_yaml(

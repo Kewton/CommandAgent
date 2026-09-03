@@ -1857,6 +1857,74 @@ mod tests {
     }
 
     #[test]
+    fn tui_command_stop_keeps_control_recovery_after_treatment_rejection() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        let events = workspace.join(".anvil/runs/test/events.jsonl");
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        let mut cfg = config();
+        cfg.workspace_root = workspace;
+        cfg.eval_events_path = Some(events.clone());
+        for event in [
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/repairs/control.md",
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "suggested_recovery_command": "/ultra-plan-run control",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/plans/control.yaml",
+            }),
+            serde_json::json!({
+                "event": "recovery_plan_auto_run_start",
+                "recovery_plan_auto_run_current": 1,
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "recovery_treatment_path": ".commandagent/recovery-treatments/attempt-1/workspace",
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md",
+                "recovery_ultra_plan_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+                "suggested_recovery_command": "/ultra-plan-run treatment",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+            }),
+            serde_json::json!({
+                "event": "recovery_control_retained",
+                "recovery_plan_auto_run_current": 1,
+            }),
+            serde_json::json!({
+                "event": "recovery_promotion_decision",
+                "recovery_plan_auto_run_current": 1,
+                "decision": "rejected",
+            }),
+        ] {
+            crate::eval_events::emit(cfg.eval_events_path.as_deref(), event);
+        }
+
+        let result: anyhow::Result<String> = Err(anyhow::anyhow!("treatment rejected"));
+        let projection = emit_tui_command_stop(&cfg, "/ultra-plan-run", &result);
+
+        assert_eq!(
+            projection.recovery_ultra_plan_path,
+            ".commandagent/plans/control.yaml"
+        );
+        assert_eq!(
+            projection.suggested_recovery_yaml_command,
+            "/run-ultra-plan .commandagent/plans/control.yaml"
+        );
+        let stop: serde_json::Value = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .rfind(|event: &serde_json::Value| event["event"] == "tui_command_stop")
+            .unwrap();
+        assert_eq!(
+            stop["recovery_ultra_plan_path"],
+            ".commandagent/plans/control.yaml"
+        );
+    }
+
+    #[test]
     fn tui_command_stop_reports_interaction_unverified_as_partial() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path().join("workspace");
