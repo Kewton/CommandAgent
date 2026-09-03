@@ -83,6 +83,7 @@ the target vocabulary for those migrations.
 | action | 受入シートの詳細を表示 | `gui/components/trial-terminal.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | result guidance | 失敗した場所、原因、次の操作 | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | repair prompt を開く / Recovery Plan を開く | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
+| action | Recovery Plan を実行する / 確認して Recovery Plan を実行 | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | 推奨コマンドをコピー / 推奨 YAML コマンドをコピー | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | 推奨内容を追加の依頼欄へ反映 | `gui/components/trial-failure-explanation.tsx` | [`gui-trial.md#gate-34-read-the-result`](gui-trial.md#gate-34-read-the-result) |
 | action | パスをコピー | `gui/components/trial-session-paths.tsx` | [`gui-trial.md#working-directory-and-run-records`](gui-trial.md#working-directory-and-run-records) |

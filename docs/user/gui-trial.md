@@ -265,6 +265,25 @@ run recovery. Credential scrubbing, exact-byte directive display, explicit
 confirmation, fixed checks, and the existing Gate 1/continuation boundary
 still apply.
 
+**Recovery Plan を実行する** is a separate Gate 4 operation. Its first click
+does not start the CLI: the server resolves the current Recovery lineage,
+freezes the exact plan bytes, and returns a confirmation card containing the
+resolved and frozen paths, SHA-256, phase IDs, permission policy, and automatic
+Recovery budget. The execute button stays disabled until the dedicated
+acknowledgement checkbox is selected, and the confirmation API independently
+requires that acknowledgement. After confirmation, the server rechecks the
+current plan and identity, then delegates `--run-ultra-plan` with the frozen
+path under the original Gate 1 providers, models, profile, intent, pack,
+permissions, and budget. The normal execution-status page and process
+generation provide monitoring and the existing confirmed stop control.
+
+The server refuses a stale confirmation hash, changed source or frozen bytes,
+a rejected or unresolved automatic-Recovery treatment, a pending additional
+request, or a competing workspace lease. The returned reason is shown without
+starting a process. Creating or confirming a Recovery Run does not rewrite the
+additional-request artifact, Gate 1 identity, prior events, or source Recovery
+Plan.
+
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
 exact-byte hashed, displayed, and separately confirmed, and cannot lower fixed

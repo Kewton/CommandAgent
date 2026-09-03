@@ -32,6 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   projection, exact StepPlan evidence and workspace state, plus auth-mode-aware
   read-only recovery-document, keyboard copy, and confirmation-preserving
   continuation-prefill actions.
+- Run a resolved Gate 4 Recovery Plan from the GUI only after an exact-byte,
+  identity-bound confirmation, with normal monitoring, cancellation, and
+  reasoned drift/treatment/pending-request/lease/stale-hash refusals.
 
 ### Fixed
 

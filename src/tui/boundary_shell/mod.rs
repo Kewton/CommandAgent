@@ -8,6 +8,7 @@ pub mod directive_session;
 pub mod family_catalog;
 pub mod pack_catalog;
 pub mod presentation;
+pub mod recovery_run;
 pub mod route;
 pub mod sheet;
 pub mod transcript;

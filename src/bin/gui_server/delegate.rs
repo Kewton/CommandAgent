@@ -33,6 +33,8 @@ const DELEGATE_PARENT_ENV_ALLOWLIST: &[&str] = &[
 ];
 const DELEGATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI delegation";
 const CONTINUATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI continuation";
+const RECOVERY_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before Recovery Run";
+pub(super) const DELEGATE_PERMISSION_POLICY: &str = "read,write,bash:verify";
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
 const PACK_VERSION_ENV: &str = "COMMANDAGENT_PACK_VERSION";
@@ -253,6 +255,25 @@ pub(super) fn spawn_cli_continuation(
         .register(session_id, generation, child, &paths.events_path())
 }
 
+pub(super) fn spawn_cli_recovery(
+    state: &AppState,
+    paths: &SessionPaths,
+    identity: &ConfirmationIdentity,
+    recovery: &commandagent::tui::boundary_shell::recovery_run::PersistedRecoveryRun,
+    session_id: &str,
+    generation: &str,
+) -> anyhow::Result<(super::trial_process::ProcessIdentity, Child)> {
+    let mut command = delegated_cli_command(state, paths, identity, RECOVERY_WORKSPACE_CHANGED)?;
+    super::trial_process::TrialProcesses::prepare_command(&mut command);
+    let child = command
+        .arg("--run-ultra-plan")
+        .arg(recovery.frozen_plan())
+        .spawn()?;
+    state
+        .trial_processes
+        .register(session_id, generation, child, &paths.events_path())
+}
+
 fn delegated_cli_command(
     state: &AppState,
     paths: &SessionPaths,
@@ -276,7 +297,7 @@ fn delegated_cli_command(
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args([
             "--allow",
-            "read,write,bash:verify",
+            DELEGATE_PERMISSION_POLICY,
             "--quiet",
             "--footer",
             "off",

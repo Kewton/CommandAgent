@@ -1,0 +1,40 @@
+case_id = "issue415-gui-recovery-run"
+source = "Issue #415 confirmation-gated GUI Recovery Run interval"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recovery-run.jsonl = [
+  "\"event\":\"recovery_prompt_saved\"",
+  "\"recovery_ultra_plan_path\":\".commandagent/plans/recovery.yaml\"",
+  "\"event\":\"tui_command_start\"",
+  "\"command\":\"/run-ultra-plan\"",
+  "\"status\":\"completed\""
+]
+
+[fixture_ordered]
+fixtures/recovery-run.jsonl = [
+  "\"status\":\"failed\"",
+  "\"event\":\"tui_command_start\"",
+  "\"status\":\"completed\""
+]

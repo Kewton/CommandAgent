@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
 use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
+use sha2::{Digest, Sha256};
 
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
@@ -4034,6 +4035,276 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
 
 #[cfg(unix)]
 #[test]
+fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("gui-recovery-commandagent");
+    write_recovery_run_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let first = launch_fixture_session(&server);
+    let first_id = first["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let second = launch_fixture_session(&server);
+    let second_id = second["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(proposal["confirmation_required"], true);
+    assert_eq!(
+        proposal["source_plan_path"],
+        ".commandagent/plans/recovery.yaml"
+    );
+    assert_eq!(
+        proposal["execution_phases"],
+        serde_json::json!(["repair", "verify"])
+    );
+    assert_eq!(proposal["permission_policy"], "read,write,bash:verify");
+    assert_eq!(proposal["automatic_run_budget"], 0);
+    assert!(
+        proposal["plan_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+    let first_run_root = runs_dir(&workspace).join(&first_id);
+    assert!(!first_run_root.join("recovery-started").exists());
+
+    let hash = proposal["confirmation_hash"].as_str().unwrap();
+    let unacknowledged = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": false })),
+    );
+    assert_eq!(unacknowledged.status, 428, "{}", unacknowledged.body);
+    assert_eq!(
+        unacknowledged.json()["code"],
+        "recovery_run_confirmation_required"
+    );
+    assert!(!first_run_root.join("recovery-started").exists());
+
+    let second_proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{second_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(second_proposal.status, 200, "{}", second_proposal.body);
+    let second_hash = second_proposal.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let confirmed = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(confirmed.status, 202, "{}", confirmed.body);
+    let confirmed = confirmed.json();
+    assert_eq!(confirmed["plan_hash"], proposal["plan_hash"]);
+    assert_eq!(confirmed["frozen_plan_path"], proposal["frozen_plan_path"]);
+    let generation = confirmed["process_generation"].as_str().unwrap();
+    wait_for_path(
+        &first_run_root.join("recovery-started"),
+        Duration::from_secs(5),
+    );
+
+    let monitored = server.request("GET", &format!("/api/sessions/{first_id}"), None);
+    assert_eq!(monitored.status, 200, "{}", monitored.body);
+    assert_eq!(monitored.json()["gate"], "gate_2");
+    assert_eq!(monitored.json()["process_generation"], generation);
+
+    let conflicted = server.request(
+        "POST",
+        &format!("/api/sessions/{second_id}/recovery-runs/{second_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(conflicted.status, 409, "{}", conflicted.body);
+    assert_eq!(conflicted.json()["code"], "trial_workspace_running");
+
+    let session_workspace = workspace
+        .join("sessions")
+        .join(&first_id)
+        .canonicalize()
+        .unwrap();
+    let source =
+        std::fs::read(session_workspace.join(".commandagent/plans/recovery.yaml")).unwrap();
+    let frozen =
+        std::fs::read(session_workspace.join(proposal["frozen_plan_path"].as_str().unwrap()))
+            .unwrap();
+    let executed = std::fs::read(first_run_root.join("executed-plan.yaml")).unwrap();
+    assert_eq!(source, frozen);
+    assert_eq!(frozen, executed);
+    assert_eq!(
+        proposal["plan_hash"],
+        format!("sha256:{:x}", Sha256::digest(&executed))
+    );
+    let args = std::fs::read_to_string(first_run_root.join("recovery-args.txt")).unwrap();
+    let args = args.lines().collect::<Vec<_>>();
+    for expected in [
+        ["--allow", "read,write,bash:verify"],
+        ["--profile", "python-cli"],
+        ["--intent", "create"],
+        ["--provider", "ollama"],
+        ["--model", "fixture-executor"],
+        ["--planner-provider", "ollama"],
+        ["--planner-model", "fixture-planner"],
+    ] {
+        assert!(args.windows(2).any(|pair| pair == expected), "{args:?}");
+    }
+    assert!(
+        args.windows(2).any(|pair| {
+            pair[0] == "--run-ultra-plan"
+                && pair[1]
+                    == session_workspace
+                        .join(proposal["frozen_plan_path"].as_str().unwrap())
+                        .to_string_lossy()
+        }),
+        "{args:?}"
+    );
+
+    let stopped = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/stop"),
+        Some(&serde_json::json!({ "generation": generation })),
+    );
+    assert_eq!(stopped.status, 202, "{}", stopped.body);
+    wait_for_event(
+        &first_run_root.join("events.jsonl"),
+        "gui_trial_stop_completed",
+        Duration::from_secs(8),
+    );
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("gui-recovery-rejections-commandagent");
+    write_recovery_run_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let drifted = launch_fixture_session(&server);
+    let drifted_id = drifted["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{drifted_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let hash = proposal.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    std::fs::write(
+        workspace
+            .join("sessions")
+            .join(&drifted_id)
+            .join(".commandagent/plans/recovery.yaml"),
+        "goal: changed\nphases:\n  - id: repair\n    prompt: changed\n",
+    )
+    .unwrap();
+    let rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{drifted_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(rejected.status, 409, "{}", rejected.body);
+    assert_eq!(rejected.json()["code"], "recovery_run_drift");
+
+    let pending = launch_fixture_session(&server);
+    let pending_id = pending["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let older = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs"),
+        None,
+    );
+    let older_hash = older.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let current = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(current.status, 200, "{}", current.body);
+    let current_hash = current.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let stale = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs/{older_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(stale.status, 412, "{}", stale.body);
+    assert_eq!(stale.json()["code"], "recovery_run_stale");
+    let directive = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/directives"),
+        Some(&serde_json::json!({ "directive": "Preserve the public behavior" })),
+    );
+    assert_eq!(directive.status, 200, "{}", directive.body);
+    let pending_rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs/{current_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(pending_rejected.status, 409, "{}", pending_rejected.body);
+    assert_eq!(pending_rejected.json()["code"], "trial_session_conflict");
+
+    let treatment = launch_fixture_session(&server);
+    let treatment_id = treatment["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let events = runs_dir(&workspace)
+        .join(&treatment_id)
+        .join("events.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&events)
+        .unwrap();
+    writeln!(file, "{{\"event\":\"recovery_plan_auto_run_start\"}}").unwrap();
+    writeln!(
+        file,
+        "{{\"event\":\"recovery_control_retained\",\"reason\":\"contract failed\"}}"
+    )
+    .unwrap();
+    writeln!(file, "{{\"event\":\"recovery_promotion_decision\",\"decision\":\"rejected\",\"reason\":\"contract failed\"}}").unwrap();
+    writeln!(file, "{{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"effective_profile\":\"python-cli\",\"assurance_level\":\"none\"}}").unwrap();
+    let treatment_rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{treatment_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(
+        treatment_rejected.status, 409,
+        "{}",
+        treatment_rejected.body
+    );
+    assert_eq!(
+        treatment_rejected.json()["code"],
+        "recovery_treatment_rejected"
+    );
+    assert!(treatment_rejected.body.contains("contract failed"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn trial_session_paths_follow_configured_auth_and_remain_confined() {
     use std::os::unix::fs::symlink;
 
@@ -4903,6 +5174,43 @@ fn write_pack_capture_cli(path: &std::path::Path) {
     std::fs::write(
         path,
         "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nenv | sort > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-env.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_recovery_run_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(
+        path,
+        r#"#!/bin/sh
+if [ "${1-}" = "--version" ]; then printf 'commandagent 0.1.0 test\n'; exit 0; fi
+case " $* " in
+  *" --run-ultra-plan "*)
+    printf '%s\n' "$@" > "${COMMANDAGENT_EVAL_EVENTS%/*}/recovery-args.txt"
+    previous=''
+    plan=''
+    for argument in "$@"; do
+      if [ "$previous" = '--run-ultra-plan' ]; then plan="$argument"; break; fi
+      previous="$argument"
+    done
+    cp "$plan" "${COMMANDAGENT_EVAL_EVENTS%/*}/executed-plan.yaml"
+    : > "${COMMANDAGENT_EVAL_EVENTS%/*}/recovery-started"
+    printf '%s\n' '{"event":"tui_command_start","command":"/run-ultra-plan"}' >> "$COMMANDAGENT_EVAL_EVENTS"
+    trap 'printf "%s\n" "{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"interrupted\",\"assurance_level\":\"none\",\"stop_reason\":\"interrupted by user\"}" >> "$COMMANDAGENT_EVAL_EVENTS"; exit 130' INT
+    while :; do sleep 1; done
+    ;;
+  *)
+    mkdir -p .commandagent/plans
+    printf '%s\n' 'goal: "recover"' 'profile: "python-cli"' 'style: "recovery"' 'intent: "recover"' 'phases:' '  - id: "repair"' '    prompt: "repair"' '  - id: "verify"' '    prompt: "verify"' > .commandagent/plans/recovery.yaml
+    printf '%s\n' '{"event":"recovery_prompt_saved","effective_profile":"python-cli","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml","recovery_yaml_exists":true,"recovery_yaml_parse_ok":true,"recovery_command_targets_valid":true}' '{"event":"tui_command_stop","ok":false,"status":"failed","effective_profile":"python-cli","assurance_level":"none","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml"}' > "$COMMANDAGENT_EVAL_EVENTS"
+    ;;
+esac
+"#,
     )
     .unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
