@@ -6,24 +6,37 @@ import type {
   BoundedText,
   BoundedTextList,
   FailureExplanation,
+  RecoveryRunProposal,
 } from "../lib/types";
 
 type TrialFailureExplanationProps = {
+  busy: boolean;
   evidenceLoading: boolean;
   explanation: FailureExplanation;
+  onConfirmRecoveryRun: () => Promise<void>;
   onApplyToContinuation: (value: string) => void;
   onOpenArtifact: (path: string) => Promise<void>;
   onOpenEvents: () => Promise<void>;
   onOpenRecoveryDocument: (path: string) => Promise<void>;
+  onProposeRecoveryRun: () => Promise<void>;
+  recoveryRun: RecoveryRunProposal | null;
+  recoveryRunAcknowledged: boolean;
+  setRecoveryRunAcknowledged: (value: boolean) => void;
 };
 
 export function TrialFailureExplanation({
+  busy,
   evidenceLoading,
   explanation,
+  onConfirmRecoveryRun,
   onApplyToContinuation,
   onOpenArtifact,
   onOpenEvents,
   onOpenRecoveryDocument,
+  onProposeRecoveryRun,
+  recoveryRun,
+  recoveryRunAcknowledged,
+  setRecoveryRunAcknowledged,
 }: TrialFailureExplanationProps) {
   const [announcement, setAnnouncement] = useState("");
   const { evidence, location, primary, progress, recovery } = explanation;
@@ -189,6 +202,53 @@ export function TrialFailureExplanation({
             path={recovery.recovery_plan_path}
             testId="open-recovery-plan"
           />
+          <button
+            className="secondary-action"
+            data-testid="propose-recovery-run"
+            disabled={busy || recovery.recovery_plan_path === null || recovery.recovery_plan_path.truncated}
+            onClick={() => void onProposeRecoveryRun()}
+            type="button"
+          >
+            Recovery Plan を実行する
+          </button>
+          {recoveryRun !== null && (
+            <section
+              aria-labelledby="recovery-run-confirmation-heading"
+              className="recovery-run-confirmation"
+              data-testid="recovery-run-confirmation"
+            >
+              <h5 id="recovery-run-confirmation-heading">Recovery Run の確認</h5>
+              <dl>
+                <div><dt>解決済みプラン</dt><dd><code>{recoveryRun.source_plan_path}</code></dd></div>
+                <div><dt>凍結プラン</dt><dd><code>{recoveryRun.frozen_plan_path}</code></dd></div>
+                <div><dt>exact-byte hash</dt><dd><code>{recoveryRun.plan_hash}</code></dd></div>
+                <div><dt>実行フェーズ</dt><dd>{recoveryRun.execution_phases.join(" → ")}</dd></div>
+                <div><dt>許可ポリシー</dt><dd><code>{recoveryRun.permission_policy}</code></dd></div>
+                <div>
+                  <dt>自動実行予算</dt>
+                  <dd>{recoveryRun.automatic_run_budget} 回（明示実行後の Recovery 上限）</dd>
+                </div>
+              </dl>
+              <label className="recovery-run-acknowledgement">
+                <input
+                  checked={recoveryRunAcknowledged}
+                  data-testid="recovery-run-acknowledgement"
+                  onChange={(event) => setRecoveryRunAcknowledged(event.target.checked)}
+                  type="checkbox"
+                />
+                この path、hash、フェーズ、許可、自動実行予算で凍結プランを実行します
+              </label>
+              <button
+                className="primary-action"
+                data-testid="confirm-recovery-run"
+                disabled={busy || !recoveryRunAcknowledged}
+                onClick={() => void onConfirmRecoveryRun()}
+                type="button"
+              >
+                確認して Recovery Plan を実行
+              </button>
+            </section>
+          )}
           <RecoveryCommand
             label="推奨コマンド"
             onCopy={copy}
@@ -216,8 +276,8 @@ export function TrialFailureExplanation({
             </p>
           )}
           <p className="recovery-no-autorun">
-            この画面はリカバリーを自動実行しません。追加の依頼は準備後に内容を確認し、
-            既存の確認ボタンを押した場合だけ実行されます。
+            この画面はリカバリーを自動実行しません。Recovery Plan と追加の依頼は別々の
+            確認操作で、どちらも専用の確認を完了するまで実行されません。
           </p>
         </li>
       </ol>

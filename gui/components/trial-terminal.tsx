@@ -20,10 +20,11 @@ import {
 
 export function TrialTerminal({ run }: { run: TrialRunState }) {
   const {
-    artifacts, busy, confirmDirective, created, directive, directiveText,
+    artifacts, busy, confirmDirective, confirmRecoveryRun, created, directive, directiveText,
     evidenceAnnouncement, evidenceDocument, evidenceError, evidenceLoading, evidenceOpen,
-    persistDirective, readArtifact, readEvents, readRecoveryDocument, session, setDirective,
-    setDirectiveText, setStage, stage, startNewRun, terminalRef,
+    persistDirective, proposeRecoveryRun, readArtifact, readEvents, readRecoveryDocument,
+    recoveryRun, recoveryRunAcknowledged, session, setDirective, setDirectiveText,
+    setRecoveryRunAcknowledged, setStage, stage, startNewRun, terminalRef,
   } = run;
   const evidenceViewerRef = useRef<HTMLDivElement>(null);
 
@@ -69,8 +70,10 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
             </dl>
             {session.gate === "gate_4" && session.failure_explanation != null && (
               <TrialFailureExplanation
+                busy={busy}
                 evidenceLoading={evidenceLoading}
                 explanation={session.failure_explanation}
+                onConfirmRecoveryRun={confirmRecoveryRun}
                 onApplyToContinuation={(value) => {
                   setDirectiveText(value);
                   setDirective(null);
@@ -78,6 +81,10 @@ export function TrialTerminal({ run }: { run: TrialRunState }) {
                 onOpenArtifact={readArtifact}
                 onOpenEvents={readEvents}
                 onOpenRecoveryDocument={readRecoveryDocument}
+                onProposeRecoveryRun={proposeRecoveryRun}
+                recoveryRun={recoveryRun}
+                recoveryRunAcknowledged={recoveryRunAcknowledged}
+                setRecoveryRunAcknowledged={setRecoveryRunAcknowledged}
               />
             )}
             {(session.gate === "gate_4" && session.failure_explanation == null &&

@@ -103,6 +103,36 @@ export function describeError(reason: unknown): string {
         "Gate 1 の確認が必要です。契約と価格を確認し、確認チェックを選択してから起動してください。",
         detail,
       );
+    case "recovery_run_confirmation_required":
+      return withDetail(
+        "Recovery Run の確認が必要です。表示中の path、hash、フェーズ、許可ポリシー、自動実行予算を確認し、チェックを選択してください。",
+        detail,
+      );
+    case "recovery_run_stale":
+      return withDetail(
+        "Recovery Run の確認内容が古くなりました。現在の Gate 4 から Recovery Plan の確認カードを作り直してください。",
+        detail,
+      );
+    case "recovery_run_drift":
+      return withDetail(
+        "確認後に Recovery Plan が変化したため実行を拒否しました。plan とイベントを確認し、現在の内容で確認カードを作り直してください。",
+        detail,
+      );
+    case "recovery_treatment_rejected":
+      return withDetail(
+        "自動 Recovery の treatment が拒否されているため、この plan は GUI から再実行できません。拒否理由と保持された control を確認してください。",
+        detail,
+      );
+    case "recovery_treatment_pending":
+      return withDetail(
+        "自動 Recovery の treatment 判定が未解決のため実行できません。promotion または control 保持の記録を確認してください。",
+        detail,
+      );
+    case "recovery_run_invalid":
+      return withDetail(
+        "現在の Gate 4 には安全に実行できる Recovery Plan がありません。記録済み path と plan の構文を確認してください。",
+        detail,
+      );
     case "trial_execution_disabled":
     case "trial_authentication_disabled":
       return withDetail(

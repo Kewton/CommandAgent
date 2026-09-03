@@ -29,6 +29,8 @@ mod preflight;
 mod profile_extensions;
 #[path = "gui_server/public_projection.rs"]
 mod public_projection;
+#[path = "gui_server/recovery_runs.rs"]
+mod recovery_runs;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
 #[path = "gui_server/session_diagnostics.rs"]
@@ -419,6 +421,14 @@ fn dashboard_router() -> Router<AppState> {
         .route(
             "/api/sessions/{id}/recovery-document",
             get(session_recovery::get),
+        )
+        .route(
+            "/api/sessions/{id}/recovery-runs",
+            post(recovery_runs::propose),
+        )
+        .route(
+            "/api/sessions/{id}/recovery-runs/{hash}",
+            post(recovery_runs::confirm),
         )
         .route("/api/sessions/{id}/directives", post(directives::propose))
         .route(

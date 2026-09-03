@@ -308,7 +308,9 @@ pub async fn stop(
     let paths = SessionPaths::existing(&workspace, &id)
         .map_err(|_| super::sessions::not_found("session run path is not safely readable"))?
         .ok_or_else(|| super::sessions::not_found("session run was not found"))?;
-    require_current_active(&paths.events_path()).await?;
+    if state.trial_processes.generation_for(&id).as_deref() != Some(request.generation.as_str()) {
+        require_current_active(&paths.events_path()).await?;
+    }
     state
         .trial_workspace
         .require_running(&id)
@@ -350,6 +352,7 @@ fn current_cli_terminal(events_path: &Path) -> bool {
         match event.get("event").and_then(serde_json::Value::as_str) {
             Some("tui_command_stop") => terminal = true,
             Some("human_directive_continuation_started") => terminal = false,
+            Some("tui_command_start") if terminal => terminal = false,
             _ => {}
         }
     }

@@ -3,11 +3,13 @@ import { responseError } from "./errors";
 import { responseFailure, thrownFailure, type MonitorFailure } from "./trial-monitor";
 import type {
   CreatedSession,
+  ConfirmedRecoveryRun,
   ConfirmedContinuation,
   DirectiveProposal,
   DocumentRecord,
   DocumentSummary,
   PolledSession,
+  RecoveryRunProposal,
   PackOptions,
   SessionProposal,
   SessionPathProjection,
@@ -113,6 +115,37 @@ export async function confirmDirective(
       method: "POST",
       headers: trialAuthorizationHeaders(token, true),
       body: "{}",
+    },
+  );
+}
+
+export async function createRecoveryRun(
+  token: string,
+  sessionId: string,
+): Promise<RecoveryRunProposal> {
+  return fetchJson<RecoveryRunProposal>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/recovery-runs`),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: "{}",
+    },
+  );
+}
+
+export async function confirmRecoveryRun(
+  token: string,
+  sessionId: string,
+  confirmationHash: string,
+): Promise<ConfirmedRecoveryRun> {
+  return fetchJson<ConfirmedRecoveryRun>(
+    apiPath(
+      `sessions/${encodeURIComponent(sessionId)}/recovery-runs/${encodeURIComponent(confirmationHash)}`,
+    ),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: JSON.stringify({ acknowledged: true }),
     },
   );
 }

@@ -402,6 +402,29 @@ export type DirectiveProposal = {
   confirmation_required: boolean;
 };
 
+export type RecoveryRunProposal = {
+  confirmation_hash: string;
+  confirmation_required: true;
+  target_run_id: string;
+  recovery_round: number;
+  source_plan_path: string;
+  frozen_plan_path: string;
+  plan_hash: string;
+  execution_phases: string[];
+  permission_policy: string;
+  automatic_run_budget: number;
+  identity_hash: string;
+};
+
+export type ConfirmedRecoveryRun = {
+  confirmation_hash: string;
+  plan_hash: string;
+  source_plan_path: string;
+  frozen_plan_path: string;
+  process_generation: string;
+  status: "starting";
+};
+
 export type RuntimeStatus = {
   gui_contract_version?: string;
   trial_available: boolean;

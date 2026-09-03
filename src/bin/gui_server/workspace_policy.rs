@@ -189,6 +189,21 @@ impl TrialWorkspace {
         process_tree_gone: bool,
     ) {
         let terminal = current_terminal(events_path);
+        self.complete_with_terminal(session_id, terminal, process_tree_gone);
+    }
+
+    pub fn complete_after_process_since(
+        &self,
+        session_id: &str,
+        events_path: &Path,
+        process_tree_gone: bool,
+        prior_event_count: usize,
+    ) {
+        let terminal = terminal_after(events_path, prior_event_count);
+        self.complete_with_terminal(session_id, terminal, process_tree_gone);
+    }
+
+    fn complete_with_terminal(&self, session_id: &str, terminal: bool, process_tree_gone: bool) {
         if let Ok(mut lease) = self.lease.lock()
             && matches!(&*lease, LeaseState::Running(active) if active == session_id)
         {
@@ -199,6 +214,28 @@ impl TrialWorkspace {
             };
         }
     }
+}
+
+fn terminal_after(events_path: &Path, prior_event_count: usize) -> bool {
+    let Ok(text) = std::fs::read_to_string(events_path) else {
+        return false;
+    };
+    let events = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .skip(prior_event_count);
+    let mut terminal = false;
+    for line in events {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            return false;
+        };
+        match event.get("event").and_then(Value::as_str) {
+            Some("tui_command_start" | "human_directive_continuation_started") => terminal = false,
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed") => terminal = true,
+            _ => {}
+        }
+    }
+    terminal
 }
 
 fn configure_workspace(repository: &Path, requested: &Path) -> anyhow::Result<ConfiguredWorkspace> {
@@ -272,6 +309,7 @@ fn current_terminal(events_path: &Path) -> bool {
         match event.get("event").and_then(Value::as_str) {
             Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed") => terminal = true,
             Some("human_directive_continuation_started") => terminal = false,
+            Some("tui_command_start") if terminal => terminal = false,
             _ => {}
         }
     }
@@ -281,6 +319,27 @@ fn current_terminal(events_path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completion_since_requires_new_terminal_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let events = temp.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            "{\"event\":\"tui_command_stop\",\"ok\":false}\n{\"event\":\"tui_command_start\"}\n",
+        )
+        .unwrap();
+        assert!(!terminal_after(&events, 1));
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&events)
+            .and_then(|mut file| {
+                use std::io::Write;
+                writeln!(file, "{{\"event\":\"tui_command_stop\",\"ok\":true}}")
+            })
+            .unwrap();
+        assert!(terminal_after(&events, 1));
+    }
 
     #[test]
     fn unverified_process_tree_keeps_recovery_required_even_with_terminal_evidence() {
