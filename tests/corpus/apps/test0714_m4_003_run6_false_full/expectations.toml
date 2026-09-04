@@ -4,9 +4,10 @@ required_paths = ["src/app/page.tsx"]
 verify_commands = []
 required_capabilities = []
 required_evidence = []
-required_obligations = []
+required_obligations = ["implementation"]
 deferred_verify_requirements = []
 evidence_hint_tokens = []
+acceptance_passed = false
 
 [compile]
 expect = "not_checked"

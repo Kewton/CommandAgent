@@ -1821,6 +1821,18 @@ export default function Page() {
 "#
 }
 
+pub(crate) fn is_engine_owned_scaffold_page(path: &str, content: &str) -> bool {
+    let path = path.replace('\\', "/");
+    let template = if path.ends_with("app/page.tsx") {
+        fallback_page()
+    } else if path.ends_with("app/page.js") {
+        scaffold_mode::plain_page()
+    } else {
+        return false;
+    };
+    content.trim().lines().eq(template.trim().lines())
+}
+
 fn find_entrypoint(root: &Path) -> Option<EntryPoint> {
     for rel in &knowledge::get().canonical.entrypoint_files {
         if root.join(rel).is_file() {
