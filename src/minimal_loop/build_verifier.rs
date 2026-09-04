@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -159,6 +160,8 @@ pub struct BuildVerifierObservation {
     pub requires_dependency_setup: bool,
     pub dependency_ready: bool,
     pub attempted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
     pub status: BuildVerifierStatus,
     pub primary_reason: String,
     pub output_snippet: String,
@@ -196,6 +199,18 @@ impl BuildVerifierLifecycleObservation {
             .as_ref()
             .map(|setup| setup.status.as_str())
             .unwrap_or("not_required")
+    }
+
+    pub fn build_duration_ms(&self) -> Option<u64> {
+        self.before_setup
+            .duration_ms
+            .into_iter()
+            .chain(
+                self.after_setup
+                    .as_ref()
+                    .and_then(|observation| observation.duration_ms),
+            )
+            .reduce(u64::saturating_add)
     }
 
     pub fn lifecycle_stages(&self) -> Vec<&'static str> {
@@ -272,6 +287,7 @@ pub fn emit_dependency_build_lifecycle(
             "setup_command": lifecycle.setup.as_ref().map(|setup| setup.command.as_str()).unwrap_or(""),
             "setup_changed_paths": lifecycle.setup.as_ref().map(|setup| setup.changed_paths.clone()).unwrap_or_default(),
             "setup_duration_ms": lifecycle.setup.as_ref().and_then(|setup| setup.duration_ms),
+            "build_duration_ms": lifecycle.build_duration_ms(),
             "setup_timeout_ms": lifecycle.setup.as_ref().and_then(|setup| setup.timeout_ms),
             "setup_timeout_classification": lifecycle
                 .setup
@@ -491,6 +507,7 @@ pub fn observe_requirement(
                     requires_dependency_setup: requirement.requires_dependency_setup,
                     dependency_ready,
                     attempted: false,
+                    duration_ms: None,
                     status: BuildVerifierStatus::PolicyRejected,
                     primary_reason: err.to_string(),
                     output_snippet: String::new(),
@@ -514,6 +531,7 @@ pub fn observe_requirement(
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready,
             attempted: false,
+            duration_ms: None,
             status: BuildVerifierStatus::DependencyMissing,
             primary_reason,
             output_snippet: String::new(),
@@ -522,7 +540,10 @@ pub fn observe_requirement(
             foreign_toolchain,
         };
     }
-    match verifier_env::run_checked(&normalized_command, root, false) {
+    let started = Instant::now();
+    let result = verifier_env::run_checked(&normalized_command, root, false);
+    let duration_ms = elapsed_millis_ceil(started);
+    match result {
         Ok(output) => BuildVerifierObservation {
             command: requirement.command.clone(),
             profile: requirement.profile.clone(),
@@ -531,6 +552,7 @@ pub fn observe_requirement(
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready,
             attempted: true,
+            duration_ms: Some(duration_ms),
             status: BuildVerifierStatus::Passed,
             primary_reason: "build verifier passed".to_string(),
             output_snippet: eval_events::body_snippet(&output),
@@ -560,6 +582,7 @@ pub fn observe_requirement(
                 requires_dependency_setup: requirement.requires_dependency_setup,
                 dependency_ready,
                 attempted: true,
+                duration_ms: Some(duration_ms),
                 status,
                 primary_reason: output_excerpt.as_str().to_string(),
                 output_snippet: output_excerpt.as_str().to_string(),
@@ -664,6 +687,7 @@ pub(crate) fn observe_dependency_missing_output_lifecycle_with_setup_program_and
         dependency_ready: profile_for_build_requirement(requirement)
             .dependency_ready(root, &requirement.command),
         attempted: true,
+        duration_ms: None,
         status: BuildVerifierStatus::DependencyMissing,
         primary_reason: snippet.clone(),
         output_snippet: snippet,
@@ -680,6 +704,12 @@ pub(crate) fn observe_dependency_missing_output_lifecycle_with_setup_program_and
         offline,
         before_setup,
     )
+}
+
+fn elapsed_millis_ceil(started: Instant) -> u64 {
+    let nanos = started.elapsed().as_nanos();
+    let millis = nanos.saturating_add(999_999) / 1_000_000;
+    u64::try_from(millis).unwrap_or(u64::MAX)
 }
 
 fn observe_requirement_lifecycle_from_before(
@@ -1740,6 +1770,7 @@ Error: Build failed because of webpack errors
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready: true,
             attempted: true,
+            duration_ms: None,
             status: BuildVerifierStatus::Failed,
             primary_reason:
                 "Error: Build failed because of webpack errors\nat node_modules/next/dist/build/webpack-build/impl.js:137:22"

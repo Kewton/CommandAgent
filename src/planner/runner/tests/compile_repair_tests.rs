@@ -760,6 +760,18 @@ fn step_verify_compile_repair_exhaustion_rolls_back_snapshot_and_continues() {
         "{event_text}"
     );
     assert!(
+        event_text.contains("\"build_reverified\":true"),
+        "{event_text}"
+    );
+    assert!(
+        event_text.contains("\"build_reverification_status\":\"passed\""),
+        "{event_text}"
+    );
+    assert!(
+        event_text.contains("\"rollback_applied\":true"),
+        "{event_text}"
+    );
+    assert!(
         event_text.contains("\"event\":\"compile_rollback_context_carried\""),
         "{event_text}"
     );

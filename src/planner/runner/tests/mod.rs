@@ -5,10 +5,10 @@ use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-
 #[path = "final_acceptance_tests.rs"]
 mod final_acceptance_tests;
 
+include!("issue424_compile_rollback_tests.rs");
 #[path = "ultra_plan_flow_tests.rs"]
 mod ultra_plan_flow_tests;
 
