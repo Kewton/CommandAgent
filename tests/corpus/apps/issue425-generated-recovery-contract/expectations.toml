@@ -1,0 +1,37 @@
+case_id = "issue425-generated-recovery-contract"
+source = "Issue #425 generated completion-contract Recovery command binding"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/generated-contract-recovery.jsonl = [
+  "\"event\":\"recovery_generated_completion_contract_completed\"",
+  "\"source\":\"failed_plan_handoff\"",
+  "\"profile\":\"nextjs\"",
+  "\"registered_verify_command_count\":1",
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"recovery_plan_auto_runs_used\":1",
+  "\"event\":\"recovery_plan_auto_run_stopped\"",
+  "\"recovery_plan_auto_run_stop_reason\":\"limit_reached\"",
+  "\"recovery_plan_auto_run_stop_summary\":\"limit reached\""
+]

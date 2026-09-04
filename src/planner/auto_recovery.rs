@@ -476,7 +476,16 @@ fn run_with_ui(
         execute_initial(initial, planner, execution, config, ui)
     });
     let recovery_config = if outcome.result.is_err() {
-        match crate::planner::recovery_contract_authority::bind_for_recovery(config) {
+        let failed_plan_verify_commands = match outcome.failure.as_ref() {
+            Some(AttemptFailure::Recoverable(candidate)) => {
+                candidate.handoff.verify_commands.as_slice()
+            }
+            _ => &[],
+        };
+        match crate::planner::recovery_contract_authority::bind_for_recovery(
+            config,
+            failed_plan_verify_commands,
+        ) {
             Ok(config) => config,
             Err(binding_error) => {
                 let initial_error = outcome.result.expect_err("failed result checked above");
@@ -651,8 +660,9 @@ fn drive(
                         reason.code(),
                     );
                     return Err(error.context(format!(
-                        "automatic Recovery Plan stopped: {}",
-                        reason.code()
+                        "automatic Recovery Plan stopped: {} ({})",
+                        recovery_stop_summary(reason.code()),
+                        reason.code(),
                     )));
                 }
             }
@@ -669,8 +679,9 @@ fn drive(
                     reason.code(),
                 );
                 return Err(error.context(format!(
-                    "automatic Recovery Plan stopped: {}",
-                    reason.code()
+                    "automatic Recovery Plan stopped: {} ({})",
+                    recovery_stop_summary(reason.code()),
+                    reason.code(),
                 )));
             }
         };
@@ -693,8 +704,9 @@ fn drive(
                 reason.code(),
             );
             return Err(error.context(format!(
-                "automatic Recovery Plan stopped: {}",
-                reason.code()
+                "automatic Recovery Plan stopped: {} ({})",
+                recovery_stop_summary(reason.code()),
+                reason.code(),
             )));
         }
         outcome = driver.execute(prepared);
@@ -1425,6 +1437,7 @@ fn normalized_plan(plan: &UltraPlan) -> anyhow::Result<Vec<u8>> {
 }
 
 fn emit(config: &Config, event: &str, used: u8, stop_reason: &str) {
+    let stop_summary = recovery_stop_summary(stop_reason);
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -1433,8 +1446,32 @@ fn emit(config: &Config, event: &str, used: u8, stop_reason: &str) {
             "recovery_plan_auto_runs_used": used,
             "recovery_plan_auto_run_current": used,
             "recovery_plan_auto_run_stop_reason": stop_reason,
+            "recovery_plan_auto_run_stop_summary": stop_summary,
         }),
     );
+}
+
+fn recovery_stop_summary(stop_reason: &str) -> String {
+    match stop_reason {
+        "contract_command_bind_failed" => {
+            "the completion contract has no registered verification command for Recovery"
+                .to_string()
+        }
+        "completion_contract_binding_failed" => {
+            "the completion contract could not be bound for Recovery".to_string()
+        }
+        "no_registered_pre_recovery_observation" => {
+            "no registered pre-Recovery observation is available".to_string()
+        }
+        "preflight_unavailable" => "the Recovery preflight observation is unavailable".to_string(),
+        "current_success_protected" => {
+            "the current workspace already satisfies the registered success checks".to_string()
+        }
+        "verification_inconsistency" => {
+            "registered observations conflict with completion evidence".to_string()
+        }
+        other => other.replace('_', " "),
+    }
 }
 
 fn emit_preflight(
@@ -1938,6 +1975,46 @@ mod tests {
     }
 
     #[test]
+    fn generated_nextjs_contract_allows_first_recovery_run_after_build_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path(), 2);
+        let contract_path = crate::planner::completion_contract_path::generated_path(
+            root.path(),
+            config.eval_events_path.as_deref(),
+            "completion-contract-ultra-plan-run.json",
+        );
+        std::fs::write(
+            &contract_path,
+            r#"{"goal":"Create a Next.js app","required_paths":[],"verify_commands":[],"profile":"nextjs"}"#,
+        )
+        .unwrap();
+        let bound = crate::planner::recovery_contract_authority::bind_for_recovery(
+            &config,
+            &["npm run build".to_string()],
+        )
+        .unwrap();
+        let mut recovery = candidate("Create a Next.js app");
+        recovery.plan.profile = "nextjs".to_string();
+        recovery.handoff.profile = "nextjs".to_string();
+        recovery.handoff.failed_phase = Some("core-implementation".to_string());
+        recovery.handoff.verify_commands = vec!["npm run build".to_string()];
+        recovery.handoff.repair_targets = vec!["src/app/page.tsx".to_string()];
+        let mut driver = driver(vec![success("recovered")]);
+        driver.preflight = RecoveryPreflight::Failed {
+            reason: "implementation_compile_error: src/app/page.tsx".to_string(),
+        };
+
+        assert_eq!(
+            drive(&bound, failed(recoverable(recovery)), &mut driver).unwrap(),
+            "recovered"
+        );
+        assert_eq!(driver.starts, vec![1]);
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("recovery_generated_completion_contract_completed"));
+        assert!(!events.contains("contract_command_bind_failed"));
+    }
+
+    #[test]
     fn missing_pre_recovery_observation_stops_without_consuming_budget() {
         let root = tempfile::tempdir().unwrap();
         let config = config(root.path(), 3);
@@ -2089,6 +2166,29 @@ mod tests {
         assert_eq!(controller.next_run(), Some(2));
         assert_eq!(controller.next_run(), None);
         assert_eq!(controller.used, 2);
+    }
+
+    #[test]
+    fn contract_command_bind_stop_has_human_readable_summary() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path(), 1);
+
+        emit(
+            &config,
+            "recovery_plan_auto_run_stopped",
+            0,
+            CandidateStop::ContractCommandBindFailed.code(),
+        );
+
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(
+            events.contains(
+                "\"recovery_plan_auto_run_stop_reason\":\"contract_command_bind_failed\""
+            )
+        );
+        assert!(events.contains(
+            "\"recovery_plan_auto_run_stop_summary\":\"the completion contract has no registered verification command for Recovery\""
+        ));
     }
 
     #[test]
