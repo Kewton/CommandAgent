@@ -103,6 +103,13 @@ impl FailureExplanation {
         self.recovery.map(&mut transform);
         self.technical.machine_codes.map(&mut transform);
     }
+
+    pub fn effective_final_acceptance_status(&self) -> Option<&str> {
+        self.recovery
+            .resolution
+            .effective_final_acceptance_status()
+            .map(|status| status.value.as_str())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -231,6 +238,7 @@ pub struct FailureRecovery {
     pub suggested_yaml_command: Option<BoundedText>,
     pub continuation_eligible: bool,
     pub continuation_reason: BoundedText,
+    pub resolution: RecoveryResolution,
 }
 
 impl FailureRecovery {
@@ -243,6 +251,50 @@ impl FailureRecovery {
         map_option(&mut self.suggested_command, transform);
         map_option(&mut self.suggested_yaml_command, transform);
         self.continuation_reason.map(transform);
+        self.resolution.map(transform);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreatmentPromotionStatus {
+    NotAttempted,
+    Pending,
+    Promoted,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveArtifactSource {
+    Control,
+    PromotedTreatment,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RecoveryResolution {
+    pub control_final_acceptance_status: Option<BoundedText>,
+    pub treatment_final_acceptance_status: Option<BoundedText>,
+    pub treatment_promotion_status: TreatmentPromotionStatus,
+    pub treatment_rejection_reason: Option<BoundedText>,
+    pub control_retained: bool,
+    pub effective_artifact_source: EffectiveArtifactSource,
+}
+
+impl RecoveryResolution {
+    fn effective_final_acceptance_status(&self) -> Option<&BoundedText> {
+        match self.effective_artifact_source {
+            EffectiveArtifactSource::Control => self.control_final_acceptance_status.as_ref(),
+            EffectiveArtifactSource::PromotedTreatment => {
+                self.treatment_final_acceptance_status.as_ref()
+            }
+        }
+    }
+
+    fn map(&mut self, transform: &mut impl FnMut(&str) -> String) {
+        map_option(&mut self.control_final_acceptance_status, transform);
+        map_option(&mut self.treatment_final_acceptance_status, transform);
+        map_option(&mut self.treatment_rejection_reason, transform);
     }
 }
 
@@ -335,7 +387,12 @@ pub fn project(events: &[Value], context: ProjectionContext) -> Option<FailureEx
     });
     let phase_failure = latest_event(events, "ultra_phase_failed");
     let release_failure = latest_release_failure(events);
-    let recovery_event = latest_recovery_event(events, failed_step.as_ref(), phase_failure);
+    let resolved_recovery_events = super::recovery_resolution::resolved_recovery_events(events);
+    let recovery_event = latest_recovery_event(
+        &resolved_recovery_events,
+        failed_step.as_ref(),
+        phase_failure,
+    );
     let failed_command =
         latest_failed_command(exact_step_events.unwrap_or(events), failed_step.as_ref());
     let category = classify(
@@ -428,6 +485,7 @@ pub fn project(events: &[Value], context: ProjectionContext) -> Option<FailureEx
         WorkspaceState::Unknown => PartialArtifactState::Unknown,
     };
 
+    let recovery_resolution = project_recovery_resolution(events);
     let evidence = project_evidence(
         events,
         failed_step.as_ref(),
@@ -435,6 +493,7 @@ pub fn project(events: &[Value], context: ProjectionContext) -> Option<FailureEx
         release_failure,
         failed_command,
         changed_paths,
+        &recovery_resolution,
     );
     let recovery = project_recovery(
         terminal,
@@ -442,6 +501,7 @@ pub fn project(events: &[Value], context: ProjectionContext) -> Option<FailureEx
         verify_failure,
         category,
         context.workspace_state,
+        recovery_resolution,
     );
     let technical = project_technical(
         terminal_name,
@@ -592,7 +652,7 @@ fn latest_matching_step_event<'a>(
 }
 
 fn latest_recovery_event<'a>(
-    events: &'a [Value],
+    events: &[&'a Value],
     step: Option<&ValidatedTerminalStep>,
     phase_failure: Option<&Value>,
 ) -> Option<&'a Value> {
@@ -604,6 +664,7 @@ fn latest_recovery_event<'a>(
         .iter()
         .rev()
         .filter(|event| text(event, "event") == Some("recovery_prompt_saved"))
+        .copied()
         .find(
             |event| match (text(event, "step_id"), text(event, "phase_id")) {
                 (Some(event_step), _) => step_id == Some(event_step),
@@ -764,6 +825,7 @@ fn project_evidence(
     release_failure: Option<&Value>,
     command_event: Option<&Value>,
     changed_paths: Vec<String>,
+    recovery_resolution: &RecoveryResolution,
 ) -> FailureEvidence {
     let mut observations = Vec::new();
     if let Some(step) = step {
@@ -860,8 +922,9 @@ fn project_evidence(
                         .and_then(|value| bounded(value, MAX_TEXT_CHARS))
                 })
             }),
-        acceptance_status: latest_non_empty(events, "final_acceptance_status")
-            .and_then(|value| bounded(value, MAX_TEXT_CHARS)),
+        acceptance_status: recovery_resolution
+            .effective_final_acceptance_status()
+            .cloned(),
         release_gate_status: latest_non_empty(events, "release_gate_status")
             .and_then(|value| bounded(value, MAX_TEXT_CHARS)),
         observations_truncated: observation_count > observations.len(),
@@ -936,6 +999,7 @@ fn project_recovery(
     verify_failure: Option<&Value>,
     category: FailureCategory,
     workspace_state: WorkspaceState,
+    resolution: RecoveryResolution,
 ) -> FailureRecovery {
     let next_action = first_text(
         [
@@ -1044,6 +1108,87 @@ fn project_recovery(
         continuation_eligible,
         continuation_reason: bounded(continuation_reason, MAX_TEXT_CHARS)
             .expect("continuation reason is non-empty"),
+        resolution,
+    }
+}
+
+fn project_recovery_resolution(events: &[Value]) -> RecoveryResolution {
+    let mut latest_control_status = None::<String>;
+    let mut control_status = None::<String>;
+    let mut treatment_status = None::<String>;
+    let mut promotion_status = TreatmentPromotionStatus::NotAttempted;
+    let mut rejection_reason = None::<String>;
+    let mut control_retained = false;
+
+    for event in events {
+        match text(event, "event") {
+            Some("recovery_plan_auto_run_start") => {
+                control_status = latest_control_status.clone();
+                treatment_status = None;
+                promotion_status = TreatmentPromotionStatus::Pending;
+                rejection_reason = None;
+                control_retained = false;
+            }
+            Some("ultra_final_acceptance") => {
+                if let Some(status) = text(event, "final_acceptance_status") {
+                    if promotion_status == TreatmentPromotionStatus::Pending {
+                        treatment_status = Some(status.to_string());
+                    } else {
+                        latest_control_status = Some(status.to_string());
+                    }
+                }
+            }
+            Some("recovery_treatment_promoted") => {
+                promotion_status = TreatmentPromotionStatus::Promoted;
+            }
+            Some("recovery_control_retained") => {
+                promotion_status = TreatmentPromotionStatus::Rejected;
+                control_retained = true;
+                rejection_reason = first_non_empty(event, &["reason", "stop_reason"])
+                    .map(str::to_string)
+                    .or(rejection_reason);
+            }
+            Some("recovery_promotion_decision") => match text(event, "decision") {
+                Some("promoted") => {
+                    promotion_status = TreatmentPromotionStatus::Promoted;
+                }
+                Some("rejected") => {
+                    promotion_status = TreatmentPromotionStatus::Rejected;
+                    rejection_reason = first_non_empty(event, &["reason", "stop_reason"])
+                        .map(str::to_string)
+                        .or(rejection_reason);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    if control_status.is_none() {
+        control_status = latest_control_status.or_else(|| {
+            (promotion_status == TreatmentPromotionStatus::NotAttempted)
+                .then(|| latest_non_empty(events, "final_acceptance_status"))
+                .flatten()
+                .map(str::to_string)
+        });
+    }
+    let effective_artifact_source = if promotion_status == TreatmentPromotionStatus::Promoted {
+        EffectiveArtifactSource::PromotedTreatment
+    } else {
+        EffectiveArtifactSource::Control
+    };
+    RecoveryResolution {
+        control_final_acceptance_status: control_status
+            .as_deref()
+            .and_then(|status| bounded(status, MAX_TEXT_CHARS)),
+        treatment_final_acceptance_status: treatment_status
+            .as_deref()
+            .and_then(|status| bounded(status, MAX_TEXT_CHARS)),
+        treatment_promotion_status: promotion_status,
+        treatment_rejection_reason: rejection_reason
+            .as_deref()
+            .and_then(|reason| bounded(reason, MAX_TEXT_CHARS)),
+        control_retained,
+        effective_artifact_source,
     }
 }
 
@@ -1446,6 +1591,110 @@ mod tests {
         assert_eq!(
             projection.recovery.recovery_plan_path.unwrap().value,
             ".anvil/plans/recovery-build.yaml"
+        );
+    }
+
+    #[test]
+    fn rejected_treatment_does_not_replace_gui_recovery_handoff() {
+        let events = vec![
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/repairs/control.md",
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/plans/control.yaml",
+            }),
+            serde_json::json!({
+                "event": "ultra_final_acceptance",
+                "final_acceptance_status": "incomplete",
+            }),
+            serde_json::json!({
+                "event": "recovery_plan_auto_run_start",
+                "recovery_plan_auto_run_current": 1,
+                "recovery_ultra_plan_path": ".commandagent/plans/control.yaml",
+                "recovery_treatment_path": ".commandagent/recovery-treatments/attempt-1/workspace",
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "verify-recovery",
+                "recovery_prompt_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md",
+                "recovery_ultra_plan_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+            }),
+            serde_json::json!({
+                "event": "ultra_final_acceptance",
+                "final_acceptance_status": "full_success",
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_failed",
+                "phase_id": "verify-recovery",
+                "stage": "verify",
+                "reason": "treatment verification failed",
+            }),
+            serde_json::json!({"event": "recovery_control_retained"}),
+            serde_json::json!({
+                "event": "recovery_promotion_decision",
+                "decision": "rejected",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "status": "failed",
+                "ok": false,
+                "stop_reason": "automatic Recovery treatment rejected",
+                "recovery_prompt_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md",
+                "recovery_ultra_plan_path": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+                "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml",
+            }),
+        ];
+
+        let projection = project(
+            &events,
+            ProjectionContext::new(1, WorkspaceState::Available),
+        )
+        .unwrap();
+
+        assert_eq!(
+            projection.recovery.repair_prompt_path.unwrap().value,
+            ".commandagent/repairs/control.md"
+        );
+        assert_eq!(
+            projection.recovery.recovery_plan_path.unwrap().value,
+            ".commandagent/plans/control.yaml"
+        );
+        assert_eq!(
+            projection.recovery.suggested_yaml_command.unwrap().value,
+            "/run-ultra-plan .commandagent/plans/control.yaml"
+        );
+        assert_eq!(
+            projection.evidence.acceptance_status.unwrap().value,
+            "incomplete"
+        );
+        assert_eq!(
+            projection
+                .recovery
+                .resolution
+                .control_final_acceptance_status
+                .as_ref()
+                .map(|value| value.value.as_str()),
+            Some("incomplete")
+        );
+        assert_eq!(
+            projection
+                .recovery
+                .resolution
+                .treatment_final_acceptance_status
+                .as_ref()
+                .map(|value| value.value.as_str()),
+            Some("full_success")
+        );
+        assert_eq!(
+            projection.recovery.resolution.treatment_promotion_status,
+            TreatmentPromotionStatus::Rejected
+        );
+        assert!(projection.recovery.resolution.control_retained);
+        assert_eq!(
+            projection.recovery.resolution.effective_artifact_source,
+            EffectiveArtifactSource::Control
         );
     }
 

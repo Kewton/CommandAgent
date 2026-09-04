@@ -6,7 +6,9 @@ use crate::tools::path_guard::resolve_existing;
 use super::shell_words_with_spans;
 
 pub(super) fn is_dependency_missing_for_command(root: &Path, command: &str, output: &str) -> bool {
-    if is_existing_workspace_python_script(root, command) {
+    if is_existing_workspace_python_script(root, command)
+        || build_verifier::output_reports_workspace_internal_missing(root, output)
+    {
         return false;
     }
     build_verifier::is_dependency_missing_output(output)
@@ -90,5 +92,22 @@ mod tests {
             ["dependency_setup_authority_required: pip install -e ."]
         );
         assert!(report.command_failures.is_empty(), "{report:?}");
+    }
+
+    #[test]
+    fn workspace_python_module_missing_is_not_external_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "python -m app.main",
+            "ModuleNotFoundError: No module named 'app.tasks'",
+        ));
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "python -c 'import requests'",
+            "ModuleNotFoundError: No module named 'requests'",
+        ));
     }
 }

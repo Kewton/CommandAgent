@@ -32,9 +32,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   projection, exact StepPlan evidence and workspace state, plus auth-mode-aware
   read-only recovery-document, keyboard copy, and confirmation-preserving
   continuation-prefill actions.
+- Run a resolved Gate 4 Recovery Plan from the GUI only after an exact-byte,
+  identity-bound confirmation, with normal monitoring, cancellation, and
+  reasoned drift/treatment/pending-request/lease/stale-hash refusals.
 
 ### Fixed
 
+- Explain GUI Trial automatic-intent ambiguity with actionable `作成` / `修正`
+  retry guidance while retaining route candidates as technical detail.
+- Let GUI Trial show an honest unmeasured Gate 1 card for unclassified
+  Next.js create requests while preserving measured family routing and all
+  other ambiguity rejections.
 - Scroll and focus the Trial document viewer after a successful recovery-file
   open, and announce the opened document without reporting failed reads as
   successful.

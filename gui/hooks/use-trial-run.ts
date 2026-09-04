@@ -77,13 +77,15 @@ export function useTrialRun(
   const priceDuration = useMemo(() => {
     const seconds =
       monitor.session?.average_duration_seconds ?? compose.proposal?.price.average_duration_seconds;
+    const unavailable = compose.proposal?.price.source === "未計測" ? "未計測" : "未記録";
     return seconds === null || seconds === undefined
-      ? "未記録"
+      ? unavailable
       : `平均 ${(seconds / 60).toFixed(1)} 分`;
   }, [compose.proposal, monitor.session]);
   const priceCost = useMemo(() => {
     const cost = compose.proposal?.price.average_cost_usd;
-    return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
+    const unavailable = compose.proposal?.price.source === "未計測" ? "未計測" : "未記録";
+    return cost === null || cost === undefined ? unavailable : `平均 $${cost.toFixed(4)}`;
   }, [compose.proposal]);
 
   function launchConfirmed() {
@@ -105,8 +107,11 @@ export function useTrialRun(
     artifacts: terminal.artifacts,
     busy: compose.busy,
     checkContract: compose.checkContract,
+    cancelStop: monitor.cancelStop,
     composeRef: compose.composeRef,
     confirmDirective: terminal.confirmDirective,
+    confirmRecoveryRun: terminal.confirmRecoveryRun,
+    confirmStop: monitor.confirmStop,
     confirmed: compose.confirmed,
     created: monitor.created,
     currentPhase: monitor.currentPhase,
@@ -137,11 +142,14 @@ export function useTrialRun(
     priceDuration,
     proposal: compose.proposal,
     providerChanged: compose.providerChanged,
+    proposeRecoveryRun: terminal.proposeRecoveryRun,
     readArtifact: terminal.readArtifact,
     readEvents: terminal.readEvents,
     readRecoveryDocument: terminal.readRecoveryDocument,
     reconnectExisting: monitor.reconnectExisting,
     reconnectSessionId: compose.reconnectSessionId,
+    recoveryRun: terminal.recoveryRun,
+    recoveryRunAcknowledged: terminal.recoveryRunAcknowledged,
     rejectTrialToken: compose.rejectTrialToken,
     selectedProfile: compose.selectedProfile,
     selectedProvider: compose.selectedProvider,
@@ -154,11 +162,15 @@ export function useTrialRun(
     setProposal: compose.setProposal,
     setProviderChanged: compose.setProviderChanged,
     setReconnectSessionId: compose.setReconnectSessionId,
+    setRecoveryRunAcknowledged: terminal.setRecoveryRunAcknowledged,
     setStage,
     setWorkspaceLease: compose.setWorkspaceLease,
     spec: compose.spec,
     stage,
     startNewRun,
+    stopActiveSession: monitor.stopActiveSession,
+    stopError: monitor.stopError,
+    stopState: monitor.stopState,
     terminalRef: terminal.terminalRef,
     trialAccessReady: compose.trialAccessReady,
     trialOptions: compose.trialOptions,

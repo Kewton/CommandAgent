@@ -1,0 +1,4 @@
+{"event":"recovery_prompt_saved","effective_profile":"python-cli","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml","recovery_yaml_exists":true,"recovery_yaml_parse_ok":true,"recovery_command_targets_valid":true}
+{"event":"tui_command_stop","effective_profile":"python-cli","ok":false,"status":"failed","assurance_level":"none","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml"}
+{"event":"tui_command_start","command":"/run-ultra-plan","effective_profile":"python-cli"}
+{"event":"tui_command_stop","effective_profile":"python-cli","ok":true,"status":"completed","assurance_level":"full","final_acceptance_status":"completed"}

@@ -3,6 +3,133 @@ mod moved {
     use super::*;
 
     #[test]
+    fn allow_policy_feedback_allows_write_retry() {
+        use crate::tools::allow_policy::AllowTarget::{BashVerify, Read, Write};
+
+        let dir = tempfile::tempdir().unwrap();
+        let _policy = crate::tools::allow_policy::install(false, &[Read, Write, BashVerify]);
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Bash", json!({"command":"mkdir -p src/app"}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"a.txt","content":"ok"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply::text("done")),
+        ]);
+        let mut session = SessionSnapshot::new();
+        let result = run_session_with_required_paths(
+            &mut fake,
+            &mut session,
+            "create a.txt",
+            &["a.txt".to_string()],
+            &config(dir.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "ok"
+        );
+        assert!(
+            session
+                .messages
+                .iter()
+                .any(|message| message.content.contains("do not broaden permissions"))
+        );
+    }
+
+    #[test]
+    fn required_artifact_success_waits_for_missing_workspace_alias_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"src/app/page.tsx","content":"import { readTasks } from '@/lib/tasks';\nexport default function Page(){return <main>{readTasks().length}</main>;}"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"src/lib/tasks.ts","content":"export const readTasks = () => [];\n"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
+        let mut session = SessionSnapshot::new();
+        let outcome = run_session_with_outcome_with_ui(
+            &mut fake,
+            &mut session,
+            "create a page",
+            &["src/app/page.tsx".to_string()],
+            &config(dir.path().to_path_buf()),
+            &NOOP_UI,
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome.stop_reason,
+            RunStopReason::RequiredArtifactsSatisfiedAfterTool
+        );
+        assert!(dir.path().join("src/lib/tasks.ts").is_file());
+        assert_eq!(outcome.changed_paths.len(), 2);
+    }
+
+    #[test]
+    fn repeated_allow_policy_error_stops_before_max_iterations() {
+        let dir = tempfile::tempdir().unwrap();
+        let _policy = crate::tools::allow_policy::install(
+            false,
+            &[crate::tools::allow_policy::AllowTarget::BashVerify],
+        );
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.max_iterations = 8;
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Bash", json!({"command":"mkdir src"}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Bash", json!({"command":"mkdir src"}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Bash", json!({"command":"mkdir src"}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
+        let mut session = SessionSnapshot::new();
+        let err = run_session(&mut fake, &mut session, "create src", &cfg)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("recoverable tool error repeated"));
+    }
+
+    #[test]
     fn setup_scaffold_completion_finishes_missing_nextjs_configs_at_budget_gate() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");

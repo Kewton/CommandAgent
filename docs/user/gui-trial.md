@@ -34,6 +34,14 @@ choices send the typed `create`, `fix`, or `investigate` value to Gate 1;
 request wording cannot replace that explicit choice. Gate 1 displays and
 freezes the effective value before delegation to CLI `--intent`.
 
+If automatic detection leaves candidates from more than one intent, the GUI
+reports that the execution purpose could not be detected and gives a concrete
+retry: select **作成** for a new application or **修正** for changes to an
+existing application. The registered route candidates remain available after
+**詳細** for troubleshooting. Family ambiguity within one intent and unrelated
+authentication, Origin, workspace-lease, or input failures keep their own
+guidance. This behavior is identical at `/` and a configured proxy base path.
+
 The browser obtains profiles/providers from `GET api/trial-options` and
 admitted plus conformant pinned local packs from `GET api/pack-options`.
 External profile rows are labeled **下書き**, show their exact-byte manifest
@@ -91,6 +99,14 @@ exposed by the server. The delegate uses the CLI's host option and inherits
    until this explicit action, and the API independently requires the exact
    card hash. An accepted launch moves to that session's **実行状況** page.
 
+For the admitted Next.js profile with the effective `create` intent, a request
+that contains no recognized family term is still eligible for Gate 1. Its
+family is shown as `unknown`, and both comparable-run results and the estimate
+are labeled **未計測**; confirmation still launches the CLI with
+`--profile nextjs --intent create`. A recognized family such as `Quiz` keeps
+its measured family band. Multiple family terms and other ambiguous or typed
+unknown routes continue to be rejected rather than guessed.
+
 GUI confirmation never lowers, replaces, or satisfies a required check.
 
 ### Gate 2: execution and monitoring
@@ -122,8 +138,30 @@ The confirmed intent is shown with the other launch identity fields. It is not
 editable after Gate 1, and reconnect restores it from the persisted
 confirmation rather than re-running request inference.
 
-Use recent events and artifact browsing for bounded, read-only evidence. There
-is no cancel, interrupt, phase-edit, or gate-override control in the GUI.
+Use recent events and artifact browsing for bounded, read-only evidence. An
+active Gate 2 also shows **実行を停止**. The first activation opens a keyboard-
+operable confirmation instead of sending a signal. Confirming sends the exact
+session ID and the server-issued process generation to the authenticated,
+same-Origin stop API; the control then says **停止処理中** until polling
+observes Gate 4. A failed request remains visibly labeled as a failure and can
+be retried. Terminal and recovery-required sessions do not expose the control.
+
+The server starts each confirmed initial run and each confirmed additional
+request in a fresh process group. One accepted stop sends `SIGINT` only to that
+session/generation group and returns HTTP 202. Repeating it while the same
+generation is stopping is idempotent. After a bounded grace period, a group
+that ignored `SIGINT` receives `SIGKILL`. The operation is always an
+interruption/failure outcome, never Gate 3: a cooperative CLI records
+`tui_command_stop.status=interrupted`, `ok=false`, and exits 130; forced or
+otherwise incomplete CLI evidence receives a separate server-owned
+`gui_trial_stop_completed` record with `ok=false`.
+
+The stop API rejects a different session, stale generation, terminal session,
+recovery-required lease, or a process identity from before server restart. The
+lease returns to Idle only after terminal evidence exists and the complete
+target process group is confirmed absent. If that disappearance cannot be
+confirmed, the lease remains Recovery required for operator inspection. There
+is no phase-edit, gate-override, or force-success control in the GUI.
 
 ### Working directory and run records
 
@@ -227,6 +265,25 @@ run recovery. Credential scrubbing, exact-byte directive display, explicit
 confirmation, fixed checks, and the existing Gate 1/continuation boundary
 still apply.
 
+**Recovery Plan を実行する** is a separate Gate 4 operation. Its first click
+does not start the CLI: the server resolves the current Recovery lineage,
+freezes the exact plan bytes, and returns a confirmation card containing the
+resolved and frozen paths, SHA-256, phase IDs, permission policy, and automatic
+Recovery budget. The execute button stays disabled until the dedicated
+acknowledgement checkbox is selected, and the confirmation API independently
+requires that acknowledgement. After confirmation, the server rechecks the
+current plan and identity, then delegates `--run-ultra-plan` with the frozen
+path under the original Gate 1 providers, models, profile, intent, pack,
+permissions, and budget. The normal execution-status page and process
+generation provide monitoring and the existing confirmed stop control.
+
+The server refuses a stale confirmation hash, changed source or frozen bytes,
+a rejected or unresolved automatic-Recovery treatment, a pending additional
+request, or a competing workspace lease. The returned reason is shown without
+starting a process. Creating or confirming a Recovery Run does not rewrite the
+additional-request artifact, Gate 1 identity, prior events, or source Recovery
+Plan.
+
 Inspect `summary.md`, the event tail, and acceptance-related text artifacts.
 You may **追加の依頼を確認用に準備**; the directive is credential-scrubbed,
 exact-byte hashed, displayed, and separately confirmed, and cannot lower fixed
@@ -283,8 +340,9 @@ If the configured binary cannot be spawned, HTTP 500 names its path and the OS
 cause. Because no child exists, the server rolls back that new session and
 releases the lease. Fix `--commandagent-bin` and retry.
 
-`Recovery required` means a confirmed child may have existed but no current
-terminal event was observed. Treat it as a possible live process:
+`Recovery required` means a confirmed child may have existed without a current
+terminal event, or a GUI stop could not confirm that its process group
+disappeared. Treat it as a possible live process:
 
 1. Record the session ID and stop `gui_server` so no new Trial is admitted.
 2. Use operating-system process inspection to verify that no delegated

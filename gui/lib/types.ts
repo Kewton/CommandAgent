@@ -163,10 +163,26 @@ export type SessionProposal = {
 
 export type CreatedSession = {
   id: string;
+  process_generation: string | null;
   started_epoch_seconds: number;
   gate: "gate_2";
   status: "starting";
   events_path: string;
+};
+
+export type ConfirmedContinuation = {
+  directive_hash: string;
+  directive_round: number;
+  target_run_id: string;
+  continuation_plan: string;
+  process_generation: string;
+  status: "starting";
+};
+
+export type StopSessionResponse = {
+  session_id: string;
+  process_generation: string;
+  status: "stopping" | "already_stopping";
 };
 
 export type SessionPathProjection = {
@@ -342,6 +358,14 @@ export type FailureExplanation = {
     suggested_yaml_command: BoundedText | null;
     continuation_eligible: boolean;
     continuation_reason: BoundedText;
+    resolution: {
+      control_final_acceptance_status: BoundedText | null;
+      treatment_final_acceptance_status: BoundedText | null;
+      treatment_promotion_status: "not_attempted" | "pending" | "promoted" | "rejected";
+      treatment_rejection_reason: BoundedText | null;
+      control_retained: boolean;
+      effective_artifact_source: "control" | "promoted_treatment";
+    };
   };
   technical: {
     machine_codes: BoundedTextList;
@@ -350,6 +374,7 @@ export type FailureExplanation = {
 
 export type PolledSession = {
   id: string;
+  process_generation: string | null;
   started_epoch_seconds: number;
   average_duration_seconds: number | null;
   gate: "gate_2" | "gate_3" | "gate_4";
@@ -383,6 +408,29 @@ export type DirectiveProposal = {
   issued_gate: "gate_3" | "gate_4";
   scrubbed_directive: string;
   confirmation_required: boolean;
+};
+
+export type RecoveryRunProposal = {
+  confirmation_hash: string;
+  confirmation_required: true;
+  target_run_id: string;
+  recovery_round: number;
+  source_plan_path: string;
+  frozen_plan_path: string;
+  plan_hash: string;
+  execution_phases: string[];
+  permission_policy: string;
+  automatic_run_budget: number;
+  identity_hash: string;
+};
+
+export type ConfirmedRecoveryRun = {
+  confirmation_hash: string;
+  plan_hash: string;
+  source_plan_path: string;
+  frozen_plan_path: string;
+  process_generation: string;
+  status: "starting";
 };
 
 export type RuntimeStatus = {

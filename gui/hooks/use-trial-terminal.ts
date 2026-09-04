@@ -6,7 +6,9 @@ import { describeError } from "../lib/errors";
 import { elapsedLabel } from "../lib/format";
 import {
   confirmDirective as confirmSessionDirective,
+  confirmRecoveryRun as confirmSessionRecoveryRun,
   createDirective as requestDirective,
+  createRecoveryRun as requestRecoveryRun,
   fetchSessionArtifact,
   fetchSessionArtifacts,
   fetchSessionEvents,
@@ -18,6 +20,7 @@ import type {
   DocumentRecord,
   DocumentSummary,
   PolledSession,
+  RecoveryRunProposal,
   TrialWorkspaceLease,
 } from "../lib/types";
 import type { ScreenStage } from "./use-trial-compose";
@@ -26,7 +29,7 @@ type UseTrialTerminalProps = {
   created: CreatedSession | null;
   recordError: (reason: unknown) => void;
   rejectTrialToken: (reason: unknown, rejectedValue: string) => boolean;
-  resumeForDirective: () => void;
+  resumeForDirective: (processGeneration: string) => void;
   session: PolledSession | null;
   setBusy: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string | null>>;
@@ -50,6 +53,8 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   const notifiedTerminalRef = useRef<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const [recoveryRun, setRecoveryRun] = useState<RecoveryRunProposal | null>(null);
+  const [recoveryRunAcknowledged, setRecoveryRunAcknowledged] = useState(false);
   const [artifacts, setArtifacts] = useState<DocumentSummary[]>([]);
   const [evidenceDocument, setEvidenceDocument] = useState<DocumentRecord | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
@@ -116,11 +121,52 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     setError(null);
     setErrorReconnectSessionId(null);
     try {
-      await confirmSessionDirective(trialToken, created.id, directive.directive_hash);
+      const continuation = await confirmSessionDirective(
+        trialToken,
+        created.id,
+        directive.directive_hash,
+      );
       setDirective(null);
       setDirectiveText("");
       setWorkspaceLease(null);
-      resumeForDirective();
+      resumeForDirective(continuation.process_generation);
+    } catch (reason) {
+      recordError(reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function proposeRecoveryRun() {
+    if (created === null) return;
+    setBusy(true);
+    setError(null);
+    setErrorReconnectSessionId(null);
+    try {
+      setRecoveryRun(await requestRecoveryRun(trialToken, created.id));
+      setRecoveryRunAcknowledged(false);
+    } catch (reason) {
+      recordError(reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmRecoveryRun() {
+    if (created === null || recoveryRun === null || !recoveryRunAcknowledged) return;
+    setBusy(true);
+    setError(null);
+    setErrorReconnectSessionId(null);
+    try {
+      const confirmed = await confirmSessionRecoveryRun(
+        trialToken,
+        created.id,
+        recoveryRun.confirmation_hash,
+      );
+      setRecoveryRun(null);
+      setRecoveryRunAcknowledged(false);
+      setWorkspaceLease(null);
+      resumeForDirective(confirmed.process_generation);
     } catch (reason) {
       recordError(reason);
     } finally {
@@ -166,6 +212,8 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
     setEvidenceOpen(false);
     setEvidenceError(null);
     setEvidenceAnnouncement(null);
+    setRecoveryRun(null);
+    setRecoveryRunAcknowledged(false);
   }
 
   function resetForNewRun() {
@@ -175,10 +223,11 @@ export function useTrialTerminal(props: UseTrialTerminalProps) {
   }
 
   return {
-    artifacts, confirmDirective, directive, directiveText, evidenceAnnouncement, evidenceDocument,
+    artifacts, confirmDirective, confirmRecoveryRun, directive, directiveText, evidenceAnnouncement, evidenceDocument,
     evidenceError, evidenceLoading, evidenceOpen, loadArtifacts, persistDirective,
-    readArtifact, readEvents, readRecoveryDocument, resetForLaunch, resetForNewRun, setDirective,
-    setDirectiveText, setStage, terminalRef,
+    proposeRecoveryRun, readArtifact, readEvents, readRecoveryDocument, recoveryRun,
+    recoveryRunAcknowledged, resetForLaunch, resetForNewRun, setDirective, setDirectiveText,
+    setRecoveryRunAcknowledged, setStage, terminalRef,
   };
 }
 

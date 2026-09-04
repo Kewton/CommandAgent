@@ -6,6 +6,9 @@ use crate::eval_events;
 use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupObservation, NodeDependencySetupStatus,
 };
+use crate::minimal_loop::import_scan::{
+    ImportScanIssue, route_bound_closure, scan_relative_imports,
+};
 use crate::minimal_loop::verifier_env;
 use crate::planner::profile::{build_oracle_for_command, profile_for_build_requirement};
 use crate::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
@@ -260,6 +263,10 @@ pub fn emit_dependency_build_lifecycle(
             "before_attempted": lifecycle.before_setup.attempted,
             "setup_status": lifecycle.setup_status(),
             "setup_attempted": lifecycle.setup.as_ref().is_some_and(|setup| setup.attempted),
+            "setup_blocked_reason": lifecycle.setup.as_ref()
+                .filter(|setup| setup.status == NodeDependencySetupStatus::Blocked)
+                .map(|setup| setup.primary_reason.as_str())
+                .unwrap_or(""),
             "setup_authority": lifecycle.setup.as_ref().map(|setup| setup.authority.as_str()).unwrap_or("none"),
             "setup_kind": lifecycle.setup.as_ref().map(|setup| setup.setup_kind.as_str()).unwrap_or("none"),
             "setup_command": lifecycle.setup.as_ref().map(|setup| setup.command.as_str()).unwrap_or(""),
@@ -539,15 +546,12 @@ pub fn observe_requirement(
             let mut compile_errors =
                 parse_compile_errors_for_requirement(requirement, &full_output);
             profile.annotate_compile_errors(root, &mut compile_errors);
-            let status = if profile.dependency_missing_output(&reason) {
-                BuildVerifierStatus::DependencyMissing
-            } else if !compile_errors.is_empty() {
-                BuildVerifierStatus::Failed
-            } else if reason.contains("blocked") {
-                BuildVerifierStatus::Blocked
-            } else {
-                BuildVerifierStatus::Failed
-            };
+            let status = classify_failed_build_status(
+                root,
+                &reason,
+                profile.dependency_missing_output(&reason),
+                &compile_errors,
+            );
             BuildVerifierObservation {
                 command: requirement.command.clone(),
                 profile: requirement.profile.clone(),
@@ -816,6 +820,7 @@ fn parse_compile_errors_text(output: &str) -> Vec<CompileError> {
             push_compile_error(&mut errors, error);
         }
     }
+    parse_webpack_module_not_found_errors(&lines, &mut errors);
     if errors.is_empty() {
         parse_failed_to_compile_module_error(&lines, &mut errors);
     }
@@ -823,6 +828,169 @@ fn parse_compile_errors_text(output: &str) -> Vec<CompileError> {
         parse_swc_source_frame_errors(&lines, &mut errors);
     }
     errors
+}
+
+fn classify_failed_build_status(
+    root: &Path,
+    reason: &str,
+    dependency_missing: bool,
+    compile_errors: &[CompileError],
+) -> BuildVerifierStatus {
+    if dependency_missing && !output_reports_workspace_internal_missing(root, reason) {
+        BuildVerifierStatus::DependencyMissing
+    } else if !compile_errors.is_empty() {
+        BuildVerifierStatus::Failed
+    } else if reason.contains("blocked") {
+        BuildVerifierStatus::Blocked
+    } else {
+        BuildVerifierStatus::Failed
+    }
+}
+
+fn parse_webpack_module_not_found_errors(lines: &[&str], errors: &mut Vec<CompileError>) {
+    let Some(failed_index) = lines
+        .iter()
+        .position(|line| trim_compile_line(line).contains("Failed to compile"))
+    else {
+        return;
+    };
+    for (message_index, raw) in lines.iter().enumerate().skip(failed_index + 1) {
+        let message = trim_compile_line(raw);
+        if module_not_found_specifier(message).is_none() {
+            continue;
+        }
+        let Some(path) = lines[failed_index + 1..message_index]
+            .iter()
+            .rev()
+            .filter_map(|line| normalize_compile_error_path(trim_compile_line(line)))
+            .find(|path| compile_error_path_is_supported(path))
+        else {
+            continue;
+        };
+        let details = compile_error_details_from_message_line(lines, message_index);
+        push_compile_error(
+            errors,
+            CompileError {
+                path,
+                line: 0,
+                column: 0,
+                excerpt: details.excerpt,
+                symbol: None,
+                message: details.message,
+                route_bound: None,
+            },
+        );
+    }
+}
+
+fn module_not_found_specifier(message: &str) -> Option<&str> {
+    if !message.to_ascii_lowercase().contains("module not found") {
+        return None;
+    }
+    let (_, raw) = message
+        .split_once("Can't resolve ")
+        .or_else(|| message.split_once("Cannot resolve "))?;
+    let raw = raw.trim_start();
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '\'' | '"' | '`') {
+        return None;
+    }
+    let value = &raw[quote.len_utf8()..];
+    let end = value.find(quote)?;
+    (!value[..end].is_empty()).then_some(&value[..end])
+}
+
+fn workspace_internal_specifier(specifier: &str) -> bool {
+    specifier.starts_with("./")
+        || specifier.starts_with("../")
+        || specifier.starts_with("@/")
+        || specifier.starts_with('/')
+}
+
+fn python_missing_module_name(line: &str) -> Option<&str> {
+    let lower = line.to_ascii_lowercase();
+    let marker = "no module named ";
+    let index = lower.find(marker)? + marker.len();
+    let raw = line.get(index..)?.trim_start();
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '\'' | '"' | '`') {
+        return None;
+    }
+    let value = &raw[quote.len_utf8()..];
+    let end = value.find(quote)?;
+    (!value[..end].is_empty()).then_some(&value[..end])
+}
+
+fn python_module_is_workspace_internal(root: &Path, module: &str) -> bool {
+    let top_level = module.split('.').next().unwrap_or_default();
+    !top_level.is_empty()
+        && [root.to_path_buf(), root.join("src")]
+            .into_iter()
+            .any(|base| {
+                base.join(top_level).is_dir() || base.join(format!("{top_level}.py")).is_file()
+            })
+}
+
+pub(crate) fn output_reports_workspace_internal_missing(root: &Path, output: &str) -> bool {
+    output.lines().any(|line| {
+        module_not_found_specifier(trim_compile_line(line))
+            .is_some_and(workspace_internal_specifier)
+            || python_missing_module_name(line)
+                .is_some_and(|module| python_module_is_workspace_internal(root, module))
+    })
+}
+
+pub(crate) fn internal_module_compile_errors(
+    root: &Path,
+    profile: &str,
+    output: &str,
+) -> Vec<CompileError> {
+    if !output_reports_workspace_internal_missing(root, output) {
+        return Vec::new();
+    }
+    let mut errors = parse_compile_errors_text(output);
+    errors.retain(|error| {
+        module_not_found_specifier(&error.message).is_some_and(workspace_internal_specifier)
+    });
+    if errors.is_empty() {
+        errors = internal_import_scan_compile_errors(root, profile, output);
+    }
+    crate::planner::profile::domain_profile(profile).annotate_compile_errors(root, &mut errors);
+    errors
+}
+
+fn internal_import_scan_compile_errors(
+    root: &Path,
+    profile: &str,
+    output: &str,
+) -> Vec<CompileError> {
+    let specifiers = output
+        .lines()
+        .filter_map(|line| module_not_found_specifier(trim_compile_line(line)))
+        .filter(|specifier| workspace_internal_specifier(specifier))
+        .collect::<Vec<_>>();
+    let paths = route_bound_closure(root, profile)
+        .into_iter()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>();
+    scan_relative_imports(root, &paths)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|missing| {
+            missing.issue == ImportScanIssue::MissingModule
+                && specifiers.contains(&missing.specifier.as_str())
+        })
+        .map(|missing| CompileError {
+            path: missing.source,
+            line: 0,
+            column: 0,
+            message: format!("Module not found: Can't resolve '{}'", missing.specifier),
+            excerpt: String::new(),
+            symbol: None,
+            route_bound: None,
+        })
+        .take(MAX_COMPILE_ERROR_DIAGNOSTICS)
+        .collect()
 }
 
 fn push_compile_error(errors: &mut Vec<CompileError>, error: CompileError) {
@@ -1440,6 +1608,64 @@ Type error: Cannot find name 'reset'.
         assert_eq!(errors[0].column, 28);
         assert_eq!(errors[0].symbol.as_deref(), Some("reset"));
         assert_eq!(errors[0].route_bound, None);
+    }
+
+    #[test]
+    fn parse_nextjs_module_not_found_as_source_compile_error() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app/api/tasks/[id]")).unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("src/app/page.tsx"), "export default 1;").unwrap();
+        std::fs::write(
+            dir.path().join("src/app/api/tasks/[id]/route.ts"),
+            "export const GET = () => null;",
+        )
+        .unwrap();
+        let output = FullCommandOutput::from_test_text(
+            r#"
+Failed to compile.
+
+./src/app/page.tsx
+Module not found: Can't resolve '@/lib/tasks'
+
+./src/app/api/tasks/[id]/route.ts
+Module not found: Can't resolve '@/lib/tasks'
+
+> Build failed because of webpack errors
+"#,
+        );
+
+        let mut errors = parse_compile_errors(&output);
+        crate::planner::profile::domain_profile("nextjs")
+            .annotate_compile_errors(dir.path(), &mut errors);
+
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(errors[0].path, "src/app/page.tsx");
+        assert_eq!(errors[0].line, 0);
+        assert_eq!(errors[0].route_bound, Some(true));
+        assert!(errors[0].message.contains("Can't resolve '@/lib/tasks'"));
+        assert_eq!(errors[1].path, "src/app/api/tasks/[id]/route.ts");
+    }
+
+    #[test]
+    fn internal_module_missing_overrides_generic_dependency_marker() {
+        let dir = TempDir::new().unwrap();
+        let reason =
+            "Failed to compile.\n./src/app/page.tsx\nModule not found: Can't resolve '@/lib/tasks'";
+        let compile_errors = parse_compile_errors(&FullCommandOutput::from_test_text(reason));
+
+        assert_eq!(
+            classify_failed_build_status(dir.path(), reason, true, &compile_errors),
+            BuildVerifierStatus::Failed
+        );
+
+        let external =
+            "Failed to compile.\n./src/app/page.tsx\nModule not found: Can't resolve 'react'";
+        let compile_errors = parse_compile_errors(&FullCommandOutput::from_test_text(external));
+        assert_eq!(
+            classify_failed_build_status(dir.path(), external, true, &compile_errors),
+            BuildVerifierStatus::DependencyMissing
+        );
     }
 
     #[test]
@@ -2077,6 +2303,7 @@ Error:
         assert!(text.contains("\"mode\":\"ultra-plan-run\""));
         assert!(text.contains("\"lifecycle_stage\":\"dependency_setup_build\""));
         assert!(text.contains("setup_blocked"));
+        assert!(text.contains("\"setup_blocked_reason\":\"package.json missing\""));
     }
 
     #[test]

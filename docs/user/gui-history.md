@@ -66,8 +66,9 @@ to focus its compact history row.
 The same index response projects `idle`, `running(<session-id>)`, or
 `recovery_required(<session-id>)`. A non-idle snapshot disables confirmed
 launch and names the owning/blocking session. This client snapshot is advisory
-and read-only; the server enforces the lease on POST. The GUI exposes no clear,
-reset, cancel, or force-idle action.
+and read-only; the server enforces the lease on POST. Active Gate 2 owns the
+separately confirmed, generation-bound stop action; history exposes no clear,
+reset, stale-process stop, or force-idle action.
 
 Use the conservative [workspace recovery procedure](gui-trial.md#workspace-lease-inspection-and-recovery)
 when recovery is required.

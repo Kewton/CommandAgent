@@ -1,0 +1,41 @@
+case_id = "issue414-recovery-resolution"
+source = "Issue #414 terminal Recovery Plan treatment resolution"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/rejected-treatment.jsonl = [
+  "\"event\":\"recovery_plan_auto_run_start\"",
+  "\"recovery_ultra_plan_path\":\".commandagent/plans/control.yaml\"",
+  "\"recovery_treatment_path\":\".commandagent/recovery-treatments/attempt-1/workspace\"",
+  "\"event\":\"recovery_control_retained\"",
+  "\"decision\":\"rejected\"",
+  "\"final_acceptance_status\":\"incomplete\"",
+  "\"final_acceptance_status\":\"full_success\"",
+  "\"event\":\"tui_command_stop\""
+]
+fixtures/promoted-treatment.jsonl = [
+  "\"event\":\"recovery_treatment_promoted\"",
+  "\"decision\":\"promoted\"",
+  "\"recovery_ultra_plan_path\":\".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml\""
+]

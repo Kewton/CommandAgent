@@ -20,12 +20,15 @@ use commandagent::tui::boundary_shell::route::{
     DeterministicResolution, ExplicitRouteBinding, RouteRequest,
     deterministic_route_excluding_top_level,
 };
+use commandagent::tui::boundary_shell::unmeasured_route::{
+    candidate_for as unmeasured_candidate_for, is_unmeasured_identity,
+};
 use serde::{Deserialize, Serialize};
 
 use super::session_paths::{
     SESSION_WORKSPACES_DIRECTORY, proposal_confirmation_root, selected_gate_workspace,
 };
-use super::sessions::{SessionError, internal, require_trial, unprocessable};
+use super::sessions::{SessionError, ambiguous_intent, internal, require_trial, unprocessable};
 use super::{AppState, trial_options};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
@@ -122,7 +125,15 @@ pub(super) fn gate_one(
         },
         &[SESSION_WORKSPACES_DIRECTORY],
     );
-    if deterministic.resolution != DeterministicResolution::Unique {
+    let selected = if deterministic.resolution == DeterministicResolution::Unique {
+        deterministic
+            .candidates
+            .first()
+            .expect("unique deterministic routes have one selected candidate")
+            .clone()
+    } else if let Some(candidate) = unmeasured_candidate_for(&deterministic) {
+        candidate
+    } else {
         let candidates = deterministic
             .candidates
             .iter()
@@ -136,14 +147,21 @@ pub(super) fn gate_one(
             })
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(unprocessable(format!(
-            "Gate 1 requires one deterministic registered route; candidates: {candidates}"
-        )));
-    }
-    let selected = deterministic
-        .candidates
-        .first()
-        .expect("unique deterministic routes have one selected candidate");
+        let message =
+            format!("Gate 1 requires one deterministic registered route; candidates: {candidates}");
+        let multiple_intents = deterministic.candidates.first().is_some_and(|first| {
+            deterministic
+                .candidates
+                .iter()
+                .skip(1)
+                .any(|candidate| candidate.intent != first.intent)
+        });
+        return Err(if spec.intent.is_none() && multiple_intents {
+            ambiguous_intent(message)
+        } else {
+            unprocessable(message)
+        });
+    };
     let locator =
         PackLocator::with_extension_root(&state.repository_root, state.extension_root.clone());
     let pack = match spec.pack.as_deref() {
@@ -157,7 +175,7 @@ pub(super) fn gate_one(
         None => PackSelection::None,
     };
     let proposal = RouteProposal {
-        selected: Some(selected.clone()),
+        selected: Some(selected),
         alternatives: deterministic.candidates,
         classifier: ClassifierProvenance {
             used: false,
@@ -166,7 +184,12 @@ pub(super) fn gate_one(
             prompt_version: "g1-gui-deterministic-v1",
             candidate_keys: Vec::new(),
             raw_response_hash: None,
-            parse_reason: "deterministic_unique".to_string(),
+            parse_reason: if deterministic.resolution == DeterministicResolution::Unique {
+                "deterministic_unique"
+            } else {
+                "gui_unmeasured_family"
+            }
+            .to_string(),
         },
         status: ProposalStatus::AwaitingConfirmation,
         confirmation_required: true,
@@ -257,7 +280,7 @@ async fn band_price(
     repository_root: &Path,
     identity: &ConfirmationIdentity,
 ) -> Result<BandPrice, SessionError> {
-    if identity.draft_manifest.is_some() {
+    if identity.draft_manifest.is_some() || is_unmeasured_identity(identity) {
         return Ok(BandPrice {
             duration_n: 0,
             average_duration_seconds: None,
@@ -362,6 +385,7 @@ mod tests {
     fn lm_studio_is_admitted_for_both_session_roles() {
         let spec = SessionSpec {
             goal: "Inspect the workspace".to_string(),
+            working_directory: None,
             profile: "generic".to_string(),
             intent: None,
             provider: "lm-studio".to_string(),

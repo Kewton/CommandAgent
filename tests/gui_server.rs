@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
 use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
+use sha2::{Digest, Sha256};
 
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
@@ -1831,6 +1832,276 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
 
 #[cfg(unix)]
 #[test]
+fn gui_stop_is_generation_bound_idempotent_and_records_cli_interruption() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("interruptible-commandagent");
+    std::fs::write(
+        &cli,
+        r#"#!/bin/sh
+if [ "${1-}" = "--version" ]; then printf 'commandagent 0.1.0 test\n'; exit 0; fi
+trap 'sleep 0.5; printf "%s\n" "{\"event\":\"tui_command_stop\",\"status\":\"interrupted\",\"task_status\":\"interrupted\",\"command_completion_state\":\"interrupted\",\"ok\":false,\"effective_profile\":\"python-cli\",\"assurance_level\":\"none\",\"stop_reason\":\"interrupted by user\"}" >> "$COMMANDAGENT_EVAL_EVENTS"; exit 130' INT
+printf '%s\n' '{"event":"tui_command_start"}' >> "$COMMANDAGENT_EVAL_EVENTS"
+printf '%s\n' "$$" > "${COMMANDAGENT_EVAL_EVENTS%/*}/descendant.pid"
+tail -f /dev/null
+"#,
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let created = launch_fixture_session(&server);
+    let id = created["id"].as_str().unwrap();
+    let generation = created["process_generation"].as_str().unwrap();
+    let stop_path = format!("/api/sessions/{id}/stop");
+    let stop_body = serde_json::json!({ "generation": generation });
+    let run_root = runs_dir(&workspace).join(id);
+    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+
+    let unauthorized = server.request_without_access("POST", &stop_path, Some(&stop_body));
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let origin = format!("http://127.0.0.1:{}", server.port);
+    let missing_origin = server.request_with_access(
+        "POST",
+        &stop_path,
+        Some(&stop_body),
+        Some(TEST_TRIAL_TOKEN),
+        None,
+    );
+    assert_eq!(missing_origin.status, 403, "{}", missing_origin.body);
+    let wrong_origin = server.request_with_access(
+        "POST",
+        &stop_path,
+        Some(&stop_body),
+        Some(TEST_TRIAL_TOKEN),
+        Some("https://attacker.invalid"),
+    );
+    assert_eq!(wrong_origin.status, 403, "{}", wrong_origin.body);
+    let invalid_id = server.request("POST", "/api/sessions/not-a-session/stop", Some(&stop_body));
+    assert_eq!(invalid_id.status, 404, "{}", invalid_id.body);
+    let foreign_id = "0198b9c8-fab8-7000-8000-000000000408";
+    let foreign = server.request(
+        "POST",
+        &format!("/api/sessions/{foreign_id}/stop"),
+        Some(&stop_body),
+    );
+    assert_eq!(foreign.status, 404, "{}", foreign.body);
+    let stale_generation = server.request(
+        "POST",
+        &stop_path,
+        Some(&serde_json::json!({
+            "generation": "0198b9c8-fab8-7000-8000-000000000409"
+        })),
+    );
+    assert_eq!(stale_generation.status, 409, "{}", stale_generation.body);
+
+    let accepted = server.request_with_access(
+        "POST",
+        &stop_path,
+        Some(&stop_body),
+        Some(TEST_TRIAL_TOKEN),
+        Some(&origin),
+    );
+    assert_eq!(accepted.status, 202, "{}", accepted.body);
+    assert_eq!(accepted.json()["status"], "stopping");
+    assert_eq!(accepted.json()["process_generation"], generation);
+    let duplicate = server.request("POST", &stop_path, Some(&stop_body));
+    assert_eq!(duplicate.status, 202, "{}", duplicate.body);
+    assert_eq!(duplicate.json()["status"], "already_stopping");
+
+    let events_path = run_root.join("events.jsonl");
+    let events = wait_for_event(
+        &events_path,
+        "gui_trial_stop_completed",
+        Duration::from_secs(8),
+    );
+    let parsed = parse_json_lines(&events);
+    let cli_stop = parsed
+        .iter()
+        .find(|event| event["event"] == "tui_command_stop")
+        .unwrap();
+    assert_eq!(cli_stop["status"], "interrupted");
+    assert_eq!(cli_stop["ok"], false);
+    let server_stop = parsed
+        .iter()
+        .find(|event| event["event"] == "gui_trial_stop_completed")
+        .unwrap();
+    assert_eq!(server_stop["exit_code"], 130);
+    assert_eq!(server_stop["forced"], false);
+    assert_eq!(server_stop["process_tree_gone"], true);
+    assert_eq!(server_stop["cli_terminal_observed"], true);
+    assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(status.json()["gate"], "gate_4");
+    assert_eq!(status.json()["status"], "interrupted");
+    let terminal_stop = server.request("POST", &stop_path, Some(&stop_body));
+    assert_eq!(terminal_stop.status, 409, "{}", terminal_stop.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_stop_force_kills_the_exact_process_group_without_false_success() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("ignores-sigint-commandagent");
+    std::fs::write(
+        &cli,
+        r#"#!/bin/sh
+if [ "${1-}" = "--version" ]; then printf 'commandagent 0.1.0 test\n'; exit 0; fi
+trap '' INT
+printf '%s\n' '{"event":"tui_command_start"}' >> "$COMMANDAGENT_EVAL_EVENTS"
+sleep 30 &
+child=$!
+printf '%s\n' "$child" > "${COMMANDAGENT_EVAL_EVENTS%/*}/descendant.pid"
+wait "$child"
+"#,
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let created = launch_fixture_session(&server);
+    let id = created["id"].as_str().unwrap();
+    let generation = created["process_generation"].as_str().unwrap();
+    let run_root = runs_dir(&workspace).join(id);
+    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+
+    let accepted = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/stop"),
+        Some(&serde_json::json!({ "generation": generation })),
+    );
+    assert_eq!(accepted.status, 202, "{}", accepted.body);
+    let events = wait_for_event(
+        &run_root.join("events.jsonl"),
+        "gui_trial_stop_completed",
+        Duration::from_secs(8),
+    );
+    let parsed = parse_json_lines(&events);
+    assert!(
+        parsed
+            .iter()
+            .all(|event| event["event"] != "tui_command_stop")
+    );
+    let server_stop = parsed
+        .iter()
+        .find(|event| event["event"] == "gui_trial_stop_completed")
+        .unwrap();
+    assert_eq!(server_stop["status"], "interrupted");
+    assert_eq!(server_stop["ok"], false);
+    assert_eq!(server_stop["forced"], true);
+    assert_eq!(server_stop["process_tree_gone"], true);
+    assert_eq!(server_stop["cli_terminal_observed"], false);
+    assert_eq!(server_stop["failure_kind"], "gui_trial_stop_forced");
+    assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+    assert_eq!(status.json()["gate"], "gate_4");
+    assert_eq!(status.json()["status"], "interrupted");
+    assert_ne!(status.json()["status"], "completed");
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_stop_targets_the_confirmed_directive_process_generation() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("continuation-commandagent");
+    let initial_events =
+        include_str!("fixtures/gui_cli_events.jsonl").replace(char::from(39), "'\\''");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "${{1-}}" = "--version" ]; then printf 'commandagent 0.1.0 test\n'; exit 0; fi
+case " $* " in
+  *" --run-ultra-plan "*)
+    trap 'printf "%s\n" "{{\"event\":\"tui_command_stop\",\"status\":\"interrupted\",\"task_status\":\"interrupted\",\"command_completion_state\":\"interrupted\",\"ok\":false,\"effective_profile\":\"python-cli\",\"assurance_level\":\"none\",\"stop_reason\":\"interrupted by user\"}}" >> "$COMMANDAGENT_EVAL_EVENTS"; exit 130' INT
+    printf '%s\n' "$$" > "${{COMMANDAGENT_EVAL_EVENTS%/*}}/continuation.pid"
+    tail -f /dev/null
+    ;;
+  *) printf '%s' '{}' > "$COMMANDAGENT_EVAL_EVENTS" ;;
+esac
+"#,
+        initial_events
+    );
+    std::fs::write(&cli, script).unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let created = launch_fixture_session(&server);
+    let id = created["id"].as_str().unwrap();
+    let initial_generation = created["process_generation"].as_str().unwrap();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let directive = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&serde_json::json!({ "directive": "Preserve the verified behavior" })),
+    );
+    assert_eq!(directive.status, 200, "{}", directive.body);
+    let hash = directive.json()["directive_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let continued = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives/{hash}"),
+        None,
+    );
+    assert_eq!(continued.status, 202, "{}", continued.body);
+    let generation = continued.json()["process_generation"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(generation, initial_generation);
+    let run_root = runs_dir(&workspace).join(id);
+    wait_for_path(&run_root.join("continuation.pid"), Duration::from_secs(5));
+
+    let stale = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/stop"),
+        Some(&serde_json::json!({ "generation": initial_generation })),
+    );
+    assert_eq!(stale.status, 409, "{}", stale.body);
+    let accepted = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/stop"),
+        Some(&serde_json::json!({ "generation": generation })),
+    );
+    assert_eq!(accepted.status, 202, "{}", accepted.body);
+    let events = wait_for_event(
+        &run_root.join("events.jsonl"),
+        "gui_trial_stop_completed",
+        Duration::from_secs(8),
+    );
+    let current = events
+        .split("\"event\":\"human_directive_continuation_started\"")
+        .last()
+        .unwrap();
+    assert!(current.contains("\"event\":\"tui_command_stop\""));
+    assert!(current.contains("\"status\":\"interrupted\""));
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn spawn_failure_reports_the_binary_and_releases_the_workspace() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -2054,6 +2325,18 @@ fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
             ),
             "session_id": session_id,
         })
+    );
+    let stale_stop = server.request(
+        "POST",
+        &format!("/api/sessions/{session_id}/stop"),
+        Some(&serde_json::json!({
+            "generation": "0198b9c8-fab8-7000-8000-000000000065"
+        })),
+    );
+    assert_eq!(stale_stop.status, 409, "{}", stale_stop.body);
+    assert_eq!(
+        stale_stop.json()["code"],
+        "trial_workspace_recovery_required"
     );
     server.stop();
 }
@@ -2820,6 +3103,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             "id",
             "identity",
             "phases",
+            "process_generation",
             "task_progress",
             "next_action",
             "recovery_auto_run",
@@ -3382,6 +3666,175 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
 
 #[cfg(unix)]
 #[test]
+fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("unmeasured-nextjs-commandagent");
+    std::fs::write(
+        &cli,
+        "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-args.txt\"\nsleep 0.1\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":true,\"status\":\"completed\",\"effective_profile\":\"nextjs\",\"assurance_level\":\"full\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&cli).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&cli, permissions).unwrap();
+    let mut server = Server::start(&workspace, &cli);
+    let spec = serde_json::json!({
+        "goal": "・あなたが考える最高にかっこいいToDoアプリを60302ポートで起動可能なnext.jsアプリとして開発してください。",
+        "profile": "nextjs",
+        "intent": "create",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner"
+    });
+
+    let mut automatic = spec.clone();
+    automatic.as_object_mut().unwrap().remove("intent");
+    let ambiguous = server.request("POST", "/api/session-proposals", Some(&automatic));
+    assert_eq!(ambiguous.status, 422, "{}", ambiguous.body);
+    assert_eq!(ambiguous.json()["code"], "trial_intent_ambiguous");
+    for candidate in ["nextjs × create × Quiz", "nextjs × fix × compile_error_fix"] {
+        assert!(
+            ambiguous.json()["error"]
+                .as_str()
+                .unwrap()
+                .contains(candidate),
+            "missing {candidate:?}: {}",
+            ambiguous.body
+        );
+    }
+
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(proposal["identity"]["profile"], "nextjs");
+    assert_eq!(proposal["identity"]["intent"], "create");
+    assert_eq!(proposal["identity"]["task_family"], "unknown");
+    assert_eq!(proposal["identity"]["band_full"], 0);
+    assert_eq!(proposal["identity"]["band_denominator"], 0);
+    assert_eq!(proposal["identity"]["band_rate"], "未計測");
+    assert_eq!(proposal["identity"]["band_arm"], "未計測");
+    assert_eq!(proposal["identity"]["band_measurement"], "未計測");
+    assert_eq!(proposal["identity"]["band_source"], "未計測");
+    assert_eq!(
+        proposal["identity"]["contract_checks"],
+        serde_json::json!([
+            "build",
+            "browser_route",
+            "interaction_state",
+            "T1_testimony"
+        ])
+    );
+    assert!(
+        proposal["identity"]["route_bases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|basis| basis == "gui.family.unmeasured=未計測")
+    );
+    assert_eq!(
+        proposal["price"],
+        serde_json::json!({
+            "duration_n": 0,
+            "average_duration_seconds": null,
+            "cost_n": 0,
+            "average_cost_usd": null,
+            "source": "未計測"
+        })
+    );
+    let card = proposal["card_markdown"].as_str().unwrap();
+    for expected in [
+        "# Gate 1 — 実行前の確認",
+        "unknown (unknown)",
+        "全必須チェックに合格した実行: 0件中0件 (未計測)",
+        "比較対象: 未計測; 未計測 までの証跡",
+        "類似実行の平均所要時間: 未計測",
+        "証跡の参照先: 未計測",
+    ] {
+        assert!(card.contains(expected), "missing {expected:?}: {card}");
+    }
+
+    let repeated = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(repeated.status, 200, "{}", repeated.body);
+    assert_eq!(repeated.json()["card_hash"], proposal["card_hash"]);
+
+    let mut confirmed = spec.clone();
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    assert_eq!(created.json()["gate"], "gate_2");
+    let id = created.json()["id"].as_str().unwrap().to_string();
+    let run_root = runs_dir(&workspace).join(&id);
+    wait_for_path(&run_root.join("delegated-args.txt"), Duration::from_secs(5));
+    let delegated = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
+    let delegated = delegated.lines().collect::<Vec<_>>();
+    assert!(
+        delegated
+            .windows(2)
+            .any(|pair| pair == ["--profile", "nextjs"]),
+        "{delegated:?}"
+    );
+    assert!(
+        delegated
+            .windows(2)
+            .any(|pair| pair == ["--intent", "create"]),
+        "{delegated:?}"
+    );
+    let confirmation_root = run_root.join("state/boundary-confirmations");
+    let confirmation_path = std::fs::read_dir(&confirmation_root)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let confirmation: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(confirmation_path).unwrap()).unwrap();
+    assert_eq!(confirmation["card_hash"], proposal["card_hash"]);
+    assert_eq!(confirmation["identity"]["task_family"], "unknown");
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let mut known_family = spec.clone();
+    known_family["goal"] = serde_json::json!("Create a Quiz");
+    let known = server.request("POST", "/api/session-proposals", Some(&known_family));
+    assert_eq!(known.status, 200, "{}", known.body);
+    assert_eq!(known.json()["identity"]["task_family"], "Quiz");
+    assert_eq!(known.json()["identity"]["band_denominator"], 26);
+    assert_eq!(known.json()["identity"]["band_rate"], "88%");
+    assert_eq!(
+        known.json()["identity"]["band_source"],
+        "workspace/management/runs/band_summary.md"
+    );
+
+    for (profile, goal) in [
+        ("nextjs", "Create a Quiz and Breakout game"),
+        ("python-cli", "Create a CLI tool"),
+        ("nextjs", "Create a schema explorer"),
+    ] {
+        let mut rejected = spec.clone();
+        rejected["profile"] = serde_json::json!(profile);
+        rejected["goal"] = serde_json::json!(goal);
+        let response = server.request("POST", "/api/session-proposals", Some(&rejected));
+        assert_eq!(
+            response.status, 422,
+            "{profile} / {goal}: {}",
+            response.body
+        );
+        assert_eq!(
+            response.json()["code"],
+            "trial_request_invalid",
+            "{profile} / {goal}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -3545,15 +3998,14 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
     let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
     let deadline = Instant::now() + Duration::from_secs(5);
     let delegated_args = loop {
-        if let Ok(args) = std::fs::read_to_string(&args_path) {
-            if args
+        if let Ok(args) = std::fs::read_to_string(&args_path)
+            && args
                 .lines()
                 .collect::<Vec<_>>()
                 .windows(2)
                 .any(|pair| pair == ["--recovery-plan-auto-runs", "1"])
-            {
-                break args;
-            }
+        {
+            break args;
         }
         assert!(
             Instant::now() < deadline,
@@ -3578,6 +4030,287 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
             "stop_reason": "recovery_succeeded",
         })
     );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("gui-recovery-commandagent");
+    write_recovery_run_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let first = launch_fixture_session(&server);
+    let first_id = first["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let second = launch_fixture_session(&server);
+    let second_id = second["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+
+    let proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    assert_eq!(proposal["confirmation_required"], true);
+    assert_eq!(
+        proposal["source_plan_path"],
+        ".commandagent/plans/recovery.yaml"
+    );
+    assert_eq!(
+        proposal["execution_phases"],
+        serde_json::json!(["repair", "verify"])
+    );
+    assert_eq!(proposal["permission_policy"], "read,write,bash:verify");
+    assert_eq!(proposal["automatic_run_budget"], 0);
+    assert!(
+        proposal["plan_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+    let first_run_root = runs_dir(&workspace).join(&first_id);
+    assert!(!first_run_root.join("recovery-started").exists());
+
+    let hash = proposal["confirmation_hash"].as_str().unwrap();
+    let unacknowledged = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": false })),
+    );
+    assert_eq!(unacknowledged.status, 428, "{}", unacknowledged.body);
+    assert_eq!(
+        unacknowledged.json()["code"],
+        "recovery_run_confirmation_required"
+    );
+    assert!(!first_run_root.join("recovery-started").exists());
+
+    let second_proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{second_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(second_proposal.status, 200, "{}", second_proposal.body);
+    let second_hash = second_proposal.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let confirmed = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(confirmed.status, 202, "{}", confirmed.body);
+    let confirmed = confirmed.json();
+    assert_eq!(confirmed["plan_hash"], proposal["plan_hash"]);
+    assert_eq!(confirmed["frozen_plan_path"], proposal["frozen_plan_path"]);
+    let generation = confirmed["process_generation"].as_str().unwrap();
+    wait_for_path(
+        &first_run_root.join("recovery-started"),
+        Duration::from_secs(5),
+    );
+
+    let monitored = server.request("GET", &format!("/api/sessions/{first_id}"), None);
+    assert_eq!(monitored.status, 200, "{}", monitored.body);
+    assert_eq!(monitored.json()["gate"], "gate_2");
+    assert_eq!(monitored.json()["process_generation"], generation);
+
+    let conflicted = server.request(
+        "POST",
+        &format!("/api/sessions/{second_id}/recovery-runs/{second_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(conflicted.status, 409, "{}", conflicted.body);
+    assert_eq!(conflicted.json()["code"], "trial_workspace_running");
+
+    let session_workspace = workspace
+        .join("sessions")
+        .join(&first_id)
+        .canonicalize()
+        .unwrap();
+    let source =
+        std::fs::read(session_workspace.join(".commandagent/plans/recovery.yaml")).unwrap();
+    let frozen =
+        std::fs::read(session_workspace.join(proposal["frozen_plan_path"].as_str().unwrap()))
+            .unwrap();
+    let executed = std::fs::read(first_run_root.join("executed-plan.yaml")).unwrap();
+    assert_eq!(source, frozen);
+    assert_eq!(frozen, executed);
+    assert_eq!(
+        proposal["plan_hash"],
+        format!("sha256:{:x}", Sha256::digest(&executed))
+    );
+    let args = std::fs::read_to_string(first_run_root.join("recovery-args.txt")).unwrap();
+    let args = args.lines().collect::<Vec<_>>();
+    for expected in [
+        ["--allow", "read,write,bash:verify"],
+        ["--profile", "python-cli"],
+        ["--intent", "create"],
+        ["--provider", "ollama"],
+        ["--model", "fixture-executor"],
+        ["--planner-provider", "ollama"],
+        ["--planner-model", "fixture-planner"],
+    ] {
+        assert!(args.windows(2).any(|pair| pair == expected), "{args:?}");
+    }
+    assert!(
+        args.windows(2).any(|pair| {
+            pair[0] == "--run-ultra-plan"
+                && pair[1]
+                    == session_workspace
+                        .join(proposal["frozen_plan_path"].as_str().unwrap())
+                        .to_string_lossy()
+        }),
+        "{args:?}"
+    );
+
+    let stopped = server.request(
+        "POST",
+        &format!("/api/sessions/{first_id}/stop"),
+        Some(&serde_json::json!({ "generation": generation })),
+    );
+    assert_eq!(stopped.status, 202, "{}", stopped.body);
+    wait_for_event(
+        &first_run_root.join("events.jsonl"),
+        "gui_trial_stop_completed",
+        Duration::from_secs(8),
+    );
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("gui-recovery-rejections-commandagent");
+    write_recovery_run_cli(&cli);
+    let mut server = Server::start(&workspace, &cli);
+
+    let drifted = launch_fixture_session(&server);
+    let drifted_id = drifted["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let proposal = server.request(
+        "POST",
+        &format!("/api/sessions/{drifted_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let hash = proposal.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    std::fs::write(
+        workspace
+            .join("sessions")
+            .join(&drifted_id)
+            .join(".commandagent/plans/recovery.yaml"),
+        "goal: changed\nphases:\n  - id: repair\n    prompt: changed\n",
+    )
+    .unwrap();
+    let rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{drifted_id}/recovery-runs/{hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(rejected.status, 409, "{}", rejected.body);
+    assert_eq!(rejected.json()["code"], "recovery_run_drift");
+
+    let pending = launch_fixture_session(&server);
+    let pending_id = pending["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let older = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs"),
+        None,
+    );
+    let older_hash = older.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let current = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(current.status, 200, "{}", current.body);
+    let current_hash = current.json()["confirmation_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let stale = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs/{older_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(stale.status, 412, "{}", stale.body);
+    assert_eq!(stale.json()["code"], "recovery_run_stale");
+    let directive = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/directives"),
+        Some(&serde_json::json!({ "directive": "Preserve the public behavior" })),
+    );
+    assert_eq!(directive.status, 200, "{}", directive.body);
+    let pending_rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{pending_id}/recovery-runs/{current_hash}"),
+        Some(&serde_json::json!({ "acknowledged": true })),
+    );
+    assert_eq!(pending_rejected.status, 409, "{}", pending_rejected.body);
+    assert_eq!(pending_rejected.json()["code"], "trial_session_conflict");
+
+    let treatment = launch_fixture_session(&server);
+    let treatment_id = treatment["id"].as_str().unwrap().to_string();
+    wait_for_idle_lease(&server, Duration::from_secs(5));
+    let events = runs_dir(&workspace)
+        .join(&treatment_id)
+        .join("events.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&events)
+        .unwrap();
+    writeln!(file, "{{\"event\":\"recovery_plan_auto_run_start\"}}").unwrap();
+    writeln!(
+        file,
+        "{{\"event\":\"recovery_control_retained\",\"reason\":\"contract failed\"}}"
+    )
+    .unwrap();
+    writeln!(file, "{{\"event\":\"recovery_promotion_decision\",\"decision\":\"rejected\",\"reason\":\"contract failed\"}}").unwrap();
+    writeln!(file, "{{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"effective_profile\":\"python-cli\",\"assurance_level\":\"none\"}}").unwrap();
+    drop(file);
+    let treatment_status = server.request("GET", &format!("/api/sessions/{treatment_id}"), None);
+    assert_eq!(treatment_status.status, 200, "{}", treatment_status.body);
+    let resolution = &treatment_status.json()["failure_explanation"]["recovery"]["resolution"];
+    assert_eq!(resolution["treatment_promotion_status"], "rejected");
+    assert_eq!(
+        resolution["treatment_rejection_reason"]["value"],
+        "contract failed"
+    );
+    assert_eq!(resolution["control_retained"], true);
+    assert_eq!(resolution["effective_artifact_source"], "control");
+    let treatment_rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{treatment_id}/recovery-runs"),
+        None,
+    );
+    assert_eq!(
+        treatment_rejected.status, 409,
+        "{}",
+        treatment_rejected.body
+    );
+    assert_eq!(
+        treatment_rejected.json()["code"],
+        "recovery_treatment_rejected"
+    );
+    assert!(treatment_rejected.body.contains("contract failed"));
     server.stop();
 }
 
@@ -4322,6 +5055,85 @@ fn assert_error(response: &HttpResponse, code: &str, error: &str) {
     );
 }
 
+#[cfg(unix)]
+fn launch_fixture_session(server: &Server) -> serde_json::Value {
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal.json()["card_hash"].clone();
+    let created = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    let created = created.json();
+    assert!(created["process_generation"].as_str().is_some());
+    created
+}
+
+#[cfg(unix)]
+fn wait_for_path(path: &std::path::Path, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while !path.is_file() {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_event(path: &std::path::Path, event: &str, timeout: Duration) -> String {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Ok(events) = std::fs::read_to_string(path)
+            && events.contains(&format!("\"event\":\"{event}\""))
+        {
+            return events;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {event} in {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_idle_lease(server: &Server, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let lease = server.request("GET", "/api/trial-workspace", None);
+        assert_eq!(lease.status, 200, "{}", lease.body);
+        if lease.json()["status"] == "idle" {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "trial lease did not return to idle"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+fn parse_json_lines(text: &str) -> Vec<serde_json::Value> {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[cfg(unix)]
+fn assert_process_group_absent(process_group: i32) {
+    assert_eq!(unsafe { libc::kill(-process_group, 0) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    );
+}
+
 fn session_spec() -> serde_json::Value {
     serde_json::json!({
         "goal": "Create a CLI --pattern filter command",
@@ -4373,6 +5185,43 @@ fn write_pack_capture_cli(path: &std::path::Path) {
     std::fs::write(
         path,
         "#!/bin/sh\nif [ \"${1-}\" = \"--version\" ]; then printf 'commandagent 0.1.0 test\\n'; exit 0; fi\nenv | sort > \"${COMMANDAGENT_EVAL_EVENTS%/*}/delegated-env.txt\"\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn write_recovery_run_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(
+        path,
+        r#"#!/bin/sh
+if [ "${1-}" = "--version" ]; then printf 'commandagent 0.1.0 test\n'; exit 0; fi
+case " $* " in
+  *" --run-ultra-plan "*)
+    printf '%s\n' "$@" > "${COMMANDAGENT_EVAL_EVENTS%/*}/recovery-args.txt"
+    previous=''
+    plan=''
+    for argument in "$@"; do
+      if [ "$previous" = '--run-ultra-plan' ]; then plan="$argument"; break; fi
+      previous="$argument"
+    done
+    cp "$plan" "${COMMANDAGENT_EVAL_EVENTS%/*}/executed-plan.yaml"
+    : > "${COMMANDAGENT_EVAL_EVENTS%/*}/recovery-started"
+    printf '%s\n' '{"event":"tui_command_start","command":"/run-ultra-plan"}' >> "$COMMANDAGENT_EVAL_EVENTS"
+    trap 'printf "%s\n" "{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"interrupted\",\"assurance_level\":\"none\",\"stop_reason\":\"interrupted by user\"}" >> "$COMMANDAGENT_EVAL_EVENTS"; exit 130' INT
+    while :; do sleep 1; done
+    ;;
+  *)
+    mkdir -p .commandagent/plans
+    printf '%s\n' 'goal: "recover"' 'profile: "python-cli"' 'style: "recovery"' 'intent: "recover"' 'phases:' '  - id: "repair"' '    prompt: "repair"' '  - id: "verify"' '    prompt: "verify"' > .commandagent/plans/recovery.yaml
+    printf '%s\n' '{"event":"recovery_prompt_saved","effective_profile":"python-cli","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml","recovery_yaml_exists":true,"recovery_yaml_parse_ok":true,"recovery_command_targets_valid":true}' '{"event":"tui_command_stop","ok":false,"status":"failed","effective_profile":"python-cli","assurance_level":"none","recovery_ultra_plan_path":".commandagent/plans/recovery.yaml"}' > "$COMMANDAGENT_EVAL_EVENTS"
+    ;;
+esac
+"#,
     )
     .unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

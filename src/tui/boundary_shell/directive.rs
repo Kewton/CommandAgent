@@ -756,6 +756,85 @@ mod tests {
     }
 
     #[test]
+    fn directive_continuation_uses_retained_control_recovery_plan() {
+        let root = tempfile::tempdir().unwrap();
+        let control_path = root.path().join(".anvil/plans/control.yaml");
+        let treatment_relative = ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml";
+        let treatment_path = root.path().join(treatment_relative);
+        std::fs::create_dir_all(control_path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(treatment_path.parent().unwrap()).unwrap();
+        let mut plan = crate::planner::ultra_plan::UltraPlan {
+            goal: "continue from control".to_string(),
+            profile: "generic".to_string(),
+            style: "recovery".to_string(),
+            intent: "recover".to_string(),
+            phases: vec![crate::planner::ultra_plan::UltraPhase {
+                id: "repair-final-acceptance".to_string(),
+                prompt: "repair control".to_string(),
+            }],
+        };
+        std::fs::write(
+            &control_path,
+            crate::planner::ultra_plan::render_ultra_plan(&plan),
+        )
+        .unwrap();
+        plan.goal = "discarded treatment".to_string();
+        plan.phases[0].prompt = "repair treatment".to_string();
+        std::fs::write(
+            &treatment_path,
+            crate::planner::ultra_plan::render_ultra_plan(&plan),
+        )
+        .unwrap();
+        let events = root.path().join("events.jsonl");
+        for event in [
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "recovery_ultra_plan_path": ".anvil/plans/control.yaml",
+            }),
+            serde_json::json!({
+                "event": "recovery_plan_auto_run_start",
+                "recovery_ultra_plan_path": ".anvil/plans/control.yaml",
+                "recovery_treatment_path": ".commandagent/recovery-treatments/attempt-1/workspace",
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "recovery_ultra_plan_path": treatment_relative,
+            }),
+            serde_json::json!({"event": "recovery_control_retained"}),
+            serde_json::json!({
+                "event": "recovery_promotion_decision",
+                "decision": "rejected",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "recovery_ultra_plan_path": treatment_relative,
+            }),
+        ] {
+            crate::eval_events::emit(Some(&events), event);
+        }
+        let directive = persist_at_epoch(
+            &root.path().join("boundary-directives"),
+            "keep the control behavior",
+            "run-414",
+            1,
+            1,
+        )
+        .unwrap();
+
+        let continuation = prepare_continuation(root.path(), &events, &directive).unwrap();
+        let derived = std::fs::read_to_string(continuation.plan_path).unwrap();
+        let parsed = crate::planner::ultra_plan::parse_ultra_plan(&derived).unwrap();
+
+        assert_eq!(parsed.goal, "continue from control");
+        assert!(
+            parsed.phases[0]
+                .prompt
+                .contains("keep the control behavior")
+        );
+    }
+
+    #[test]
     fn round_two_prompt_contains_round_one_directive_and_evidence_result() {
         let root = tempfile::tempdir().unwrap();
         let plans = root.path().join(".anvil/plans");

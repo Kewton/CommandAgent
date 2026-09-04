@@ -3,14 +3,18 @@ import { responseError } from "./errors";
 import { responseFailure, thrownFailure, type MonitorFailure } from "./trial-monitor";
 import type {
   CreatedSession,
+  ConfirmedRecoveryRun,
+  ConfirmedContinuation,
   DirectiveProposal,
   DocumentRecord,
   DocumentSummary,
   PolledSession,
+  RecoveryRunProposal,
   PackOptions,
   SessionProposal,
   SessionPathProjection,
   SessionSpec,
+  StopSessionResponse,
   TrialIntent,
   TrialOptions,
   TrialSessionIndex,
@@ -102,8 +106,8 @@ export async function confirmDirective(
   token: string,
   sessionId: string,
   directiveHash: string,
-): Promise<void> {
-  await fetchOk(
+): Promise<ConfirmedContinuation> {
+  return fetchJson<ConfirmedContinuation>(
     apiPath(
       `sessions/${encodeURIComponent(sessionId)}/directives/${encodeURIComponent(directiveHash)}`,
     ),
@@ -111,6 +115,52 @@ export async function confirmDirective(
       method: "POST",
       headers: trialAuthorizationHeaders(token, true),
       body: "{}",
+    },
+  );
+}
+
+export async function createRecoveryRun(
+  token: string,
+  sessionId: string,
+): Promise<RecoveryRunProposal> {
+  return fetchJson<RecoveryRunProposal>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/recovery-runs`),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: "{}",
+    },
+  );
+}
+
+export async function confirmRecoveryRun(
+  token: string,
+  sessionId: string,
+  confirmationHash: string,
+): Promise<ConfirmedRecoveryRun> {
+  return fetchJson<ConfirmedRecoveryRun>(
+    apiPath(
+      `sessions/${encodeURIComponent(sessionId)}/recovery-runs/${encodeURIComponent(confirmationHash)}`,
+    ),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: JSON.stringify({ acknowledged: true }),
+    },
+  );
+}
+
+export async function stopSession(
+  token: string,
+  sessionId: string,
+  processGeneration: string,
+): Promise<StopSessionResponse> {
+  return fetchJson<StopSessionResponse>(
+    apiPath(`sessions/${encodeURIComponent(sessionId)}/stop`),
+    {
+      method: "POST",
+      headers: trialAuthorizationHeaders(token, true),
+      body: JSON.stringify({ generation: processGeneration }),
     },
   );
 }
@@ -246,9 +296,4 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) throw await responseError(response);
   return (await response.json()) as T;
-}
-
-async function fetchOk(url: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(url, init);
-  if (!response.ok) throw await responseError(response);
 }

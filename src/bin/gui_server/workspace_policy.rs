@@ -153,6 +153,23 @@ impl TrialWorkspace {
         })
     }
 
+    pub fn require_running(&self, session_id: &str) -> Result<(), String> {
+        let lease = self
+            .lease
+            .lock()
+            .map_err(|_| "trial workspace lease is poisoned".to_string())?;
+        match &*lease {
+            LeaseState::Running(active) if active == session_id => Ok(()),
+            LeaseState::Running(active) => Err(format!(
+                "trial workspace is already running session {active}"
+            )),
+            LeaseState::RecoveryRequired(active) => Err(format!(
+                "trial workspace requires recovery for non-terminal session {active}"
+            )),
+            LeaseState::Idle => Err("trial workspace has no running session".to_string()),
+        }
+    }
+
     pub fn cancel_start(&self, session_id: &str) {
         if let Ok(mut lease) = self.lease.lock()
             && matches!(&*lease, LeaseState::Running(active) if active == session_id)
@@ -162,17 +179,63 @@ impl TrialWorkspace {
     }
 
     pub fn complete_from_events(&self, session_id: &str, events_path: &Path) {
+        self.complete_after_process(session_id, events_path, true);
+    }
+
+    pub fn complete_after_process(
+        &self,
+        session_id: &str,
+        events_path: &Path,
+        process_tree_gone: bool,
+    ) {
         let terminal = current_terminal(events_path);
+        self.complete_with_terminal(session_id, terminal, process_tree_gone);
+    }
+
+    pub fn complete_after_process_since(
+        &self,
+        session_id: &str,
+        events_path: &Path,
+        process_tree_gone: bool,
+        prior_event_count: usize,
+    ) {
+        let terminal = terminal_after(events_path, prior_event_count);
+        self.complete_with_terminal(session_id, terminal, process_tree_gone);
+    }
+
+    fn complete_with_terminal(&self, session_id: &str, terminal: bool, process_tree_gone: bool) {
         if let Ok(mut lease) = self.lease.lock()
             && matches!(&*lease, LeaseState::Running(active) if active == session_id)
         {
-            *lease = if terminal {
+            *lease = if terminal && process_tree_gone {
                 LeaseState::Idle
             } else {
                 LeaseState::RecoveryRequired(session_id.to_string())
             };
         }
     }
+}
+
+fn terminal_after(events_path: &Path, prior_event_count: usize) -> bool {
+    let Ok(text) = std::fs::read_to_string(events_path) else {
+        return false;
+    };
+    let events = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .skip(prior_event_count);
+    let mut terminal = false;
+    for line in events {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            return false;
+        };
+        match event.get("event").and_then(Value::as_str) {
+            Some("tui_command_start" | "human_directive_continuation_started") => terminal = false,
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed") => terminal = true,
+            _ => {}
+        }
+    }
+    terminal
 }
 
 fn configure_workspace(repository: &Path, requested: &Path) -> anyhow::Result<ConfiguredWorkspace> {
@@ -244,10 +307,61 @@ fn current_terminal(events_path: &Path) -> bool {
             return false;
         };
         match event.get("event").and_then(Value::as_str) {
-            Some("tui_command_stop" | "run_stop") => terminal = true,
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed") => terminal = true,
             Some("human_directive_continuation_started") => terminal = false,
+            Some("tui_command_start") if terminal => terminal = false,
             _ => {}
         }
     }
     terminal
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_since_requires_new_terminal_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let events = temp.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            "{\"event\":\"tui_command_stop\",\"ok\":false}\n{\"event\":\"tui_command_start\"}\n",
+        )
+        .unwrap();
+        assert!(!terminal_after(&events, 1));
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&events)
+            .and_then(|mut file| {
+                use std::io::Write;
+                writeln!(file, "{{\"event\":\"tui_command_stop\",\"ok\":true}}")
+            })
+            .unwrap();
+        assert!(terminal_after(&events, 1));
+    }
+
+    #[test]
+    fn unverified_process_tree_keeps_recovery_required_even_with_terminal_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let events = temp.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            "{\"event\":\"gui_trial_stop_completed\",\"ok\":false,\"status\":\"recovery_required\"}\n",
+        )
+        .unwrap();
+        let workspace = TrialWorkspace {
+            configured: None,
+            lease: Arc::new(Mutex::new(LeaseState::Running("session-408".to_string()))),
+        };
+
+        workspace.complete_after_process("session-408", &events, false);
+
+        assert_eq!(
+            workspace.lease_snapshot().unwrap(),
+            LeaseSnapshot::RecoveryRequired {
+                session_id: "session-408".to_string(),
+            }
+        );
+    }
 }

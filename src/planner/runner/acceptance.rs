@@ -1781,6 +1781,13 @@ pub(super) fn release_recovery_failure_kind(
 
 pub(super) fn app_behavior_probe_failure_kind(reason: &str) -> Option<String> {
     let lower = reason.to_ascii_lowercase();
+    if let Some(index) = lower.find("http_mutation_failed:") {
+        let failure = reason[index..]
+            .split([';', ',', ' ', '\n'])
+            .next()
+            .unwrap_or("http_mutation_failed");
+        return Some(format!("browser_interaction_failed:{failure}"));
+    }
     APP_BEHAVIOR_PROBE_FAILURE_KINDS
         .iter()
         .find(|kind| lower.contains(**kind))
@@ -2135,7 +2142,9 @@ pub(super) fn release_recovery_verify_commands(
 
 pub(super) fn interaction_repair_targets_for_reason(reason: &str) -> Vec<String> {
     let lower = reason.to_ascii_lowercase();
-    if lower.contains("input_state_change_missing_after_start")
+    if lower.contains("http_mutation_failed:") {
+        vec!["client_api_mutation_contract".to_string()]
+    } else if lower.contains("input_state_change_missing_after_start")
         || lower.contains("input_state_change_not_evaluated_after_start")
         || lower.contains("interaction_state_change_missing")
         || lower.contains("canvas_blank")

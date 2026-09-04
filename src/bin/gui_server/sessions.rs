@@ -41,6 +41,7 @@ pub struct PhaseStatus {
 #[derive(Debug, Serialize)]
 pub struct PolledSession {
     id: String,
+    process_generation: Option<String>,
     started_epoch_seconds: u64,
     average_duration_seconds: Option<f64>,
     gate: String,
@@ -105,12 +106,14 @@ pub async fn status(
     }
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
+    let process_generation = state.trial_processes.generation_for(&id);
     let (current_event_start, interval_index) = current_event_interval(&events);
     let continuation_index = current_event_start.checked_sub(1);
     let current_events = &events[current_event_start..];
-    let terminal = latest_event(current_events, "tui_command_stop");
+    let cli_terminal = latest_event(current_events, "tui_command_stop");
+    let terminal = latest_terminal_event(current_events);
     let run_stop = latest_event(current_events, "run_stop");
-    let terminal_is_current = terminal.is_some();
+    let terminal_is_current = terminal.is_some() && process_generation.is_none();
     let terminal_seen = terminal_is_current;
     let mut terminal_details = current_terminal_details(&events, continuation_index, terminal_seen);
     redact_terminal_details(&mut terminal_details, &workspace);
@@ -142,11 +145,11 @@ pub async fn status(
         .filter(|reason| reason.as_str() != "completed")
         .cloned()
         .or(terminal_details.stop_reason);
-    let command_succeeded = terminal
+    let command_succeeded = cli_terminal
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let mut generated = terminal
+    let mut generated = cli_terminal
         .filter(|_| terminal_is_current)
         .map(|_| sheet::generate(confirmed.identity(), Some(&events_path), command_succeeded))
         .transpose()
@@ -158,12 +161,17 @@ pub async fn status(
             .take()
             .map(|section| super::public_projection::text(section, &workspace));
     }
-    let verdict = terminal_is_current
-        .then(|| project_verdict(current_events))
-        .flatten()
+    let verdict = failure_explanation
+        .as_ref()
+        .and_then(FailureExplanation::effective_final_acceptance_status)
+        .or_else(|| {
+            terminal_is_current
+                .then(|| project_verdict(current_events))
+                .flatten()
+        })
         .or_else(|| terminal.and_then(|event| string(event, "assurance_level")))
         .map(str::to_string);
-    let assurance = terminal
+    let assurance = cli_terminal
         .filter(|_| terminal_is_current)
         .and_then(|event| string(event, "assurance_level"))
         .map(str::to_string);
@@ -190,6 +198,7 @@ pub async fn status(
     let phases = phase_statuses(&events);
     let total_processing_duration_ms = total_processing_duration_ms(current_events, &phases);
     let session = PolledSession {
+        process_generation,
         id,
         started_epoch_seconds,
         average_duration_seconds,
@@ -246,10 +255,23 @@ fn recovery_auto_run_status(
 pub(super) fn current_event_interval(events: &[Value]) -> (usize, usize) {
     let mut interval_index = 1usize;
     let mut start = 0usize;
+    let mut terminal_since_boundary = false;
     for (index, event) in events.iter().enumerate() {
-        if string(event, "event") == Some("human_directive_continuation_started") {
+        let name = string(event, "event");
+        if name == Some("human_directive_continuation_started") {
             interval_index += 1;
             start = index + 1;
+            terminal_since_boundary = false;
+        } else if name == Some("tui_command_start") && terminal_since_boundary {
+            interval_index += 1;
+            start = index;
+            terminal_since_boundary = false;
+        }
+        if matches!(
+            name,
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed")
+        ) {
+            terminal_since_boundary = true;
         }
     }
     (start, interval_index)
@@ -312,8 +334,7 @@ fn is_acceptance_outcome_event(event: &Value) -> bool {
 }
 
 fn project_terminal_details(events: &[Value]) -> TerminalDetails {
-    let terminal =
-        latest_event(events, "run_stop").or_else(|| latest_event(events, "tui_command_stop"));
+    let terminal = latest_terminal_event(events);
     TerminalDetails {
         assurance_reason: terminal
             .and_then(|event| non_empty_string(event, "assurance_reason"))
@@ -351,7 +372,10 @@ fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
     let mut terminal_seen = false;
     for event in events {
         let event_name = string(event, "event").unwrap_or("unknown");
-        if matches!(event_name, "tui_command_stop" | "run_stop") {
+        if matches!(
+            event_name,
+            "tui_command_stop" | "run_stop" | "gui_trial_stop_completed"
+        ) {
             terminal_seen = true;
             let ended_at = event_epoch_ms(event);
             for phase in phases.values_mut() {
@@ -648,23 +672,33 @@ async fn metadata_created(path: &FilePath) -> u64 {
 
 pub(super) async fn require_current_terminal(path: &FilePath) -> Result<(), SessionError> {
     let events = parse_events(&read_events(path).await?)?;
-    let terminal = latest_event_index(&events, "tui_command_stop")
-        .ok_or_else(|| conflict("session has not reached Gate 3 or Gate 4"))?;
-    if latest_event_index(&events, "human_directive_continuation_started")
-        .is_some_and(|continuation| continuation > terminal)
-    {
-        return Err(conflict(
-            "a confirmed directive continuation is still running",
-        ));
+    let (start, _) = current_event_interval(&events);
+    if latest_event(&events[start..], "tui_command_stop").is_none() {
+        return Err(conflict("the current execution interval is still running"));
+    }
+    Ok(())
+}
+
+pub(super) async fn require_current_active(path: &FilePath) -> Result<(), SessionError> {
+    let events = parse_events(&read_events(path).await?)?;
+    let (start, _) = current_event_interval(&events);
+    if latest_terminal_event(&events[start..]).is_some() {
+        return Err(conflict("the session is already terminal"));
     }
     Ok(())
 }
 
 pub(super) async fn require_no_pending_directive(path: &FilePath) -> Result<(), SessionError> {
     let events = parse_events(&read_events(path).await?)?;
-    let terminal = latest_event_index(&events, "tui_command_stop")
+    let (start, _) = current_event_interval(&events);
+    let current = &events[start..];
+    let terminal = current
+        .iter()
+        .rposition(|event| string(event, "event") == Some("tui_command_stop"))
         .ok_or_else(|| conflict("session has not reached Gate 3 or Gate 4"))?;
-    if latest_event_index(&events, "human_directive_proposed")
+    if current
+        .iter()
+        .rposition(|event| string(event, "event") == Some("human_directive_proposed"))
         .is_some_and(|proposal| proposal > terminal)
     {
         return Err(conflict(
@@ -688,10 +722,13 @@ fn latest_event<'a>(events: &'a [Value], name: &str) -> Option<&'a Value> {
         .find(|event| string(event, "event") == Some(name))
 }
 
-fn latest_event_index(events: &[Value], name: &str) -> Option<usize> {
-    events
-        .iter()
-        .rposition(|event| string(event, "event") == Some(name))
+fn latest_terminal_event(events: &[Value]) -> Option<&Value> {
+    events.iter().rev().find(|event| {
+        matches!(
+            string(event, "event"),
+            Some("tui_command_stop" | "run_stop" | "gui_trial_stop_completed")
+        )
+    })
 }
 
 fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -761,6 +798,14 @@ pub(super) fn unprocessable(message: impl ToString) -> SessionError {
     )
 }
 
+pub(super) fn ambiguous_intent(message: impl ToString) -> SessionError {
+    GuiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "trial_intent_ambiguous",
+        message.to_string(),
+    )
+}
+
 pub(super) fn bad_request(error: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::BAD_REQUEST,
@@ -777,12 +822,16 @@ pub(super) fn not_found(message: impl ToString) -> SessionError {
     )
 }
 
-fn conflict(message: impl ToString) -> SessionError {
+pub(super) fn session_conflict(message: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::CONFLICT,
         "trial_session_conflict",
         message.to_string(),
     )
+}
+
+fn conflict(message: impl ToString) -> SessionError {
+    session_conflict(message)
 }
 
 pub(super) fn workspace_conflict(message: impl ToString) -> SessionError {
@@ -831,6 +880,29 @@ pub(super) fn internal(error: impl ToString) -> SessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_interval_starts_at_a_new_cli_command_after_a_terminal() {
+        let events = vec![
+            serde_json::json!({"event": "tui_command_start"}),
+            serde_json::json!({"event": "tui_command_stop", "ok": false}),
+            serde_json::json!({"event": "tui_command_start"}),
+            serde_json::json!({"event": "ultra_phase_start", "phase_id": "repair"}),
+        ];
+
+        assert_eq!(current_event_interval(&events), (2, 2));
+    }
+
+    #[test]
+    fn directive_marker_and_its_cli_start_create_only_one_new_interval() {
+        let events = vec![
+            serde_json::json!({"event": "tui_command_stop", "ok": false}),
+            serde_json::json!({"event": "human_directive_continuation_started"}),
+            serde_json::json!({"event": "tui_command_start"}),
+        ];
+
+        assert_eq!(current_event_interval(&events), (2, 2));
+    }
 
     #[test]
     fn phase_statuses_attach_unindexed_events_without_creating_ghost_rows() {

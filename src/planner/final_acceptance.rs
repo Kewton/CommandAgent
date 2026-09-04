@@ -1,4 +1,7 @@
 use super::CompileRepairPromptProtection;
+
+#[path = "runner/recovery_probe_context.rs"]
+mod recovery_probe_context;
 #[allow(unused_imports)]
 use super::{
     BTreeMap, BTreeSet, Cell, ChatClient, CompileError, CompletionContract, Config, Duration,
@@ -1677,6 +1680,10 @@ pub(super) fn final_acceptance_recovery_reason(
     if let Some(pending_reason) = capability_evidence_unresolved_reason(&pending_keys) {
         let mut out =
             format!("{pending_reason}; final acceptance repair stopped: {exhausted_reason}");
+        if let Some(failure_kind) = recovery_probe_context::infrastructure_failure_kind(report) {
+            out.push_str("; behavioral probe infrastructure reason: ");
+            out.push_str(&failure_kind);
+        }
         if !reason.contains(&pending_reason) && !reason.trim().is_empty() {
             out.push_str("; ");
             out.push_str(reason);
@@ -1784,6 +1791,26 @@ pub(super) fn final_acceptance_recovery_failure_evidence_base(
     let probe_json = interaction_probe_json_from_report(report);
     let mut evidence =
         interaction_root_cause_repair_guidance(profile, goal, &failure_kind, probe_json.as_ref());
+    if let Some(probe) = probe_json.as_ref()
+        && probe
+            .get("failure_category")
+            .and_then(Value::as_str)
+            .is_some_and(|category| category == "infrastructure")
+    {
+        let kind = raw_text_field_deep(probe, &["failure_kind"])
+            .unwrap_or_else(|| "probe_infrastructure_failed".to_string());
+        evidence.push(format!("behavioral probe infrastructure reason: {kind}"));
+        if let Some(stage) =
+            raw_text_field_deep(probe, &["stage"]).filter(|value| !value.is_empty())
+        {
+            evidence.push(format!("behavioral probe failed stage: {stage}"));
+        }
+        if let Some(error) =
+            raw_text_field_deep(probe, &["error"]).filter(|value| !value.is_empty())
+        {
+            evidence.push(format!("behavioral probe error: {error}"));
+        }
+    }
     let pending_evidence = if let Some(root) = root.filter(|_| !pending_keys.is_empty()) {
         capability_evidence_failure_evidence(root, profile, &pending_keys, reason)
     } else {

@@ -194,7 +194,6 @@ impl DomainProfile for PythonCliProfile {
         lower.contains("modulenotfounderror")
             || lower.contains("no module named")
             || lower.contains("command not found")
-            || lower.contains("no such file or directory")
     }
 
     fn parse_compile_errors(&self, output: &FullCommandOutput) -> Vec<CompileError> {

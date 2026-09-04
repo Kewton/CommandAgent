@@ -34,5 +34,6 @@ fixtures/contract-scoped-guidance.jsonl = [
   "render-loop checklist",
   "\"scenario\":\"notes\"",
   "\"variant\":\"persistence\"",
-  "load persisted state on mount"
+  "persist the committed domain entity",
+  "do not substitute persistence of a cleared draft input"
 ]

@@ -665,6 +665,8 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
         "edit_ambiguous_anchor"
     } else if message.contains("edit_already_applied") {
         "edit_already_applied"
+    } else if message.contains("not permitted by --allow") {
+        "allow_policy_rejected"
     } else if message.contains("approval required") {
         "approval_required"
     } else {
@@ -695,6 +697,7 @@ pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
             | "edit_noop"
             | "edit_ambiguous_anchor"
             | "edit_already_applied"
+            | "allow_policy_rejected"
     )
 }
 
@@ -712,7 +715,7 @@ fn default_tool_specs() -> Vec<ToolSpec> {
     vec![
         spec(
             "Bash",
-            "Run a local build/test/read-only shell command in the workspace.",
+            "Run a local build/test/read-only shell command in the workspace. Under an explicit --allow policy, bash:verify never permits mutation; use Write or Edit instead, and Write creates parent directories automatically.",
             json!({"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}),
         ),
         spec(
@@ -784,6 +787,12 @@ mod tests {
     #[test]
     fn explicit_write_allowance_blocks_bash_before_execution() {
         let registry = ToolRegistry::default();
+        assert!(
+            registry.specs()[0]
+                .function
+                .description
+                .contains("bash:verify never permits mutation")
+        );
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("bash-ran");
         let context = ToolContext {
@@ -815,10 +824,15 @@ mod tests {
                 &json!({"command": format!("touch {}", marker.display())}),
                 &context,
             )
-            .unwrap_err()
-            .to_string();
+            .unwrap_err();
 
-        assert!(error.contains("not permitted by --allow write"), "{error}");
+        assert_eq!(tool_error_kind(&error), "allow_policy_rejected");
+        assert!(recoverable_tool_error(&error));
+        assert!(
+            error.to_string().contains("not permitted by --allow write"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("use Write"), "{error}");
         assert!(!marker.exists(), "disallowed Bash command executed");
     }
 

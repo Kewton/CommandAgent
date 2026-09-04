@@ -13,8 +13,8 @@ use super::{
     PhaseVerificationMode, PlanAdherenceReport, PlanLintReport, PlanStep, ProfileId,
     ProfileInferenceSource, ProfileRuntime, ProfileRuntimeRegistry, ProfileSnapshot,
     ProviderCallScope, RecoveryArtifactValidation, RecoveryHandoff, ReleaseRecoveryHandoffSummary,
-    RepairContext, RepairFollowThrough, RepairSessionMode, RunSessionOptions, RunSessionOutcome,
-    RunSessionStepKind, RunStopReason, RuntimeAcceptanceReport,
+    RepairContext, RepairFollowThrough, RepairSessionMode, RepairTarget, RunSessionOptions,
+    RunSessionOutcome, RunSessionStepKind, RunStopReason, RuntimeAcceptanceReport,
     STEP_REPAIR_IDENTICAL_NO_CHANGE_LIMIT, STEP_REPAIR_MAX_ITERATIONS, STEP_REPAIR_MAX_TURNS,
     STEP_TURN_MAX_ITERATIONS, SessionSnapshot, StepKind, StepPlan, ULTRA_PLAN_GENERATION_ATTEMPTS,
     UiStatus, UltraPhase, UltraPlan, Value, VerificationReport, append_context_list,
@@ -74,10 +74,6 @@ use super::{
     verify_setup_dependency_state_with_setup_observed_with_offline, verify_step_with_context,
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
-
-#[path = "phase/recovery_fix.rs"]
-pub(super) mod recovery_fix;
-
 #[path = "phase/effects.rs"]
 mod effects;
 #[path = "phase/flow.rs"]
@@ -86,6 +82,8 @@ mod flow;
 mod intent_completion;
 #[path = "phase/plan_step_events.rs"]
 mod plan_step_events;
+#[path = "phase/recovery_fix.rs"]
+pub(super) mod recovery_fix;
 #[path = "phase/state.rs"]
 mod state;
 #[path = "phase/step_plan_execution.rs"]
@@ -2091,6 +2089,9 @@ pub(super) fn run_step(
                 break;
             }
             if identical_no_change_repairs >= STEP_REPAIR_IDENTICAL_NO_CHANGE_LIMIT {
+                if RepairTarget::reclassify_no_change(config, &step.id, &mut current_report) {
+                    continue;
+                }
                 terminal_repair_failure_kind = Some(if !current_report.compile_errors.is_empty() {
                     "compile_repair_no_source_change".to_string()
                 } else {

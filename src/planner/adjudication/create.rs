@@ -235,51 +235,14 @@ fn run_ultra_final_browser_checks_before_arbitration(
     browser_probe
 }
 
-pub(super) fn browser_interaction_probe_options(
+pub(crate) fn browser_interaction_probe_options(
     required_capabilities: &[String],
     required_evidence: &[String],
 ) -> BrowserInteractionProbeOptions {
-    let text_entry_required = required_capabilities
-        .iter()
-        .chain(required_evidence.iter())
-        .any(|value| {
-            let lower = value.to_ascii_lowercase();
-            lower.contains("text")
-                || lower.contains("editor")
-                || lower.contains("note")
-                || lower.contains("todo")
-                || lower.contains("content")
-                || lower.contains("preview")
-                || lower.contains("render")
-                || lower == "input_output_contract"
-                || lower == "requested_content"
-                || lower == "requested_content_evidence"
-                || lower == "live_preview"
-                || lower == "live_preview_evidence"
-        });
-    let token_echo_required = required_capabilities
-        .iter()
-        .chain(required_evidence.iter())
-        .any(|value| {
-            let lower = value.to_ascii_lowercase();
-            lower.contains("preview")
-                || lower.contains("render")
-                || lower.contains("content")
-                || lower == "requested_content"
-                || lower == "requested_content_evidence"
-                || lower == "live_preview"
-                || lower == "live_preview_evidence"
-        });
-    BrowserInteractionProbeOptions {
-        persistence_required: required_capabilities
-            .iter()
-            .any(|capability| capability == "persistence")
-            || required_evidence
-                .iter()
-                .any(|evidence| evidence == "persistence_evidence"),
-        text_entry_required,
-        token_echo_required,
-    }
+    crate::planner::interaction_qualification::browser_interaction_probe_options(
+        required_capabilities,
+        required_evidence,
+    )
 }
 
 pub(super) fn report_has_production_build_failure(report: &VerificationReport) -> bool {
@@ -457,7 +420,10 @@ pub(super) fn bind_completion_contract_for_acceptance(
         required_paths: required_paths.to_vec(),
         verify_commands: Vec::new(),
         fix_reproducer_command: None,
-        profile: None,
+        // A step-scoped generated contract must not re-run the profile
+        // verifier with the narrower step goal. Recovery consumes the
+        // authoritative run-level contract, so bind the profile there only.
+        profile: (scope == "ultra-plan-run").then(|| profile.to_string()),
         goal: Some(goal.to_string()),
         required_capabilities: required_capabilities.to_vec(),
         deterministic_oracles: Vec::new(),

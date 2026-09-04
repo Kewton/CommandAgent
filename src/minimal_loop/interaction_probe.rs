@@ -113,6 +113,14 @@ pub struct SurfaceFitEvidence {
     pub rect_height_px: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HttpMutationObservation {
+    pub method: String,
+    pub status: i64,
+    pub ok: bool,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub struct BrowserInteractionProbeOptions {
     pub persistence_required: bool,
@@ -167,6 +175,7 @@ pub struct BrowserInteractionObservation {
     pub primary_transition_observed: bool,
     pub start_control_found: bool,
     pub informational_failure_kinds: Vec<String>,
+    pub http_mutation_observations: Vec<HttpMutationObservation>,
     pub recovery_transition_observed: bool,
     pub recovery_transition_not_observed: bool,
     pub failure_kind: String,
@@ -1576,6 +1585,7 @@ fn observation_from_value(
         .unwrap_or("")
         .to_string();
     reconcile_observed_mutation_persistence(
+        &probe_mode,
         &state_dimensions_changed,
         &persistence_before_reload_marker,
         &persistence_after_reload_marker,
@@ -1599,6 +1609,7 @@ fn observation_from_value(
                     .any(|step| step == "primary_start_transition_missing")
         });
     let informational_failure_kinds = string_array_field(&value, "informational_failure_kinds");
+    let http_mutation_observations = http_mutation_observations_from_value(&value);
     BrowserInteractionObservation {
         ok,
         status: if ok { "passed" } else { "failed" }.to_string(),
@@ -1669,6 +1680,7 @@ fn observation_from_value(
         primary_transition_observed,
         start_control_found,
         informational_failure_kinds,
+        http_mutation_observations,
         recovery_transition_observed,
         recovery_transition_not_observed,
         failure_kind,
@@ -1789,6 +1801,7 @@ fn persistence_after_reload_reason_from_value(
 }
 
 fn reconcile_observed_mutation_persistence(
+    probe_mode: &str,
     state_dimensions_changed: &[String],
     before_reload_marker: &str,
     after_reload_marker: &str,
@@ -1796,7 +1809,8 @@ fn reconcile_observed_mutation_persistence(
     persistence_after_reload_reason: &mut String,
     persistence_changed_dimensions: &mut Vec<String>,
 ) {
-    if persistence_after_reload != "not_evaluated"
+    if probe_mode == "contract"
+        || persistence_after_reload != "not_evaluated"
         || persistence_after_reload_reason != "no_mutation_observed"
         || state_dimensions_changed.is_empty()
         || before_reload_marker.trim().is_empty()
@@ -1857,6 +1871,24 @@ fn interaction_candidate_table(value: &Value) -> Vec<InteractionProbeCandidateEv
                 .get("changed")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+        })
+        .collect()
+}
+
+fn http_mutation_observations_from_value(value: &Value) -> Vec<HttpMutationObservation> {
+    value
+        .get("http_mutation_observations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(20)
+        .filter_map(|observation| {
+            Some(HttpMutationObservation {
+                method: observation.get("method")?.as_str()?.to_string(),
+                status: observation.get("status")?.as_i64()?,
+                ok: observation.get("ok")?.as_bool()?,
+                url: observation.get("url")?.as_str()?.to_string(),
+            })
         })
         .collect()
 }
@@ -2088,6 +2120,7 @@ fn failure_observation(
         primary_transition_observed: false,
         start_control_found: true,
         informational_failure_kinds: Vec::new(),
+        http_mutation_observations: Vec::new(),
         recovery_transition_observed: false,
         recovery_transition_not_observed: false,
         failure_kind,
@@ -2311,6 +2344,7 @@ fn interaction_observation_json(observation: &BrowserInteractionObservation) -> 
         "primary_start_transition_missing": !observation.primary_transition_observed
             && observation.steps.iter().any(|step| step == "start_transition"),
         "informational_failure_kinds": &observation.informational_failure_kinds,
+        "http_mutation_observations": &observation.http_mutation_observations,
         "recovery_transition": observation.recovery_transition_observed,
         "recovery_transition_status": if observation.recovery_transition_observed {
             "observed"
@@ -2631,12 +2665,15 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "9bbd17b96b6d0ed06c227b949e3b22498a1944c919ee2ad05516a6a4212fd266"
+            "34dec4fba96134a7413291ef8baa42b2bc2964c738866db73ed2a7915a00d29b"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
         assert!(script.contains("input_key_hold"));
         assert!(script.contains("canvas_not_redrawn_after_start"));
+        assert!(script.contains("startControl.isEnabled()"));
+        assert!(script.contains("changedTopLevelStateKeys(input_before_marker, beforeReloadText)"));
+        assert!(script.contains("!start_control_found && !textEntryObserved"));
     }
 
     #[test]
@@ -2774,7 +2811,10 @@ mod tests {
             ]
         }));
 
-        assert_eq!(observation.persistence_after_reload, "not_evaluated");
+        assert_eq!(
+            observation.persistence_after_reload, "not_evaluated",
+            "{observation:?}"
+        );
         assert_eq!(
             observation.persistence_after_reload_reason,
             "no_mutation_observed"
@@ -3052,7 +3092,16 @@ class FakeElement {
 
   getAttribute(name) {
     if (this.kind === "state" && name === "data-anvil-state") {
+      if (["disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario)) {
+        return JSON.stringify({
+          nextTask: this.page.textarea.value,
+          todos: this.page.previewText ? [this.page.previewText] : []
+        });
+      }
       return JSON.stringify({ status: this.page.statusText, player_x: this.page.playerX });
+    }
+    if (this.kind === "button" && name === "data-anvil-action" && ["disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario)) {
+      return "primary";
     }
     if (this.kind === "button" && name === "data-anvil-action" && scenario === "held_input") {
       return this.page.statusText === "ready" ? "primary" : "restart";
@@ -3129,6 +3178,10 @@ class FakeLocator {
     return this.elements.length;
   }
 
+  async isEnabled() {
+    return this.elements.length > 0 && !this.elements[0].disabled;
+  }
+
   async waitFor() {
     if (!this.elements.length) throw new Error(`no element for ${this.selector}`);
   }
@@ -3146,6 +3199,7 @@ class FakeLocator {
 
   async click() {
     if (!this.elements.length) throw new Error(`no element for ${this.selector}`);
+    if (this.elements[0].disabled) throw new Error(`element is not enabled for ${this.selector}`);
     this.page.clickElement(this.elements[0]);
   }
 
@@ -3183,11 +3237,16 @@ class FakePage {
     this.button = new FakeElement(this, "button", "Start");
     this.textarea = new FakeElement(this, "textarea");
     this.state = new FakeElement(this, "state");
+    if (["disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario)) {
+      this.button.textContent = "Add task";
+      this.button.disabled = true;
+    }
     this.activeElement = null;
     this.keyboard = {
       type: async (text) => {
         if (this.activeElement) this.activeElement.value += text;
         this.persistedToken = text;
+        if (["disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario)) this.button.disabled = false;
         setTimeout(() => {
           this.statusText = "draft updated";
         }, 30);
@@ -3247,7 +3306,7 @@ class FakePage {
         continue;
       }
       if (part === '[data-anvil-action="primary"]') {
-        if (scenario === "held_input" && this.button.getAttribute("data-anvil-action") === "primary") add(this.button);
+        if (["held_input", "disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario) && this.button.getAttribute("data-anvil-action") === "primary") add(this.button);
         continue;
       }
       if (part === '[data-anvil-action="restart"]') {
@@ -3255,7 +3314,7 @@ class FakePage {
         continue;
       }
       if (part === "[data-anvil-action]") {
-        if (scenario === "held_input") add(this.button);
+        if (["held_input", "disabled_submit", "draft_only_persistence", "http_mutation_failure"].includes(scenario)) add(this.button);
         continue;
       }
       if (part.startsWith("[data-anvil-action")) continue;
@@ -3287,6 +3346,20 @@ class FakePage {
 
   clickElement(el) {
     if (el === this.button) {
+      if (["disabled_submit", "http_mutation_failure"].includes(scenario)) {
+        this.previewText = this.persistedToken;
+        this.textarea.value = "";
+        this.button.disabled = true;
+        this.statusText = "task added";
+        if (scenario === "http_mutation_failure") this.emitMutationResponse("POST", 405);
+        return;
+      }
+      if (scenario === "draft_only_persistence") {
+        this.previewText = "";
+        this.button.disabled = false;
+        this.statusText = "draft saved";
+        return;
+      }
       if (scenario === "held_input" && this.statusText !== "ready") {
         this.playerX = 300;
         this.statusText = "restarted";
@@ -3298,6 +3371,20 @@ class FakePage {
 
   locator(selector) {
     return new FakeLocator(this, selector, this.querySelectorAll(selector));
+  }
+
+  on(name, handler) {
+    if (name === "response") this.responseHandler = handler;
+  }
+
+  emitMutationResponse(method, status) {
+    if (!this.responseHandler) return;
+    this.responseHandler({
+      request: () => ({ method: () => method }),
+      status: () => status,
+      ok: () => status >= 200 && status < 300,
+      url: () => "http://127.0.0.1/api/tasks"
+    });
   }
 
   async evaluate(fn, arg) {
@@ -3324,9 +3411,15 @@ class FakePage {
     this.reloaded = true;
     this.statusText = scenario === "held_input" ? "ready" : "reloaded";
     if (scenario === "held_input") this.playerX = 300;
-    this.textarea.value = this.persistedToken;
+    this.textarea.value = ["disabled_submit", "http_mutation_failure"].includes(scenario) ? "" : this.persistedToken;
     if (["immediate", "delayed", "reload_only"].includes(scenario)) {
       this.previewText = this.persistedToken;
+    } else if (["disabled_submit", "http_mutation_failure"].includes(scenario)) {
+      this.previewText = this.persistedToken;
+      this.button.disabled = true;
+    } else if (scenario === "draft_only_persistence") {
+      this.previewText = "";
+      this.button.disabled = false;
     } else {
       this.previewText = "";
     }
@@ -3458,6 +3551,116 @@ module.exports = {
     }
 
     #[test]
+    fn disabled_contract_primary_defers_to_text_entry_and_reaches_persistence() {
+        let Some(observation) = run_fake_probe_scenario(
+            "disabled_submit",
+            BrowserInteractionProbeOptions {
+                persistence_required: true,
+                text_entry_required: true,
+                token_echo_required: true,
+            },
+        ) else {
+            return;
+        };
+
+        assert!(observation.ok, "{observation:?}");
+        assert!(observation.token_echoed, "{observation:?}");
+        assert_eq!(observation.persistence_after_reload, "preserved");
+        assert!(
+            observation.steps.iter().any(|step| step == "text_entry"),
+            "{observation:?}"
+        );
+        assert!(
+            observation
+                .steps
+                .iter()
+                .any(|step| step == "persistence_reload"),
+            "{observation:?}"
+        );
+        let persistence = observation
+            .steps
+            .iter()
+            .position(|step| step == "persistence_reload")
+            .expect("persistence reload step");
+        let recovery = observation
+            .steps
+            .iter()
+            .position(|step| step.starts_with("recovery_transition"))
+            .expect("recovery observation step");
+        assert!(persistence < recovery, "{observation:?}");
+        assert!(
+            observation
+                .persistence_changed_dimensions
+                .iter()
+                .any(|dimension| dimension == "typed_token"),
+            "{observation:?}"
+        );
+        assert!(
+            observation
+                .informational_failure_kinds
+                .iter()
+                .any(|kind| kind == "primary_start_control_disabled_before_text_entry"),
+            "{observation:?}"
+        );
+    }
+
+    #[test]
+    fn draft_only_storage_does_not_satisfy_committed_persistence() {
+        let Some(observation) = run_fake_probe_scenario(
+            "draft_only_persistence",
+            BrowserInteractionProbeOptions {
+                persistence_required: true,
+                text_entry_required: true,
+                token_echo_required: false,
+            },
+        ) else {
+            return;
+        };
+
+        assert!(!observation.ok, "{observation:?}");
+        assert_eq!(
+            observation.persistence_after_reload, "not_evaluated",
+            "{observation:?}"
+        );
+        assert!(
+            observation
+                .failure_kind
+                .starts_with("persistence_not_evaluated:"),
+            "{observation:?}"
+        );
+        assert!(
+            observation.persistence_changed_dimensions.is_empty(),
+            "{observation:?}"
+        );
+    }
+
+    #[test]
+    fn non_successful_http_mutation_cannot_pass_optimistic_ui_acceptance() {
+        let Some(observation) = run_fake_probe_scenario(
+            "http_mutation_failure",
+            BrowserInteractionProbeOptions {
+                persistence_required: true,
+                text_entry_required: true,
+                token_echo_required: true,
+            },
+        ) else {
+            return;
+        };
+
+        assert!(!observation.ok, "{observation:?}");
+        assert_eq!(observation.failure_kind, "http_mutation_failed:POST:405");
+        assert_eq!(
+            observation.http_mutation_observations,
+            [HttpMutationObservation {
+                method: "POST".to_string(),
+                status: 405,
+                ok: false,
+                url: "http://127.0.0.1/api/tasks".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn normalized_interaction_json_preserves_text_entry_input_event() {
         let observation = observe_probe_value(json!({
             "ok": true,
@@ -3525,8 +3728,13 @@ module.exports = {
         assert!(!observation.ok, "{observation:?}");
         assert!(!observation.token_echoed, "{observation:?}");
         assert!(observation.token_echoed_after_reload, "{observation:?}");
-        assert_eq!(observation.persistence_after_reload, "preserved");
-        assert_eq!(observation.failure_kind, "token_echo_after_reload_only");
+        assert_eq!(observation.persistence_after_reload, "not_evaluated");
+        assert!(
+            observation
+                .failure_kind
+                .starts_with("persistence_not_evaluated:"),
+            "{observation:?}"
+        );
     }
 
     #[test]

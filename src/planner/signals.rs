@@ -190,6 +190,9 @@ const PERSISTENCE_TOKENS: &[&str] = &[
     "save",
     "ローカルストレージ",
     "保存",
+    "永続",
+    "永続化",
+    "jsonファイル",
 ];
 
 const INTERACTIVE_TOKENS: &[&str] = &[
@@ -347,6 +350,14 @@ mod tests {
             requested_port_from_text("http://localhost:4005 then port 4006"),
             Some(4005)
         );
+    }
+
+    #[test]
+    fn persistence_tokens_cover_japanese_json_file_requirements() {
+        assert!(contains_persistence_token(
+            "データはjsonファイルで永続化してほしいです"
+        ));
+        assert!(contains_persistence_token("状態を永続保存する"));
     }
 
     #[test]

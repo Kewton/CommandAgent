@@ -223,7 +223,8 @@ async fn session_projection(events_path: &Path, execution_root: &Path) -> Sessio
     };
     let mut saw_event = false;
     let mut terminal = None;
-    let mut continuation_index = None;
+    let mut interval_start = 0;
+    let mut terminal_since_boundary = false;
     let mut events = Vec::new();
     for (index, line) in text
         .lines()
@@ -234,17 +235,22 @@ async fn session_projection(events_path: &Path, execution_root: &Path) -> Sessio
             return unreadable_projection();
         };
         saw_event = true;
-        match event.get("event").and_then(Value::as_str) {
-            Some("tui_command_stop") => {
-                let status = recorded_status(&event);
-                terminal = Some((
-                    index,
-                    status.clone(),
-                    full_terminal_without_sheet(&event, status.as_deref()),
-                ));
-            }
-            Some("human_directive_continuation_started") => continuation_index = Some(index),
-            _ => {}
+        let name = event.get("event").and_then(Value::as_str);
+        if name == Some("human_directive_continuation_started") {
+            interval_start = index + 1;
+            terminal_since_boundary = false;
+        } else if name == Some("tui_command_start") && terminal_since_boundary {
+            interval_start = index;
+            terminal_since_boundary = false;
+        }
+        if let Some("tui_command_stop" | "gui_trial_stop_completed") = name {
+            let status = recorded_status(&event);
+            terminal = Some((
+                index,
+                status.clone(),
+                full_terminal_without_sheet(&event, status.as_deref()),
+            ));
+            terminal_since_boundary = true;
         }
         events.push(event);
     }
@@ -255,9 +261,9 @@ async fn session_projection(events_path: &Path, execution_root: &Path) -> Sessio
             failure_diagnostics: FailureDiagnostics::default(),
         };
     }
-    let terminal_is_current = terminal.as_ref().is_some_and(|(terminal_index, _, _)| {
-        continuation_index.is_none_or(|index| *terminal_index > index)
-    });
+    let terminal_is_current = terminal
+        .as_ref()
+        .is_some_and(|(terminal_index, _, _)| *terminal_index >= interval_start);
     if !terminal_is_current {
         return SessionProjection {
             gate: Some("gate_2"),
@@ -266,8 +272,7 @@ async fn session_projection(events_path: &Path, execution_root: &Path) -> Sessio
         };
     }
     let full = terminal.as_ref().is_some_and(|(_, _, full)| *full);
-    let current_event_start = continuation_index.map_or(0, |index| index + 1);
-    let current_events = &events[current_event_start..];
+    let current_events = &events[interval_start..];
     let run_stop_status = current_events
         .iter()
         .rev()
