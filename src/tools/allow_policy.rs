@@ -157,7 +157,7 @@ impl ActivePolicy {
             .collect::<Vec<_>>()
             .join(",");
         anyhow::bail!(
-            "tool {tool} is not permitted by --allow {active}; expand --allow explicitly or use --yes only in a trusted workspace"
+            "tool {tool} is not permitted by --allow {active}; do not broaden permissions; use Write for filesystem mutation because it creates parent directories automatically, and keep Bash for allowed build, test, or read-only verification commands"
         )
     }
 

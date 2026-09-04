@@ -1941,12 +1941,10 @@ fn requires_node_dependency_probe(command: &str) -> bool {
 pub(crate) fn generic_dependency_missing_output(output: &str) -> bool {
     let lower = output.to_ascii_lowercase();
     lower.contains("command not found")
-        || lower.contains("not found")
         || lower.contains("cannot find module")
         || lower.contains("module not found")
         || lower.contains("modulenotfounderror")
         || lower.contains("can't find crate")
-        || lower.contains("no such file or directory")
 }
 
 pub(crate) fn merge_unique_strings(out: &mut Vec<String>, incoming: &[String]) {
@@ -1960,6 +1958,20 @@ pub(crate) fn merge_unique_strings(out: &mut Vec<String>, incoming: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generic_dependency_marker_ignores_application_not_found_messages() {
+        assert!(!generic_dependency_missing_output("Task not found"));
+        assert!(!generic_dependency_missing_output(
+            "records.json: no such file or directory"
+        ));
+        assert!(generic_dependency_missing_output(
+            "sh: commandagent-helper: command not found"
+        ));
+        assert!(generic_dependency_missing_output(
+            "Module not found: Can't resolve 'react'"
+        ));
+    }
 
     #[test]
     fn typed_runtime_registry_preserves_legacy_resolution() {

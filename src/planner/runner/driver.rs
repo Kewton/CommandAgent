@@ -1,5 +1,8 @@
 // Driver, initialization, and prompt construction extracted from the runner facade.
 // Keep observable strings and event order byte-compatible with the pre-split runner.
+mod report_signature;
+pub(super) use report_signature::verification_report_signature;
+
 #[allow(unused_imports)]
 use super::{
     AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
@@ -1270,69 +1273,6 @@ pub(super) fn emit_repair_unreachable(
             "primary_reason": eval_events::body_snippet(primary_reason),
         }),
     );
-}
-
-pub(super) fn verification_report_signature(report: &VerificationReport) -> Vec<String> {
-    let mut signature = Vec::new();
-    signature.extend(
-        report
-            .missing_paths
-            .iter()
-            .map(|path| format!("missing:{path}")),
-    );
-    signature.extend(
-        report
-            .dependency_missing
-            .iter()
-            .map(|reason| format!("dependency:{reason}")),
-    );
-    signature.extend(report.command_failures.iter().map(|failure| {
-        format!(
-            "command:{}:{}",
-            failure.command,
-            normalize_report_reason_for_signature(&failure.reason)
-        )
-    }));
-    signature.extend(
-        report
-            .verifier_command_false_negatives
-            .iter()
-            .map(|failure| {
-                format!(
-                    "verifier_command:{}:{}",
-                    failure.command,
-                    normalize_report_reason_for_signature(&failure.reason)
-                )
-            }),
-    );
-    signature.extend(
-        report
-            .profile_failures
-            .iter()
-            .map(|reason| format!("profile:{reason}")),
-    );
-    signature.extend(
-        report
-            .python_tracebacks
-            .iter()
-            .map(|value| value.signature()),
-    );
-    signature.sort();
-    signature
-}
-
-pub(super) fn normalize_report_reason_for_signature(reason: &str) -> String {
-    let mut normalized = Vec::new();
-    let mut parts = reason.split_whitespace();
-    while let Some(part) = parts.next() {
-        if part == "elapsed_ms:" {
-            let _ = parts.next();
-            normalized.push("elapsed_ms:<n>".to_string());
-        } else {
-            normalized.push(part.to_string());
-        }
-    }
-    normalized.join(" ")
 }
 
 pub(super) fn push_context_items_capped(

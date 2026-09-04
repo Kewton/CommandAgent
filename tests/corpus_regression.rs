@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use commandagent::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
-use commandagent::minimal_loop::import_scan::route_bound_closure;
+use commandagent::minimal_loop::import_scan::{route_bound_closure, scan_relative_imports};
 use commandagent::minimal_loop::interaction_probe::static_html_probe_selection;
 use commandagent::minimal_loop::reachability::{
     assess_repair_reachability_at_root, reachability_failure_kind,
@@ -281,6 +281,17 @@ fn issue399_plain_javascript_nextjs_profile_stays_javascript() {
     let scaffold = profile_setup_scaffold_paths(root, "nextjs");
     assert!(!scaffold.iter().any(|path| path.ends_with(".tsx")));
     assert!(!scaffold.iter().any(|path| path == "tsconfig.json"));
+}
+
+#[test]
+fn dangling_workspace_alias_corpus_is_reported_before_completion() {
+    let root = Path::new("tests/corpus/apps/local-q1-final-tool-b-tsconfig-alias-gap");
+    let missing = scan_relative_imports(root, &["fixtures/dangling-alias.tsx".to_string()])
+        .expect("scan dangling alias corpus fixture");
+
+    assert_eq!(missing.len(), 1, "{missing:?}");
+    assert_eq!(missing[0].source, "fixtures/dangling-alias.tsx");
+    assert_eq!(missing[0].specifier, "@/lib/tasks");
 }
 
 #[test]

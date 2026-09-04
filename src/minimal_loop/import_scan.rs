@@ -93,12 +93,11 @@ pub fn scan_relative_imports(root: &Path, paths: &[String]) -> anyhow::Result<Ve
         if ts_file_contains_jsx(path, &content) {
             push_unique_missing(&mut missing, MissingImport::jsx_in_ts(path));
         }
-        let parent = source_path.parent().unwrap_or(root);
         for specifier in extract_import_specifiers(&content) {
-            if !is_relative_specifier(&specifier) {
+            let candidates = resolve_import_for_source(root, &source_path, &specifier);
+            if candidates.is_empty() {
                 continue;
             }
-            let candidates = resolve_import(parent, &specifier);
             let Some(definition_path) = candidates.iter().find(|path| path.exists()) else {
                 push_unique_missing(
                     &mut missing,
@@ -600,7 +599,7 @@ fn resolve_import_for_source(root: &Path, source_path: &Path, specifier: &str) -
         return Vec::new();
     };
     if is_relative_specifier(specifier) {
-        return resolve_route_import(parent, specifier);
+        return resolve_import(parent, specifier);
     }
     if let Some(alias_path) = specifier.strip_prefix("@/")
         && let Some((project_root, _)) = nextjs_project_root(root)
@@ -985,7 +984,7 @@ fn resolve_workspace_alias_import(project_root: &Path, specifier: &str) -> Vec<P
         project_root.join("src").join(specifier),
         project_root.join(specifier),
     ] {
-        candidates.extend(resolve_route_import(
+        candidates.extend(resolve_import(
             base.parent().unwrap_or(project_root),
             base.file_name()
                 .and_then(|name| name.to_str())
@@ -1326,16 +1325,66 @@ mod tests {
     }
 
     #[test]
-    fn relative_import_scanner_ignores_package_imports() {
+    fn import_scanner_ignores_package_imports() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src/page.tsx"),
-            r#"import React from "react"; import Widget from "@/Widget";"#,
+            r#"import React from "react";"#,
         )
         .unwrap();
         let missing = scan_relative_imports(dir.path(), &["src/page.tsx".to_string()]).unwrap();
         assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn import_scanner_reports_missing_nextjs_workspace_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        std::fs::write(
+            dir.path().join("tsconfig.json"),
+            r#"{"compilerOptions":{"paths":{"@/*":["./src/*"]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.tsx"),
+            r#"import { readTasks } from "@/lib/tasks";"#,
+        )
+        .unwrap();
+
+        let missing = scan_relative_imports(dir.path(), &["src/app/page.tsx".to_string()]).unwrap();
+
+        assert_eq!(
+            missing,
+            vec![MissingImport::missing_module(
+                "src/app/page.tsx",
+                "@/lib/tasks"
+            )]
+        );
+        assert!(format_missing_import_feedback(&missing).contains("@/lib/tasks"));
+    }
+
+    #[test]
+    fn import_scanner_accepts_existing_nextjs_workspace_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.tsx"),
+            r#"import { readTasks } from "@/lib/tasks";"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/lib/tasks.ts"),
+            "export const readTasks = () => [];",
+        )
+        .unwrap();
+
+        let missing = scan_relative_imports(dir.path(), &["src/app/page.tsx".to_string()]).unwrap();
+
+        assert!(missing.is_empty(), "{missing:?}");
     }
 
     #[test]

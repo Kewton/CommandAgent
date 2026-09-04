@@ -39,3 +39,6 @@ fixtures/tsconfig-alias-gap.json:observed_import = "@/hooks/useTodos"
 fixtures/tsconfig-alias-gap.json:tsconfig_has_paths_alias = "true"
 fixtures/tsconfig-alias-gap.json:tsconfig_has_baseUrl = "false"
 fixtures/tsconfig-alias-gap.json:trigger = "recurrence"
+
+[fixture_contains]
+fixtures/dangling-alias.tsx = ["@/lib/tasks", "export default function Page"]

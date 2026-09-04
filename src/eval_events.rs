@@ -486,6 +486,9 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
     if let Some(profile) = latest_lifecycle_profile_fields(&events) {
         profile.apply_to(&mut snapshot);
     }
+    if let Some(binding) = latest_unfinalized_contract_binding(&events) {
+        apply_contract_binding(&mut snapshot, binding);
+    }
     if snapshot.prompt_layout.trim().is_empty()
         && let Some(prompt_layout) = latest_prompt_layout(&events)
     {
@@ -524,6 +527,60 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
         snapshot.profile_behavior_probe_evidence_path = evidence_path;
     }
     snapshot
+}
+
+fn latest_unfinalized_contract_binding(events: &[Value]) -> Option<&Value> {
+    let boundary = events
+        .iter()
+        .rposition(|event| {
+            matches!(
+                event.get("event").and_then(Value::as_str),
+                Some("run_start" | "tui_command_start" | "resume_start")
+            )
+        })
+        .unwrap_or(0);
+    let (binding_index, binding) =
+        events
+            .iter()
+            .enumerate()
+            .skip(boundary)
+            .rev()
+            .find(|(_, event)| {
+                event.get("event").and_then(Value::as_str) == Some("completion_contract_bound")
+            })?;
+    let finalized = events.iter().skip(binding_index + 1).any(|event| {
+        matches!(
+            event.get("event").and_then(Value::as_str),
+            Some("plan_final_contract" | "ultra_final_acceptance")
+        )
+    });
+    (!finalized).then_some(binding)
+}
+
+fn apply_contract_binding(snapshot: &mut CompletionSnapshot, event: &Value) {
+    snapshot.completion_contract_verification_enabled = event
+        .get("completion_contract_verification_enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(snapshot.completion_contract_verification_enabled);
+    snapshot.completion_contract_path_merge_enabled = event
+        .get("completion_contract_path_merge_enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(snapshot.completion_contract_path_merge_enabled);
+    snapshot.completion_contract_generated = event
+        .get("completion_contract_generated")
+        .and_then(Value::as_bool)
+        .unwrap_or(snapshot.completion_contract_generated);
+    snapshot.external_contract_checked = event
+        .get("external_contract_checked")
+        .and_then(Value::as_bool)
+        .unwrap_or(snapshot.external_contract_checked);
+    if let Some(path) = event
+        .get("completion_contract_path")
+        .and_then(Value::as_str)
+        .filter(|path| !path.trim().is_empty())
+    {
+        snapshot.completion_contract_path = path.to_string();
+    }
 }
 
 pub fn latest_tui_command_stop_ok(path: Option<&Path>) -> Option<bool> {
@@ -3463,6 +3520,84 @@ mod tests {
         assert!(summary.contains("completion_contract_path_merge_enabled=true"));
         assert!(summary.contains("external_contract_checked=true"));
         assert!(summary.contains("external_contract_ok=true"));
+    }
+
+    #[test]
+    fn active_contract_binding_survives_early_terminal_projection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        emit(
+            Some(&path),
+            json!({"event": "tui_command_start", "command": "/ultra-plan-run"}),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "completion_contract_bound",
+                "completion_contract_verification_enabled": true,
+                "completion_contract_path_merge_enabled": true,
+                "completion_contract_path": ".commandagent/completion-contract-ultra-plan-run.json",
+                "completion_contract_generated": true,
+                "external_contract_checked": true,
+            }),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "tui_command_stop",
+                "runtime_acceptance_status": "not_checked",
+                "final_acceptance_status": "not_checked",
+                "release_gate_status": "not_applicable",
+                "completion_contract_verification_enabled": false,
+                "completion_contract_generated": false,
+                "external_contract_checked": false,
+            }),
+        );
+
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert!(snapshot.completion_contract_verification_enabled);
+        assert!(snapshot.completion_contract_path_merge_enabled);
+        assert!(snapshot.completion_contract_generated);
+        assert!(snapshot.external_contract_checked);
+        assert_eq!(
+            snapshot.completion_contract_path,
+            ".commandagent/completion-contract-ultra-plan-run.json"
+        );
+    }
+
+    #[test]
+    fn contract_binding_does_not_leak_across_command_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        emit(
+            Some(&path),
+            json!({"event": "tui_command_start", "command": "/ultra-plan-run"}),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "completion_contract_bound",
+                "completion_contract_verification_enabled": true,
+                "completion_contract_generated": true,
+            }),
+        );
+        emit(
+            Some(&path),
+            json!({"event": "tui_command_start", "command": "/model-probe"}),
+        );
+        emit(
+            Some(&path),
+            json!({
+                "event": "tui_command_stop",
+                "runtime_acceptance_status": "not_checked",
+                "final_acceptance_status": "not_checked",
+                "release_gate_status": "not_applicable",
+            }),
+        );
+
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert!(!snapshot.completion_contract_verification_enabled);
+        assert!(!snapshot.completion_contract_generated);
     }
 
     #[test]

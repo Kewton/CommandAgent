@@ -1,5 +1,11 @@
+use std::path::Path;
+
+use crate::config::Config;
+use crate::minimal_loop::build_verifier;
+use crate::minimal_loop::dependency_setup;
 use crate::minimal_loop::evidence::{SatisfactionChannel, evidence_satisfaction_channel};
 use crate::planner::contract_attribute_repair;
+use crate::planner::profile::is_nextjs_profile;
 use crate::planner::verify::VerificationReport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +62,20 @@ impl RepairFollowThrough {
 }
 
 impl RepairTarget {
+    pub fn reclassify_no_change(
+        config: &Config,
+        step_id: &str,
+        report: &mut VerificationReport,
+    ) -> bool {
+        reclassify_dependency_no_change_at_root(
+            &config.workspace_root,
+            &config.profile,
+            config.eval_events_path.as_deref(),
+            step_id,
+            report,
+        )
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::DependencySetup => "dependency_setup",
@@ -130,6 +150,54 @@ impl RepairTarget {
             Self::VerifierCommand => "fix_malformed_verify_command_only",
             Self::Unknown => "edit_smallest_relevant_workspace_artifact",
         }
+    }
+}
+
+fn reclassify_dependency_no_change_at_root(
+    root: &Path,
+    profile: &str,
+    eval_events_path: Option<&Path>,
+    step_id: &str,
+    report: &mut VerificationReport,
+) -> bool {
+    if classify_repair_target(report) != RepairTarget::DependencySetup
+        || !dependencies_ready_for_reclassification(root, profile)
+    {
+        return false;
+    }
+    let reason = report.dependency_missing.join("\n");
+    let errors = build_verifier::internal_module_compile_errors(root, profile, &reason);
+    if errors.is_empty() {
+        return false;
+    }
+    for error in &errors {
+        if !report.compile_errors.contains(error) {
+            report.compile_errors.push(error.clone());
+        }
+    }
+    crate::eval_events::emit(
+        eval_events_path,
+        serde_json::json!({
+            "event": "repair_target_reclassified",
+            "step_id": step_id,
+            "previous_repair_target": RepairTarget::DependencySetup.as_str(),
+            "repair_target": RepairTarget::Implementation.as_str(),
+            "reason": "dependency_ready_internal_module_no_change",
+            "compile_errors": errors,
+        }),
+    );
+    true
+}
+
+fn dependencies_ready_for_reclassification(root: &Path, profile: &str) -> bool {
+    if is_nextjs_profile(profile) {
+        dependency_setup::next_build_dependencies_ready(root)
+    } else if crate::planner::profile::canonical_profile_name(profile)
+        == crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID
+    {
+        dependency_setup::python_cli_dependencies_ready(root)
+    } else {
+        dependency_setup::node_declared_dependencies_ready(root)
     }
 }
 
@@ -607,6 +675,54 @@ mod tests {
         report.push_dependency_missing("node_modules/.bin/next missing");
         assert_eq!(
             classify_repair_target(&report),
+            RepairTarget::DependencySetup
+        );
+    }
+
+    #[test]
+    fn dependency_ready_internal_module_no_change_reclassifies_to_implementation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules/.bin")).unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules/next")).unwrap();
+        std::fs::write(dir.path().join("node_modules/.bin/next"), "").unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.tsx"),
+            "import { readTasks } from '@/lib/tasks';",
+        )
+        .unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut report = VerificationReport::dependency_missing(
+            "dependency_setup_missing: command failed: npm run build summary: Failed to compile. Module not found: Can't resolve '@/lib/tasks'",
+        );
+
+        assert!(reclassify_dependency_no_change_at_root(
+            dir.path(),
+            "nextjs",
+            Some(&events),
+            "implement-app",
+            &mut report,
+        ));
+        assert_eq!(
+            classify_repair_target(&report),
+            RepairTarget::Implementation
+        );
+        let event = std::fs::read_to_string(events).unwrap();
+        assert!(event.contains("\"event\":\"repair_target_reclassified\""));
+        assert!(event.contains("dependency_ready_internal_module_no_change"));
+
+        let mut external = VerificationReport::dependency_missing(
+            "Failed to compile.\n./src/app/page.tsx\nModule not found: Can't resolve 'react'",
+        );
+        assert!(!reclassify_dependency_no_change_at_root(
+            dir.path(),
+            "nextjs",
+            None,
+            "implement-app",
+            &mut external,
+        ));
+        assert_eq!(
+            classify_repair_target(&external),
             RepairTarget::DependencySetup
         );
     }
