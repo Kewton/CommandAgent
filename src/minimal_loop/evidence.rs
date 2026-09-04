@@ -2586,6 +2586,9 @@ fn looks_like_scaffold_file(file: &SourceFile) -> bool {
     if lower_path.ends_with("layout.tsx") || lower_path.ends_with("layout.jsx") {
         return true;
     }
+    if crate::planner::profiles::nextjs::is_engine_owned_scaffold_page(&file.rel, &file.content) {
+        return true;
+    }
     let placeholder = [
         "todo",
         "placeholder",
