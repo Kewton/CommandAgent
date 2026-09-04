@@ -1,0 +1,28 @@
+case_id = "issue421-nextjs-form-startless-interaction"
+source = "Issue #421 session-equivalent evidence shape"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[release_qualification]
+evidence_fixture = "fixtures/browser-interaction.json"
+restart_required = false
+full_eligible = true
+evidence_status = "passed"
+reasons = []
+
+[json_fields]
+fixtures/browser-readiness.json:route_rendered = "true"
+fixtures/browser-interaction.json:start_control_found = "false"
+fixtures/browser-interaction.json:start_transition = "false"
+fixtures/browser-interaction.json:input_state_change = "true"
+
+[fixture_contains]
+provenance.md = [
+  "01a06b3b-0a60-7040-98ab-70d97023722a",
+  "session-equivalent"
+]

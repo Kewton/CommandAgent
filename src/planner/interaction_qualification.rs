@@ -85,6 +85,41 @@ pub fn contract_requires_restart(
             .any(|item| item == "restart_or_recoverable_state_evidence")
 }
 
+pub(crate) fn release_interaction_entry_observed(value: &Value, details: Option<&Value>) -> bool {
+    let transition_observed = bool_field_deep(value, details, "start_transition") == Some(true)
+        || bool_field_deep(value, details, "transition_observed") == Some(true)
+        || string_array_contains_deep(value, details, "steps", "start_transition")
+        || string_array_contains_deep(value, details, "steps", "recovery_transition");
+    let surface_visible = bool_field_deep(value, details, "surface_visible") == Some(true)
+        || bool_field_deep(value, details, "interactive_surface") == Some(true)
+        || string_array_contains_deep(value, details, "steps", "surface_visible");
+    let start_control_absent = [
+        "start_control_found",
+        "start_control_present",
+        "start_like_control_found",
+        "start_like_control_present",
+        "primary_action_found",
+        "primary_action_present",
+        "primary_control_found",
+        "primary_control_present",
+    ]
+    .iter()
+    .any(|key| bool_field_deep(value, details, key) == Some(false));
+    transition_observed || (surface_visible && start_control_absent)
+}
+
+pub(crate) fn release_interaction_detail_observed(value: &Value, details: Option<&Value>) -> bool {
+    let input_state_changed = [
+        "input_state_change",
+        "state_changed",
+        "visible_state_changed",
+    ]
+    .iter()
+    .any(|key| bool_field_deep(value, details, key) == Some(true))
+        || string_array_contains_deep(value, details, "steps", "input_state_change");
+    input_state_changed && release_interaction_entry_observed(value, details)
+}
+
 pub(crate) fn browser_interaction_probe_options(
     required_capabilities: &[String],
     required_evidence: &[String],
@@ -293,5 +328,30 @@ mod tests {
             qualified.release_gate_reasons,
             ["contract_instrumentation_missing:primary"]
         );
+    }
+
+    #[test]
+    fn release_interaction_detail_accepts_startless_form_and_started_game() {
+        let form = serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue421-nextjs-form-startless-interaction/fixtures/browser-interaction.json"
+        ))
+        .unwrap();
+        let game = serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/nextjs-testimony-quiz/browser-interaction.json"
+        ))
+        .unwrap();
+
+        assert!(release_interaction_detail_observed(&form, None));
+        assert!(release_interaction_detail_observed(&game, None));
+    }
+
+    #[test]
+    fn release_interaction_detail_still_requires_input_state_change() {
+        let evidence = serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue421-nextjs-form-startless-interaction/fixtures/browser-interaction-missing-input-state.json"
+        ))
+        .unwrap();
+
+        assert!(!release_interaction_detail_observed(&evidence, None));
     }
 }
