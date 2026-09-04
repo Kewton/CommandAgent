@@ -1945,21 +1945,10 @@ pub(super) fn explicit_release_evidence_failure(
             }
         }
         ReleaseEvidenceKind::Interaction => {
-            let transition_observed =
-                bool_field_deep(value, details, &["start_transition", "transition_observed"])
-                    == Some(true)
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "start_transition",
-                    )
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "recovery_transition",
-                    );
+            let interaction_entry_observed =
+                crate::planner::interaction_qualification::release_interaction_entry_observed(
+                    value, details,
+                );
             if bool_field_deep(value, details, &["canvas_found", "canvas_available"]) == Some(false)
             {
                 return Some("canvas_unavailable".to_string());
@@ -1987,7 +1976,7 @@ pub(super) fn explicit_release_evidence_failure(
             if bool_field_deep(value, details, &["state_changed", "visible_state_changed"])
                 == Some(false)
             {
-                if !transition_observed {
+                if !interaction_entry_observed {
                     return Some("start_transition_missing".to_string());
                 }
                 if bool_field_deep(value, details, &["input_state_evaluated_after_start"])
@@ -2016,32 +2005,9 @@ pub(super) fn release_evidence_has_required_detail(
             ) == Some(true)
         }
         ReleaseEvidenceKind::Interaction => {
-            let transition_observed =
-                bool_field_deep(value, details, &["start_transition", "transition_observed"])
-                    == Some(true)
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "start_transition",
-                    )
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "recovery_transition",
-                    );
-            let input_state_changed = bool_field_deep(
-                value,
-                details,
-                &[
-                    "input_state_change",
-                    "state_changed",
-                    "visible_state_changed",
-                ],
-            ) == Some(true)
-                || string_array_field_contains_deep(value, details, "steps", "input_state_change");
-            transition_observed && input_state_changed
+            crate::planner::interaction_qualification::release_interaction_detail_observed(
+                value, details,
+            )
         }
     }
 }
@@ -2173,24 +2139,4 @@ pub(super) fn text_field(value: &Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str))
         .map(|text| text.trim().to_ascii_lowercase())
-}
-
-pub(super) fn string_array_field_contains_deep(
-    value: &Value,
-    details: Option<&Value>,
-    key: &str,
-    needle: &str,
-) -> bool {
-    string_array_field_contains(value, key, needle)
-        || details.is_some_and(|details| string_array_field_contains(details, key, needle))
-}
-
-pub(super) fn string_array_field_contains(value: &Value, key: &str, needle: &str) -> bool {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|item| item == needle)
 }

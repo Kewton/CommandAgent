@@ -281,6 +281,23 @@ fn interaction_probe_failure_evidence_notes_slow_cold_start() {
 }
 
 #[test]
+fn issue421_startless_form_interaction_reaches_full_acceptance() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, contents) in [
+        ("browser-readiness.json", include_str!("../../../../tests/corpus/apps/issue421-nextjs-form-startless-interaction/fixtures/browser-readiness.json")),
+        ("browser-interaction.json", include_str!("../../../../tests/corpus/apps/issue421-nextjs-form-startless-interaction/fixtures/browser-interaction.json")),
+    ] {
+        std::fs::write(dir.path().join(name), contents).unwrap();
+    }
+    let cfg = config(dir.path().to_path_buf());
+    let gate = browser_release_gate(&cfg);
+
+    assert_eq!(gate.status, "pass", "{gate:?}");
+    assert_eq!(gate.interaction_evidence_status, "passed");
+    assert_eq!(release_gate_final_acceptance_status(&gate), "full_success");
+}
+
+#[test]
 #[cfg(unix)]
 fn unattached_canvas_ref_guidance_leads_repair_and_reprobe_passes() {
     let _probe_guard = dev_server_probe_test_guard();

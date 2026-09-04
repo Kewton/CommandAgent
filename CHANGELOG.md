@@ -38,6 +38,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Let successful form-style browser interactions pass the release gate when an
+  input changes state on a visible surface with no start control.
 - Explain GUI Trial automatic-intent ambiguity with actionable `作成` / `修正`
   retry guidance while retaining route candidates as technical detail.
 - Let GUI Trial show an honest unmeasured Gate 1 card for unclassified

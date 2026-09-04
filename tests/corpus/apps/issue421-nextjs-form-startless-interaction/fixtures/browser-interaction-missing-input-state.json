@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "status": "passed",
+  "interaction_success": true,
+  "interaction_performed": true,
+  "surface_visible": true,
+  "start_control_found": false,
+  "input_event_observed": true,
+  "steps": [
+    "surface_visible",
+    "control_input_dispatched"
+  ]
+}

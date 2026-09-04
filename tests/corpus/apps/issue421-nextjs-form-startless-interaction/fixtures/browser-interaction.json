@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "status": "passed",
+  "probe_mode": "contract",
+  "contract_hook_status": "usable",
+  "action_hooks": ["primary"],
+  "state_dimensions_changed": ["projects", "draft"],
+  "interaction_success": true,
+  "interaction_performed": true,
+  "surface_visible": true,
+  "start_control_found": false,
+  "start_transition": false,
+  "input_event_observed": true,
+  "input_state_change": true,
+  "state_changed": true,
+  "steps": [
+    "surface_visible",
+    "text_input_state_change",
+    "control_input_dispatched",
+    "input_state_change"
+  ]
+}
