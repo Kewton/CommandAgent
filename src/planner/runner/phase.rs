@@ -74,6 +74,8 @@ use super::{
     verify_setup_dependency_state_with_setup_observed_with_offline, verify_step_with_context,
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
+#[path = "phase/compile_snapshot.rs"]
+mod compile_snapshot;
 #[path = "phase/effects.rs"]
 mod effects;
 #[path = "phase/flow.rs"]
@@ -90,6 +92,7 @@ mod state;
 mod step_plan_execution;
 #[path = "phase/transition.rs"]
 mod transition;
+use compile_snapshot::production_build_lifecycle_passed;
 pub use flow::{
     generate_and_run_ultra_plan, generate_and_run_ultra_plan_with_ui, generate_ultra_plan,
     generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
@@ -1021,6 +1024,7 @@ pub(super) fn dependency_reconciliation_lifecycle(
         requires_dependency_setup: true,
         dependency_ready: false,
         attempted: false,
+        duration_ms: None,
         status: BuildVerifierStatus::DependencyMissing,
         primary_reason: requirement.reason.clone(),
         output_snippet: String::new(),
@@ -1047,6 +1051,7 @@ pub(super) fn dependency_reconciliation_lifecycle(
         requires_dependency_setup: true,
         dependency_ready: true,
         attempted: false,
+        duration_ms: None,
         status: BuildVerifierStatus::Passed,
         primary_reason: "dependency setup reconciliation passed".to_string(),
         output_snippet: String::new(),
@@ -2998,14 +3003,6 @@ pub(super) fn phase_build_verify_commands(plan: &StepPlan) -> Vec<String> {
         }
     }
     commands
-}
-
-pub(super) fn production_build_lifecycle_passed(
-    lifecycles: &[BuildVerifierLifecycleObservation],
-) -> bool {
-    lifecycles
-        .iter()
-        .any(|lifecycle| lifecycle.final_status == BuildVerifierStatus::Passed)
 }
 
 pub(super) fn route_bound_source_paths(root: &Path, profile: &str) -> Vec<String> {

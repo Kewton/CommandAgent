@@ -1,5 +1,8 @@
 use super::CompileRepairPromptProtection;
 
+#[path = "final_acceptance/compile_rollback_verification.rs"]
+mod compile_rollback_verification;
+
 #[path = "runner/recovery_probe_context.rs"]
 mod recovery_probe_context;
 #[allow(unused_imports)]
@@ -17,10 +20,10 @@ use super::{
     compile_repair_prompt_section_with_root, dedup_strings, eval_events,
     interaction_repair_targets_for_reason, json, merge_unique_strings, missing_if_empty,
     phase_goal_one_liner, push_context_items_capped, render_bounded_prompt_section,
-    report_has_production_build_failure, resolve_profile_runtime, restart_hook_attachment_guidance,
-    route_bound_source_paths, run_session_with_outcome_with_options,
-    ultra_final_acceptance_report_inner, ultra_final_acceptance_report_with_deterministic_remedies,
-    verification_missing_signals, workspace_relative_handoff_path,
+    resolve_profile_runtime, restart_hook_attachment_guidance, route_bound_source_paths,
+    run_session_with_outcome_with_options, ultra_final_acceptance_report_inner,
+    ultra_final_acceptance_report_with_deterministic_remedies, verification_missing_signals,
+    workspace_relative_handoff_path,
 };
 
 pub(super) const FINAL_ACCEPTANCE_REPAIR_MAX_ATTEMPTS: usize = 2;
@@ -991,19 +994,17 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
         restored_paths.push(rel.clone());
         origins.push(workspace_relative_handoff_path(snapshot));
     }
-    let rebuild_report =
-        resolve_profile_runtime(profile).verify_final(&config.workspace_root, goal);
-    if report_has_production_build_failure(&rebuild_report) {
-        eval_events::emit(
-            config.eval_events_path.as_deref(),
-            json!({
-                "event": "compile_rollback_failed",
-                "phase_id": phase_id,
-                "paths": restored_paths,
-                "snapshot_origins": origins,
-                "exhausted_reason": exhausted_reason,
-                "rebuild_reason": eval_events::body_snippet(&rebuild_report.primary_reason()),
-            }),
+    let static_report = resolve_profile_runtime(profile).verify_final(&config.workspace_root, goal);
+    let build = compile_rollback_verification::run(config, profile, phase_id, report);
+    if !static_report.is_pass() || !build.passed {
+        compile_rollback_verification::emit_failed(
+            config,
+            phase_id,
+            &restored_paths,
+            &origins,
+            exhausted_reason,
+            &static_report,
+            &build,
         );
         return Ok(None);
     }
@@ -1017,16 +1018,14 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
             )
         })
         .collect::<Vec<_>>();
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "compile_rollback_applied",
-            "phase_id": phase_id,
-            "paths": restored_paths.clone(),
-            "snapshot_origins": origins.clone(),
-            "exhausted_reason": exhausted_reason,
-            "carry_forward_guidance": carry_forward_guidance.clone(),
-        }),
+    compile_rollback_verification::emit_applied(
+        config,
+        phase_id,
+        &restored_paths,
+        &origins,
+        exhausted_reason,
+        &carry_forward_guidance,
+        &build,
     );
     eval_events::append_run_summary(
         config.eval_events_path.as_deref(),

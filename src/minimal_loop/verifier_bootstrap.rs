@@ -119,6 +119,7 @@ mod tests {
             requires_dependency_setup: true,
             dependency_ready: status != BuildVerifierStatus::DependencyMissing,
             attempted,
+            duration_ms: None,
             status,
             primary_reason: "test".to_string(),
             output_snippet: String::new(),
