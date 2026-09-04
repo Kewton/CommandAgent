@@ -12,9 +12,10 @@ use commandagent::minimal_loop::{
 };
 use commandagent::planner::interaction_qualification::qualify_interaction_evidence;
 use commandagent::planner::profile::{
-    ProfileSnapshot, profile_expected_paths, profile_generation_rules, profile_guidance,
-    profile_preset_ultra_plan, profile_quality_expectations, profile_runtime_contract,
-    profile_setup_scaffold_paths, verify_profile_final, verify_profile_invariant,
+    ProfileSnapshot, interaction_repair_contract, profile_expected_paths, profile_generation_rules,
+    profile_guidance, profile_preset_ultra_plan, profile_quality_expectations,
+    profile_runtime_contract, profile_setup_scaffold_paths, verify_profile_final,
+    verify_profile_invariant,
 };
 use commandagent::planner::profiles::nextjs;
 use commandagent::planner::verify::VerificationReport;
@@ -280,6 +281,38 @@ fn issue399_plain_javascript_nextjs_profile_stays_javascript() {
     let scaffold = profile_setup_scaffold_paths(root, "nextjs");
     assert!(!scaffold.iter().any(|path| path.ends_with(".tsx")));
     assert!(!scaffold.iter().any(|path| path == "tsconfig.json"));
+}
+
+#[test]
+fn japanese_json_persistence_goal_requires_reload_evidence() {
+    let goal = "TODOアプリを作成し、データはjsonファイルで永続化してほしいです";
+    let contract = interaction_repair_contract("nextjs", goal);
+
+    assert!(
+        contract
+            .required_capabilities
+            .contains(&"persistence".to_string())
+    );
+    assert!(
+        contract
+            .required_evidence
+            .contains(&"persistence_evidence".to_string())
+    );
+}
+
+#[test]
+fn session_01a06793_api_method_mismatch_fails_profile_acceptance() {
+    let root = Path::new("tests/corpus/apps/session-01a06793-api-method-mismatch");
+    let report = verify_profile_final(root, "nextjs", "Create a TODO app on port 3011");
+
+    assert!(!report.is_pass(), "{report:?}");
+    assert!(
+        report
+            .profile_failures
+            .iter()
+            .any(|reason| reason.contains("DELETE /api/todos") && reason.contains("not exported")),
+        "{report:?}"
+    );
 }
 
 #[test]

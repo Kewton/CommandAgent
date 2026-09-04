@@ -4285,6 +4285,17 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
     .unwrap();
     writeln!(file, "{{\"event\":\"recovery_promotion_decision\",\"decision\":\"rejected\",\"reason\":\"contract failed\"}}").unwrap();
     writeln!(file, "{{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"effective_profile\":\"python-cli\",\"assurance_level\":\"none\"}}").unwrap();
+    drop(file);
+    let treatment_status = server.request("GET", &format!("/api/sessions/{treatment_id}"), None);
+    assert_eq!(treatment_status.status, 200, "{}", treatment_status.body);
+    let resolution = &treatment_status.json()["failure_explanation"]["recovery"]["resolution"];
+    assert_eq!(resolution["treatment_promotion_status"], "rejected");
+    assert_eq!(
+        resolution["treatment_rejection_reason"]["value"],
+        "contract failed"
+    );
+    assert_eq!(resolution["control_retained"], true);
+    assert_eq!(resolution["effective_artifact_source"], "control");
     let treatment_rejected = server.request(
         "POST",
         &format!("/api/sessions/{treatment_id}/recovery-runs"),

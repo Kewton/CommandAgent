@@ -1,6 +1,8 @@
 {"event":"recovery_prompt_saved","phase_id":"verify-recovery","recovery_prompt_path":".commandagent/repairs/control.md","recovery_ultra_plan_path":".commandagent/plans/control.yaml","suggested_recovery_yaml_command":"/run-ultra-plan .commandagent/plans/control.yaml"}
+{"event":"ultra_final_acceptance","final_acceptance_status":"incomplete"}
 {"event":"recovery_plan_auto_run_start","recovery_plan_auto_run_current":1,"recovery_ultra_plan_path":".commandagent/plans/control.yaml","recovery_treatment_path":".commandagent/recovery-treatments/attempt-1/workspace"}
 {"event":"recovery_prompt_saved","phase_id":"verify-recovery","recovery_prompt_path":".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/treatment.md","recovery_ultra_plan_path":".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml","suggested_recovery_yaml_command":"/run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/treatment.yaml"}
+{"event":"ultra_final_acceptance","final_acceptance_status":"full_success"}
 {"event":"recovery_control_retained","recovery_plan_auto_run_current":1,"reason":"post_recovery_failed"}
 {"event":"recovery_promotion_decision","recovery_plan_auto_run_current":1,"decision":"rejected","reason":"post_recovery_failed","external_oracle_used":false}
 {"event":"tui_command_stop","ok":false,"status":"failed","recovery_prompt_path":".commandagent/repairs/control.md","recovery_ultra_plan_path":".commandagent/plans/control.yaml","suggested_recovery_yaml_command":"/run-ultra-plan .commandagent/plans/control.yaml"}

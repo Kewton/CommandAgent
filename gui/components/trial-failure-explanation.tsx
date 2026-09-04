@@ -40,6 +40,8 @@ export function TrialFailureExplanation({
 }: TrialFailureExplanationProps) {
   const [announcement, setAnnouncement] = useState("");
   const { evidence, location, primary, progress, recovery } = explanation;
+  const treatmentBlocksPlan = recovery.resolution.treatment_promotion_status === "rejected" ||
+    recovery.resolution.treatment_promotion_status === "pending";
 
   async function copy(label: string, value: BoundedText) {
     if (value.truncated) {
@@ -68,8 +70,9 @@ export function TrialFailureExplanation({
     <section
       aria-labelledby="failure-explanation-heading"
       className="trial-failure-explanation"
-      data-category={explanation.category}
-      data-projection-status={explanation.projection_status}
+        data-category={explanation.category}
+        data-projection-status={explanation.projection_status}
+        data-treatment-promotion-status={recovery.resolution.treatment_promotion_status}
       data-testid="terminal-failure-explanation"
     >
       <header>
@@ -187,6 +190,9 @@ export function TrialFailureExplanation({
         <li>
           <h4>5. 推奨アクション</h4>
           <p>{recoveryExplanation(explanation)}</p>
+          {recovery.resolution.treatment_promotion_status !== "not_attempted" && (
+            <RecoveryResolutionNotice explanation={explanation} />
+          )}
           <EvidenceList label="実行可能な修復方針" list={recovery.viable_actions} translate />
           <RecoveryDocumentAction
             disabled={evidenceLoading}
@@ -205,7 +211,10 @@ export function TrialFailureExplanation({
           <button
             className="secondary-action"
             data-testid="propose-recovery-run"
-            disabled={busy || recovery.recovery_plan_path === null || recovery.recovery_plan_path.truncated}
+            disabled={
+              busy || treatmentBlocksPlan || recovery.recovery_plan_path === null ||
+              recovery.recovery_plan_path.truncated
+            }
             onClick={() => void onProposeRecoveryRun()}
             type="button"
           >
@@ -315,6 +324,36 @@ export function TrialFailureExplanation({
       </p>
     </section>
   );
+}
+
+function RecoveryResolutionNotice({ explanation }: { explanation: FailureExplanation }) {
+  const resolution = explanation.recovery.resolution;
+  const rejected = resolution.treatment_promotion_status === "rejected";
+  const pending = resolution.treatment_promotion_status === "pending";
+  const reason = resolution.treatment_rejection_reason?.value;
+  return (
+    <div className="recovery-resolution-notice" data-testid="recovery-resolution-notice">
+      <strong>自動 Recovery の採用結果</strong>
+      <p>
+        {rejected
+          ? "直前の treatment は採用されず、元の control 成果物を保持しています。"
+          : pending
+            ? "treatment の採用判定が完了していないため、元の control 成果物を保持しています。"
+            : "treatment を採用し、現在の成果物として使用しています。"}
+      </p>
+      {reason !== undefined && <p>拒否理由: {promotionReason(reason)}</p>}
+      {(rejected || pending) && (
+        <p>同じ Recovery Plan は再実行できません。追加の依頼から新しい計画を作成してください。</p>
+      )}
+    </div>
+  );
+}
+
+function promotionReason(reason: string): string {
+  if (reason === "no_registered_post_recovery_observation") {
+    return "成功判定用の登録済み検証がないため、変更を採用できませんでした。";
+  }
+  return reason;
 }
 
 function EvidenceStatus({ label, value }: { label: string; value: BoundedText | null }) {

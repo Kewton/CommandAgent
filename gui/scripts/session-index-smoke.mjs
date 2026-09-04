@@ -493,6 +493,18 @@ async function probeLifecycle(browser, origin, basePath) {
       .innerText();
     assertIncludes(failureProgressText, "1 / 2", "completed phase progress");
     assertIncludes(failureProgressText, "利用可能", "workspace state");
+    const recoveryResolutionNotice = failureCard.locator(
+      "[data-testid='recovery-resolution-notice']",
+    );
+    const recoveryResolutionText = await recoveryResolutionNotice.innerText();
+    const rejectedTreatmentExplained =
+      (await failureCard.getAttribute("data-treatment-promotion-status")) === "rejected" &&
+      recoveryResolutionText.includes("元の control 成果物を保持") &&
+      recoveryResolutionText.includes("成功判定用の登録済み検証がない") &&
+      recoveryResolutionText.includes("追加の依頼から新しい計画");
+    const rejectedRecoveryPlanDisabled = await failureCard
+      .locator("[data-testid='propose-recovery-run']")
+      .isDisabled();
 
     const openRepairPrompt = failureCard.locator("[data-testid='open-repair-prompt']");
     await openRepairPrompt.focus();
@@ -915,6 +927,8 @@ async function probeLifecycle(browser, origin, basePath) {
       failure_heading_hierarchy_valid: failureHeadingHierarchyValid,
       failure_actions_have_accessible_names: failureActionsHaveAccessibleNames,
       failure_detail_mobile_fits: failureDetailMobileFits,
+      rejected_treatment_explained: rejectedTreatmentExplained,
+      rejected_recovery_plan_disabled: rejectedRecoveryPlanDisabled,
       phase_timing_visible: phaseTimingVisible,
       time_labels_use_shared_ja_jp_format: timeLabelsUseSharedJaJpFormat,
       refresh_error_retained_last_success: refreshErrorRetainedLastSuccess,
@@ -991,6 +1005,8 @@ async function probeLifecycle(browser, origin, basePath) {
         failureHeadingHierarchyValid &&
         failureActionsHaveAccessibleNames &&
         failureDetailMobileFits &&
+        rejectedTreatmentExplained &&
+        rejectedRecoveryPlanDisabled &&
         phaseTimingVisible &&
         timeLabelsUseSharedJaJpFormat &&
         refreshErrorRetainedLastSuccess &&
@@ -1700,6 +1716,14 @@ function supportedFailureExplanation() {
       ),
       continuation_eligible: true,
       continuation_reason: bounded("structured_recovery_available"),
+      resolution: {
+        control_final_acceptance_status: bounded("incomplete"),
+        treatment_final_acceptance_status: bounded("full_success"),
+        treatment_promotion_status: "rejected",
+        treatment_rejection_reason: bounded("no_registered_post_recovery_observation"),
+        control_retained: true,
+        effective_artifact_source: "control",
+      },
     },
     technical: { machine_codes: boundedList(["bounded_repair_failed"]) },
   };

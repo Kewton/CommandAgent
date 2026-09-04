@@ -3,9 +3,11 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Context;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::planner::recovery_validation::RecoveryPlanValidationError;
@@ -183,6 +185,7 @@ struct RunnerRecoveryDriver<'a> {
     transaction_snapshot: Option<crate::planner::recovery_snapshot::RecoveryBoundarySnapshot>,
     transaction_treatment: Option<PathBuf>,
     transaction_config: Option<Config>,
+    transaction_observer_identity: Option<RecoveryObserverIdentity>,
 }
 
 impl RecoveryDriver for RunnerRecoveryDriver<'_> {
@@ -221,6 +224,11 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
         let treatment_config =
             crate::planner::recovery_contract_binding::bind_config(self.config, &treatment)
                 .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
+        let observer_identity = recovery_observer_identity(self.config)
+            .ok_or(CandidateStop::ObserverIdentityBindFailed)?;
+        if recovery_observer_identity(&treatment_config).as_ref() != Some(&observer_identity) {
+            return Err(CandidateStop::ObserverIdentityBindFailed);
+        }
         emit_with_candidate(
             self.config,
             "recovery_plan_auto_run_start",
@@ -232,6 +240,7 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
         self.transaction_snapshot = Some(snapshot);
         self.transaction_treatment = Some(treatment);
         self.transaction_config = Some(treatment_config);
+        self.transaction_observer_identity = Some(observer_identity);
         crate::runs::emit_resume_start(self.config, prepared);
         Ok(())
     }
@@ -289,6 +298,16 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                 false,
             );
         };
+        let Some(observer_identity) = self.transaction_observer_identity.take() else {
+            return retain_control(
+                self.config,
+                used,
+                snapshot,
+                outcome,
+                "recovery_observer_identity_unavailable",
+                false,
+            );
+        };
         emit_treatment_delta(self.config, used, &snapshot, &treatment);
         if outcome.result.is_err() {
             return retain_control(
@@ -297,6 +316,16 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                 snapshot,
                 outcome,
                 "recovery_execution_failed",
+                false,
+            );
+        }
+        if recovery_observer_identity(&treatment_config).as_ref() != Some(&observer_identity) {
+            return retain_control(
+                self.config,
+                used,
+                snapshot,
+                outcome,
+                "recovery_observer_authority_changed",
                 false,
             );
         }
@@ -446,17 +475,37 @@ fn run_with_ui(
     let outcome = capture_attempt(ui, || {
         execute_initial(initial, planner, execution, config, ui)
     });
+    let recovery_config = if outcome.result.is_err() {
+        match crate::planner::recovery_contract_authority::bind_for_recovery(config) {
+            Ok(config) => config,
+            Err(binding_error) => {
+                let initial_error = outcome.result.expect_err("failed result checked above");
+                emit(
+                    config,
+                    "recovery_plan_auto_run_stopped",
+                    0,
+                    "completion_contract_binding_failed",
+                );
+                return Err(initial_error.context(format!(
+                    "automatic Recovery Plan stopped: completion contract binding failed: {binding_error}"
+                )));
+            }
+        }
+    } else {
+        config.clone()
+    };
     drive(
-        config,
+        &recovery_config,
         outcome,
         &mut RunnerRecoveryDriver {
             planner,
             execution,
-            config,
+            config: &recovery_config,
             ui,
             transaction_snapshot: None,
             transaction_treatment: None,
             transaction_config: None,
+            transaction_observer_identity: None,
         },
     )
 }
@@ -511,7 +560,15 @@ fn drive(
                     "not_configured",
                     "no registered command",
                 );
-                None
+                emit(
+                    config,
+                    "recovery_plan_auto_run_stopped",
+                    controller.used,
+                    "no_registered_pre_recovery_observation",
+                );
+                return Err(error.context(
+                    "automatic Recovery Plan stopped: no registered pre-recovery observation",
+                ));
             }
             RecoveryPreflight::Failed { reason } => {
                 emit_preflight(config, &candidate, "pre_recovery", "fail", &reason);
@@ -581,7 +638,9 @@ fn drive(
             );
             return Err(error);
         };
-        let candidate = if let Some(reason) = preflight_failure_reason.as_deref() {
+        let candidate = if let Some(reason) = preflight_failure_reason.as_deref()
+            && candidate.verify_command_source != "completion_contract"
+        {
             match bind_candidate_verify_commands(config, candidate, reason) {
                 Ok(candidate) => candidate,
                 Err(reason) => {
@@ -676,7 +735,7 @@ fn recovery_preflight(
                 };
             }
         };
-    let (capability_commands, unsupported_capabilities) =
+    let (capability_commands, unsupported_capabilities, nextjs_observer_required) =
         recovery_preflight_capability_commands(&contract);
     if !unsupported_capabilities.is_empty() {
         return RecoveryPreflight::Unavailable {
@@ -686,7 +745,10 @@ fn recovery_preflight(
             ),
         };
     }
-    if contract.verify_commands.is_empty() {
+    if contract.verify_commands.is_empty()
+        && capability_commands.is_empty()
+        && !nextjs_observer_required
+    {
         return RecoveryPreflight::NotConfigured;
     }
     let checkpoint = match crate::planner::recovery_snapshot::capture_for_transaction(
@@ -722,10 +784,10 @@ fn recovery_preflight(
             }
         };
     observation_config.eval_events_path = None;
-    let effect_policy =
-        crate::planner::recovery_observation_policy::RecoveryObservationPolicy::for_contract(
-            &contract,
-        );
+    let effect_policy = crate::planner::recovery_observation_policy::RecoveryObservationPolicy::for_contract_at_workspace(
+        &contract,
+        &observation,
+    );
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -749,6 +811,15 @@ fn recovery_preflight(
                 };
             }
         };
+    let nextjs_observer_result = if nextjs_observer_required {
+        Some(observe_nextjs_recovery_capabilities(
+            config,
+            &contract,
+            &observation,
+        ))
+    } else {
+        None
+    };
     let mut verify_commands = contract.verify_commands.clone();
     for command in capability_commands {
         push_unique(&mut verify_commands, command);
@@ -818,6 +889,9 @@ fn recovery_preflight(
             };
         }
     }
+    if let Some(Err(outcome)) = nextjs_observer_result {
+        return outcome;
+    }
     if report.is_pass() {
         return match completion_acceptance.expect("pass report records acceptance") {
             Ok(acceptance)
@@ -860,11 +934,82 @@ fn recovery_preflight(
     }
 }
 
+fn observe_nextjs_recovery_capabilities(
+    config: &Config,
+    contract: &crate::minimal_loop::completion::CompletionContract,
+    observation: &Path,
+) -> Result<(), RecoveryPreflight> {
+    let goal = contract.goal.as_deref().unwrap_or_default();
+    let port = crate::planner::profiles::nextjs::requested_or_default_port(goal);
+    let options = crate::planner::interaction_qualification::browser_interaction_probe_options(
+        &contract.required_capabilities,
+        &contract.required_evidence,
+    );
+    crate::eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_capability_observer_bound",
+            "observer_id": "nextjs_browser_interaction_v1",
+            "profile": crate::planner::profiles::nextjs::PROFILE_ID,
+            "port": port,
+            "required_capabilities": &contract.required_capabilities,
+            "persistence_required": options.persistence_required,
+            "observation_isolated": true,
+            "external_oracle_used": false,
+        }),
+    );
+    let readiness = crate::minimal_loop::browser_probe::probe_browser_readiness_with_offline_and_interaction_options(
+        observation,
+        crate::planner::profiles::nextjs::PROFILE_ID,
+        Some(port),
+        Duration::from_secs(120),
+        config.offline,
+        options,
+    );
+    if !readiness.ok {
+        let reason = format!("nextjs_route_observation_failed:{}", readiness.failure_kind);
+        return if readiness.status.starts_with("skipped") {
+            Err(RecoveryPreflight::Unavailable { reason })
+        } else {
+            Err(RecoveryPreflight::Failed { reason })
+        };
+    }
+    let evidence_path =
+        crate::minimal_loop::interaction_probe::browser_interaction_evidence_path(observation);
+    let bytes = std::fs::read(&evidence_path).map_err(|error| RecoveryPreflight::Unavailable {
+        reason: format!("nextjs_interaction_observation_unavailable:{error}"),
+    })?;
+    let evidence: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|error| RecoveryPreflight::Unavailable {
+            reason: format!("nextjs_interaction_observation_invalid:{error}"),
+        })?;
+    if evidence.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    let failure_kind = evidence
+        .get("failure_kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("interaction_failed");
+    let reason = format!("nextjs_interaction_observation_failed:{failure_kind}");
+    if evidence
+        .get("failure_category")
+        .and_then(serde_json::Value::as_str)
+        == Some("infrastructure")
+        || failure_kind.starts_with("probe_infrastructure_failed:")
+        || failure_kind.starts_with("probe_dependency_missing:")
+    {
+        Err(RecoveryPreflight::Unavailable { reason })
+    } else {
+        Err(RecoveryPreflight::Failed { reason })
+    }
+}
+
 fn recovery_preflight_capability_commands(
     contract: &crate::minimal_loop::completion::CompletionContract,
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, bool) {
     let mut commands = Vec::new();
     let mut unsupported = Vec::new();
+    let mut nextjs_observer_required = false;
     let input_output_bound = contract.has_registered_fix_reproducer();
     for capability in &contract.required_capabilities {
         if capability == "input_output_contract" && input_output_bound {
@@ -899,9 +1044,39 @@ fn recovery_preflight_capability_commands(
             }
             continue;
         }
+        if contract.profile.as_deref() == Some(crate::planner::profiles::nextjs::PROFILE_ID)
+            && matches!(
+                capability.as_str(),
+                "stateful_interaction"
+                    | "user_input_or_action"
+                    | "visible_state_change"
+                    | "persistence"
+            )
+        {
+            nextjs_observer_required = true;
+            continue;
+        }
         unsupported.push(capability.clone());
     }
-    (commands, unsupported)
+    if contract.profile.as_deref() == Some(crate::planner::profiles::nextjs::PROFILE_ID)
+        && contract.required_evidence.iter().any(|evidence| {
+            matches!(
+                evidence.as_str(),
+                "visible_interactive_surface_evidence"
+                    | "user_input_handler_evidence"
+                    | "stateful_update_evidence"
+                    | "non_static_screen_evidence"
+                    | "restart_or_recoverable_state_evidence"
+                    | "challenge_or_adversary_evidence"
+                    | "score_or_progression_evidence"
+                    | "failure_or_collision_evidence"
+                    | "persistence_evidence"
+            )
+        })
+    {
+        nextjs_observer_required = true;
+    }
+    (commands, unsupported, nextjs_observer_required)
 }
 
 fn bind_candidate_verify_commands(
@@ -1181,6 +1356,7 @@ enum CandidateStop {
     BoundaryCaptureFailed,
     TreatmentPrepareFailed,
     TreatmentContractBindFailed,
+    ObserverIdentityBindFailed,
     ContractCommandBindFailed,
     ContractHandoffBindFailed,
     ContractAcceptanceBindFailed,
@@ -1198,6 +1374,7 @@ impl CandidateStop {
             Self::BoundaryCaptureFailed => "boundary_capture_failed",
             Self::TreatmentPrepareFailed => "treatment_prepare_failed",
             Self::TreatmentContractBindFailed => "treatment_contract_bind_failed",
+            Self::ObserverIdentityBindFailed => "observer_identity_bind_failed",
             Self::ContractCommandBindFailed => "contract_command_bind_failed",
             Self::ContractHandoffBindFailed => "contract_handoff_bind_failed",
             Self::ContractAcceptanceBindFailed => "contract_acceptance_bind_failed",
@@ -1267,6 +1444,9 @@ fn emit_preflight(
     status: &str,
     reason: &str,
 ) {
+    let (contract_path, contract_sha256, observer_ids, registered_verify_command_count) =
+        recovery_observer_telemetry(config);
+    let typed_capability_observer_count = observer_ids.len();
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -1281,8 +1461,82 @@ fn emit_preflight(
             "recovery_handoff_kind": candidate.handoff.failure_kind,
             "recovery_failed_step": candidate.handoff.failed_step,
             "verify_command_count": candidate.handoff.verify_commands.len(),
+            "registered_verify_command_count": registered_verify_command_count,
+            "completion_contract_path": contract_path,
+            "completion_contract_sha256": contract_sha256,
+            "observer_ids": observer_ids,
+            "typed_capability_observer_count": typed_capability_observer_count,
         }),
     );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecoveryObserverIdentity {
+    completion_contract_sha256: String,
+    observer_ids: Vec<String>,
+    registered_verify_command_count: usize,
+}
+
+fn recovery_observer_identity(config: &Config) -> Option<RecoveryObserverIdentity> {
+    let (_, completion_contract_sha256, observer_ids, registered_verify_command_count) =
+        recovery_observer_telemetry(config);
+    if completion_contract_sha256.is_empty() || observer_ids.is_empty() {
+        return None;
+    }
+    Some(RecoveryObserverIdentity {
+        completion_contract_sha256,
+        observer_ids,
+        registered_verify_command_count,
+    })
+}
+
+fn recovery_observer_telemetry(config: &Config) -> (String, String, Vec<String>, usize) {
+    let Ok(Some(path)) =
+        crate::minimal_loop::completion::CompletionContract::configured_path_for_config(config)
+    else {
+        return (String::new(), String::new(), Vec::new(), 0);
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return (
+            path.to_string_lossy().replace('\\', "/"),
+            String::new(),
+            Vec::new(),
+            0,
+        );
+    };
+    let Ok(Some(contract)) =
+        crate::minimal_loop::completion::CompletionContract::load_for_config(config)
+    else {
+        return (
+            path.to_string_lossy().replace('\\', "/"),
+            format!("{:x}", Sha256::digest(&bytes)),
+            Vec::new(),
+            0,
+        );
+    };
+    let (capability_commands, _, nextjs_observer_required) =
+        recovery_preflight_capability_commands(&contract);
+    let mut observer_ids = Vec::new();
+    if !contract.verify_commands.is_empty() {
+        observer_ids.push("completion_contract_verify_commands".to_string());
+    }
+    if !capability_commands.is_empty() {
+        observer_ids.push("profile_capability_commands".to_string());
+    }
+    if nextjs_observer_required {
+        observer_ids.push("nextjs_browser_interaction_v1".to_string());
+    }
+    let display_path = path
+        .strip_prefix(&config.workspace_root)
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    (
+        display_path,
+        format!("{:x}", Sha256::digest(&bytes)),
+        observer_ids,
+        contract.verify_commands.len() + capability_commands.len(),
+    )
 }
 
 fn rejected_without_restore(mut outcome: AttemptOutcome, reason: &str) -> AttemptOutcome {
@@ -1551,6 +1805,12 @@ mod tests {
         }
     }
 
+    fn contract_bound_candidate(goal: &str) -> RecoveryCandidate {
+        let mut candidate = candidate(goal);
+        candidate.verify_command_source = "completion_contract".to_string();
+        candidate
+    }
+
     fn copy_fixture_tree(source: &Path, target: &Path) {
         std::fs::create_dir_all(target).unwrap();
         for entry in std::fs::read_dir(source).unwrap() {
@@ -1586,10 +1846,15 @@ mod tests {
         prepare_error: Option<CandidateStop>,
         outcomes: VecDeque<AttemptOutcome>,
         starts: Vec<u8>,
+        preflight: RecoveryPreflight,
     }
 
     impl RecoveryDriver for ScriptedDriver {
         type Prepared = UltraPlan;
+
+        fn preflight(&mut self, _candidate: &RecoveryCandidate) -> RecoveryPreflight {
+            self.preflight.clone()
+        }
 
         fn prepare(
             &mut self,
@@ -1625,6 +1890,9 @@ mod tests {
             prepare_error: None,
             outcomes: outcomes.into(),
             starts: Vec::new(),
+            preflight: RecoveryPreflight::Failed {
+                reason: "scripted_registered_observation_failed".to_string(),
+            },
         }
     }
 
@@ -1664,9 +1932,30 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let config = config(root.path(), 3);
         let mut driver = driver(vec![success("recovered")]);
-        let initial = failed(recoverable(candidate("first")));
+        let initial = failed(recoverable(contract_bound_candidate("first")));
         assert_eq!(drive(&config, initial, &mut driver).unwrap(), "recovered");
         assert_eq!(driver.starts, vec![1]);
+    }
+
+    #[test]
+    fn missing_pre_recovery_observation_stops_without_consuming_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path(), 3);
+        let mut driver = driver(vec![success("must not run")]);
+        driver.preflight = RecoveryPreflight::NotConfigured;
+        let initial = failed(recoverable(candidate("first")));
+
+        let error = drive(&config, initial, &mut driver).unwrap_err();
+
+        assert!(driver.starts.is_empty());
+        assert!(
+            error
+                .to_string()
+                .contains("no registered pre-recovery observation"),
+            "{error:#}"
+        );
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("no_registered_pre_recovery_observation"));
     }
 
     #[test]
@@ -1674,10 +1963,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let config = config(root.path(), 2);
         let mut driver = driver(vec![
-            failed(recoverable(candidate("second"))),
-            failed(recoverable(candidate("third"))),
+            failed(recoverable(contract_bound_candidate("second"))),
+            failed(recoverable(contract_bound_candidate("third"))),
         ]);
-        let initial = failed(recoverable(candidate("first")));
+        let initial = failed(recoverable(contract_bound_candidate("first")));
         assert!(drive(&config, initial, &mut driver).is_err());
         assert_eq!(driver.starts, vec![1, 2]);
         let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
@@ -2115,6 +2404,81 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_capabilities_bind_typed_observer_without_shell_commands() {
+        let contract = crate::minimal_loop::completion::CompletionContract {
+            required_paths: Vec::new(),
+            protected_paths: Vec::new(),
+            verify_commands: Vec::new(),
+            fix_reproducer_command: None,
+            profile: Some("nextjs".to_string()),
+            goal: Some("Create a persistent todo app".to_string()),
+            required_capabilities: vec![
+                "stateful_interaction".to_string(),
+                "user_input_or_action".to_string(),
+                "visible_state_change".to_string(),
+                "persistence".to_string(),
+            ],
+            deterministic_oracles: Vec::new(),
+            required_evidence: vec!["persistence_evidence".to_string()],
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 1,
+        };
+
+        let (commands, unsupported, nextjs_observer_required) =
+            recovery_preflight_capability_commands(&contract);
+
+        assert!(commands.is_empty());
+        assert!(unsupported.is_empty(), "{unsupported:?}");
+        assert!(nextjs_observer_required);
+
+        let mut evidence_only = contract;
+        evidence_only.required_capabilities.clear();
+        let (commands, unsupported, nextjs_observer_required) =
+            recovery_preflight_capability_commands(&evidence_only);
+        assert!(commands.is_empty());
+        assert!(unsupported.is_empty(), "{unsupported:?}");
+        assert!(nextjs_observer_required);
+    }
+
+    #[test]
+    fn recovery_observer_identity_changes_with_contract_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = config(root.path(), 1);
+        let path = root.path().join("completion-contract.json");
+        let mut contract = crate::minimal_loop::completion::CompletionContract {
+            required_paths: Vec::new(),
+            protected_paths: Vec::new(),
+            verify_commands: vec!["node --version".to_string()],
+            fix_reproducer_command: None,
+            profile: Some("nextjs".to_string()),
+            goal: Some("Create a TODO app on port 3011".to_string()),
+            required_capabilities: vec!["persistence".to_string()],
+            deterministic_oracles: Vec::new(),
+            required_evidence: vec!["persistence_evidence".to_string()],
+            evidence_hint_tokens: Vec::new(),
+            required_obligations: Vec::new(),
+            deferred_verify_requirements: Vec::new(),
+            verify_repair_cap: 1,
+        };
+        std::fs::write(&path, serde_json::to_vec(&contract).unwrap()).unwrap();
+        config.completion_contract_path = Some(path.clone());
+        let before = recovery_observer_identity(&config).expect("observer identity");
+
+        contract.verify_commands.push("npm run build".to_string());
+        std::fs::write(&path, serde_json::to_vec(&contract).unwrap()).unwrap();
+        let after = recovery_observer_identity(&config).expect("observer identity");
+
+        assert_ne!(before, after);
+        assert_eq!(before.observer_ids, after.observer_ids);
+        assert_ne!(
+            before.registered_verify_command_count,
+            after.registered_verify_command_count
+        );
+    }
+
+    #[test]
     fn preflight_observes_input_output_contract_with_bound_fix_reproducer() {
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("app.py");
@@ -2184,8 +2548,10 @@ mod tests {
             crate::minimal_loop::completion::CompletionContract::load_for_config(&config)
                 .unwrap()
                 .unwrap();
-        let (commands, unsupported) = recovery_preflight_capability_commands(&contract);
+        let (commands, unsupported, nextjs_observer_required) =
+            recovery_preflight_capability_commands(&contract);
         assert!(unsupported.is_empty(), "{unsupported:?}");
+        assert!(!nextjs_observer_required);
         assert!(commands.contains(
             &crate::planner::profiles::data::step_policy::catalog_check_command_with_input(
                 "pipeline_probe",

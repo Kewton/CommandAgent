@@ -30,6 +30,7 @@ const PROBE_REQUIRED_BEHAVIOR_KEYS: &[&str] = &[
     "stateful_update_evidence",
     "restart_or_recoverable_state_evidence",
     "live_preview_evidence",
+    "persistence_evidence",
 ];
 
 const DEEP_BEHAVIOR_KEYS: &[&str] = &[
@@ -171,11 +172,12 @@ pub fn arbitrate_final_acceptance(
             };
         }
         for (key, static_tier) in static_tiers {
-            let unverified = mark_unverified_if_probe_required_weak(
+            let unverified = mark_unverified_if_probe_required(
                 report,
                 &key,
                 &static_tier,
                 "probe_unavailable",
+                false,
             );
             let final_tier = if unverified {
                 "unverified:probe_unavailable".to_string()
@@ -213,7 +215,7 @@ pub fn arbitrate_final_acceptance(
         let probe_reason = observation.failure_kind.as_str();
         for (key, static_tier) in static_tiers {
             let unverified =
-                mark_unverified_if_probe_required_weak(report, &key, &static_tier, probe_reason);
+                mark_unverified_if_probe_required(report, &key, &static_tier, probe_reason, true);
             let final_tier = if unverified {
                 format!("unverified:{probe_reason}")
             } else {
@@ -533,13 +535,17 @@ fn mark_not_exercised_evidence(report: &mut RuntimeAcceptanceReport, key: &str, 
         .insert(key.to_string(), format!("not_exercised:{reason}"));
 }
 
-fn mark_unverified_if_probe_required_weak(
+fn mark_unverified_if_probe_required(
     report: &mut RuntimeAcceptanceReport,
     key: &str,
     static_tier: &str,
     probe_reason: &str,
+    allow_absent: bool,
 ) -> bool {
-    if static_tier != "weak" || !PROBE_REQUIRED_BEHAVIOR_KEYS.contains(&key) {
+    let requires_behavioral_probe = PROBE_REQUIRED_BEHAVIOR_KEYS.contains(&key);
+    let inconclusive_static_tier = static_tier == "weak"
+        || (allow_absent && key == "persistence_evidence" && static_tier == "absent");
+    if !requires_behavioral_probe || !inconclusive_static_tier {
         return false;
     }
     mark_unverified_evidence(report, key, probe_reason);
@@ -1902,6 +1908,67 @@ export default function Page() {
         assert_eq!(
             arbitration.summary,
             "partial (probe infrastructure failure: probe_dependency_missing:playwright_module_missing)"
+        );
+    }
+
+    #[test]
+    fn infrastructure_failure_marks_absent_persistence_unverified() {
+        let dir = tempfile::tempdir().unwrap();
+        write_page(
+            dir.path(),
+            r#""use client";
+export default function Page() {
+  return <main><input /><button>Add</button></main>;
+}
+"#,
+        );
+        write_interaction(
+            dir.path(),
+            json!({
+                "ok": false,
+                "status": "failed",
+                "interaction_success": false,
+                "stage": "observing",
+                "steps": ["surface_visible"],
+                "failure_kind": "probe_infrastructure_failed:probe_script_error",
+                "error": "element is not enabled"
+            }),
+        );
+        let required = ["persistence_evidence"];
+        let mut report = report_for(dir.path(), &required);
+        assert_eq!(
+            report
+                .evidence_tiers
+                .get("persistence_evidence")
+                .map(String::as_str),
+            Some("absent")
+        );
+
+        let arbitration = arbitrate_final_acceptance(
+            &mut report,
+            dir.path(),
+            &[dir.path().join(".anvil/runs/test")],
+            &[],
+            &required
+                .iter()
+                .map(|evidence| evidence.to_string())
+                .collect::<Vec<_>>(),
+            &[],
+        );
+
+        assert!(report.missing_evidence.is_empty(), "{report:?}");
+        assert!(
+            report.unverified_evidence.contains(
+                &"persistence_evidence:unverified:probe_infrastructure_failed:probe_script_error"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            arbitration
+                .records
+                .get("persistence_evidence")
+                .map(|record| record.decided_by.as_str()),
+            Some("probe_required")
         );
     }
 

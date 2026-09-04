@@ -161,9 +161,14 @@ pub async fn status(
             .take()
             .map(|section| super::public_projection::text(section, &workspace));
     }
-    let verdict = terminal_is_current
-        .then(|| project_verdict(current_events))
-        .flatten()
+    let verdict = failure_explanation
+        .as_ref()
+        .and_then(FailureExplanation::effective_final_acceptance_status)
+        .or_else(|| {
+            terminal_is_current
+                .then(|| project_verdict(current_events))
+                .flatten()
+        })
         .or_else(|| terminal.and_then(|event| string(event, "assurance_level")))
         .map(str::to_string);
     let assurance = cli_terminal

@@ -1,3 +1,4 @@
+mod api_contract;
 mod dependency_family;
 mod domain;
 mod fix_reproducer;
@@ -137,6 +138,9 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
     if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
         return profile_failure(project.rel_path(&reason));
     }
+    if let Some(reason) = api_contract::failure(&project.path) {
+        return profile_failure(project.rel_path(&reason));
+    }
     if let Some(reason) = client_component_contract_failure(&project.path) {
         return profile_failure(reason);
     }
@@ -198,6 +202,9 @@ pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
         return profile_failure(reason);
     }
     if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
+        return profile_failure(project.rel_path(&reason));
+    }
+    if let Some(reason) = api_contract::failure(&project.path) {
         return profile_failure(project.rel_path(&reason));
     }
     if let Some(reason) = client_component_contract_failure(&project.path) {

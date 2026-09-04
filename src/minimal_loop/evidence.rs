@@ -4122,6 +4122,8 @@ fn identifier_contains(identifier: &str, needle: &str) -> bool {
 mod tests {
     use super::*;
 
+    include!("evidence_persistence_tests.rs");
+
     fn route_bound_space_invaders_component() -> &'static str {
         r#""use client";
 import { useEffect, useState } from "react";

@@ -560,7 +560,6 @@ fn behavioral_interaction_failure_exhausts_after_two_reprobe_cycles() {
     let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
         .unwrap_err()
         .to_string();
-
     assert!(
         err.contains(
             "ultra final acceptance failed after bounded repair: browser_interaction_failed:input_state_change_missing_after_start"
@@ -1138,7 +1137,6 @@ fn final_acceptance_budget_exhaustion_uses_last_cycle_reason() {
     let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
         .unwrap_err()
         .to_string();
-
     assert!(
         err.contains("restart_or_recoverable_state_evidence"),
         "{err}"
@@ -1256,28 +1254,6 @@ fn runtime_guidance_for_restart_terminal_unreached_offers_partial_choice() {
 }
 
 #[test]
-fn persistence_reset_runtime_guidance_names_reload_persistence_repair() {
-    let report = RuntimeAcceptanceReport {
-        missing_evidence: vec!["persistence_evidence".to_string()],
-        ..RuntimeAcceptanceReport::default()
-    };
-
-    let guidance =
-        runtime_acceptance_repair_guidance("nextjs", "Create a persistent notes app", &report)
-            .join("\n");
-
-    assert!(
-        guidance.contains("load persisted state on mount"),
-        "{guidance}"
-    );
-    assert!(
-        guidance.contains("read localStorage in initialization"),
-        "{guidance}"
-    );
-    assert!(guidance.contains("write on mutation"), "{guidance}");
-}
-
-#[test]
 fn token_echo_missing_runtime_guidance_names_live_preview_repair() {
     let report = RuntimeAcceptanceReport {
         missing_evidence: vec!["live_preview_evidence".to_string()],
@@ -1365,3 +1341,5 @@ fn browser_interaction_probe_options_require_text_echo_for_preview_contracts() {
     assert!(live_preview.text_entry_required);
     assert!(live_preview.token_echo_required);
 }
+
+include!("recovery_acceptance_contract_tests.rs");

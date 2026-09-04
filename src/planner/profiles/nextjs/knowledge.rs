@@ -354,7 +354,7 @@ mod tests {
         );
         assert_eq!(
             guidance.persistence,
-            "load persisted state on mount (e.g. read localStorage in initialization) and write on mutation"
+            "persist the committed domain entity using the storage kind required by the goal: keep server-side file/API/DB persistence when requested, use browser storage only when that is the requested boundary, reload the committed entity after each mutation, and do not substitute persistence of a cleared draft input"
         );
     }
 

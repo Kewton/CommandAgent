@@ -30,6 +30,8 @@ fixtures/rejected-treatment.jsonl = [
   "\"recovery_treatment_path\":\".commandagent/recovery-treatments/attempt-1/workspace\"",
   "\"event\":\"recovery_control_retained\"",
   "\"decision\":\"rejected\"",
+  "\"final_acceptance_status\":\"incomplete\"",
+  "\"final_acceptance_status\":\"full_success\"",
   "\"event\":\"tui_command_stop\""
 ]
 fixtures/promoted-treatment.jsonl = [

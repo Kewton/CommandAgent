@@ -212,6 +212,17 @@ persistence = [
   ".getitem(",
   "navigator.storage",
   "caches.open(",
+  "writefile(",
+  "writefilesync(",
+  "fs.promises.writefile",
+  "method: \"post\"",
+  "method: 'post'",
+  "method: \"put\"",
+  "method: 'put'",
+  "method: \"patch\"",
+  "method: 'patch'",
+  "method: \"delete\"",
+  "method: 'delete'",
 ]
 
 [goal_hints]

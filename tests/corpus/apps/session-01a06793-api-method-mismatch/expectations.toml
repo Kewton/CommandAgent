@@ -1,0 +1,28 @@
+case_id = "session-01a06793_api_method_mismatch"
+source = "session 01a06793 rejected Recovery treatment API contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = ["src/app/page.tsx", "src/app/api/todos/route.ts"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+src/app/page.tsx = ["method: \"PUT\"", "method: \"DELETE\"", "response.ok"]
+src/app/api/todos/route.ts = ["function GET", "function POST"]

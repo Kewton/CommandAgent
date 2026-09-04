@@ -2,6 +2,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::minimal_loop::interaction_probe::BrowserInteractionProbeOptions;
+
 pub const INTERACTION_VERIFIED_HEURISTIC_ONLY: &str = "interaction_verified_heuristic_only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,48 @@ pub fn contract_requires_restart(
         || required_evidence
             .iter()
             .any(|item| item == "restart_or_recoverable_state_evidence")
+}
+
+pub(crate) fn browser_interaction_probe_options(
+    required_capabilities: &[String],
+    required_evidence: &[String],
+) -> BrowserInteractionProbeOptions {
+    let mut requirements = required_capabilities.iter().chain(required_evidence.iter());
+    let text_entry_required = requirements.clone().any(|value| {
+        let lower = value.to_ascii_lowercase();
+        lower.contains("text")
+            || lower.contains("editor")
+            || lower.contains("note")
+            || lower.contains("todo")
+            || lower.contains("content")
+            || lower.contains("preview")
+            || lower.contains("render")
+            || lower == "input_output_contract"
+            || lower == "requested_content"
+            || lower == "requested_content_evidence"
+            || lower == "live_preview"
+            || lower == "live_preview_evidence"
+    });
+    let token_echo_required = requirements.any(|value| {
+        let lower = value.to_ascii_lowercase();
+        lower.contains("preview")
+            || lower.contains("render")
+            || lower.contains("content")
+            || lower == "requested_content"
+            || lower == "requested_content_evidence"
+            || lower == "live_preview"
+            || lower == "live_preview_evidence"
+    });
+    BrowserInteractionProbeOptions {
+        persistence_required: required_capabilities
+            .iter()
+            .any(|capability| capability == "persistence")
+            || required_evidence
+                .iter()
+                .any(|evidence| evidence == "persistence_evidence"),
+        text_entry_required,
+        token_echo_required,
+    }
 }
 
 pub(crate) fn enforce_release_gate(

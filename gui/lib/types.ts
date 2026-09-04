@@ -358,6 +358,14 @@ export type FailureExplanation = {
     suggested_yaml_command: BoundedText | null;
     continuation_eligible: boolean;
     continuation_reason: BoundedText;
+    resolution: {
+      control_final_acceptance_status: BoundedText | null;
+      treatment_final_acceptance_status: BoundedText | null;
+      treatment_promotion_status: "not_attempted" | "pending" | "promoted" | "rejected";
+      treatment_rejection_reason: BoundedText | null;
+      control_retained: boolean;
+      effective_artifact_source: "control" | "promoted_treatment";
+    };
   };
   technical: {
     machine_codes: BoundedTextList;

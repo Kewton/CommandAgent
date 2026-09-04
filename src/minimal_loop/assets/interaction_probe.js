@@ -31,6 +31,7 @@ let stage = "resolving";
 let before_marker = "";
 let after_marker = "";
 let input_before_marker = "";
+let input_typed_marker = "";
 let input_after_marker = "";
 let recovery_before_marker = "";
 let recovery_after_marker = "";
@@ -63,6 +64,8 @@ let token_echoed_after_reload = false;
 let token_echo_after_reload_latency_ms = null;
 let text_input_state_change = false;
 let informational_failure_kinds = [];
+let http_mutation_observations = [];
+let http_mutation_failure = "";
 let server_check = { ok: false, status: null, error: "" };
 let post_js_surface = null;
 let cold_start_ms = null;
@@ -529,30 +532,6 @@ function mergeStateDimensionsChanged(keys) {
   state_dimensions_changed.sort();
 }
 
-function retainedChangedStateKeys(inputBeforeText, inputAfterText, beforeReloadText) {
-  const changed = changedTopLevelStateKeys(inputBeforeText, inputAfterText);
-  if (changed.length === 0) return [];
-  const inputBefore = contractStatesFromMarker(inputBeforeText);
-  const inputAfter = contractStatesFromMarker(inputAfterText);
-  const beforeReload = contractStatesFromMarker(beforeReloadText);
-  const retained = new Set();
-  const count = Math.max(inputBefore.length, inputAfter.length, beforeReload.length);
-  for (let index = 0; index < count; index += 1) {
-    const beforeState = inputBefore[index] || {};
-    const afterState = inputAfter[index] || {};
-    const reloadState = beforeReload[index] || {};
-    for (const key of changed) {
-      if (
-        stableStateString(beforeState[key]) !== stableStateString(afterState[key]) &&
-        stableStateString(afterState[key]) === stableStateString(reloadState[key])
-      ) {
-        retained.add(key);
-      }
-    }
-  }
-  return Array.from(retained).sort();
-}
-
 function changedStateKeysPreservedAfterReload(keys, beforeReloadText, afterReloadText) {
   const beforeReload = contractStatesFromMarker(beforeReloadText);
   const afterReload = contractStatesFromMarker(afterReloadText);
@@ -587,8 +566,11 @@ function observedMutationDimensions() {
 }
 
 function contractPersistenceMutationKeys(beforeReloadText) {
-  const retained = retainedChangedStateKeys(input_before_marker, input_after_marker, beforeReloadText);
-  return retained.length > 0 ? retained : observedMutationDimensions();
+  if (!input_before_marker || !beforeReloadText) return [];
+  const committed = changedTopLevelStateKeys(input_before_marker, beforeReloadText);
+  if (!input_typed_marker) return committed;
+  const draft = new Set(changedTopLevelStateKeys(input_before_marker, input_typed_marker));
+  return committed.filter((key) => !draft.has(key));
 }
 
 function evaluatePersistenceAfterReload(mode, beforeReloadText, afterReloadText) {
@@ -679,17 +661,7 @@ async function evaluatePersistenceReload(page, mode) {
     return;
   }
   mark("persistence_reload");
-  let typedTokenWasPresent = false;
-  if (text_input_state_change) {
-    const tokenPresentStartedAt = Date.now();
-    const tokenPresent = await pollTokenPresentInPersistenceSurface(
-      page,
-      typed_token,
-      tokenPresentStartedAt,
-      tokenPresentStartedAt + PERSISTENCE_SURFACE_SETTLE_MS
-    );
-    typedTokenWasPresent = tokenPresent.matched;
-  }
+  const typedTokenWasPresent = text_input_state_change && token_echoed;
   persistence_before_reload_marker = await settledRenderedValue(
     page,
     () => activeMarker(page, mode),
@@ -724,7 +696,7 @@ async function evaluatePersistenceReload(page, mode) {
       let typedTokenSurvived = reloadEcho.matched;
       if (!typedTokenSurvived) {
         const tokenSurvivedStartedAt = Date.now();
-        const survived = await pollTokenPresentInPersistenceSurface(
+        const survived = await pollTokenEchoedOutsideTextEntryTarget(
           page,
           typed_token,
           tokenSurvivedStartedAt,
@@ -1058,31 +1030,6 @@ async function pollTokenEchoedOutsideTextEntryTarget(page, token, startedAt, dea
   });
 }
 
-async function tokenPresentInPersistenceSurfaceNow(page, token) {
-  if (!token) return false;
-  return await page.evaluate((value) => {
-    const bodyText = document.body && document.body.innerText ? document.body.innerText : "";
-    if (bodyText.includes(value)) return true;
-    for (const el of Array.from(document.querySelectorAll("input, textarea"))) {
-      if ((el.value || "").includes(value)) return true;
-    }
-    for (const el of Array.from(document.querySelectorAll("[data-anvil-state]"))) {
-      if ((el.getAttribute("data-anvil-state") || "").includes(value)) return true;
-    }
-    return false;
-  }, token);
-}
-
-async function pollTokenPresentInPersistenceSurface(page, token, startedAt, deadlineAt) {
-  if (!token) return { matched: false, value: false, latency_ms: null };
-  return await pollRenderedAssertion(page, () => tokenPresentInPersistenceSurfaceNow(page, token), {
-    startedAt,
-    deadlineAt,
-    intervalMs: RENDER_POLL_INTERVAL_MS,
-    matches: (found) => found === true
-  });
-}
-
 async function attemptTextEntry(page, mode) {
   const candidate = await textEntryCandidate(page);
   if (!candidate) {
@@ -1100,7 +1047,11 @@ async function attemptTextEntry(page, mode) {
     });
     await locator.focus({ timeout: 1200 });
     await page.keyboard.type(typed_token, { delay: 5 });
-    await clickPrimaryActionIfPresent(page);
+    input_typed_marker = await activeMarker(page, mode);
+    const primaryClicked = await clickPrimaryActionIfPresent(page);
+    if (mode === "contract" && !primaryClicked) {
+      informational_failure_kinds.push("primary_action_disabled_after_text_entry");
+    }
     const echoStartedAt = Date.now();
     input_after_marker = await markerAfterActiveChange(page, mode, input_before_marker, 800);
     text_input_state_change = input_before_marker !== input_after_marker;
@@ -1325,6 +1276,25 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
     mark("launching");
     browser = await chromium.launch({ headless: true, timeout: LAUNCH_TIMEOUT_MS });
     const page = await browser.newPage();
+    page.on("response", (response) => {
+      try {
+        const request = response.request();
+        const method = String(request.method() || "").toUpperCase();
+        if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return;
+        const observation = {
+          method,
+          status: response.status(),
+          ok: response.ok(),
+          url: String(response.url() || "").slice(0, 240)
+        };
+        if (http_mutation_observations.length < 20) {
+          http_mutation_observations.push(observation);
+        }
+        if (!observation.ok && !http_mutation_failure) {
+          http_mutation_failure = `http_mutation_failed:${method}:${observation.status}`;
+        }
+      } catch (_) {}
+    });
     mark("server_check");
     server_check = await rawHttpGet(url);
     if (!server_check.ok) {
@@ -1354,14 +1324,27 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       const startControl = page.locator('[data-anvil-action="primary"]').first();
       if (await startControl.count()) {
         initial_start_text = await controlText(startControl);
-        await startControl.click({ timeout: 5000 });
-        after_marker = await markerAfterActiveChange(page, probe_mode, before_marker, 800);
-        if (before_marker !== after_marker) {
-          primary_transition_observed = true;
-          transitionObserved = true;
-          steps.push("start_transition");
+        let startControlEnabled = false;
+        try {
+          startControlEnabled = await startControl.isEnabled();
+        } catch (_) {}
+        if (startControlEnabled) {
+          try {
+            await startControl.click({ timeout: 1200 });
+            after_marker = await markerAfterActiveChange(page, probe_mode, before_marker, 800);
+            if (before_marker !== after_marker) {
+              primary_transition_observed = true;
+              transitionObserved = true;
+              steps.push("start_transition");
+            } else {
+              steps.push("primary_start_transition_missing");
+            }
+          } catch (_) {
+            steps.push("primary_start_transition_missing");
+          }
         } else {
           steps.push("primary_start_transition_missing");
+          informational_failure_kinds.push("primary_start_control_disabled_before_text_entry");
         }
       }
       if (!transitionObserved) {
@@ -1404,12 +1387,18 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
 
     if (!transitionObserved) {
       start_control_found = await hasStartLikeControl(page);
-      if (!start_control_found) {
+      if (!start_control_found && !textEntryObserved) {
         await dispatchStartlessTextInput(page, probe_mode);
       }
     }
     await page.waitForTimeout(RENDER_SETTLE_MS);
     await recordCanvasSnapshot(page, "after_inputs");
+
+    // Persistence must observe the committed mutation before a restart/reset
+    // action can change the state being compared.
+    if (persistenceRequired) {
+      await evaluatePersistenceReload(page, probe_mode);
+    }
 
     if (transitionObserved && probe_mode === "contract") {
       await attemptContractRecoveryTransition(page, after_marker);
@@ -1426,7 +1415,9 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
     }
     await recordCanvasSnapshot(page, "after_recovery");
 
-    await evaluatePersistenceReload(page, probe_mode);
+    if (!persistenceRequired) {
+      await evaluatePersistenceReload(page, probe_mode);
+    }
 
     if (!primary_transition_observed && transitionObserved) {
       informational_failure_kinds.push("primary_start_transition_missing");
@@ -1464,11 +1455,16 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       && inputStateChanged
       && ((transitionObserved && inputEvaluated) || startlessInputObserved)
       && (!tokenEchoRequired || token_echoed)
-      && (!persistenceRequired || persistence_after_reload !== "reset")
+      && (!persistenceRequired || persistence_after_reload === "preserved")
+      && !http_mutation_failure
       && !canvasBlankFailure;
     const recoveryObserved = steps.includes("recovery_transition");
-    const failureKind = persistenceRequired && persistence_after_reload === "reset"
-      ? "persistence_after_reload_reset"
+    const failureKind = http_mutation_failure
+      ? http_mutation_failure
+      : persistenceRequired && persistence_after_reload !== "preserved"
+      ? (persistence_after_reload === "reset"
+        ? "persistence_after_reload_reset"
+        : `persistence_not_evaluated:${persistence_after_reload_reason || "no_committed_mutation"}`)
       : tokenEchoRequired && !token_echoed
         ? (token_echoed_after_reload ? "token_echo_after_reload_only" : "token_echo_missing")
       : textEntryRequired && text_entry !== "entered"
@@ -1531,6 +1527,8 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       measured_navigation_ms,
       warmup_attempts,
       informational_failure_kinds,
+      http_mutation_observations,
+      http_mutation_failure,
       steps,
       stage,
       before_marker,
@@ -1610,6 +1608,8 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       measured_navigation_ms,
       warmup_attempts,
       informational_failure_kinds,
+      http_mutation_observations,
+      http_mutation_failure,
       failure_kind: err && err.anvilFailureKind ? err.anvilFailureKind : "probe_script_error",
       navigation_failure_kind: err && err.navigationFailureKind ? err.navigationFailureKind : "",
       error: err && err.message ? err.message : String(err),
