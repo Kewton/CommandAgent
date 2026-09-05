@@ -1,0 +1,10 @@
+[
+  {"command":"cat \"src/app/api/expenses/[id]/route.ts\"", "contains":"expense-detail"},
+  {"command":"cat src/app/api/expenses/\\[id\\]/route.ts", "contains":"expense-detail"},
+  {"command":"cat 'src/app/api/expenses/[id]/approve/route.ts'", "contains":"expense-approve"},
+  {"command":"cat src/app/api/expenses/\\[id\\]/reject/route.ts", "contains":"expense-reject"},
+  {"command":"cat src/app/api/expenses/'[id]'\"/approve/route.ts\"", "contains":"expense-approve"},
+  {"command":"cat 'src/app/api/expenses/[id]/route.ts' 2>/dev/null", "contains":"expense-detail"},
+  {"command":"ls src/app/api/expenses 2>/dev/null;cat 'src/app/api/expenses/[id]/reject/route.ts'", "contains":"expense-reject"},
+  {"command":"cat <'src/app/api/expenses/[id]/approve/route.ts' 2>/dev/null;cat src/app/api/expenses/\\[id\\]/reject/route.ts", "contains":"expense-reject"}
+]

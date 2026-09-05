@@ -1,0 +1,8 @@
+case_id = "issue428-bash-dynamic-route"
+source = "Synthetic E1 Recovery regression from Issue #428; source and commands only, no historical logs"
+required_paths = ["src/app/api/expenses/[id]/route.ts", "src/app/api/expenses/[id]/approve/route.ts", "src/app/api/expenses/[id]/reject/route.ts"]
+required_evidence = ["interaction_smoke"]
+acceptance_passed = false
+
+[compile]
+expect = "not_checked"

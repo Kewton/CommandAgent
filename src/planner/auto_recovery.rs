@@ -1779,6 +1779,10 @@ mod tests {
     use clap::Parser;
     use std::collections::VecDeque;
 
+    mod issue428 {
+        include!("auto_recovery/issue428_tests.rs");
+    }
+
     #[derive(Clone)]
     struct UnusedClient;
 
