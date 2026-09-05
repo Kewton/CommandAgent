@@ -93,7 +93,7 @@ fn mutation_response_checked(content: &str, matched: Option<regex::Match<'_>>) -
         .rfind([';', '\n', '{'])
         .map_or(0, |index| index + 1);
     let prefix = content[prefix_start..matched.start()].trim();
-    let suffix_end = matched.end().saturating_add(4_096).min(content.len());
+    let suffix_end = crate::util::floor_char_boundary(content, matched.end().saturating_add(4_096));
     let suffix = &content[matched.end()..suffix_end];
     if prefix.starts_with("return ") || suffix.contains(").ok") || suffix.contains(").ok;") {
         return true;
@@ -235,6 +235,86 @@ fn source_files(root: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn response_checked(prefix: &str, suffix: &str) -> bool {
+        let fetch = r#"fetch("/api/shifts", { method: "POST""#;
+        let content = format!("// シフト ─ 😀\n{prefix}{fetch}{suffix}");
+        let pattern = Regex::new(&regex::escape(fetch)).unwrap();
+        mutation_response_checked(&content, pattern.find(&content))
+    }
+
+    #[test]
+    fn response_window_handles_characters_around_every_utf8_cutoff() {
+        for symbol in ["日", "─", "😀", "a"] {
+            // Include both adjacent boundaries and every interior UTF-8 byte.
+            for symbol_start in (4_096 - symbol.len() - 1)..=4_097 {
+                for checked in [false, true] {
+                    let head = if checked {
+                        " });\nif (!response.ok) throw new Error();\n//"
+                    } else {
+                        " });\n//"
+                    };
+                    let suffix = format!(
+                        "{head}{}{symbol}\n// end",
+                        " ".repeat(symbol_start - head.len())
+                    );
+                    assert_eq!(
+                        response_checked("const response = await ", &suffix),
+                        checked,
+                        "symbol={symbol:?}, symbol_start={symbol_start}, checked={checked}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn response_check_must_fit_within_4096_bytes() {
+        for symbol in ["日", "─", "😀", "a"] {
+            for token in ["response.ok", ").ok"] {
+                for token_end in [4_095, 4_096, 4_097] {
+                    let head = " });\n/*";
+                    let comment_end = "*/\n";
+                    let padding = token_end - head.len() - comment_end.len() - token.len();
+                    let suffix = format!(
+                        "{head}{}{}{comment_end}{token};\n",
+                        symbol.repeat(padding / symbol.len()),
+                        " ".repeat(padding % symbol.len())
+                    );
+                    assert_eq!(
+                        response_checked("const response = await ", &suffix),
+                        token_end <= 4_096,
+                        "symbol={symbol:?}, token={token:?}, token_end={token_end}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn short_response_window_preserves_response_recognition() {
+        for (prefix, suffix, expected) in [
+            ("const response = await ", "", false),
+            ("const response = await ", " }); // 保存 ─ 😀", false),
+            ("const response = await ", " }); response.ok;", true),
+            ("const response = await ", " }); other.ok;", false),
+            ("const response = await ", " }); response.okay;", false),
+            ("const response = await ", " }); myresponse.ok;", false),
+            ("const response = await ", " }); response.status;", false),
+            ("let result = await ", " }); result . ok;", true),
+            ("var result = await ", " }); result.ok;", true),
+            ("await ", " }); response.ok;", false),
+            ("return await ", " });", true),
+            ("const ok = (await ", " })).ok;", true),
+        ] {
+            assert_eq!(
+                response_checked(prefix, suffix),
+                expected,
+                "{prefix}{suffix}"
+            );
+        }
+        assert!(!mutation_response_checked("", None));
+    }
 
     fn write(root: &Path, path: &str, content: &str) {
         let path = root.join(path);

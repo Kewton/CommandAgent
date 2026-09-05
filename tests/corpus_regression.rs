@@ -327,6 +327,31 @@ fn session_01a06793_api_method_mismatch_fails_profile_acceptance() {
 }
 
 #[test]
+fn issue430_utf8_response_window_reports_honest_api_failure() {
+    let root = Path::new("tests/corpus/apps/issue430-nextjs-utf8-response-window");
+    let source = std::fs::read_to_string(root.join("src/app/page.tsx")).unwrap();
+    let fetch = regex::Regex::new(r#"fetch\("/api/shifts", \{ method: "POST""#).unwrap();
+    let cutoff = fetch.find(&source).unwrap().end() + 4_096;
+    assert!(!source.is_char_boundary(cutoff));
+    assert_eq!(&source[cutoff - 1..cutoff + 2], "─");
+
+    let goal = "Create a shift app on port 3011";
+    for report in [
+        verify_profile_final(root, "nextjs", goal),
+        verify_profile_invariant(root, "nextjs", goal, &ProfileSnapshot::None),
+    ] {
+        assert!(!report.is_pass(), "{report:?}");
+        assert_eq!(
+            report.profile_failures,
+            [
+                "api_contract_failure: POST /api/shifts used by src/app/page.tsx does not check Response.ok before accepting the mutation"
+            ],
+            "{report:?}"
+        );
+    }
+}
+
+#[test]
 fn foreign_compile_incident_fixture_is_not_repairable() {
     let path = Path::new(
         "tests/corpus/apps/test0816_gui_foreign_compile/fixtures/foreign-compile-error.json",
