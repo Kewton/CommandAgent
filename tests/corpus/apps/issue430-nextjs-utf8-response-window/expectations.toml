@@ -1,0 +1,13 @@
+case_id = "issue430-nextjs-utf8-response-window"
+source = "Synthetic S1-style Issue #430 UTF-8 cutoff and unchecked mutation regression"
+required_paths = ["src/app/page.tsx", "src/app/api/shifts/route.ts"]
+
+[route_closure]
+include = ["src/app/page.tsx", "src/app/api/shifts/route.ts"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+src/app/page.tsx = ["シフト管理 😀", "─", "method: \"POST\"", "response.json()"]
+src/app/api/shifts/route.ts = ["function POST"]
