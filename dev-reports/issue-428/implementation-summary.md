@@ -1,0 +1,11 @@
+# Issue #428 implementation summary
+
+- Added `src/tools/bash/path_tokens.rs` and wired its candidates into Bash confinement. Literal shell words preserve adjacent quoted fragments and escapes; unquoted redirects/separators end words, so `[id]/route.ts` stays relative and `2>/dev/null;` supplies exactly `/dev/null` as the redirect path.
+- Retained conservative embedded-path inspection for assignments/options, interpreter payloads, expansion/glob syntax, and malformed quotes. A quoted or escaped `/dev/null;` remains a different path and is rejected. Diagnostic-output scanning remains unchanged.
+- Applied the existing path proof to reconstructed relative paths and workspace absolute paths. This prevents fixing the bogus suffix rejection from admitting actual parent traversal or symlink escapes, including reads and missing write leaves. Existing system-prefix exceptions and write authorization remain unchanged.
+- Added leaf unit tests and `tests/issue428_bash_path_tokens.rs` for successful route/redirect execution, outside references, embedded syntax, read/write traversal and symlinks, unquoted glob escapes, and unapproved writes. Existing Bash confinement tests remain intact.
+- Added the source-only `tests/corpus/apps/issue428-bash-dynamic-route` fixture with E1-style expense detail/approve/reject reads. A test-only four-line attachment in `src/planner/auto_recovery.rs` runs a leaf test against real isolated treatment creation and `RunnerRecoveryDriver::finish`: successful reads still yield rejected promotion for failed build verification, failed approval verification, or missing business-interaction evidence, and original source bytes stay unchanged.
+
+The fixture is synthetic. Its build-failure script is a deterministic failed-build result for the real gate, and its approval script checks the intentionally unrepaired expense status. This verifies policy and promotion behavior without claiming a real Next.js build, browser acceptance run, or live-provider Recovery replay.
+
+No event name/schema, production Recovery gate, live runtime state, historical evidence, guardrail baseline, or shared corpus driver changed. No push, PR, merge, Issue mutation, live-provider probe, or CommandMate operation was performed.

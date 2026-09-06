@@ -3455,6 +3455,19 @@ module.exports = {
         }
     }
 
+    /// Wall-clock budget handed to the probe for fake-Playwright scenarios.
+    ///
+    /// This mirrors the smallest production budget (`browser_probe.rs` passes
+    /// 60s; acceptance passes 120s) rather than a tighter test-only value.
+    /// A negative scenario such as `draft_only_persistence` legitimately
+    /// exhausts three full 3s polling windows (live token echo, post-reload
+    /// persistence marker, post-reload token echo) plus the input-marker and
+    /// recovery-transition waits, which is ~12s of pure waiting on an idle
+    /// machine. A 12s budget therefore left no headroom for CI scheduling
+    /// jitter and produced spurious `probe_infrastructure_failed:probe_timeout`
+    /// failures instead of the persistence verdict under test.
+    const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
+
     fn run_fake_probe_scenario(
         scenario: &str,
         options: BrowserInteractionProbeOptions,
@@ -3474,7 +3487,7 @@ module.exports = {
             port,
             &run_dir,
             &path,
-            Duration::from_secs(12),
+            FAKE_PROBE_SCENARIO_BUDGET,
             options,
         );
         let _ = server.join();

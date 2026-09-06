@@ -6,6 +6,8 @@ use anyhow::{Context, bail};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
+mod path_tokens;
+
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_STREAM_BYTES: usize = 24_000;
 const OUTSIDE_WORKSPACE_MARKER: &str = "[outside workspace root — do not reference]";
@@ -692,15 +694,20 @@ pub fn path_confinement_rejection(
             message,
         });
     }
-    for candidate in absolute_path_candidates(command) {
-        if bash_path_allowed(candidate, &root, &raw_root) {
+    for candidate in path_tokens::path_candidates(command) {
+        if bash_path_allowed(&candidate, &root, &raw_root) {
             continue;
         }
-        let nearest_relative = nearest_relative_form(candidate, &root);
+        let nearest_relative = nearest_relative_form(&candidate, &root);
         let guidance = workspace_relative_retry_guidance(&nearest_relative);
         let root_display = root.to_string_lossy().to_string();
+        let path_kind = if Path::new(&candidate).is_absolute() {
+            "absolute"
+        } else {
+            "relative"
+        };
         let reason = format!(
-            "absolute path `{candidate}` resolves outside current workspace root `{root_display}`"
+            "{path_kind} path `{candidate}` resolves outside current workspace root `{root_display}`"
         );
         return Some(BashPathConfinementRejection {
             path: candidate.to_string(),
@@ -710,7 +717,7 @@ pub fn path_confinement_rejection(
             operation: "path reference".to_string(),
             reason,
             message: format!(
-                "bash_path_confinement_error: rejected absolute path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
+                "bash_path_confinement_error: rejected {path_kind} path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
             ),
         });
     }
@@ -817,14 +824,18 @@ fn is_absolute_path_candidate_start(line: &str, start: usize) -> bool {
 
 fn bash_path_allowed(candidate: &str, canonical_root: &Path, raw_root: &Path) -> bool {
     let path = Path::new(candidate);
-    if !path.is_absolute() || candidate == "/" {
+    if !path.is_absolute() || path.starts_with(canonical_root) || path.starts_with(raw_root) {
+        // Keeping a dynamic route whole must not hide traversal or a symlink
+        // escape that the old suffix scan rejected. Reuse the existing path
+        // proof, including canonicalization of a missing leaf's parent.
+        return super::path_guard::ensure_bash_write_target(canonical_root, candidate).is_ok();
+    }
+    if candidate == "/" {
         return true;
     }
     let comparable = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     comparable.starts_with(canonical_root)
         || comparable.starts_with(raw_root)
-        || path.starts_with(canonical_root)
-        || path.starts_with(raw_root)
         || is_system_prefix_allowed(&comparable)
 }
 
