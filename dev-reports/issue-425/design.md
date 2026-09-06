@@ -1,37 +1,40 @@
-# Issue #425 Design
+# Issue #425 Reopen Design
 
-## Problem
+## Evidence and scope
 
-Create runs can generate the authoritative `completion-contract-ultra-plan-run.json`
-with an empty `verify_commands` list. A failed step still records its normalized
-verification commands in the typed Recovery handoff. Recovery preflight can
-therefore observe a genuine Next.js failure, but the later contract-command bind
-rejects the empty run contract and stops before executing the Recovery Plan.
+The current Issue body and owner comment 5550459250 (2026-09-05) supersede
+the original repair. The worktree starts at 6ccc3913, the previous #425 fix;
+its generated-contract binder only fills an empty contract from a nonempty
+failure handoff. Read-only stagnation reads the empty step contract, while
+phase execution, invariant and final-acceptance failures pass empty commands.
+This explains the empty-contract / empty-handoff cycle. The existing bounded
+repair 4/1/1 command handoffs must remain usable.
 
-## Design
+## Design before implementation
 
-- At the Recovery contract-authority boundary, pass the failed candidate's typed
-  handoff verification commands into the run-contract binder.
-- Only when the selected contract is the host-generated run contract, its command
-  list is empty, and its profile is `nextjs` or `generic`, validate and persist the
-  handoff commands into that contract before Recovery preflight and candidate
-  rebinding. These commands already came from the executed, normalized step plan;
-  completion-contract validation remains the final admission gate.
-- Never augment a user-configured contract or a generated data-profile contract.
-  The existing rule that Recovery may use only commands registered by those
-  contracts remains unchanged.
-- Preserve existing event names and stop-code fields. Add a human-readable
-  `recovery_plan_auto_run_stop_summary` field and include the readable summary in
-  returned errors while retaining the stable machine code.
+- Initialize the generated run contract before phase execution, with validated
+  verification commands supplied by the product's profile runtime. Keep
+  step-scoped acceptance contracts narrow: no eager whole-app build there.
+- Register validated commands from the admitted StepPlan before its execution
+  in the generated Next.js/generic run contract. Preserve those registrations
+  when acceptance refreshes the run contract. Do not augment configured or data
+  contracts, and do not invent generic commands when no authority exists.
+- Centralize read-only selection of the authoritative run contract for failure
+  handoffs. Use it for stagnation, phase and final-acceptance failures and empty
+  bounded-repair handoffs; retain nonempty bounded-repair checks.
+- Retain the existing automatic candidate bind and typed business observers.
+  Build success alone cannot establish business acceptance. Keep existing event
+  names/schema and readable stop summaries; any telemetry addition is additive.
+- Add focused generation, empty/registered contract, step verify present/absent,
+  phase/final-acceptance/bounded exhaustion and candidate competition tests, plus
+  a corpus fixture. Use independent temporary sessions and deterministic local
+  checks for Recovery execution and post-Recovery failure measurement.
 
-## Tests and verification
+## Verification and limits
 
-- Add focused unit tests for generated Next.js and generic command completion,
-  configured-contract immutability, and data-profile non-augmentation.
-- Add an auto-Recovery test proving a failed candidate reaches its first Recovery
-  execution after generated-contract completion without emitting
-  `contract_command_bind_failed`.
-- Add a corpus fixture covering the additive event fields and generated-contract
-  command provenance.
-- Run focused Rust tests, corpus regression, formatting, Clippy, and the full Rust
-  test suite because shared CLI Recovery/event behavior changes.
+Run focused Rust tests and corpus regression before `cargo fmt --all -- --check`,
+`cargo clippy --all-targets -- -D warnings`, and `cargo test`. Check guardrails
+without raising baselines. A live provider campaign is expressly excluded by the
+approved worker decision; report that limit separately from deterministic tests.
+No external session, historical evidence, runtime state, tokenizer, JSON policy,
+UTF-8 fix, unrelated documentation, remote mutation or service operation is in scope.

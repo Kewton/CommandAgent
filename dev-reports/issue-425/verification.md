@@ -1,8 +1,15 @@
-# Issue #425 Verification
+# Issue #425 Reopen Verification
 
-- Status: `passed`
+- Status: `blocked`
 
-## Checks
+Fresh verification is pending for the 2026-09-05 reopen scope (comment
+5550459250). The results below are historical and do not verify this run.
+
+## Historical verification from PR #427 / 6ccc3913
+
+- Historical status: `passed`
+
+### Historical checks
 
 - `cargo fmt --all -- --check`: `passed`
 - `cargo test planner::recovery_contract_authority::tests --lib`: `passed`
@@ -13,7 +20,7 @@
 - `cargo test --quiet`: `passed`
 - `git diff --check`: `passed`
 
-## Environment note
+### Historical environment note
 
 The final full test suite ran outside the filesystem/process sandbox because
 existing provider and browser tests require loopback sockets and child-process

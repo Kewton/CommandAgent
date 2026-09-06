@@ -418,7 +418,9 @@ pub(super) fn bind_completion_contract_for_acceptance(
     let contract = CompletionContract {
         protected_paths: Vec::new(),
         required_paths: required_paths.to_vec(),
-        verify_commands: Vec::new(),
+        verify_commands: crate::planner::recovery_contract_authority::generated_verify_commands(
+            config, scope, profile, goal,
+        )?,
         fix_reproducer_command: None,
         // A step-scoped generated contract must not re-run the profile
         // verifier with the narrower step goal. Recovery consumes the
