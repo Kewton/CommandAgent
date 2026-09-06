@@ -2732,6 +2732,8 @@ mod tests {
         assert!(!root.path().join("injected.txt").exists());
     }
 
+    include!("recovery_json_preflight_tests.rs");
+
     #[test]
     fn preflight_does_not_treat_build_as_browser_capability_success() {
         let root = tempfile::tempdir().unwrap();
