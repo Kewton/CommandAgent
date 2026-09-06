@@ -1,0 +1,34 @@
+case_id = "issue429-lazy-json-preflight"
+source = "Issue #429 synthetic source-only lazy JSON preflight"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = ["src/app/api/staff/route.js", "src/lib/storage.js"]
+exclude = ["fixtures/unsupported-writers.ts", "fixtures/storage-shape.ts"]
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/lazy-json-preflight.jsonl = [
+  "\"event\":\"recovery_observation_effect_policy_bound\"",
+  "\"allowed_generated_paths\":[\"data/shifts.json\",\"data/staff.json\"]",
+  "\"protected_change_disposition\":\"reject_and_retain_control\"",
+  "\"status\":\"fail\"",
+  "\"external_oracle_used\":false"
+]
+fixtures/unsupported-writers.ts = ["Deliberately unsupported syntax", "const regex", "const template", "const interpolated"]

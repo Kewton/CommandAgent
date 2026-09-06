@@ -98,6 +98,11 @@ pub(crate) fn current_preflight_source_sha256(
     let root = root
         .canonicalize()
         .context("Recovery preflight workspace root is unavailable")?;
+    for allowed in allowed_generated_paths {
+        if root.join(allowed).is_dir() {
+            bail!("Recovery generated output is a directory: {allowed}");
+        }
+    }
     let mut files = Vec::new();
     collect_files(&root, &root, &mut files)?;
     files.retain(|path| {
@@ -110,7 +115,7 @@ pub(crate) fn current_preflight_source_sha256(
             .is_some_and(|component| component.as_os_str() == "evidence");
         let is_allowed_generated = allowed_generated_paths
             .iter()
-            .any(|allowed| relative.starts_with(allowed));
+            .any(|allowed| relative == Path::new(allowed));
         !is_evidence && !is_allowed_generated
     });
     content_sha256(&root, &files)
@@ -455,7 +460,14 @@ fn collect_files(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) -> any
             continue;
         }
         let file_type = entry.file_type()?;
-        if file_type.is_dir() {
+        if file_type.is_symlink() {
+            // This existing runtime tool link is installed by
+            // prepare_runtime_workspace, like the excluded node_modules link.
+            if rel == Path::new(".goal-verify-tools") {
+                continue;
+            }
+            bail!("Recovery boundary refuses symlink: {}", rel.display());
+        } else if file_type.is_dir() {
             collect_files(root, &path, files)?;
         } else if file_type.is_file() {
             files.push(path);
