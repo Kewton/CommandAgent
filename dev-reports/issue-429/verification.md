@@ -3,6 +3,22 @@
 Date: 2026-09-06. Parent: `0296d779eed87f244899199a5687f8261b449e3f`.
 Host: macOS, rustc `1.94.0`, Node `v24.1.0`.
 
+- Status: `passed`
+
+## Checks
+
+These statuses summarize the completed verification below; this report-only
+format update does not rerun the checks or claim additional live UAT.
+
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test --lib recovery -- --nocapture`: `passed`
+- `cargo test --test generality_guardrails --test profile_runtime_guardrails`: `passed`
+- `cargo test --test corpus_regression`: `passed`
+- `cargo test --all-targets`: `passed`
+- `cargo test --doc`: `passed`
+- `git diff --check`: `passed`
+
 ## Final verification
 
 All commands below completed with exit 0 on the final implementation. Focused,
