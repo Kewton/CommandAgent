@@ -65,7 +65,6 @@ mod phase_boundary;
 mod phase_plan_resolution;
 #[path = "../../pipeline.rs"]
 mod pipeline;
-#[path = "flow/recovery_authority.rs"]
 mod recovery_authority;
 #[path = "../../ultra_plan_storage.rs"]
 mod ultra_plan_storage;
@@ -305,9 +304,7 @@ pub fn run_ultra_plan_with_ui(
         emit_planner_error_for_lint(config, "ultra-plan-file", &config.planner_model, &report, 0);
         anyhow::bail!("{}", report.primary_message());
     }
-    let mut final_expected_paths = resolve_profile_runtime(&plan.profile)
-        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
-    recovery_authority::initialize(config, plan, &final_expected_paths)?;
+    let (mut final_expected_paths, _authority) = recovery_authority::begin(config, plan)?;
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);

@@ -1,4 +1,19 @@
 use super::*;
+use crate::planner::step_plan::StepKind;
+
+pub(super) fn begin(
+    config: &Config,
+    plan: &UltraPlan,
+) -> anyhow::Result<(
+    Vec<String>,
+    Option<crate::planner::recovery_contract_authority::RunAuthorityGuard>,
+)> {
+    let authority = crate::planner::recovery_contract_authority::enter_run(config);
+    let paths = resolve_profile_runtime(&plan.profile)
+        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    initialize(config, plan, &paths)?;
+    Ok((paths, authority))
+}
 
 pub(super) fn register_plan(config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
     crate::planner::recovery_contract_authority::register_step_plan_commands(
@@ -6,6 +21,10 @@ pub(super) fn register_plan(config: &Config, plan: &StepPlan) -> anyhow::Result<
         &plan
             .steps
             .iter()
+            .filter(|step| {
+                step.expected_result_kind() == crate::planner::step_plan::ExpectedResult::Pass
+                    && matches!(step.step_kind(), StepKind::Implement | StepKind::Verify)
+            })
             .flat_map(|step| step.verify.iter().cloned())
             .collect::<Vec<_>>(),
     )
@@ -34,3 +53,7 @@ pub(super) fn initialize(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "flow/recovery_authority_tests.rs"]
+mod tests;

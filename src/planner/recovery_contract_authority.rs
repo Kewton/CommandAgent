@@ -7,6 +7,10 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::minimal_loop::completion::CompletionContract;
 
+#[path = "recovery_contract_authority/provenance.rs"]
+mod provenance;
+pub(crate) use provenance::{RunAuthorityGuard, begin_run, enter_run, record_generated_contract};
+
 const ULTRA_RUN_CONTRACT: &str = "completion-contract-ultra-plan-run.json";
 
 fn generated_path(config: &Config, filename: &str) -> std::path::PathBuf {
@@ -47,7 +51,7 @@ pub(crate) fn generated_verify_commands(
     }
     let mut commands = profile_commands(config, profile, goal);
     let path = generated_path(config, ULTRA_RUN_CONTRACT);
-    if path.is_file() {
+    if provenance::owns_run_contract(&path) && path.is_file() {
         let mut bound = config.clone();
         bound.completion_contract_path = Some(path);
         if let Some(contract) = CompletionContract::load_for_config(&bound)?
@@ -70,7 +74,7 @@ pub(crate) fn register_step_plan_commands(
         return Ok(());
     }
     let path = generated_path(config, ULTRA_RUN_CONTRACT);
-    if !path.is_file() {
+    if !provenance::owns_run_contract(&path) || !path.is_file() {
         return Ok(());
     }
     let mut bound = config.clone();
@@ -81,7 +85,15 @@ pub(crate) fn register_step_plan_commands(
         return Ok(());
     }
     let original = contract.verify_commands.clone();
-    contract.verify_commands.extend_from_slice(commands);
+    let nextjs =
+        contract.profile.as_deref() == Some(crate::planner::profile_descriptor::NEXTJS_PROFILE_ID);
+    let goal = contract.goal.as_deref().unwrap_or_default();
+    contract.verify_commands.extend(
+        commands
+            .iter()
+            .filter(|command| !nextjs || !crate::planner::profiles::nextjs::recovery_authority::final_verifier_covers_command(goal, command))
+            .cloned(),
+    );
     let contract = contract.validate(&config.workspace_root)?;
     if contract.verify_commands != original {
         persist_generated_commands(config, &path, &contract, "admitted_step_plan")?;
@@ -93,17 +105,15 @@ pub(crate) fn register_step_plan_commands(
 /// instead retain the run goal and checks, without changing step acceptance.
 pub(crate) fn load_for_handoff(config: &Config) -> anyhow::Result<Option<CompletionContract>> {
     let configured = CompletionContract::configured_path_for_config(config)?;
-    let step_path = generated_path(config, "completion-contract-plan-run.json");
-    let generated_step = configured.as_ref().is_some_and(|path| {
-        path.canonicalize()
-            .ok()
-            .zip(step_path.canonicalize().ok())
-            .is_some_and(|(configured, step)| configured == step)
-    });
-    if configured.is_some() && !generated_step {
+    let path = generated_path(config, ULTRA_RUN_CONTRACT);
+    if let Some(configured) = &configured
+        && !(provenance::owns_step_contract(configured) && provenance::owns_run_contract(&path))
+    {
         return CompletionContract::load_for_config(config);
     }
-    let path = generated_path(config, ULTRA_RUN_CONTRACT);
+    if !provenance::owns_run_contract(&path) {
+        return CompletionContract::load_for_config(config);
+    }
     if !path.is_file() {
         return CompletionContract::load_for_config(config);
     }
@@ -148,7 +158,9 @@ pub(crate) fn bind_for_recovery(
                 config.eval_events_path.as_deref(),
                 ULTRA_RUN_CONTRACT,
             );
-            if !generated.is_file() {
+            if !generated.is_file()
+                || (provenance::has_run_scope(config) && !provenance::owns_run_contract(&generated))
+            {
                 return Ok(bound);
             }
             (generated, "generated_ultra_plan_run", true)
@@ -260,11 +272,15 @@ fn persist_generated_commands(
 }
 
 #[cfg(test)]
+#[path = "recovery_contract_authority/reopen_tests.rs"]
+mod reopen_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
 
-    fn config(root: &std::path::Path) -> Config {
+    pub(super) fn config(root: &std::path::Path) -> Config {
         let mut config =
             Config::from_cli(crate::cli::Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
         config.workspace_root = root.to_path_buf();
@@ -280,7 +296,7 @@ mod tests {
         config
     }
 
-    fn contract_json() -> String {
+    pub(super) fn contract_json() -> String {
         serde_json::to_string(&CompletionContract {
             required_paths: Vec::new(),
             protected_paths: Vec::new(),

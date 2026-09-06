@@ -442,6 +442,7 @@ pub(super) fn bind_completion_contract_for_acceptance(
     }
     let text = serde_json::to_string_pretty(&contract)?;
     std::fs::write(&path, format!("{text}\n"))?;
+    crate::planner::recovery_contract_authority::record_generated_contract(config, scope, &path);
     let bound = BoundCompletionContract {
         contract,
         path: display_path_for_event(&config.workspace_root, &path),
