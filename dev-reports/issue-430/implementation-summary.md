@@ -22,5 +22,13 @@
   evidence changes. No panic-catching or skipped inspection. The fixture's
   build is not checked and the original S1 generated-app build defect remains
   outside this issue's scope.
+- CI follow-up (2026-09-06): PR #434's first CI run failed the pre-existing
+  library test `draft_only_storage_does_not_satisfy_committed_persistence`
+  with `probe_infrastructure_failed:probe_timeout`. The fake-Playwright test
+  harness `run_fake_probe_scenario` in `src/minimal_loop/interaction_probe.rs`
+  now passes a documented 60s `FAKE_PROBE_SCENARIO_BUDGET` instead of a bare
+  12s value that the negative persistence scenario consumes almost entirely
+  by design. This is a test-harness-only change; no production code, probe
+  script timing, or persistence assertion changed.
 
 See `verification.md` for reproduction evidence and final check results.
