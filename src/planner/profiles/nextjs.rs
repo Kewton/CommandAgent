@@ -3,6 +3,7 @@ mod dependency_family;
 mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
+pub(crate) mod recovery_authority;
 mod repair_excerpts;
 mod scaffold_mode;
 pub(crate) mod testimony_binding;

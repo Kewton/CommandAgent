@@ -7,7 +7,143 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::minimal_loop::completion::CompletionContract;
 
+#[path = "recovery_contract_authority/provenance.rs"]
+mod provenance;
+pub(crate) use provenance::{RunAuthorityGuard, begin_run, enter_run, record_generated_contract};
+
 const ULTRA_RUN_CONTRACT: &str = "completion-contract-ultra-plan-run.json";
+
+fn generated_path(config: &Config, filename: &str) -> std::path::PathBuf {
+    crate::planner::completion_contract_path::generated_path(
+        &config.workspace_root,
+        config.eval_events_path.as_deref(),
+        filename,
+    )
+}
+
+fn admits_generated_commands(profile: &str) -> bool {
+    matches!(
+        profile,
+        crate::planner::profile_descriptor::NEXTJS_PROFILE_ID
+            | crate::planner::profile_descriptor::GENERIC_PROFILE_ID
+    )
+}
+
+fn profile_commands(config: &Config, profile: &str, goal: &str) -> Vec<String> {
+    if !admits_generated_commands(profile) {
+        return Vec::new();
+    }
+    crate::planner::profile::resolve_profile_runtime(profile)
+        .quality_expectations(&config.workspace_root, goal)
+        .preferred_verify
+}
+
+/// Register product-owned profile checks at generation, preserving admitted
+/// plan checks when final acceptance refreshes the same run contract.
+pub(crate) fn generated_verify_commands(
+    config: &Config,
+    scope: &str,
+    profile: &str,
+    goal: &str,
+) -> anyhow::Result<Vec<String>> {
+    if scope != "ultra-plan-run" || !admits_generated_commands(profile) {
+        return Ok(Vec::new());
+    }
+    let mut commands = profile_commands(config, profile, goal);
+    let path = generated_path(config, ULTRA_RUN_CONTRACT);
+    if provenance::owns_run_contract(&path) && path.is_file() {
+        let mut bound = config.clone();
+        bound.completion_contract_path = Some(path);
+        if let Some(contract) = CompletionContract::load_for_config(&bound)?
+            && contract.profile.as_deref() == Some(profile)
+            && contract.goal.as_deref() == Some(goal)
+        {
+            commands.extend(contract.verify_commands);
+        }
+    }
+    Ok(commands)
+}
+
+/// Called after StepPlan admission and before execution, never from model
+/// Recovery proposals. Configured and data contracts remain closed registries.
+pub(crate) fn register_step_plan_commands(
+    config: &Config,
+    commands: &[String],
+) -> anyhow::Result<()> {
+    if commands.is_empty() || CompletionContract::configured_path_for_config(config)?.is_some() {
+        return Ok(());
+    }
+    let path = generated_path(config, ULTRA_RUN_CONTRACT);
+    if !provenance::owns_run_contract(&path) || !path.is_file() {
+        return Ok(());
+    }
+    let mut bound = config.clone();
+    bound.completion_contract_path = Some(path.clone());
+    let mut contract =
+        CompletionContract::load_for_config(&bound)?.context("run contract missing")?;
+    if !admits_generated_commands(contract.profile.as_deref().unwrap_or_default()) {
+        return Ok(());
+    }
+    let original = contract.verify_commands.clone();
+    let nextjs =
+        contract.profile.as_deref() == Some(crate::planner::profile_descriptor::NEXTJS_PROFILE_ID);
+    let goal = contract.goal.as_deref().unwrap_or_default();
+    contract.verify_commands.extend(
+        commands
+            .iter()
+            .filter(|command| !nextjs || !crate::planner::profiles::nextjs::recovery_authority::final_verifier_covers_command(goal, command))
+            .cloned(),
+    );
+    let contract = contract.validate(&config.workspace_root)?;
+    if contract.verify_commands != original {
+        persist_generated_commands(config, &path, &contract, "admitted_step_plan")?;
+    }
+    Ok(())
+}
+
+/// Implement steps receive a narrow generated plan contract. Recovery must
+/// instead retain the run goal and checks, without changing step acceptance.
+pub(crate) fn load_for_handoff(config: &Config) -> anyhow::Result<Option<CompletionContract>> {
+    let configured = CompletionContract::configured_path_for_config(config)?;
+    let path = generated_path(config, ULTRA_RUN_CONTRACT);
+    if let Some(configured) = &configured
+        && !(provenance::owns_step_contract(configured) && provenance::owns_run_contract(&path))
+    {
+        return CompletionContract::load_for_config(config);
+    }
+    if !provenance::owns_run_contract(&path) {
+        return CompletionContract::load_for_config(config);
+    }
+    if !path.is_file() {
+        return CompletionContract::load_for_config(config);
+    }
+    let mut bound = config.clone();
+    bound.completion_contract_path = Some(path);
+    CompletionContract::load_for_config(&bound)
+}
+
+pub(crate) fn handoff_commands(config: &Config, existing: &[String]) -> Vec<String> {
+    // Preserve the bounded-repair checks already carried by the failed step.
+    if !existing.is_empty() {
+        return existing.to_vec();
+    }
+    match load_for_handoff(config) {
+        Ok(contract) => contract
+            .map(|contract| contract.verify_commands)
+            .unwrap_or_default(),
+        Err(error) => {
+            crate::eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_handoff_fidelity_failed",
+                    "reason": format!("completion contract authority unavailable: {error}"),
+                    "status": "incomplete",
+                }),
+            );
+            Vec::new()
+        }
+    }
+}
 
 pub(crate) fn bind_for_recovery(
     config: &Config,
@@ -22,7 +158,9 @@ pub(crate) fn bind_for_recovery(
                 config.eval_events_path.as_deref(),
                 ULTRA_RUN_CONTRACT,
             );
-            if !generated.is_file() {
+            if !generated.is_file()
+                || (provenance::has_run_scope(config) && !provenance::owns_run_contract(&generated))
+            {
                 return Ok(bound);
             }
             (generated, "generated_ultra_plan_run", true)
@@ -71,25 +209,42 @@ fn complete_generated_verify_commands(
     failed_plan_verify_commands: &[String],
 ) -> anyhow::Result<usize> {
     let profile = contract.profile.clone().unwrap_or_default();
-    if !contract.verify_commands.is_empty()
-        || failed_plan_verify_commands.is_empty()
-        || !matches!(
-            profile.as_str(),
-            crate::planner::profile_descriptor::NEXTJS_PROFILE_ID
-                | crate::planner::profile_descriptor::GENERIC_PROFILE_ID
-        )
-    {
+    if !contract.verify_commands.is_empty() || !admits_generated_commands(&profile) {
         return Ok(0);
     }
 
-    contract.verify_commands = failed_plan_verify_commands.to_vec();
+    let source = if failed_plan_verify_commands.is_empty() {
+        contract.verify_commands = profile_commands(
+            config,
+            &profile,
+            contract.goal.as_deref().unwrap_or_default(),
+        );
+        "profile_runtime"
+    } else {
+        contract.verify_commands = failed_plan_verify_commands.to_vec();
+        "failed_plan_handoff"
+    };
     let contract = contract
         .validate(&config.workspace_root)
         .context("validate failed-plan commands for generated Recovery completion contract")?;
     if contract.verify_commands.is_empty() {
         return Ok(0);
     }
-    let mut bytes = serde_json::to_vec_pretty(&contract)
+    persist_generated_commands(config, path, &contract, source)?;
+    Ok(if source == "failed_plan_handoff" {
+        contract.verify_commands.len()
+    } else {
+        0
+    })
+}
+
+fn persist_generated_commands(
+    config: &Config,
+    path: &std::path::Path,
+    contract: &CompletionContract,
+    source: &str,
+) -> anyhow::Result<()> {
+    let mut bytes = serde_json::to_vec_pretty(contract)
         .context("serialize completed generated Recovery completion contract")?;
     bytes.push(b'\n');
     std::fs::write(path, &bytes).with_context(|| {
@@ -102,8 +257,8 @@ fn complete_generated_verify_commands(
         config.eval_events_path.as_deref(),
         json!({
             "event": "recovery_generated_completion_contract_completed",
-            "source": "failed_plan_handoff",
-            "profile": profile,
+            "source": source,
+            "profile": contract.profile,
             "completion_contract_path": path
                 .strip_prefix(&config.workspace_root)
                 .unwrap_or(path)
@@ -113,15 +268,19 @@ fn complete_generated_verify_commands(
             "external_oracle_used": false,
         }),
     );
-    Ok(contract.verify_commands.len())
+    Ok(())
 }
+
+#[cfg(test)]
+#[path = "recovery_contract_authority/reopen_tests.rs"]
+mod reopen_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
 
-    fn config(root: &std::path::Path) -> Config {
+    pub(super) fn config(root: &std::path::Path) -> Config {
         let mut config =
             Config::from_cli(crate::cli::Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
         config.workspace_root = root.to_path_buf();
@@ -137,7 +296,7 @@ mod tests {
         config
     }
 
-    fn contract_json() -> String {
+    pub(super) fn contract_json() -> String {
         serde_json::to_string(&CompletionContract {
             required_paths: Vec::new(),
             protected_paths: Vec::new(),

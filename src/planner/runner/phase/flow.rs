@@ -65,6 +65,7 @@ mod phase_boundary;
 mod phase_plan_resolution;
 #[path = "../../pipeline.rs"]
 mod pipeline;
+mod recovery_authority;
 #[path = "../../ultra_plan_storage.rs"]
 mod ultra_plan_storage;
 pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
@@ -303,8 +304,7 @@ pub fn run_ultra_plan_with_ui(
         emit_planner_error_for_lint(config, "ultra-plan-file", &config.planner_model, &report, 0);
         anyhow::bail!("{}", report.primary_message());
     }
-    let mut final_expected_paths = resolve_profile_runtime(&plan.profile)
-        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let (mut final_expected_paths, _authority) = recovery_authority::begin(config, plan)?;
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
@@ -453,6 +453,7 @@ pub fn run_ultra_plan_with_ui(
             continue;
         };
         phase_machine.before_phase_completed(false, final_phase)?;
+        recovery_authority::register_plan(config, &step_plan)?;
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,

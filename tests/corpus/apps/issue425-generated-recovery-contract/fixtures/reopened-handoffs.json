@@ -1,0 +1,13 @@
+{
+  "source": "Synthetic regression cases for Issue #425 comment 5550459250; not live campaign evidence",
+  "cases": [
+    {"id":"I1","profile":"nextjs","failure_kind":"profile_invariant_failure","failed_step":null,"registered":[],"handoff":[],"expected":["npm run build"]},
+    {"id":"I2-S3-E3","profile":"nextjs","failure_kind":"model_stagnation:read_only_loop","failed_step":"implement","registered":[],"handoff":[],"expected":["npm run build"]},
+    {"id":"E2","profile":"nextjs","failure_kind":"phase_execute_error","failed_step":null,"registered":[],"handoff":[],"expected":["npm run build"]},
+    {"id":"final-repair-failed","profile":"nextjs","failure_kind":"final_acceptance_repair_failed","failed_step":null,"registered":["npm run build"],"handoff":[],"expected":["npm run build"]},
+    {"id":"final-repair-exhausted","profile":"generic","failure_kind":"final_acceptance_repair_exhausted","failed_step":null,"registered":["test -f app.js"],"handoff":[],"expected":["test -f app.js"]},
+    {"id":"E1-four","profile":"nextjs","failure_kind":"verify_repair_progress_unchanged","failed_step":"verify-build","registered":["npm run build","test -f package.json","test -f src/app/page.tsx","test -f src/app/layout.tsx"],"handoff":["npm run build","test -f package.json","test -f src/app/page.tsx","test -f src/app/layout.tsx"],"expected":["npm run build","test -f package.json","test -f src/app/page.tsx","test -f src/app/layout.tsx"]},
+    {"id":"I3-one","profile":"nextjs","failure_kind":"verify_repair_progress_unchanged","failed_step":"verify-build","registered":["npm run build"],"handoff":["npm run build"],"expected":["npm run build"]},
+    {"id":"S2-one","profile":"generic","failure_kind":"verify_repair_progress_unchanged","failed_step":"verify-output","registered":["test -f app.js"],"handoff":["test -f app.js"],"expected":["test -f app.js"]}
+  ]
+}

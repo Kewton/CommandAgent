@@ -24,6 +24,17 @@ contains = []
 expect = "not_checked"
 
 [fixture_contains]
+fixtures/reopened-handoffs.json = [
+  "5550459250",
+  "profile_invariant_failure",
+  "model_stagnation:read_only_loop",
+  "phase_execute_error",
+  "final_acceptance_repair_failed",
+  "final_acceptance_repair_exhausted",
+  "E1-four",
+  "I3-one",
+  "S2-one"
+]
 fixtures/generated-contract-recovery.jsonl = [
   "\"event\":\"recovery_generated_completion_contract_completed\"",
   "\"source\":\"failed_plan_handoff\"",

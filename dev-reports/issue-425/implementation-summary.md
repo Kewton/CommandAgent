@@ -1,40 +1,58 @@
-# Issue #425 Implementation Summary
+# Issue #425 Reopen Implementation
 
-## Outcome
+Generated Next.js create contracts register the product build verifier before
+phase execution. Recovery handoffs for read-only stagnation, phase execution or
+invariant failure, final-acceptance repair failure/exhaustion, and empty bounded
+repair now retain that run authority. Existing nonempty bounded-repair command
+lists remain intact, including the 4/1/1 cases from comment 5550459250.
 
-Automatic Recovery can now start after a failed Next.js or generic create run
-whose host-generated run-level completion contract initially has no
-`verify_commands`. The Recovery contract-authority boundary registers the
-failed plan's already-normalized handoff commands in that generated contract,
-validates the completed contract, persists it, and binds subsequent Recovery
-checks to the resulting contract.
+This completes the mechanical WIP port at 3d222aae on develop 0296d779. It
+supersedes the inherited PR #427 implementation summary.
 
-## Implementation
+## Authority and acceptance
 
-- Passed the failed candidate's typed verification-command handoff into the
-  Recovery contract binder before Recovery preflight.
-- Limited generated-contract completion to the host-generated
-  `completion-contract-ultra-plan-run.json`, an empty command list, and the
-  `nextjs` or `generic` profile. Explicitly configured contracts and generated
-  data-profile contracts remain unchanged.
-- Reused `CompletionContract::validate` before persistence, so normalization,
-  deduplication, and command-safety checks remain authoritative.
-- Added the additive
-  `recovery_generated_completion_contract_completed` provenance event and the
-  additive `registered_verify_commands_from_failed_plan` binding field.
-- Added the additive `recovery_plan_auto_run_stop_summary` field and included a
-  readable explanation alongside the stable machine stop code in candidate
-  binding errors. Existing event names and stop-reason fields are unchanged.
+- Register validated, success-expecting implement/verify commands from admitted
+  plans in generated Next.js/generic contracts. Setup, inspection, reporting,
+  and expected-failure probes retain their step scope.
+- Preserve registrations across acceptance refresh within the same execution.
+  In-process scoped provenance distinguishes product-generated step contracts
+  from configured files, including the same filename and canonical aliases.
+  Fresh runs cannot import an old registry merely by matching profile/goal.
+- Keep the three exact Next.js package-script assertions at their existing
+  step/profile gates. The profile leaf identifies them using the existing
+  command generators; final profile verification still rejects invalid build,
+  dev-port and start-port settings. No tokenizer or JSON-policy rewrite is used.
+- Complete legacy empty generated Next.js handoffs from profile authority.
+  Generic runs with no registered observation continue to fail honestly.
+  Configured and data contracts remain closed; Recovery candidates bind only
+  their registered commands. Existing typed business acceptance remains required.
+- Preserve event schemas, machine stop codes, and the readable stop summary
+  added by PR #427. New registration reuses the provenance event with the
+  `admitted_step_plan` or `profile_runtime` source. No runtime namespace or
+  on-disk provenance migration is introduced.
 
-## Tests and compatibility
+## Regression coverage
 
-- Added unit coverage for generated Next.js and generic contract completion,
-  the first Recovery execution after a `core-implementation` build failure,
-  readable stop summaries, configured-contract immutability, and data-profile
-  non-augmentation.
-- Added the Issue #425 corpus fixture for command provenance, first Recovery
-  execution, stable stop reason, and readable stop summary.
-- Preserved the Issue `4962f472` rule for configured and data-profile Recovery:
-  only commands already registered in their completion contracts are usable.
-- Kept all existing event names and fields backward compatible; the event
-  contract changes are field additions plus one new provenance event.
+Dedicated leaf tests cover generation/refresh, empty/registered contracts,
+step verify presence/absence, step/phase candidate competition, all confirmed
+handoffs, invalid authority, configured/data confinement, explicit filename
+aliases, stale prior runs, and profile configuration checks. An executable
+corpus fixture models the reopened failures and the existing 4/1/1 handoffs.
+
+The existing browser-probe failure fixture now supplies the existing mock
+Next.js build toolchain so it reaches its intended HTTP 500 failure. Its
+assertions are unchanged. The existing known-profile success regression passes
+without changing its fixture or assertions. Temporary diagnostic edits were
+removed. Guardrail baselines are unchanged; initialization lives in a leaf and
+the phase chokepoint only wires it in.
+
+Two independent temporary sessions exercise real preflight, candidate binding,
+plan preparation and a deterministic local repair. The registered JavaScript
+syntax check changes from fail to pass, while persistence acceptance
+remains failed and no successful Recovery is reported. This is local test
+evidence, not a measurement of a regenerated real Next.js build or business E2E.
+Live providers, original external sessions, remote lifecycle operations and CommandMate service
+operations are excluded by the approved worker scope.
+
+Issue #428 (da4c6a81) and #430 (492073d1) were inspected but not imported or
+reimplemented. Issue #425 test wiring avoids their integration insertion sites.

@@ -418,7 +418,9 @@ pub(super) fn bind_completion_contract_for_acceptance(
     let contract = CompletionContract {
         protected_paths: Vec::new(),
         required_paths: required_paths.to_vec(),
-        verify_commands: Vec::new(),
+        verify_commands: crate::planner::recovery_contract_authority::generated_verify_commands(
+            config, scope, profile, goal,
+        )?,
         fix_reproducer_command: None,
         // A step-scoped generated contract must not re-run the profile
         // verifier with the narrower step goal. Recovery consumes the
@@ -440,6 +442,7 @@ pub(super) fn bind_completion_contract_for_acceptance(
     }
     let text = serde_json::to_string_pretty(&contract)?;
     std::fs::write(&path, format!("{text}\n"))?;
+    crate::planner::recovery_contract_authority::record_generated_contract(config, scope, &path);
     let bound = BoundCompletionContract {
         contract,
         path: display_path_for_event(&config.workspace_root, &path),

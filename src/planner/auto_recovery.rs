@@ -466,6 +466,8 @@ fn run_with_ui(
         return execute_initial(initial, planner, execution, config, ui);
     }
 
+    let _recovery_authority = crate::planner::recovery_contract_authority::begin_run(config);
+
     emit(
         config,
         "recovery_plan_auto_run_configured",
@@ -1920,6 +1922,10 @@ mod tests {
         fn execute(&mut self, _prepared: Self::Prepared) -> AttemptOutcome {
             self.outcomes.pop_front().expect("scripted outcome")
         }
+    }
+
+    mod issue425 {
+        include!("auto_recovery/issue425_tests.rs");
     }
 
     fn driver(outcomes: Vec<AttemptOutcome>) -> ScriptedDriver {

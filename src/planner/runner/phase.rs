@@ -74,6 +74,7 @@ use super::{
     verify_setup_dependency_state_with_setup_observed_with_offline, verify_step_with_context,
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
+use crate::planner::recovery_contract_authority::handoff_commands;
 #[path = "phase/compile_snapshot.rs"]
 mod compile_snapshot;
 #[path = "phase/effects.rs"]
@@ -2198,7 +2199,7 @@ pub(super) fn run_step(
             .collect(),
         missing_paths: current_report.missing_paths.clone(),
         missing_capabilities: vec![final_repair_target.as_str().to_string()],
-        verify_commands: context.verify_commands.clone(),
+        verify_commands: handoff_commands(config, &context.verify_commands),
         changed_paths: context.changed_files.clone(),
         repair_targets: vec![final_repair_target.as_str().to_string()],
     };
@@ -3407,7 +3408,7 @@ pub(super) fn save_ultra_phase_recovery_handoff_with_evidence(
         },
         missing_paths: request.missing_paths.to_vec(),
         missing_capabilities: request.missing_signals.to_vec(),
-        verify_commands: request.verify_commands.to_vec(),
+        verify_commands: handoff_commands(config, request.verify_commands),
         changed_paths: Vec::new(),
         repair_targets: request.repair_targets.to_vec(),
     };

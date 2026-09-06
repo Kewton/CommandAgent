@@ -1993,6 +1993,7 @@ if __name__ == "__main__":
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();
         cfg.eval_events_path = Some(events.clone());
+        write_fake_nextjs_package_manager(dir.path(), false);
         enable_browser_probe_test_override(dir.path());
         let port = write_browser_probe_mock_command(dir.path(), "500");
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
