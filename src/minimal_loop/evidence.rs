@@ -1,6 +1,11 @@
 #[path = "evidence/artifact_verify.rs"]
 mod artifact_verify;
 pub(crate) use artifact_verify::is_artifact_only_verify_command;
+#[path = "evidence/verify_command_classification.rs"]
+mod verify_command_classification;
+#[path = "evidence/weak_sources.rs"]
+mod weak_sources;
+pub use weak_sources::WeakEvidenceSource;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -23,6 +28,7 @@ pub struct RuntimeAcceptanceReport {
     pub missing_evidence: Vec<String>,
     pub missing_obligations: Vec<String>,
     pub weak_evidence: Vec<String>,
+    pub weak_evidence_sources: Vec<WeakEvidenceSource>,
     pub diagnostics: Vec<String>,
     pub unverified_evidence: Vec<String>,
     pub evidence_tiers: BTreeMap<String, String>,
@@ -1318,6 +1324,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         missing_capabilities,
         missing_evidence,
         missing_obligations,
+        weak_evidence_sources: weak_sources::collect(&weak_evidence, verify_commands, &workspace),
         weak_evidence,
         diagnostics,
         unverified_evidence: Vec::new(),
@@ -1360,6 +1367,9 @@ pub(crate) fn refresh_runtime_acceptance_report(
         &report.missing_evidence,
         &report.diagnostics,
     );
+    report
+        .weak_evidence_sources
+        .retain(|source| report.weak_evidence.contains(&source.reason));
     let weak_evidence_blocks_completion = !report.weak_evidence.is_empty()
         && source_first_completion_authority_required(
             required_capabilities,
@@ -2329,6 +2339,9 @@ impl VerifyCommandKind {
 }
 
 fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCommandKind {
+    if let Some(kind) = verify_command_classification::node_command_kind(command, workspace) {
+        return kind;
+    }
     let lower = command.trim().to_ascii_lowercase();
     if is_artifact_only_verify_command(command) {
         return VerifyCommandKind::ArtifactOnly;
@@ -2356,16 +2369,6 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
         }
         return VerifyCommandKind::Weak("cargo_test_without_test_evidence".to_string());
     }
-    if lower == "npm test"
-        || lower == "npm run test"
-        || lower == "pnpm test"
-        || lower == "yarn test"
-    {
-        if has_test_artifact(workspace) {
-            return VerifyCommandKind::Test;
-        }
-        return VerifyCommandKind::Weak("node_test_without_test_artifact".to_string());
-    }
     if let Some(reason) =
         crate::minimal_loop::test_command_evidence::missing_artifact_reason(&lower)
     {
@@ -2373,12 +2376,6 @@ fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCo
             return VerifyCommandKind::Test;
         }
         return VerifyCommandKind::Weak(reason.to_string());
-    }
-    if lower.starts_with("node ") {
-        if has_assertion_or_test_evidence(workspace) {
-            return VerifyCommandKind::Test;
-        }
-        return VerifyCommandKind::Weak("node_smoke_without_assertion".to_string());
     }
     VerifyCommandKind::Other
 }

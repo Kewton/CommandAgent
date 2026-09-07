@@ -38,6 +38,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Classify Node verification from the executed script, retain future test and
+  exact hook checks, and identify weak-evidence commands in final acceptance (#439).
 - Register exact Recovery JSON outputs from real Next.js routes containing
   harmless templates, regex, division, and one local writer helper. Reject
   hidden identity mutation and retain isolated observation/source gates (#429).

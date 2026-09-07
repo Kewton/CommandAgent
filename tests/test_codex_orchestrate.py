@@ -192,8 +192,13 @@ def test_issue_2_to_5_dependency_batches_are_not_fully_serial() -> None:
     assert merge_order == [2, 3, 4, 5]
 
 
-def test_dependency_batches_enforce_configured_max_parallel() -> None:
+def test_dependency_batches_enforce_configured_max_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    # These scheduling inputs are independent. Repository text containing
+    # "Independent" must not add incidental shared files to this unit fixture.
+    monkeypatch.setattr(module, "enrich_file_candidates_with_rg", lambda _text, paths: paths)
     analyses = [
         module.analyze_issue(
             module.Issue(
