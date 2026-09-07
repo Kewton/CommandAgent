@@ -1,7 +1,11 @@
 use std::path::{Path, PathBuf};
 
+mod recovery_paths;
+
+pub(crate) use recovery_paths::workspace_relative_handoff_path;
+use recovery_paths::{redacted_list, shell_quote_path};
+
 use crate::config::PromptLayout;
-use crate::eval_events;
 use crate::minimal_loop::completion::{
     CompileRepairPromptProtection, compile_repair_prompt_section_with_root,
 };
@@ -362,7 +366,10 @@ pub fn save_repair_report_with_context(
     let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{step_id}-{}.md", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_repair_report(step_id, report, context))?;
+    let mut context = context.clone();
+    context.workspace_root = Some(root.to_path_buf());
+    let rendered = render_repair_report(step_id, report, &context);
+    std::fs::write(&path, recovery_paths::display_text(Some(root), &rendered))?;
     Ok(path)
 }
 
@@ -374,11 +381,22 @@ pub fn save_ultra_recovery_prompt(
     let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{scope}-{}.md", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_ultra_recovery_prompt(handoff))?;
+    std::fs::write(
+        &path,
+        render_ultra_recovery_prompt_at_root(Some(root), handoff),
+    )?;
     Ok(path)
 }
 
 pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
+    build_recovery_ultra_plan_at_root(None, handoff)
+}
+
+pub(crate) fn build_recovery_ultra_plan_at_root(
+    root: Option<&Path>,
+    handoff: &RecoveryHandoff,
+) -> UltraPlan {
+    let handoff = &recovery_paths::handoff(root, handoff);
     let failed_phase = handoff.failed_phase.as_deref().unwrap_or("unknown");
     let failed_step = handoff.failed_step.as_deref().unwrap_or("unknown");
     let missing_signals = recovery_missing_signals(handoff);
@@ -423,8 +441,9 @@ pub fn save_recovery_ultra_plan(
     scope: &str,
     handoff: &RecoveryHandoff,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let plan = build_recovery_ultra_plan(handoff);
-    let rendered = render_recovery_ultra_plan(handoff, &plan);
+    let normalized = recovery_paths::handoff(Some(root), handoff);
+    let plan = build_recovery_ultra_plan_at_root(Some(root), handoff);
+    let rendered = render_recovery_ultra_plan(&normalized, &plan);
     save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
 }
 
@@ -436,7 +455,11 @@ fn save_recovery_ultra_plan_rendered(
     rendered: String,
 ) -> anyhow::Result<std::path::PathBuf> {
     let rendered = if let Some(reason) = recovery_ultra_plan_roundtrip_error(&rendered, plan) {
-        render_recovery_ultra_plan_with_review(handoff, plan, Some(&reason))
+        render_recovery_ultra_plan_with_review(
+            &recovery_paths::handoff(Some(root), handoff),
+            plan,
+            Some(&reason),
+        )
     } else {
         rendered
     };
@@ -542,32 +565,6 @@ pub fn suggested_recovery_ultra_plan_command(path: &Path) -> String {
     format!("/run-ultra-plan {}", shell_quote_path(path))
 }
 
-fn shell_quote_path(path: &Path) -> String {
-    let display = workspace_relative_handoff_path(path);
-    if display
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'))
-    {
-        display
-    } else {
-        format!("{display:?}")
-    }
-}
-
-pub(crate) fn workspace_relative_handoff_path(path: &Path) -> String {
-    let components = path
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    if let Some(index) = components
-        .iter()
-        .position(|part| matches!(part.as_str(), ".commandagent" | ".anvil"))
-    {
-        return components[index..].join("/");
-    }
-    path.to_string_lossy().replace('\\', "/")
-}
-
 fn recovery_missing_signals(handoff: &RecoveryHandoff) -> Vec<String> {
     let mut signals = Vec::new();
     signals.extend(handoff.missing_capabilities.iter().cloned());
@@ -615,6 +612,11 @@ fn recovery_plan_phase_token(value: &str) -> String {
 }
 
 pub fn render_ultra_recovery_prompt(handoff: &RecoveryHandoff) -> String {
+    render_ultra_recovery_prompt_at_root(None, handoff)
+}
+
+fn render_ultra_recovery_prompt_at_root(root: Option<&Path>, handoff: &RecoveryHandoff) -> String {
+    let handoff = recovery_paths::handoff(root, handoff);
     format!(
         "Recover this failed run by producing and executing a focused ultra plan.\n\n\
 Original goal:\n{}\n\n\
@@ -751,7 +753,7 @@ Suggested command:\n\
         list_or_none(&context.verify_commands),
         context.initial_stop_reason.as_deref().unwrap_or("unknown"),
         context.repair_stop_reason.as_deref().unwrap_or("unknown"),
-        render_ultra_recovery_prompt(&recovery)
+        render_ultra_recovery_prompt_at_root(context.workspace_root.as_deref(), &recovery)
     )
 }
 
@@ -769,13 +771,6 @@ fn bullet_list(items: &[String]) -> String {
         .map(|item| format!("- {item}"))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn redacted_list(items: &[String]) -> Vec<String> {
-    items
-        .iter()
-        .map(|item| eval_events::body_snippet(item))
-        .collect()
 }
 
 fn shell_quote_token(value: &str) -> String {
