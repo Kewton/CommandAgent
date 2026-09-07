@@ -51,10 +51,12 @@ phase_id = [
   "initialize",
   "initialise",
 ]
-port_phase_markers = ["port", "ポート"]
+port_phase_markers = ["port", "ports", "ポート"]
 port_script_phase = [
   "script",
+  "scripts",
   "package",
+  "packages",
   "package.json",
   "dev/start",
   "dev script",
@@ -74,6 +76,15 @@ phase = [
 
 [step_templates.implementation_kill]
 phase = [
+  "core implementation",
+  "business logic",
+  "domain logic",
+  "crud",
+  "user interface",
+  "api routes",
+  "persistence",
+  "業務",
+  "画面",
   "game logic",
   "gameplay",
   "mechanic",
