@@ -234,62 +234,76 @@ pub fn classify_repair_target(report: &VerificationReport) -> RepairTarget {
         return RepairTarget::Implementation;
     }
     if report.profile_failures.iter().any(|reason| {
-        contains_any(
-            reason,
-            &[
-                "package.json",
-                "dependency",
-                "dependencies",
-                "devdependencies",
-                "scripts.build",
-                "scripts.dev",
-                "react",
-                "typescript",
-                "next 15",
-                "build-safe",
-            ],
-        )
+        !is_evidence_diagnostic(reason)
+            && contains_any(
+                reason,
+                &[
+                    "package.json",
+                    "dependency",
+                    "dependencies",
+                    "devdependencies",
+                    "scripts.build",
+                    "scripts.dev",
+                    "react",
+                    "typescript",
+                    "next 15",
+                    "build-safe",
+                ],
+            )
     }) {
         return RepairTarget::PackageConfig;
     }
     if report.profile_failures.iter().any(|reason| {
-        contains_any(
-            reason,
-            &[
-                "tsconfig",
-                "tailwind",
-                "tailwind_dev_pipeline_failure",
-                "css",
-                "http_500",
-                "layout",
-                "use client",
-                "global.d.ts",
-                "module resolution",
-                "app router",
-                "alias",
-                "declare module",
-            ],
-        )
+        !is_evidence_diagnostic(reason)
+            && contains_any(
+                reason,
+                &[
+                    "tsconfig",
+                    "tailwind",
+                    "tailwind_dev_pipeline_failure",
+                    "css",
+                    "http_500",
+                    "layout",
+                    "use client",
+                    "global.d.ts",
+                    "module resolution",
+                    "app router",
+                    "alias",
+                    "declare module",
+                ],
+            )
     }) {
         return RepairTarget::FrameworkConfig;
     }
     if report.profile_failures.iter().any(|reason| {
-        contains_any(
-            reason,
-            &[
-                "entrypoint missing",
-                "next entrypoint missing",
-                "missing entrypoint",
-                "src/app/page",
-                "pages/index",
-            ],
-        )
+        !is_evidence_diagnostic(reason)
+            && contains_any(
+                reason,
+                &[
+                    "entrypoint missing",
+                    "next entrypoint missing",
+                    "missing entrypoint",
+                    "src/app/page",
+                    "pages/index",
+                ],
+            )
     }) || report
         .missing_paths
         .iter()
         .any(|path| contains_any(path, &["src/app/page", "app/page", "pages/index"]))
     {
         return RepairTarget::MissingEntrypoint;
+    }
+    if report.profile_failures.iter().any(|reason| {
+        contains_any(
+            reason,
+            &[
+                "non_implementation_obligation_only:scaffold",
+                "persistence_not_evaluated:no_mutation_observed",
+            ],
+        )
+    }) {
+        return RepairTarget::Implementation;
     }
     if report.profile_failures.iter().any(|reason| {
         contains_any(
@@ -561,6 +575,23 @@ fn contains_any(value: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| lower.contains(needle))
 }
 
+// These report entries describe missing proof or proposed work. Paths inside
+// them are not package/framework/entrypoint diagnostics. Preserve classification
+// of separate, actual configuration failures in the same report.
+fn is_evidence_diagnostic(reason: &str) -> bool {
+    contains_any(
+        reason,
+        &[
+            "repair guidance:",
+            "weak_verification_evidence:",
+            "artifact_only_verify:",
+            "missing_required_evidence:",
+            "non_implementation_obligation_only:",
+            "weak_source_evidence:",
+        ],
+    )
+}
+
 fn missing_required_evidence_includes_source_scan(reason: &str) -> bool {
     missing_required_evidence_keys(reason)
         .into_iter()
@@ -573,7 +604,8 @@ fn missing_required_evidence_includes_behavior_depth_key(reason: &str) -> bool {
         .any(|key| {
             matches!(
                 key,
-                "challenge_or_adversary_evidence"
+                "stateful_update_evidence"
+                    | "challenge_or_adversary_evidence"
                     | "failure_or_collision_evidence"
                     | "score_or_progression_evidence"
                     | "restart_or_recoverable_state_evidence"

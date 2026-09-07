@@ -57,3 +57,7 @@ pub(super) fn initialize(
 #[cfg(test)]
 #[path = "flow/recovery_authority_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "flow/issue435_tests.rs"]
+mod issue435_tests;

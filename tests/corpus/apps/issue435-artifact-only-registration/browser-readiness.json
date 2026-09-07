@@ -1,0 +1,14 @@
+{
+  "has_canvas": false,
+  "http_status": 200,
+  "interactive_control_count": 0,
+  "ok": true,
+  "route": "/",
+  "route_rendered": true,
+  "route_rendered_quality": "rendered_without_expected_surface",
+  "ssr_has_canvas": false,
+  "ssr_interactive_control_count": 0,
+  "status": "ready",
+  "surface_marker_authority": "ssr",
+  "title_text_excerpt": ""
+}

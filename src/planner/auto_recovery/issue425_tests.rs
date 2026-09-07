@@ -34,7 +34,7 @@ mod tests {
                     let _authority = recovery_contract_authority::begin_run(&config);
                     config.profile = profile.into();
                     let commands = if initially_registered {
-                        vec!["test -f app.js"]
+                        vec!["node --check app.js"]
                     } else {
                         vec![]
                     };
@@ -43,7 +43,7 @@ mod tests {
                     if step_has_verify {
                         recovery_contract_authority::register_step_plan_commands(
                             &config,
-                            &["test -f app.js".into()],
+                            &["node --check app.js".into()],
                         )
                         .unwrap();
                     }

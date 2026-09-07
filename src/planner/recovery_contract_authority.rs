@@ -29,6 +29,34 @@ fn admits_generated_commands(profile: &str) -> bool {
     )
 }
 
+fn admits_final_success_command(profile: &str, goal: &str, command: &str) -> bool {
+    !crate::minimal_loop::evidence::is_artifact_only_verify_command(command)
+        && (profile != crate::planner::profile_descriptor::NEXTJS_PROFILE_ID
+            || !crate::planner::profiles::nextjs::recovery_authority::final_verifier_covers_command(
+                goal, command,
+            ))
+}
+
+fn admitted_final_success_commands(
+    profile: &str,
+    goal: &str,
+    commands: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut admitted = Vec::new();
+    for command in commands {
+        // Split compound checks before filtering so `test -f x && npm test`
+        // retains its test. Validate inspections too; filtering grants no new
+        // command or path authority.
+        for normalized in crate::planner::verify::normalize_planner_verify_command(command)? {
+            crate::planner::verify::validate_verify_command(&normalized)?;
+            if admits_final_success_command(profile, goal, &normalized) {
+                admitted.push(normalized);
+            }
+        }
+    }
+    Ok(admitted)
+}
+
 fn profile_commands(config: &Config, profile: &str, goal: &str) -> Vec<String> {
     if !admits_generated_commands(profile) {
         return Vec::new();
@@ -36,6 +64,9 @@ fn profile_commands(config: &Config, profile: &str, goal: &str) -> Vec<String> {
     crate::planner::profile::resolve_profile_runtime(profile)
         .quality_expectations(&config.workspace_root, goal)
         .preferred_verify
+        .into_iter()
+        .filter(|command| admits_final_success_command(profile, goal, command))
+        .collect()
 }
 
 /// Register product-owned profile checks at generation, preserving admitted
@@ -85,15 +116,11 @@ pub(crate) fn register_step_plan_commands(
         return Ok(());
     }
     let original = contract.verify_commands.clone();
-    let nextjs =
-        contract.profile.as_deref() == Some(crate::planner::profile_descriptor::NEXTJS_PROFILE_ID);
+    let profile = contract.profile.as_deref().unwrap_or_default();
     let goal = contract.goal.as_deref().unwrap_or_default();
-    contract.verify_commands.extend(
-        commands
-            .iter()
-            .filter(|command| !nextjs || !crate::planner::profiles::nextjs::recovery_authority::final_verifier_covers_command(goal, command))
-            .cloned(),
-    );
+    contract
+        .verify_commands
+        .extend(admitted_final_success_commands(profile, goal, commands)?);
     let contract = contract.validate(&config.workspace_root)?;
     if contract.verify_commands != original {
         persist_generated_commands(config, &path, &contract, "admitted_step_plan")?;
@@ -213,7 +240,10 @@ fn complete_generated_verify_commands(
         return Ok(0);
     }
 
-    let source = if failed_plan_verify_commands.is_empty() {
+    let goal = contract.goal.as_deref().unwrap_or_default();
+    contract.verify_commands =
+        admitted_final_success_commands(&profile, goal, failed_plan_verify_commands)?;
+    let source = if contract.verify_commands.is_empty() {
         contract.verify_commands = profile_commands(
             config,
             &profile,
@@ -221,7 +251,6 @@ fn complete_generated_verify_commands(
         );
         "profile_runtime"
     } else {
-        contract.verify_commands = failed_plan_verify_commands.to_vec();
         "failed_plan_handoff"
     };
     let contract = contract
