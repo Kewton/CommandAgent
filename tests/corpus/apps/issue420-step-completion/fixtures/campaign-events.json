@@ -1,0 +1,1091 @@
+{
+  "campaign": "commandagent-capability-0905-vkR3MS",
+  "source_revision": "5dec1494c05f8ff395a4c00edd0f838ce3f64a84",
+  "expected_totals": {
+    "events": 19,
+    "skipped": 8,
+    "failed": 2,
+    "completed_changed": 3,
+    "completed_unchanged": 6,
+    "missing_step_id": 11
+  },
+  "sources": [
+    {
+      "run": "I1",
+      "session_id": "01a076bc-2e73-7fe3-afb6-ca4af14153ed",
+      "events_sha256": "1ddf1cd86ddf1955911a29a45b9dc758603e7394c6052344e7cdd8053ebe3820"
+    },
+    {
+      "run": "I2",
+      "session_id": "01a076f2-7f5c-7283-9fda-32fcdd57fcf8",
+      "events_sha256": "1f974de4faa203c2c2a736d03df1c5cae6b2335c3441a8db8ac516147620f9e0"
+    },
+    {
+      "run": "I3",
+      "session_id": "01a07703-f64e-7ed0-a6f4-b03708a9df51",
+      "events_sha256": "655c3bcbb20b7bc44a500798d3171213da8d8c9c840480c6e220f308ce1440ea"
+    },
+    {
+      "run": "S1",
+      "session_id": "01a076c8-b14e-7013-8367-7efddf41b865",
+      "events_sha256": "ddba9fd93f2943e4d39bdb723ed429fcd3472075282828f1d1e4a189e607717a"
+    },
+    {
+      "run": "S2",
+      "session_id": "01a07712-3a75-7371-8f4b-5638a2b3457f",
+      "events_sha256": "c9d6481aa3c10734994c2b73642a336ec1001475fc4e61049257ea908cb06fc7"
+    },
+    {
+      "run": "S3",
+      "session_id": "01a07723-2d9b-7692-8587-ac64212be280",
+      "events_sha256": "4125073c1bc082e88711d92588e50bed10f60f2ac17cb14c9cf2608876281105"
+    },
+    {
+      "run": "E1",
+      "session_id": "01a076d8-1640-7961-87a4-6cbb93393536",
+      "events_sha256": "e00caa9a1f305c37af650d621c50f94f7351f289f727f1c344eecd9dbf833c01"
+    },
+    {
+      "run": "E2",
+      "session_id": "01a07741-bdeb-79c1-a644-650cab82fdaf",
+      "events_sha256": "2364fdcc2b596dc17c0ba874e73537be4f8ab7fd54f74bda97478080d1ae6566"
+    },
+    {
+      "run": "E3",
+      "session_id": "01a07757-69f6-7793-a939-7ef81d02ff16",
+      "events_sha256": "4bd221ff83fb1f5645a43d339dbdf6594990a94ce624a42057a937bfa3d8eea6"
+    }
+  ],
+  "cases": [
+    {
+      "run": "I1",
+      "start_line": 179,
+      "short_circuit_line": 190,
+      "terminal_line": 210,
+      "step_id": "implement-main-page-ui",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-main-page-ui",
+        "terminal_status": "completed",
+        "changed_path_count": 1,
+        "changed_paths": [
+          "src/app/page.tsx"
+        ]
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 3
+      },
+      "completion_verify": {
+        "line": 189,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "I1",
+      "start_line": 341,
+      "short_circuit_line": 343,
+      "terminal_line": 344,
+      "step_id": "repair-config-invariants",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "inspect-current-state",
+        "required_paths": [
+          "package.json",
+          "postcss.config.js",
+          "tsconfig.json",
+          "src/app/globals.css",
+          "src/app/global.d.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "repair-config-invariants",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.dev.includes('60302')\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "repair-config-invariants",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "I2",
+      "start_line": 169,
+      "short_circuit_line": 180,
+      "terminal_line": 198,
+      "step_id": "implement-main-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx",
+          "src/app/globals.css",
+          "package.json"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-main-page",
+        "terminal_status": "completed",
+        "changed_path_count": 1,
+        "changed_paths": [
+          "src/app/page.tsx"
+        ]
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 3
+      },
+      "completion_verify": {
+        "line": 179,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "I2",
+      "start_line": 337,
+      "short_circuit_line": 339,
+      "terminal_line": 340,
+      "step_id": "repair-config-if-needed",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "inspect-current-state",
+        "required_paths": [
+          "package.json",
+          "postcss.config.js",
+          "tsconfig.json"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "repair-config-if-needed",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+          "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+          "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "repair-config-if-needed",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "I3",
+      "start_line": 168,
+      "short_circuit_line": 183,
+      "terminal_line": 211,
+      "step_id": "implement-main-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_failed",
+        "step_id": "implement-main-page",
+        "terminal_status": "failed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 5
+      },
+      "completion_verify": {
+        "line": 182,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "S1",
+      "start_line": 215,
+      "short_circuit_line": 222,
+      "terminal_line": 223,
+      "step_id": "wire-data-anvil-attributes",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "contract-wiring",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "wire-data-anvil-attributes",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 1
+      },
+      "completion_verify": {
+        "line": 221,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "S2",
+      "start_line": 115,
+      "short_circuit_line": 134,
+      "terminal_line": 164,
+      "step_id": "implement-main-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx",
+          "src/app/layout.tsx",
+          "src/app/globals.css"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-main-page",
+        "terminal_status": "completed",
+        "changed_path_count": 3,
+        "changed_paths": [
+          "src/app/page.tsx",
+          "src/app/layout.tsx",
+          "src/app/globals.css"
+        ]
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 7
+      },
+      "completion_verify": {
+        "line": 133,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "S2",
+      "start_line": 465,
+      "short_circuit_line": 467,
+      "terminal_line": 468,
+      "step_id": "implement-config-consistency",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "inspect-current-state",
+        "required_paths": [
+          "package.json",
+          "postcss.config.js",
+          "tailwind.config.ts",
+          "tsconfig.json",
+          "next.config.js"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "implement-config-consistency",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"const s=require('./package.json').scripts; s.build==='next build' && /60302/.test(s.dev) && /60302/.test(s.start)\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-config-consistency",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "S3",
+      "start_line": 201,
+      "short_circuit_line": 212,
+      "terminal_line": 213,
+      "step_id": "implement-ui-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-ui-page",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 3
+      },
+      "completion_verify": {
+        "line": 211,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "S3",
+      "start_line": 277,
+      "short_circuit_line": 288,
+      "terminal_line": 289,
+      "step_id": "implement-page-wiring",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "contract-wiring",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-page-wiring",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 3
+      },
+      "completion_verify": {
+        "line": 287,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "S3",
+      "start_line": 506,
+      "short_circuit_line": 509,
+      "terminal_line": 510,
+      "step_id": "verify-scaffold-consistency",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "inspect-current-state",
+        "required_paths": [
+          "package.json",
+          "tsconfig.json",
+          "postcss.config.js",
+          "tailwind.config.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "verify-scaffold-consistency",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -e \"const p=require('./package.json'); if(!p.scripts.build.includes('next build')) throw new Error('build'); if(!p.scripts.dev.includes('60302')) throw new Error('port'); const c=require('./postcss.config.js'); const plugins=c.plugins||c; if(!Object.keys(plugins).includes('tailwindcss')&&!Array.isArray(plugins)) throw new Error('postcss')\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "verify-scaffold-consistency",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "S3",
+      "start_line": 559,
+      "short_circuit_line": 561,
+      "terminal_line": 562,
+      "step_id": "repair-config-files",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "repair-plan-run-step",
+        "required_paths": [
+          "package.json",
+          "tsconfig.json",
+          "postcss.config.js",
+          "tailwind.config.ts",
+          "src/app/layout.tsx",
+          "src/app/globals.css",
+          "src/app/global.d.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "repair-config-files",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"const p=require('./package.json'); p.scripts.build==='next build' && p.scripts.dev.includes('60302') && p.scripts.start.includes('60302') && !!p.dependencies.next && !!p.dependencies.react\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "repair-config-files",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "E1",
+      "start_line": 122,
+      "short_circuit_line": 135,
+      "terminal_line": 136,
+      "step_id": "implement-main-ui",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-main-ui",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 4
+      },
+      "completion_verify": {
+        "line": 134,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "E1",
+      "start_line": 381,
+      "short_circuit_line": 384,
+      "terminal_line": 385,
+      "step_id": "ensure-scaffold-consistency",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "inspect-current-state",
+        "required_paths": [
+          "package.json",
+          "postcss.config.js",
+          "tsconfig.json",
+          "tailwind.config.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "ensure-scaffold-consistency",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -e \"const p=require('./package.json'); if(p.scripts.build!=='next build') process.exit(1); if(!/60302/.test(p.scripts.dev)) process.exit(1)\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "ensure-scaffold-consistency",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "E2",
+      "start_line": 129,
+      "short_circuit_line": 140,
+      "terminal_line": 178,
+      "step_id": "implement-main-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_failed",
+        "step_id": "implement-main-page",
+        "terminal_status": "failed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 3
+      },
+      "completion_verify": {
+        "line": 139,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "E3",
+      "start_line": 237,
+      "short_circuit_line": 252,
+      "terminal_line": 253,
+      "step_id": "implement-main-page",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "core-implementation",
+        "required_paths": [
+          "src/app/page.tsx"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "implement-main-page",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 5
+      },
+      "completion_verify": {
+        "line": 251,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [
+          "implementation"
+        ],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "E3",
+      "start_line": 288,
+      "short_circuit_line": 301,
+      "terminal_line": 302,
+      "step_id": "wire-data-anvil-attributes",
+      "short_circuit": {
+        "at": "iteration",
+        "event": "step_short_circuited",
+        "phase_scope": "contract-wiring",
+        "required_paths": [
+          "src/app/page.tsx",
+          "src/app/layout.tsx",
+          "src/app/globals.css",
+          "src/app/global.d.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_kind": "implement",
+        "verify_attempts": 1
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "wire-data-anvil-attributes",
+        "terminal_status": "completed",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {
+        "Read": 4
+      },
+      "completion_verify": {
+        "line": 300,
+        "ok": true,
+        "contract_enforcement": "observe",
+        "required_evidence": [
+          "nextjs_route_evidence",
+          "build_command_or_dependency_missing_boundary"
+        ],
+        "required_obligations": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_obligation": {
+          "evidence": [
+            "challenge_or_adversary_evidence",
+            "interactive_ui_source_evidence",
+            "non_static_screen_evidence",
+            "score_or_progression_evidence",
+            "stateful_update_evidence",
+            "user_input_handler_evidence",
+            "visible_interactive_surface_evidence"
+          ],
+          "path": "src/app/page.tsx",
+          "required_capabilities_supported": [],
+          "role": "scaffold",
+          "route_bound": true,
+          "satisfies_implementation": false
+        }
+      },
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": true,
+        "runner_skip_preserved": false
+      }
+    },
+    {
+      "run": "E3",
+      "start_line": 578,
+      "short_circuit_line": 580,
+      "terminal_line": 581,
+      "step_id": "fix-package-config",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "repair-plan-run-step",
+        "required_paths": [
+          "package.json",
+          "tsconfig.json",
+          "postcss.config.js",
+          "tailwind.config.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "fix-package-config",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"const p=require('./package.json'); process.exit(p.scripts.dev.includes('60302')&&p.scripts.build==='next build'&&!p.scripts.dev.includes('&&')?0:1)\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "fix-package-config",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    },
+    {
+      "run": "E3",
+      "start_line": 582,
+      "short_circuit_line": 584,
+      "terminal_line": 585,
+      "step_id": "fix-layout-and-styles",
+      "short_circuit": {
+        "at": "start",
+        "event": "step_short_circuited",
+        "phase_scope": "repair-plan-run-step",
+        "required_paths": [
+          "src/app/layout.tsx",
+          "src/app/globals.css",
+          "src/app/global.d.ts"
+        ],
+        "schema_version": "1",
+        "session_scope": "plan-run-step",
+        "step_id": "fix-layout-and-styles",
+        "step_kind": "implement",
+        "verify_commands": [
+          "node -p \"const fs=require('fs'); const css=fs.readFileSync('src/app/globals.css','utf8'); process.exit(css.includes('@tailwind base')?0:1)\""
+        ]
+      },
+      "terminal": {
+        "event": "plan_step_completed",
+        "step_id": "fix-layout-and-styles",
+        "terminal_status": "skipped",
+        "changed_path_count": 0,
+        "changed_paths": []
+      },
+      "successful_tools_before_short_circuit": {},
+      "completion_verify": null,
+      "expectation": {
+        "legacy_422_short_circuit": true,
+        "iteration_placeholder_blocked": false,
+        "runner_skip_preserved": true
+      }
+    }
+  ]
+}

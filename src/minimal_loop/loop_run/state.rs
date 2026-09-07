@@ -63,12 +63,6 @@ impl StepShortCircuitAt {
     }
 }
 
-pub(super) struct ShortCircuitContext<'a> {
-    pub(super) verify_attempts: &'a mut usize,
-    pub(super) at: StepShortCircuitAt,
-    pub(super) write_or_edit_seen: bool,
-}
-
 #[derive(Debug)]
 pub(super) enum VerifyRepairNoEditOutcome {
     NoPendingFailure,

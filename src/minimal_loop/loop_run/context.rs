@@ -56,6 +56,7 @@ pub(crate) struct RunSessionOptions {
     pub action_no_tool_policy: ActionNoToolPolicy,
     pub scope: RunSessionScope,
     pub step_kind: Option<RunSessionStepKind>,
+    pub step_id: Option<String>,
     pub dependency_setup_authority: NodeDependencySetupAuthority,
     pub step_wall_clock_cap: Option<Duration>,
     pub path_fallback_candidates: Vec<String>,
@@ -75,6 +76,7 @@ impl Default for RunSessionOptions {
             action_no_tool_policy: ActionNoToolPolicy::RequireWriteForActionPrompt,
             scope: RunSessionScope::MinimalLoop,
             step_kind: None,
+            step_id: None,
             dependency_setup_authority: NodeDependencySetupAuthority::None,
             step_wall_clock_cap: None,
             path_fallback_candidates: Vec::new(),
@@ -88,12 +90,6 @@ impl Default for RunSessionOptions {
 impl RunSessionOptions {
     pub(crate) fn plan_step(step_kind: RunSessionStepKind) -> Self {
         Self::plan_step_with_enforcement(step_kind, ContractEnforcement::Enforce, None)
-    }
-
-    pub(crate) fn final_acceptance_repair() -> Self {
-        let mut options = Self::plan_step(RunSessionStepKind::Implement);
-        options.require_mutation_before_contract_short_circuit = true;
-        options
     }
 
     pub(crate) fn plan_step_with_enforcement(
