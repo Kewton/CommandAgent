@@ -31,4 +31,11 @@ fixtures/lazy-json-preflight.jsonl = [
   "\"status\":\"fail\"",
   "\"external_oracle_used\":false"
 ]
-fixtures/unsupported-writers.ts = ["Deliberately unsupported syntax", "const regex", "const template", "const interpolated"]
+fixtures/unsupported-writers.ts = ["Deliberately unsupported writers", "const regex", "const template", "const interpolated"]
+
+fixtures/campaign-preflight.jsonl = [
+  "\"fixture_run\":\"S1\"", "\"fixture_run\":\"S3\"", "\"fixture_run\":\"E3\"",
+  "\"allowed_generated_paths\":[\"data/departments.json\",\"data/expenses.json\"]",
+  "\"protected_change_disposition\":\"reject_and_retain_control\""
+]
+fixtures/hidden-evaluation.json = ["eval", "Function", "constructor", "replacement"]

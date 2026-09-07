@@ -275,3 +275,166 @@ mod lazy_json_preflight {
         }
     }
 }
+
+#[cfg(test)]
+mod reopened_json_preflight {
+    use super::*;
+
+    #[test]
+    fn issue429_campaign_preflight_preserves_isolation_failure_and_source_gates() {
+        let fixture = Path::new("tests/corpus/apps/issue429-lazy-json-preflight/fixtures/campaign");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture.join("source-sha256.json")).unwrap())
+                .unwrap();
+        let expected_events: Vec<serde_json::Value> = include_str!(
+            "../../tests/corpus/apps/issue429-lazy-json-preflight/fixtures/campaign-preflight.jsonl"
+        )
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+        for (run, outputs) in [
+            ("S1", ["data/shifts.json", "data/staff.json"]),
+            ("S3", ["data/shifts.json", "data/staff.json"]),
+            ("E3", ["data/departments.json", "data/expenses.json"]),
+        ] {
+            for existing in [false, true] {
+                for disposition in ["pass", "fail", "source", "unregistered"] {
+                    let root = tempfile::tempdir().unwrap();
+                    for path in manifest[run].as_object().unwrap().keys() {
+                        let destination = root.path().join(path);
+                        std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                        std::fs::copy(fixture.join(run).join(path), destination).unwrap();
+                    }
+                    std::fs::write(root.path().join("package.json"), "{}").unwrap();
+                    if existing {
+                        std::fs::create_dir(root.path().join("data")).unwrap();
+                        for path in outputs {
+                            std::fs::write(root.path().join(path), "[]\n").unwrap();
+                        }
+                    }
+                    // Replay observation effects against unchanged real sources.
+                    // This synthetic observer is not a generated-app execution.
+                    let mut probe = String::from(
+                        "import fs from 'fs/promises'; await fs.mkdir('data', {recursive: true});\n",
+                    );
+                    for path in outputs {
+                        probe.push_str(&format!(
+                            "await fs.writeFile('{path}', '[{{\"probe\":true}}]');\n"
+                        ));
+                    }
+                    match disposition {
+                        "fail" => probe.push_str("process.exitCode = 1;\n"),
+                        "source" => probe.push_str(
+                            "await fs.appendFile('src/app/page.tsx', '\\n// changed');\n",
+                        ),
+                        "unregistered" => {
+                            probe.push_str("await fs.writeFile('data/unregistered.json', '[]');\n")
+                        }
+                        _ => {}
+                    }
+                    std::fs::write(root.path().join("probe.mjs"), probe).unwrap();
+                    let contract = root.path().join("completion-contract.json");
+                    std::fs::write(
+                        &contract,
+                        serde_json::to_vec(&json!({
+                            "profile": crate::planner::profiles::nextjs::PROFILE_ID,
+                            "required_paths": ["probe.mjs"], "verify_commands": ["node probe.mjs"]
+                        }))
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    let mut config = config(root.path(), 1);
+                    config.completion_contract_path = Some(contract);
+                    let before =
+                        crate::planner::recovery_snapshot::current_source_sha256(root.path())
+                            .unwrap();
+                    let observed = recovery_preflight(&config, &candidate("campaign-json"), 0);
+                    match disposition {
+                        "pass" => assert!(
+                            matches!(observed, RecoveryPreflight::CurrentSuccess { .. }),
+                            "{run}: {observed:?}"
+                        ),
+                        "fail" => assert!(
+                            matches!(observed, RecoveryPreflight::Failed { .. }),
+                            "{run}: {observed:?}"
+                        ),
+                        _ => assert!(
+                            matches!(&observed, RecoveryPreflight::Unavailable { reason } if reason == "preflight_source_mutation_rejected_and_restored"),
+                            "{run}: {observed:?}"
+                        ),
+                    }
+                    assert_eq!(
+                        crate::planner::recovery_snapshot::current_source_sha256(root.path())
+                            .unwrap(),
+                        before,
+                        "{run}/{disposition}"
+                    );
+                    let observation = root
+                        .path()
+                        .join(".commandagent/recovery-observations/attempt-0/workspace");
+                    for path in outputs {
+                        assert_eq!(
+                            std::fs::read_to_string(observation.join(path)).unwrap(),
+                            "[{\"probe\":true}]"
+                        );
+                        if existing {
+                            assert_eq!(
+                                std::fs::read_to_string(root.path().join(path)).unwrap(),
+                                "[]\n"
+                            );
+                        } else {
+                            assert!(!root.path().join(path).exists());
+                        }
+                    }
+                    let mut driver = driver(vec![success("recovered fixture")]);
+                    driver.preflight = observed;
+                    let initial = failed(recoverable(contract_bound_candidate("campaign-json")));
+                    let result = drive(&config, initial, &mut driver);
+                    if disposition == "fail" {
+                        assert_eq!(result.unwrap(), "recovered fixture");
+                        assert_eq!(driver.starts, [1]);
+                    } else {
+                        assert!(result.is_err());
+                        assert!(driver.starts.is_empty());
+                    }
+                    let events: Vec<serde_json::Value> =
+                        std::fs::read_to_string(config.eval_events_path.as_ref().unwrap())
+                            .unwrap()
+                            .lines()
+                            .map(|line| serde_json::from_str(line).unwrap())
+                            .collect();
+                    let policy = events
+                        .iter()
+                        .find(|event| event["event"] == "recovery_observation_effect_policy_bound")
+                        .unwrap();
+                    let expected = expected_events
+                        .iter()
+                        .find(|event| event["fixture_run"] == run)
+                        .unwrap();
+                    for key in [
+                        "allowed_generated_paths",
+                        "source",
+                        "protected_change_disposition",
+                        "external_oracle_used",
+                        "registered_data_input_fixture",
+                    ] {
+                        assert_eq!(policy[key], expected[key], "{run}: {key}");
+                    }
+                    let event = events
+                        .iter()
+                        .find(|event| event["event"] == "recovery_preflight_observation")
+                        .unwrap();
+                    assert_eq!(
+                        event["status"],
+                        match disposition {
+                            "pass" => "pass",
+                            "fail" => "fail",
+                            _ => "unavailable",
+                        }
+                    );
+                    assert_eq!(event["observation_isolated"], true);
+                }
+            }
+        }
+    }
+}

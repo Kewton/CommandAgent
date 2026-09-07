@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::minimal_loop::completion::CompletionContract;
 
+mod forwarding;
 mod syntax;
 use syntax::{Source, Token};
 
@@ -263,6 +264,7 @@ impl Source {
                 paths.push(path);
             }
         }
+        paths.extend(self.forwarded_writer_paths(&bindings));
         paths
     }
 
@@ -355,3 +357,6 @@ impl Source {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reopen_tests;
