@@ -69,14 +69,13 @@ fn relative_prefix(text: &str, prefix: &str) -> String {
         let after = text[end..].chars().next();
         let boundary = before.is_none_or(path_boundary)
             && after.is_none_or(|ch| ch == '/' || path_boundary(ch));
-        let suffix_end = text[end..]
-            .find(path_boundary)
-            .map_or(text.len(), |offset| end + offset);
-        let suffix = &text[end..suffix_end];
-        let traversal = Path::new(suffix)
-            .components()
-            .any(|component| component == Component::ParentDir);
-        if boundary && !traversal {
+        let safe_suffix = decoded_word_suffix(text, start, end).is_some_and(|suffix| {
+            (suffix.is_empty() || suffix.starts_with('/'))
+                && !Path::new(&suffix)
+                    .components()
+                    .any(|component| component == Component::ParentDir)
+        });
+        if boundary && safe_suffix {
             out.push_str(&text[cursor..start]);
             out.push('.');
             cursor = end;
@@ -84,6 +83,70 @@ fn relative_prefix(text: &str, prefix: &str) -> String {
     }
     out.push_str(&text[cursor..]);
     out
+}
+
+/// Inspect the entire shell word, including quoted/escaped whitespace and
+/// concatenated quotes. Decoding is only for the check; output retains its
+/// original spelling. Incomplete syntax and expansions are not normalized.
+fn decoded_word_suffix(text: &str, start: usize, end: usize) -> Option<String> {
+    let mut quote = None;
+    let mut quote_start = 0;
+    let mut escaped = false;
+    for (offset, ch) in text[..end].char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if quote == Some(ch) {
+            quote = None;
+        } else if quote.is_none() && matches!(ch, '\'' | '"' | '`') {
+            quote = Some(ch);
+            quote_start = offset;
+        }
+    }
+    if escaped
+        || (quote.is_some()
+            && (quote_start >= start
+                || text[..quote_start].ends_with('$')
+                || (quote != Some('\'') && text[quote_start..end].contains('$'))
+                || text[quote_start + 1..start]
+                    .chars()
+                    .any(|ch| matches!(ch, '\'' | '"' | '`'))))
+        || text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| matches!(ch, '\'' | '"' | '`') && quote != Some(ch))
+    {
+        return None;
+    }
+    let mut suffix = String::new();
+    let mut chars = text[end..].chars();
+    while let Some(ch) = chars.next() {
+        match (quote, ch) {
+            (Some(delimiter), ch) if ch == delimiter => quote = None,
+            (Some('\''), ch) => suffix.push(ch),
+            (_, '\\') => {
+                let next = chars.next()?;
+                if next != '\n' {
+                    if quote == Some('"') && !matches!(next, '\\' | '$' | '`' | '"') {
+                        suffix.push('\\');
+                    }
+                    suffix.push(next);
+                }
+            }
+            (None, '\'' | '"') => quote = Some(ch),
+            // Backticks can delimit a displayed path, but nested shell syntax
+            // or expansions cannot establish a literal, complete path here.
+            (Some('`'), '\'' | '"') | (_, '$' | '`') => return None,
+            (None, ch)
+                if ch.is_whitespace() || matches!(ch, '(' | ')' | ';' | '&' | '|' | '<' | '>') =>
+            {
+                break;
+            }
+            (_, ch) => suffix.push(ch),
+        }
+    }
+    quote.is_none().then_some(suffix)
 }
 
 fn path_boundary(ch: char) -> bool {
@@ -130,6 +193,28 @@ pub(super) fn redacted_list(items: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn issue441_review_checks_complete_path_suffixes() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/corpus/apps/issue441-placeholder/fixtures/recovery-suffixes.json"
+        ))
+        .unwrap();
+        let root = Path::new(fixture["root"].as_str().unwrap());
+        for case in fixture["cases"].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let expected = case["expected"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| display_text(None, input));
+            assert_eq!(
+                display_text(Some(root), input),
+                expected,
+                "{}: {input}",
+                case["id"]
+            );
+        }
+    }
 
     #[test]
     fn issue441_normalizes_only_known_root_before_redaction() {

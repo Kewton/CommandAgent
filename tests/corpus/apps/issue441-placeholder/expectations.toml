@@ -6,3 +6,4 @@ expect = "not_checked"
 
 [fixture_contains]
 fixtures/i2-events-196-213.jsonl = ["/Users/<user>/", "recoverable_tool_error_repeated"]
+fixtures/recovery-suffixes.json = ["reported-single-quoted-space", "escaped-space", "concatenated-quotes", "safe-single-quoted-space", "safe-escaped-space"]
