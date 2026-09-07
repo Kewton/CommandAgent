@@ -12,6 +12,7 @@ pub mod hidden_path;
 pub mod mcp;
 pub mod offline_policy;
 pub mod path_guard;
+pub(crate) mod placeholder_path;
 pub mod read;
 pub mod registry;
 mod repeated_read;

@@ -18,9 +18,7 @@ pub(crate) fn recoverable_tool_feedback(
             .then_some(guidance)
             .map(|guidance| format!(" {guidance}."))
             .unwrap_or_default();
-        return format!(
-            "Tool call `{name}` used an absolute path outside the current workspace and was rejected: {err_text}.{guidance}"
-        );
+        return format!("Tool call `{name}` was rejected: {err_text}.{guidance}");
     }
     if err_text.contains("stale_absolute_path_recoverable") {
         return format!(

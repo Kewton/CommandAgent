@@ -144,6 +144,19 @@ where
     G: Fn() -> bool,
 {
     let started = Instant::now();
+    if let Some(rejection) = super::placeholder_path::rejection(command, root) {
+        super::placeholder_path::record_rejection(root, command).map_err(|_| {
+            anyhow::anyhow!("bash_path_confinement_error: placeholder path detected; private evidence recording failed; command remains blocked; retry with workspace-relative paths")
+        })?;
+        return Ok(BashOutcome {
+            kind: BashOutcomeKind::Blocked,
+            status: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            summary: rejection.message,
+        });
+    }
     let command = strip_workspace_root_cd_prefix(command, root)
         .map(|normalization| normalization.normalized_command)
         .unwrap_or_else(|| command.to_string());
@@ -299,7 +312,10 @@ pub fn normalize_inspect_command(
     root: &Path,
 ) -> Option<InspectCommandNormalization> {
     let original = command.trim();
-    if original.is_empty() || contains_unquoted_shell_control(original) {
+    if original.is_empty()
+        || super::placeholder_path::detected(command)
+        || contains_unquoted_shell_control(original)
+    {
         return None;
     }
     let tokens = shell_words(original)?;
@@ -320,6 +336,9 @@ pub fn strip_workspace_root_cd_prefix(
     command: &str,
     root: &Path,
 ) -> Option<WorkspaceCdNormalization> {
+    if super::placeholder_path::detected(command) {
+        return None;
+    }
     let original = command.trim();
     let operator = first_unquoted_and_and(original)?;
     let prefix = original[..operator].trim();
@@ -674,6 +693,9 @@ pub fn path_confinement_rejection(
     command: &str,
     root: &Path,
 ) -> Option<BashPathConfinementRejection> {
+    if let Some(rejection) = super::placeholder_path::rejection(command, root) {
+        return Some(rejection);
+    }
     let raw_root = root.to_path_buf();
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     if let Some(rejection) = super::bash_write_guard::confinement_rejection(command, &root) {

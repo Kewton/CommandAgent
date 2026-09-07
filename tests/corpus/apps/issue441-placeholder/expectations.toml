@@ -1,0 +1,8 @@
+case_id = "issue441-placeholder"
+source = "I2 campaign events 196-213; projected historical diagnostic fixture"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/i2-events-196-213.jsonl = ["/Users/<user>/", "recoverable_tool_error_repeated"]

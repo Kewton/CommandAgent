@@ -44,6 +44,7 @@ pub(super) fn emit_policy(
             json!(normalized_commands(decision)),
         );
     }
+    crate::tools::placeholder_path::add_event_fields(&mut event, command);
     eval_events::emit(path, event);
 }
 

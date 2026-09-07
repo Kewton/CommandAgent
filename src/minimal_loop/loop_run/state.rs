@@ -108,6 +108,9 @@ pub(super) struct RecoverableToolErrorState {
 
 impl RecoverableToolErrorState {
     pub(super) fn record(&mut self, tool_name: &str, err: &anyhow::Error) -> usize {
+        if crate::tools::placeholder_path::is_placeholder_rejection(tool_name, err) {
+            return 0;
+        }
         let kind = tool_error_kind(err);
         let key = if let Some(access) = crate::tools::hidden_path::access_from_error(err) {
             format!("hidden_path:{}", access.path)

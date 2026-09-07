@@ -1156,7 +1156,10 @@ fn bind_candidate_verify_commands(
                 ),
             );
         }
-        let plan = crate::planner::repair::build_recovery_ultra_plan(&candidate.handoff);
+        let plan = crate::planner::repair::build_recovery_ultra_plan_at_root(
+            Some(&config.workspace_root),
+            &candidate.handoff,
+        );
         let scope = contract_bound_scope(candidate.handoff.failed_step.as_deref());
         let path = crate::planner::repair::save_recovery_ultra_plan(
             &config.workspace_root,

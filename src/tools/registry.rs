@@ -521,21 +521,20 @@ fn emit_bash_path_confinement_rejected(
     command: &str,
     rejection: &crate::tools::bash::BashPathConfinementRejection,
 ) {
-    eval_events::emit(
-        context.eval_events_path.as_deref(),
-        json!({
-            "event": "bash_path_confinement_rejected",
-            "schema_version": "1",
-            "blocked": true,
-            "reason": rejection.reason,
-            "operation": rejection.operation,
-            "command": eval_events::body_snippet(command),
-            "path": rejection.path,
-            "root": rejection.root,
-            "nearest_relative": rejection.nearest_relative,
-            "guidance": rejection.guidance,
-        }),
-    );
+    let mut event = json!({
+        "event": "bash_path_confinement_rejected",
+        "schema_version": "1",
+        "blocked": true,
+        "reason": rejection.reason,
+        "operation": rejection.operation,
+        "command": eval_events::body_snippet(command),
+        "path": rejection.path,
+        "root": rejection.root,
+        "nearest_relative": rejection.nearest_relative,
+        "guidance": rejection.guidance,
+    });
+    super::placeholder_path::add_event_fields(&mut event, command);
+    eval_events::emit(context.eval_events_path.as_deref(), event);
 }
 
 fn emit_edit_anchor_salvaged(context: &ToolContext, path: &str, output: &str) {
