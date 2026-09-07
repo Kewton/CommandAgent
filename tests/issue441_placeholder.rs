@@ -144,8 +144,9 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
     );
     assert_eq!(
         records[0]["command_prefix_bytes"],
-        json!(&command.as_bytes()[..64])
+        json!(&command.as_bytes()[..command.len().min(64)])
     );
+    assert_eq!(records[0]["command_bytes"], command.len());
 
     let command = format!("echo {}<redacted>", "日".repeat(24));
     bash::run(&command, root.path(), true).unwrap_err();
@@ -159,6 +160,49 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
         json!(&command.as_bytes()[..64])
     );
     assert!(std::str::from_utf8(&command.as_bytes()[..64]).is_err());
+}
+
+#[test]
+fn evidence_prefix_boundaries_preserve_full_command_hashes() {
+    let exact = format!("echo '<user>{}'", "x".repeat(51));
+    let commands = [
+        ("echo '<user>'".to_string(), 13),
+        (exact.clone(), 64),
+        (format!("{exact} A"), 66),
+        (format!("{exact} B"), 66),
+    ];
+    let mut records = Vec::new();
+    for (command, expected_bytes) in commands {
+        assert_eq!(command.len(), expected_bytes);
+        let root = tempfile::tempdir().unwrap();
+        let error = bash::run(&command, root.path(), true).unwrap_err();
+        assert!(error.to_string().contains("placeholder path detected"));
+        let evidence = private_records(root.path());
+        assert_eq!(evidence.len(), 1);
+        let record = &evidence[0];
+        assert_eq!(record["command_bytes"], expected_bytes);
+        assert_eq!(
+            record["command_sha256"],
+            format!("{:x}", Sha256::digest(command.as_bytes()))
+        );
+        assert_eq!(
+            record["command_prefix_bytes"],
+            json!(&command.as_bytes()[..expected_bytes.min(64)])
+        );
+        assert_eq!(
+            record["command_prefix_bytes"].as_array().unwrap().len(),
+            expected_bytes.min(64)
+        );
+        records.push(record.clone());
+    }
+    for record in &records[2..] {
+        assert_eq!(
+            record["command_prefix_bytes"],
+            records[1]["command_prefix_bytes"]
+        );
+        assert_ne!(record["command_sha256"], records[1]["command_sha256"]);
+    }
+    assert_ne!(records[2]["command_sha256"], records[3]["command_sha256"]);
 }
 
 #[test]
