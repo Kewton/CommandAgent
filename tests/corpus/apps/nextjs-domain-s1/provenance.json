@@ -1,0 +1,14 @@
+{
+  "campaign": "20260907-1317-standard10",
+  "run": "s1",
+  "source_session": "01a07a5f-5e10-7112-8505-fbf483c35246",
+  "artifact": "final retained original",
+  "sha256": {
+    "src/app/api/shifts/route.ts": "5ec0c9a8588ad24c630a31de9a8f30e846afc9e9d6894eecd73dea5832ead6f0",
+    "src/app/api/staff/route.ts": "8f6340289fa7c94b1084738f1a016fc2f43f6ce448bfcff8ded116cd0280b95b",
+    "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+    "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+    "src/app/layout.tsx": "a5c80a0c7494653f9973ea7bb963d7eda70dd6c0ee70e1ad931dacecfe12156e",
+    "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8"
+  }
+}

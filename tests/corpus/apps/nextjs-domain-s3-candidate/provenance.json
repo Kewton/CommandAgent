@@ -1,0 +1,20 @@
+{
+  "campaign": "20260907-1317-standard10",
+  "run": "s3-candidate",
+  "source_session": "01a07b63-368e-7183-85d9-9c22bc854ea5/.commandagent/recovery-treatments/attempt-1/workspace",
+  "artifact": "rejected candidate",
+  "sha256": {
+    "src/app/api/shifts/[id]/route.ts": "4e3431c35c56370a0cbe2028d96a31455b4968fd16a6db41bf3f3a075be13afc",
+    "src/app/api/shifts/route.ts": "1bbbe55080cfa0a623bce53c5a417b26a4463272bcf52e2d220f0814808b8c2f",
+    "src/app/api/staff/[id]/route.ts": "ff9f2d4f41b860bce487305023024006a0a79707b5dcf74fbf69b37f199f55fb",
+    "src/app/api/staff/route.ts": "a3e396cfa9f17687c7f0ed907a816527dcc41b727be2c732563838e9f11cad27",
+    "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+    "src/app/globals.css": "54105ebad06fa9c421a9c8d0b112d910f0eadd10d4854cf5eebffb63e24bfe89",
+    "src/app/layout.tsx": "d69e1edd345e11db78ec86b00ba7984f87d1a492c3e64031e62e8821510fced4",
+    "src/app/page.tsx": "d0c232ba788481b799ef1e88905c1ac04bc0a7076fc6ab87f25159491c9dfaa9",
+    "src/lib/seed.ts": "a0af8897b77344d84af5c09e37ee78ab54640e7dc1743edf2dd68d5614e2dc2e",
+    "src/lib/storage.ts": "47f78923df8de59d1856ffbfd110d93ab54b2377f00740550ab2dfa3ca8ce624",
+    "src/lib/store.ts": "d205143cc590e506d668b46138b9d4a2c04457f3b8acef3f3fbde8e2961123dc",
+    "src/lib/types.ts": "73435a374c26a961f0837030764f981ef912437034e2efdc8f177b0cc45ba91b"
+  }
+}

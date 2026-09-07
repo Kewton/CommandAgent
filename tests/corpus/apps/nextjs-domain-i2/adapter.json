@@ -1,0 +1,22 @@
+{
+  "domain": "inventory",
+  "parent": "products",
+  "child": "orders",
+  "delete_style": "body",
+  "parent_body": {
+    "name": "oracle-parent",
+    "sku": "ORACLE-BASE",
+    "unitPrice": 1000,
+    "stock": 5,
+    "reorderPoint": 1
+  },
+  "expected_failures": [
+    "corrupt-products",
+    "directory-products",
+    "corrupt-orders",
+    "directory-orders",
+    "concurrent-create",
+    "sku-aggregate"
+  ],
+  "wrapped_collections": []
+}

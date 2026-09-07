@@ -1,0 +1,6 @@
+case_id = "nextjs-domain-s3-candidate"
+source = "20260907-1317-standard10; see provenance.json"
+required_paths = ["provenance.json", "src/app/page.tsx"]
+
+[compile]
+expect = "not_checked"

@@ -1,0 +1,34 @@
+name: Next.js domain oracles
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+    branches: [main, develop, "release/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  nextjs-domain-oracles:
+    name: Next.js historical failures and controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.1.0'
+          cache: npm
+          cache-dependency-path: tests/nextjs_domain/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.3'
+      - name: Install pinned oracle dependencies
+        run: |
+          npm ci --ignore-scripts --include=dev --prefix tests/nextjs_domain
+          python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Check oracle Python
+        run: ruff check --isolated --select E4,E7,E9,F,I --ignore E402 scripts/nextjs_domain_oracle.py tests/test_nextjs_domain_oracle.py
+      - name: Replay historical failures and matching controls
+        run: python3 -m pytest tests/test_nextjs_domain_oracle.py -q

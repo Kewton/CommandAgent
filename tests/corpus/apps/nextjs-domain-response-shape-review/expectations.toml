@@ -1,0 +1,4 @@
+case_id = "nextjs-domain-response-shape-review"
+required_paths = ["cases.json"]
+[compile]
+expect = "not_checked"
