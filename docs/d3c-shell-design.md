@@ -262,6 +262,12 @@ Why conversation need not be trusted: the acceptance sheet is derived from the
 tracked events/evidence/meta body. The shell neither recomputes nor substitutes
 the verdict.
 
+`ultra_final_acceptance.weak_evidence_sources` adds provenance to the existing
+`weak_evidence` reasons. Each entry contains `source` (`contract_verify_command`,
+`obligation`, or `route_unbound`), `reason`, and, for command evidence, the exact
+`command`. Multiple commands may share a reason. This additive field explains
+the existing verdict and does not change the gate or assurance meaning.
+
 ### 3.4 Gate 4 — failure and next action
 
 For non-full or failed terminals, the shell presents the full sheet plus §5

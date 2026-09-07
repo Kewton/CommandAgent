@@ -78,6 +78,13 @@ for that coordination.
 
 ## Validation
 
+Acceptance registration regressions must exercise StepPlan registration into a
+generated run contract and its Recovery handoff. Editing a copied configured
+registry does not demonstrate that path. Keep future test commands registered
+before their artifacts exist, and exclude a source check only when the final
+gate guarantees the same target, path, and predicate. The #439 corpus records
+the R0/S1 cases and negative Node evidence used to enforce this boundary.
+
 Run the repository guardrails with:
 
 ```bash

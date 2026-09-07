@@ -9,3 +9,40 @@ pub(crate) fn final_verifier_covers_command(goal: &str, command: &str) -> bool {
             .iter()
             .any(|check| check == command)
 }
+
+/// Exact product predicates can be structural evidence while remaining in the
+/// final executable registry. Browser evidence does not prove which source file
+/// owns a hook, and the client directive invariant is conditional on client APIs;
+/// neither justifies dropping an arbitrary path-specific source assertion.
+pub(crate) fn is_generated_hook_check(command: &str) -> bool {
+    let Some((_, rest)) = command.split_once("readFileSync(\"") else {
+        return false;
+    };
+    let Some((path, _)) = rest.split_once('"') else {
+        return false;
+    };
+    for pattern in [
+        "data-anvil-state".to_string(),
+        "primary".into(),
+        "restart".into(),
+        "input".into(),
+        "search".into(),
+        "submit".into(),
+    ] {
+        let pattern = if pattern == "data-anvil-state" {
+            pattern
+        } else {
+            format!("data-anvil-action=\"{pattern}\"")
+        };
+        let grep = format!("grep -q '{pattern}' {path}");
+        if let Ok(normalized) = crate::planner::verify::normalize_verify_command(&grep)
+            && normalized.as_str() == command
+        {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod issue439_tests;

@@ -1,0 +1,62 @@
+[
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "project-setup",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "core-implementation",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "contract-wiring",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "build-verification",
+    "reason": ""
+  },
+  {
+    "browser_readiness_status": "passed",
+    "event": "ultra_final_acceptance",
+    "interaction_evidence_status": "passed",
+    "missing_capabilities": [],
+    "missing_evidence": [],
+    "missing_obligations": [],
+    "unverified_evidence": [],
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ]
+  },
+  {
+    "browser_readiness_status": "passed",
+    "event": "ultra_final_acceptance",
+    "interaction_evidence_status": "passed",
+    "missing_capabilities": [],
+    "missing_evidence": [],
+    "missing_obligations": [],
+    "unverified_evidence": [],
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ]
+  },
+  {
+    "browser_readiness_status": "passed",
+    "event": "ultra_final_acceptance",
+    "interaction_evidence_status": "passed",
+    "missing_capabilities": [],
+    "missing_evidence": [],
+    "missing_obligations": [],
+    "unverified_evidence": [],
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ]
+  }
+]

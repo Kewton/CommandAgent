@@ -849,6 +849,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
             "missing_evidence": acceptance.missing_evidence.clone(),
             "missing_obligations": acceptance.missing_obligations.clone(),
             "weak_evidence": acceptance.weak_evidence.clone(),
+            "weak_evidence_sources": acceptance.weak_evidence_sources.clone(),
             "runtime_acceptance_diagnostics": acceptance.diagnostics.clone(),
             "unverified_evidence": acceptance.unverified_evidence.clone(),
             "evidence_tiers": acceptance.evidence_tiers.clone(),

@@ -3,89 +3,6 @@ mod moved {
     use super::super::*;
     use crate::planner::failure_vocabulary::ViolationId;
     use crate::planner::profiles::nextjs::testimony_binding as testimony;
-    const ULTRA_FINAL_ACCEPTANCE_EVENT_KEYS: &[&str] = &[
-        "acceptance_layer",
-        "action_hooks",
-        "artifact_obligations",
-        "assurance_level",
-        "assurance_reason",
-        "browser_readiness_applicable",
-        "browser_readiness_evidence_path",
-        "browser_readiness_execution_status",
-        "browser_readiness_status",
-        "capability_evidence_bindings",
-        "compile_error_failure_kind",
-        "compile_errors",
-        "completion_contract_generated",
-        "completion_contract_path",
-        "completion_contract_path_merge_enabled",
-        "completion_contract_verification_enabled",
-        "contract_origin",
-        "cycle_index",
-        "echo_latency_ms",
-        "effective_profile",
-        "event",
-        "evidence_arbitration",
-        "evidence_arbitration_summary",
-        "evidence_tiers",
-        "external_contract_checked",
-        "external_contract_ok",
-        "external_contract_required",
-        "final_acceptance_status",
-        "handoff_saved_not_success",
-        "inconclusive_reasons",
-        "interaction_evidence_applicable",
-        "interaction_evidence_execution_status",
-        "interaction_evidence_path",
-        "interaction_evidence_status",
-        "missing_capabilities",
-        "missing_evidence",
-        "missing_obligations",
-        "missing_paths",
-        "next_action",
-        "obligation_repair_targets",
-        "plan_adherence_missing",
-        "plan_adherence_present",
-        "primary_reason",
-        "profile",
-        "profile_behavior_probe_evidence_path",
-        "profile_behavior_probe_reasons",
-        "profile_behavior_probe_status",
-        "profile_inference_source",
-        "profile_inferred",
-        "recovery_handoff_kind",
-        "recovery_handoff_saved",
-        "recovery_prompt_path",
-        "recovery_ultra_plan_path",
-        "release_gate_reasons",
-        "release_gate_status",
-        "release_quality_completion",
-        "requested_port",
-        "required_capabilities",
-        "required_evidence",
-        "required_obligations",
-        "required_paths",
-        "runtime_acceptance_diagnostics",
-        "runtime_acceptance_inconclusive",
-        "runtime_acceptance_passed",
-        "runtime_acceptance_status",
-        "schema_version",
-        "state_dimensions_changed",
-        "suggested_recovery_command",
-        "suggested_recovery_yaml_command",
-        "surface_fit",
-        "surface_fit_guidance",
-        "surface_fit_summary",
-        "text_entry",
-        "text_entry_target",
-        "text_input_state_change",
-        "token_echo_after_reload_latency_ms",
-        "token_echoed",
-        "token_echoed_after_reload",
-        "typed_token",
-        "unverified_evidence",
-        "weak_evidence",
-    ];
 
     #[test]
     fn ultra_final_acceptance_event_carries_generic_static_assurance() {
@@ -122,7 +39,12 @@ export default function Memo() {
             .keys()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        assert_eq!(event_keys, ULTRA_FINAL_ACCEPTANCE_EVENT_KEYS);
+        let expected: Vec<String> = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/corpus/apps/issue439-node-evidence/fixtures/ultra-final-acceptance-keys.json"
+        )))
+        .unwrap();
+        assert_eq!(event_keys, expected);
         assert_eq!(
             final_acceptance
                 .get("assurance_level")

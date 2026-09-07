@@ -61,3 +61,7 @@ mod tests;
 #[cfg(test)]
 #[path = "flow/issue435_tests.rs"]
 mod issue435_tests;
+
+#[cfg(test)]
+#[path = "flow/issue439_tests.rs"]
+mod issue439_tests;
