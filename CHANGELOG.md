@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Stop repeated output-limit responses without tool calls after two occurrences
+  since the last successful Write/Edit, retaining Recovery handoff and per-turn
+  execution telemetry (#440).
+
 ### Added
 
 - Redesign GUI Overview as a product landing page for the verified-result flow,

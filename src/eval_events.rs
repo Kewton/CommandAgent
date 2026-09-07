@@ -12,6 +12,7 @@ use crate::planner::adjudication::{
 
 pub mod failure_explanation;
 mod human_summary;
+pub(crate) mod provider_turn;
 mod recovery_resolution;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;
@@ -150,7 +151,7 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
             .entry("schema_version")
             .or_insert_with(|| Value::String("1".to_string()));
     }
-    if let Err(err) = append(path, &event) {
+    if let Err(err) = append_or_buffer(path, &event) {
         eprintln!("warning: failed to write COMMANDAGENT_EVAL_EVENTS: {err}");
     }
 }
@@ -163,7 +164,14 @@ pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> an
             .entry("schema_version")
             .or_insert_with(|| Value::String("1".to_string()));
     }
-    append(path, &event)
+    append_or_buffer(path, &event)
+}
+
+fn append_or_buffer(path: &Path, event: &Value) -> anyhow::Result<()> {
+    if provider_turn::buffer(path, event)? {
+        return Ok(());
+    }
+    append(path, event)
 }
 
 fn append(path: &Path, event: &Value) -> anyhow::Result<()> {

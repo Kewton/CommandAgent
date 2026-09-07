@@ -449,11 +449,12 @@ pub fn aggregate_events(events: &[Value]) -> TimeProfile {
             );
             let eval_count = event.get("eval_count").and_then(Value::as_u64);
             let duration_ms = duration_field(event, "duration_ms").unwrap_or(0);
-            pending_generation_turn = Some(PendingGenerationTurn::new(
-                scope.to_string(),
-                eval_count,
-                duration_ms,
-            ));
+            let mut turn = PendingGenerationTurn::new(scope.to_string(), eval_count, duration_ms);
+            turn.saw_tool_call = event
+                .get("tool_calls_in_response")
+                .and_then(Value::as_u64)
+                .is_some_and(|count| count > 0);
+            pending_generation_turn = Some(turn);
         } else if event_name == "tool_call_raw"
             && let Some(turn) = pending_generation_turn.as_mut()
         {
@@ -813,6 +814,35 @@ fn percent(part: u64, total: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn issue440_additive_response_counts_preserve_provider_totals_and_legacy_streams() {
+        let mut events = vec![
+            json!({"event":"provider_turn_duration", "caller_scope":"repair", "duration_ms":133649, "eval_count":8192, "tools":9, "tool_calls_in_response":0, "write_or_edit_succeeded":false}),
+            json!({"event":"provider_turn_duration", "caller_scope":"repair", "duration_ms":128568, "eval_count":8192, "tools":9, "tool_calls_in_response":0, "write_or_edit_succeeded":false}),
+            json!({"event":"loop_stop", "reason":"max_length_no_tool_call_repeated", "max_length_no_tool_call_duration_ms":262217}),
+        ];
+        let profile = aggregate_events(&events);
+        assert_eq!(profile.provider.repair_ms, 262217);
+        assert_eq!(profile.total_ms(), 262217);
+        assert_eq!(profile.tokens.eval_count, 16384);
+        assert_eq!(profile.generation.turn_types["prose-only"].turn_count, 2);
+        for event in &mut events[..2] {
+            event
+                .as_object_mut()
+                .unwrap()
+                .remove("tool_calls_in_response");
+            event
+                .as_object_mut()
+                .unwrap()
+                .remove("write_or_edit_succeeded");
+        }
+        assert_eq!(profile, aggregate_events(&events));
+        events[0]["tool_calls_in_response"] = json!(1);
+        let profile = aggregate_events(&events);
+        assert_eq!(profile.generation.turn_types["tool-call"].turn_count, 1);
+        assert_eq!(profile.generation.turn_types["prose-only"].turn_count, 1);
+    }
 
     #[test]
     fn aggregates_time_profile_from_existing_event_stream() {

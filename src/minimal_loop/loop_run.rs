@@ -63,6 +63,7 @@ mod error;
 mod implementation_completion;
 #[path = "loop_run/inspect_tool_policy.rs"]
 mod inspect_tool_policy;
+mod max_length_guard;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -459,6 +460,8 @@ pub(crate) fn run_session_with_outcome_with_options(
     let mut last_blocking_reason: Option<String> = None;
     let last_provider_error: Option<String> = None;
     let mut write_or_edit_seen = false;
+    let mut max_length_guard =
+        max_length_guard::MaxLengthGuard::new(options.max_length_no_tool_call_limit);
     let mut empty_feedbacks = 0usize;
     let mut empty_fresh_retry_pending = false;
     let mut provider_turn_timeouts = 0usize;
@@ -655,6 +658,8 @@ pub(crate) fn run_session_with_outcome_with_options(
         };
         let label = format!("{} {}", client.label(), config.model);
         let call_scope = provider_call_scope_for_options(&options, pending_feedback.as_deref());
+        let mut turn_events =
+            eval_events::provider_turn::ExecutionTelemetry::new(config.eval_events_path.as_deref());
         let chat_outcome = {
             let mut guard = ui.before_model_call(&label);
             let mut outcome = provider_call::chat_with_cancel_and_stream(
@@ -806,6 +811,10 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }
             }
         }
+        turn_events.response(&reply, config.num_predict);
+        if reply.tool_calls.is_empty() {
+            turn_events.finish()?;
+        }
         ui.publish_status(UiStatus::for_model_reply(
             config,
             &config.model,
@@ -815,6 +824,10 @@ pub(crate) fn run_session_with_outcome_with_options(
         ));
         if ui.interrupted() {
             bail!("interrupted by user");
+        }
+        if max_length_guard.observe(&reply, config.num_predict, provider_turn_elapsed) {
+            drop(turn_events);
+            return Err(max_length_guard.stop(config, &options, user_prompt, &changed_paths));
         }
         let mut tool_calls = Vec::new();
         for mut call in reply.tool_calls.clone() {
@@ -1517,6 +1530,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                     );
                     if matches!(call.name.as_str(), "Write" | "Edit") {
                         write_or_edit_seen = true;
+                        max_length_guard.write_or_edit_succeeded();
+                        turn_events.write_or_edit_succeeded();
                         pressure_inputs.read_only_streak = 0;
                         pressure_inputs.no_progress_streak = 0;
                         pressure_inputs.anchor_failures = 0;
@@ -1761,6 +1776,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             }
             continue;
         }
+        turn_events.finish()?;
         let missing_after_batch = missing_paths(&config.workspace_root, &required_paths);
         if options.scope == RunSessionScope::MinimalLoop
             && required_paths.is_empty()
@@ -4641,6 +4657,7 @@ mod tests {
 
     include!("loop_run/repair_pressure_tests.rs");
     include!("loop_run/issue420_tests.rs");
+    include!("loop_run/issue440_tests.rs");
 
     #[test]
     fn command_timeout_repetition_uses_similarity_and_guides_strategy_change() {
