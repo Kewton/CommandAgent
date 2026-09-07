@@ -1,0 +1,26 @@
+case_id = "issue440-max-length"
+source = "20260907-1317-standard10 I1 Recovery events 584-643; sanitized timing/tool projection"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/i1-recovery.jsonl = ["\"source_event_line\":584", "\"source_event_line\":607", "\"source_event_line\":629", "\"cap_ms\":900000", "\"name\":\"Read\""]
+fixtures/long-page.txt = ["export default function Page()", "Inventory"]

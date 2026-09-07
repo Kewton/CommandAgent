@@ -1781,6 +1781,10 @@ mod tests {
     use clap::Parser;
     use std::collections::VecDeque;
 
+    mod issue440 {
+        include!("auto_recovery/issue440_tests.rs");
+    }
+
     mod issue428 {
         include!("auto_recovery/issue428_tests.rs");
     }

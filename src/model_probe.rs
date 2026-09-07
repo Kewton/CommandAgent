@@ -547,6 +547,7 @@ fn probe_run_options(step_kind: RunSessionStepKind) -> RunSessionOptions {
         dependency_setup_authority:
             crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority::None,
         step_wall_clock_cap: None,
+        max_length_no_tool_call_limit: None,
         path_fallback_candidates: Vec::new(),
         repair_target_priority: Default::default(),
         require_mutation_before_contract_short_circuit: false,
