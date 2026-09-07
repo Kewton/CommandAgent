@@ -535,6 +535,7 @@ fn run_classifier_probe(
 
 fn probe_run_options(step_kind: RunSessionStepKind) -> RunSessionOptions {
     RunSessionOptions {
+        step_id: None,
         prompt_artifact_extraction: PromptArtifactExtraction::Disabled,
         completion_contract_path_merge: CompletionContractPathMerge::Disabled,
         completion_contract_verification: CompletionContractVerification::DisabledDuringStep,

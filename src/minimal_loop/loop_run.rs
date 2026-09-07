@@ -60,12 +60,16 @@ use super::repair_progress::{
 mod context;
 #[path = "loop_run/error.rs"]
 mod error;
+mod implementation_completion;
 #[path = "loop_run/inspect_tool_policy.rs"]
 mod inspect_tool_policy;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
 mod runtime_bash_workspace_policy;
+mod short_circuit;
+use implementation_completion::ImplementationCompletion;
+use short_circuit::{ShortCircuitContext, maybe_short_circuit_satisfied_step};
 #[path = "loop_run/state.rs"]
 mod state;
 use super::repair_target::{
@@ -429,6 +433,8 @@ pub(crate) fn run_session_with_outcome_with_options(
         } else {
             None
         };
+    let implementation_completion =
+        ImplementationCompletion::capture(config, &options, required_paths);
     let explicit_required_paths = !required_paths.is_empty();
     let path_sources = effective_required_path_sources(
         &config.workspace_root,
@@ -508,6 +514,8 @@ pub(crate) fn run_session_with_outcome_with_options(
             verify_attempts: &mut verify_attempts,
             at: StepShortCircuitAt::Start,
             write_or_edit_seen,
+            implementation: &implementation_completion,
+            changed_paths: &changed_paths,
         },
     )? {
         return Ok(outcome);
@@ -520,7 +528,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     for iteration in 0..iteration_limit {
         if iteration > 0
             && pending_feedback.is_none()
-            && let Some(outcome) = maybe_short_circuit_satisfied_step(
+            && let Some(mut outcome) = maybe_short_circuit_satisfied_step(
                 config,
                 &options,
                 user_prompt,
@@ -532,9 +540,13 @@ pub(crate) fn run_session_with_outcome_with_options(
                     verify_attempts: &mut verify_attempts,
                     at: StepShortCircuitAt::Iteration,
                     write_or_edit_seen,
+                    implementation: &implementation_completion,
+                    changed_paths: &changed_paths,
                 },
             )?
         {
+            outcome.iterations = iteration;
+            outcome.tool_calls = tool_call_count;
             return Ok(outcome);
         }
         let iterations_used = iteration + 1;
@@ -999,6 +1011,14 @@ pub(crate) fn run_session_with_outcome_with_options(
                         );
                     }
                 }
+            }
+            if let Some(feedback) =
+                implementation_completion.feedback(config, &options, write_or_edit_seen)
+            {
+                session.messages.pop();
+                last_blocking_reason = Some("implementation_scaffold_placeholder".to_string());
+                pending_feedback = Some(feedback);
+                continue;
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
                 && (options.require_mutation_before_contract_short_circuit
@@ -1903,12 +1923,20 @@ pub(crate) fn run_session_with_outcome_with_options(
                 last_provider_error,
             });
         }
+        implementation_completion.merge_changes(&config.workspace_root, &mut changed_paths);
         if required_paths_satisfied_after_tool(
             &config.workspace_root,
             &required_paths,
             &initially_missing_paths,
             write_or_edit_seen || batch_had_execution_progress,
         ) {
+            if let Some(feedback) =
+                implementation_completion.feedback(config, &options, write_or_edit_seen)
+            {
+                last_blocking_reason = Some("implementation_scaffold_placeholder".to_string());
+                pending_feedback = Some(feedback);
+                continue;
+            }
             let mut import_scan_paths = changed_paths.clone();
             import_scan_paths.extend(required_paths.iter().cloned());
             let missing_imports =
@@ -2298,131 +2326,6 @@ fn missing_paths(root: &std::path::Path, required_paths: &[String]) -> Vec<Strin
         .filter(|path| resolve_existing(root, path).is_err())
         .cloned()
         .collect()
-}
-
-fn maybe_short_circuit_satisfied_step(
-    config: &Config,
-    options: &RunSessionOptions,
-    user_prompt: &str,
-    required_paths: &[String],
-    contract: Option<&CompletionContract>,
-    context: ShortCircuitContext<'_>,
-) -> anyhow::Result<Option<RunSessionOutcome>> {
-    let ShortCircuitContext {
-        verify_attempts,
-        at,
-        write_or_edit_seen,
-    } = context;
-    if at == StepShortCircuitAt::Start && options.step_kind == Some(RunSessionStepKind::Implement) {
-        return Ok(None);
-    }
-    let has_contract_gate = contract.is_some_and(CompletionContract::has_verify);
-    if required_paths.is_empty() {
-        return Ok(None);
-    }
-    let missing = missing_paths(&config.workspace_root, required_paths);
-    if !missing.is_empty() {
-        return Ok(None);
-    }
-    if options.require_mutation_before_contract_short_circuit && !write_or_edit_seen {
-        return Ok(None);
-    }
-    if let Some(contract) = contract.filter(|_| has_contract_gate) {
-        let attempts_before_probe = *verify_attempts;
-        match verify_completion_contract_with_enforcement(
-            &config.workspace_root,
-            config.eval_events_path.as_deref(),
-            contract,
-            user_prompt,
-            verify_attempts,
-            None,
-            None,
-            &[],
-            &[],
-            &[],
-            false,
-            options.dependency_setup_authority,
-            config.offline,
-            options,
-        )? {
-            ContractVerificationOutcome::Satisfied => {
-                emit_step_short_circuited(config, options, required_paths, *verify_attempts, at);
-                return Ok(Some(RunSessionOutcome {
-                    final_text: format!("step short-circuited: {}", required_paths.join(", ")),
-                    stop_reason: RunStopReason::CompletionContractSatisfied,
-                    changed_paths: Vec::new(),
-                    iterations: 0,
-                    tool_calls: 0,
-                    missing_required_paths: Vec::new(),
-                    missing_capabilities: Vec::new(),
-                    missing_evidence: Vec::new(),
-                    missing_obligations: Vec::new(),
-                    verify_attempts: *verify_attempts,
-                    last_blocking_reason: None,
-                    last_provider_error: None,
-                }));
-            }
-            ContractVerificationOutcome::NeedsRepair(_)
-            | ContractVerificationOutcome::ObservationIncomplete(_) => {
-                *verify_attempts = attempts_before_probe;
-                return Ok(None);
-            }
-        }
-    }
-    if !setup_short_circuit_allowed(options, user_prompt) {
-        return Ok(None);
-    }
-    emit_step_short_circuited(config, options, required_paths, *verify_attempts, at);
-    Ok(Some(RunSessionOutcome {
-        final_text: format!("step short-circuited: {}", required_paths.join(", ")),
-        stop_reason: RunStopReason::RequiredArtifactsSatisfiedAfterTool,
-        changed_paths: Vec::new(),
-        iterations: 0,
-        tool_calls: 0,
-        missing_required_paths: Vec::new(),
-        missing_capabilities: Vec::new(),
-        missing_evidence: Vec::new(),
-        missing_obligations: Vec::new(),
-        verify_attempts: *verify_attempts,
-        last_blocking_reason: None,
-        last_provider_error: None,
-    }))
-}
-
-fn emit_step_short_circuited(
-    config: &Config,
-    options: &RunSessionOptions,
-    required_paths: &[String],
-    verify_attempts: usize,
-    at: StepShortCircuitAt,
-) {
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "step_short_circuited",
-            "at": at.as_str(),
-            "required_paths": required_paths,
-            "verify_attempts": verify_attempts,
-            "session_scope": options.scope.as_str(),
-            "step_kind": options.step_kind.map(RunSessionStepKind::as_str).unwrap_or(""),
-            "phase_scope": options.phase_scope.as_deref().unwrap_or(""),
-        }),
-    );
-}
-
-fn setup_short_circuit_allowed(options: &RunSessionOptions, user_prompt: &str) -> bool {
-    if options.step_kind != Some(RunSessionStepKind::Setup) {
-        return false;
-    }
-    if setup_step_policy::prompt_mentions_setup(user_prompt) {
-        return true;
-    }
-    let phase_scope = options
-        .phase_scope
-        .as_deref()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    phase_scope.contains("setup") || phase_scope.contains("scaffold")
 }
 
 fn non_scaffold_missing_paths(config: &Config, missing_paths: &[String]) -> Vec<String> {
@@ -4737,6 +4640,7 @@ mod tests {
     }
 
     include!("loop_run/repair_pressure_tests.rs");
+    include!("loop_run/issue420_tests.rs");
 
     #[test]
     fn command_timeout_repetition_uses_similarity_and_guides_strategy_change() {

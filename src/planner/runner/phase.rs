@@ -2486,13 +2486,15 @@ pub(super) fn step_run_session_options(
     phase_scope: Option<&str>,
     setup_authority: NodeDependencySetupAuthority,
 ) -> RunSessionOptions {
-    RunSessionOptions::plan_step_with_enforcement(
+    let mut options = RunSessionOptions::plan_step_with_enforcement(
         run_session_step_kind(step),
         contract_enforcement,
         phase_scope.map(str::to_string),
     )
     .with_dependency_setup_authority(setup_authority)
-    .with_path_fallback_candidates(plan_expected_paths(plan))
+    .with_path_fallback_candidates(plan_expected_paths(plan));
+    options.step_id = Some(step.id.clone());
+    options
 }
 
 pub(super) fn plan_expected_paths(plan: &StepPlan) -> Vec<String> {

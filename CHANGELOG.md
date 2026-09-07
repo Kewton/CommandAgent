@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Require implement steps to replace their expected engine scaffold pages even
+  when earlier API routes satisfy the run contract. Preserve verified existing
+  artifacts and Bash changes, and record step IDs and source hashes for
+  iteration short-circuit decisions (#420).
 - Let successful form-style browser interactions pass the release gate when an
   input changes state on a visible surface with no start control.
 - Explain GUI Trial automatic-intent ambiguity with actionable `作成` / `修正`
