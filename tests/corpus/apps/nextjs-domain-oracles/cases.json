@@ -1,0 +1,67 @@
+{
+  "schema": "issue442.domain-oracles.v1",
+  "inventory": {
+    "stock": 5,
+    "quantities": {
+      "sku-aggregate": [
+        3,
+        3
+      ],
+      "stock-exact": [
+        5
+      ],
+      "stock-one-short": [
+        6
+      ]
+    }
+  },
+  "shift": {
+    "date": "2026-09-14",
+    "start": "09:00",
+    "end": "12:00",
+    "break_equal": 180,
+    "aligned": "09:30",
+    "misaligned": "09:10",
+    "overlap_start": "11:30",
+    "adjacent_start": "12:00",
+    "next_end": "15:00"
+  },
+  "expense": {
+    "budget": 10000,
+    "exact_parts": [
+      9000,
+      1000
+    ],
+    "one_over": 1,
+    "months": [
+      "2026-09-14",
+      "2026-10-14"
+    ],
+    "invalid_amounts": {
+      "amount-zero": 0,
+      "amount-negative": -1
+    }
+  },
+  "protection": [
+    "invalid JSON",
+    "directory replacement",
+    "mode 0444",
+    "valid empty arrays",
+    "two concurrent POSTs"
+  ],
+  "future_campaign": {
+    "cohort": "same inventory/shift/expense goals x 3",
+    "requires_merged_issues": [
+      439,
+      440
+    ],
+    "primary_metrics": [
+      "type/export build/start failures",
+      "corrupted JSON overwrite count among started runs",
+      "lost concurrent writes among started runs"
+    ],
+    "loss_target": 0,
+    "score_is_metric": false,
+    "effect_measurement": "pending merged-binary campaign and one-factor B-1 experiments"
+  }
+}

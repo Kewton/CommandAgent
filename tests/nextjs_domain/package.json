@@ -1,0 +1,7 @@
+{
+  "name": "commandagent-nextjs-domain-oracles",
+  "private": true,
+  "version": "1.0.0",
+  "engines": { "node": "24.1.0" },
+  "devDependencies": { "typescript": "5.9.3" }
+}

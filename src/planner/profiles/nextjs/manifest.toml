@@ -19,11 +19,11 @@ prompt = "Scaffold and setup the Next.js App Router project shell. Create or com
 
 [[plan.phases]]
 id = "core-implementation"
-prompt = "Implement the core task-specific behavior for: {goal}. Keep one route-bound implementation, extend the instrumented skeleton instead of replacing it, and keep the implementation in the Next.js route-bound source."
+prompt = "Implement the core task-specific behavior for: {goal}. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result."
 
 [[plan.phases]]
 id = "contract-wiring"
-prompt = '''Wire controls and data-anvil observability. Preserve or add data-anvil-action="primary" on the main start/submit/action control, data-anvil-action="input" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action="restart"; the initial primary action alone cannot satisfy recovery verification.'''
+prompt = "Wire controls and data-anvil observability. Preserve or add data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification."
 
 [[plan.phases]]
 id = "build-verification"
@@ -286,13 +286,13 @@ canvas_input_wiring_checklist = "input-wiring checklist: keyboard or pointer inp
 triggers = [{ condition = "evidence_key", values = ["persistence"] }]
 
 [guidance.variants.persistence.messages]
-persistence = "persist the committed domain entity using the storage kind required by the goal: keep server-side file/API/DB persistence when requested, use browser storage only when that is the requested boundary, reload the committed entity after each mutation, and do not substitute persistence of a cleared draft input"
+persistence = "persist the committed domain entity using the storage kind required by the goal: keep server-side file/API/DB persistence when requested, use browser storage only when that is the requested boundary, reload the committed entity after each mutation, and do not substitute persistence of a cleared draft input. For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates."
 
 [guidance.variants.contracts]
 triggers = [{ condition = "failure_kind_prefix", values = ["contract_instrumentation_missing:", "contract_attribute_missing"] }]
 
 [guidance.variants.contracts.messages]
-state_binding_contract = '''Minimum contract: after start and after input, the `data-anvil-state` JSON value must actually change. The snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position. If refs are used, mirror meaningful state changes into React state so a render occurs.'''
+state_binding_contract = "Minimum contract: after start and after input, the `data-anvil-state` JSON value must actually change. The snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. If refs are used, mirror meaningful state changes into React state so a render occurs."
 input_coupled_dimension_requirement = "入力は {mutation_refs} を変異させるが data-anvil-state に映らない。入力連動次元（例: プレイヤー/パドルのx座標）をReact stateにミラーしてスナップショットへ追加せよ。"
 contract_attribute_missing_kind = "contract_attribute_missing"
 contract_attribute_guidance = '''Contract attribute repair guidance:

@@ -1,0 +1,30 @@
+[
+  {
+    "case": "s3-envelope-pattern",
+    "provenance": "Pattern reduction of Issue #442; not a byte-identical historical source snapshot",
+    "client": "const res = await fetch('/api/items'); const json = await res.json(); if (!json.ok) throw Error(); setItems(json.data);",
+    "route": "export async function GET() { return NextResponse.json({shifts: []}); }",
+    "mismatch": true
+  },
+  {
+    "case": "260904-run01-array-pattern",
+    "provenance": "Pattern reduction of Issue #442; not a byte-identical historical source snapshot",
+    "client": "const res = await fetch('/api/items'); const json = await res.json(); setItems(Array.isArray(json) ? json : []);",
+    "route": "export async function GET() { return NextResponse.json({reservations: []}); }",
+    "mismatch": true
+  },
+  {
+    "case": "e3-expenses-pattern",
+    "provenance": "Pattern reduction of Issue #442; not a byte-identical historical source snapshot",
+    "client": "const res = await fetch('/api/items'); const json = await res.json(); setItems(json.expenses || []);",
+    "route": "export async function GET() { return NextResponse.json([]); }",
+    "mismatch": true
+  },
+  {
+    "case": "error-envelope-control",
+    "provenance": "Synthetic positive control requested in candidate review",
+    "client": "const res = await fetch('/api/items'); const json = await res.json(); if (!res.ok) { throw Error(json.message + json.code); } setItems(json.items);",
+    "route": "export async function GET() { if (bad) return Response.json({message: 'failed', code: 'E'}, {status: 400}); return Response.json({items: []}); }",
+    "mismatch": false
+  }
+]

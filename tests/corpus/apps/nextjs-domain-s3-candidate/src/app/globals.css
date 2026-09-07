@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for the cafe shift scheduling app */
+
+@layer components {
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-slate-200 p-4 md:p-6;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center px-3 py-2 rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-500 text-white hover:bg-red-600 focus:ring-red-400;
+  }
+
+  .btn-secondary {
+    @apply btn bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus:ring-slate-400;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-slate-300 rounded-md text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-slate-700 mb-1;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-overtime {
+    @apply badge bg-red-100 text-red-800;
+  }
+
+  .badge-ok {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-role-lead {
+    @apply badge bg-purple-100 text-purple-800;
+  }
+
+  .badge-role-kitchen {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+
+  .badge-role-hall {
+    @apply badge bg-blue-100 text-blue-800;
+  }
+
+  .toast {
+    @apply fixed top-4 right-4 z-50 px-4 py-3 rounded-md shadow-lg text-sm font-medium animate-fade-in;
+  }
+
+  .toast-success {
+    @apply toast bg-green-600 text-white;
+  }
+
+  .toast-error {
+    @apply toast bg-red-600 text-white;
+  }
+
+  .toast-info {
+    @apply toast bg-blue-600 text-white;
+  }
+
+  .calendar-grid {
+    @apply w-full overflow-x-auto;
+  }
+
+  .calendar-cell {
+    @apply border-r border-b border-slate-200 p-2 min-h-[80px] text-xs;
+  }
+
+  .shift-block {
+    @apply rounded px-1.5 py-0.5 text-xs font-medium text-white mb-1 truncate cursor-pointer;
+  }
+
+  .shift-block-lead {
+    @apply shift-block bg-purple-500;
+  }
+
+  .shift-block-kitchen {
+    @apply shift-block bg-amber-500;
+  }
+
+  .shift-block-hall {
+    @apply shift-block bg-blue-500;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

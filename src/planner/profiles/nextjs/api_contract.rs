@@ -12,6 +12,9 @@ struct ClientMutation {
 }
 
 pub(super) fn failure(root: &Path) -> Option<String> {
+    if let Some(reason) = super::response_shape::failure(root) {
+        return Some(reason);
+    }
     let mutations = client_mutations(root);
     if mutations.is_empty() {
         return None;
@@ -113,7 +116,7 @@ fn mutation_response_checked(content: &str, matched: Option<regex::Match<'_>>) -
         .is_match(suffix)
 }
 
-fn api_routes(root: &Path) -> Vec<(PathBuf, String)> {
+pub(super) fn api_routes(root: &Path) -> Vec<(PathBuf, String)> {
     let mut out = Vec::new();
     for path in source_files(root) {
         if api_route_segments(root, &path).is_none() {
@@ -129,7 +132,7 @@ fn api_routes(root: &Path) -> Vec<(PathBuf, String)> {
     out
 }
 
-fn route_matches(route_path: &Path, client_route: &str) -> bool {
+pub(super) fn route_matches(route_path: &Path, client_route: &str) -> bool {
     let Some(route_segments) = api_route_segments(Path::new(""), route_path) else {
         return false;
     };
@@ -191,7 +194,7 @@ fn normalize_client_route(route: &str) -> String {
         .to_string()
 }
 
-fn source_files(root: &Path) -> Vec<PathBuf> {
+pub(super) fn source_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(directory) = stack.pop() {

@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add explicit `--allow` tool-class policy, Git workspace warnings and exit
   diffs, and doctor-visible `--offline` scope.
 - Add the repository's MIT License, contribution guide, and changelog.
+- Add Next.js domain generation rules, conservative API response-shape checks,
+  and frozen HTTP/file oracles for data protection and business constraints (#442).
 - Add documented `just` development tasks and a reproducible Dev Container.
 - Reorganize CLI, GUI, and extension documentation by reader, with stable GUI
   compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
