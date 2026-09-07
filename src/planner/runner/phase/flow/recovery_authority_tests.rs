@@ -58,7 +58,7 @@ mod cases {
                         expected_result: "pass".into(),
                         instruction: "Implement the app".into(),
                         expected_paths: vec![],
-                        verify: vec!["test -f src/app/page.tsx".into()],
+                        verify: vec!["cargo test".into()],
                     },
                     PlanStep {
                         id: "negative".into(),
@@ -66,14 +66,14 @@ mod cases {
                         expected_result: "fail".into(),
                         instruction: "Observe the failing case".into(),
                         expected_paths: vec![],
-                        verify: vec!["test -f must-remain-missing".into()],
+                        verify: vec!["cargo test --test must-remain-missing".into()],
                     },
                 ],
             };
             for kind in ["setup", "inspect", "report"] {
                 let mut transient = steps.steps[0].clone();
                 transient.kind = kind.into();
-                transient.verify = vec![format!("test -f transient-{kind}")];
+                transient.verify = vec![format!("cargo test --test transient-{kind}")];
                 steps.steps.push(transient);
             }
             register_plan(&config, &steps).unwrap();
@@ -87,15 +87,11 @@ mod cases {
             let refreshed = crate::planner::recovery_contract_authority::load_for_handoff(&config)
                 .unwrap()
                 .unwrap();
-            assert!(
-                refreshed
-                    .verify_commands
-                    .contains(&"test -f src/app/page.tsx".into())
-            );
+            assert!(refreshed.verify_commands.contains(&"cargo test".into()));
             assert!(
                 !refreshed
                     .verify_commands
-                    .contains(&"test -f must-remain-missing".into())
+                    .contains(&"cargo test --test must-remain-missing".into())
             );
             assert_eq!(
                 refreshed.required_capabilities,

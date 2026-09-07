@@ -1,3 +1,7 @@
+#[path = "evidence/artifact_verify.rs"]
+mod artifact_verify;
+pub(crate) use artifact_verify::is_artifact_only_verify_command;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -2326,7 +2330,7 @@ impl VerifyCommandKind {
 
 fn verify_command_kind(command: &str, workspace: &WorkspaceEvidence) -> VerifyCommandKind {
     let lower = command.trim().to_ascii_lowercase();
-    if lower.starts_with("test -f ") || lower.starts_with("cat ") {
+    if is_artifact_only_verify_command(command) {
         return VerifyCommandKind::ArtifactOnly;
     }
     if lower == "npm run build"

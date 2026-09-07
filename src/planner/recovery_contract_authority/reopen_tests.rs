@@ -42,11 +42,8 @@ mod tests {
             let config = config(root.path());
             let _authority = begin_run(&config);
             let path = write_contract(&config, profile, &[]);
-            register_step_plan_commands(
-                &config,
-                &["test -f app.py".into(), "test -f app.py".into()],
-            )
-            .unwrap();
+            register_step_plan_commands(&config, &["cargo test".into(), "cargo test".into()])
+                .unwrap();
             let bytes = std::fs::read(&path).unwrap();
             assert!(
                 register_step_plan_commands(
@@ -59,7 +56,7 @@ mod tests {
             let commands =
                 generated_verify_commands(&config, "ultra-plan-run", profile, "create a todo app")
                     .unwrap();
-            assert!(commands.contains(&"test -f app.py".into()));
+            assert!(commands.contains(&"cargo test".into()));
             assert_eq!(
                 commands.contains(&"npm run build".into()),
                 profile == "nextjs"
@@ -72,7 +69,7 @@ mod tests {
             assert!(
                 !generated_verify_commands(&config, "ultra-plan-run", profile, "different goal")
                     .unwrap()
-                    .contains(&"test -f app.py".into())
+                    .contains(&"cargo test".into())
             );
         }
     }
