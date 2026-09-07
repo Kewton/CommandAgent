@@ -1,7 +1,9 @@
 # Lazy JSON Recovery fixture
 
-Synthetic source-only fixture modeled on the import and local `filePath` shape
-of S2's storage writer. No original source file or runtime data was copied.
+The executable root fixture is synthetic, modeled on the import and local
+`filePath` shape of S2's storage writer. Its JavaScript files do not copy
+original source or runtime data. The reopened real-source fixtures are described
+separately below.
 `data/` is intentionally absent. The plain-JavaScript probe invokes a synthetic
 GET handler directly, without an HTTP listener, Next.js installation, or a live
 service. Its response is a plain status/body object, so it also needs no Fetch
@@ -12,8 +14,18 @@ The route lazily writes two synthetic JSON files; the failure argument then
 reports an independent business failure. Tests copy only these fixture sources
 into temporary workspaces and run the existing isolated Recovery preflight.
 
-The unsupported-writers fixture is a negative example. Regex, division, and
-template syntax cause this conservative recognizer to grant no outputs for the
-file. Escaped strings, dynamic arguments, ambiguous bindings, and unsupported
-constant/import forms also grant no output. See `dev-reports/issue-429/design.md`.
-The event fixture documents the existing schema, not a recording from S2.
+The unsupported-writers fixture contains opaque writer lookalikes. Regex and
+template text cannot supply output authority, and interpolation code cannot
+authorize paths. Harmless templates, regex, and ordinary division beside real
+writers are now supported. Interpolation references conservatively invalidate
+bindings (property names are not lexical references); dynamic evaluation markers
+including eval/Function/constructor reject the source. Ambiguous slash contexts,
+escaped identifiers, dynamic paths, and unproven helpers still grant nothing.
+
+The reopened fixture under `fixtures/campaign/` contains unchanged complete
+S1/S3/E3 source trees, hashes, and explicit provenance/limitations. Recognition
+and isolated-effect replay tests cover missing/existing JSON and retain business
+failure, source protection, unknown-output rejection, and original-session
+immutability. `hidden-evaluation.json` holds six executable-mutation negative
+sources, including the review's eval example and Function/constructor variants.
+The event fixtures document existing schema projections, not live recordings.

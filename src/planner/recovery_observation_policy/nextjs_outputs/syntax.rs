@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 
 use super::Value;
 
+mod lexer;
+
 #[derive(Debug)]
 pub(super) enum Token {
     Word(String),
@@ -15,16 +17,18 @@ pub(super) struct Source {
     pub(super) scopes: Vec<usize>,
     pub(super) parents: Vec<Option<usize>>,
     pub(super) unsafe_names: BTreeSet<String>,
+    pub(super) opaque_names: BTreeSet<String>,
 }
 
 impl Source {
     pub(super) fn parse(text: &str) -> Option<Self> {
-        let tokens = lex(text)?;
+        let (tokens, opaque_names) = lexer::lex(text)?;
         let mut source = Self {
             tokens,
             scopes: Vec::new(),
             parents: vec![None],
             unsafe_names: BTreeSet::new(),
+            opaque_names: BTreeSet::new(),
         };
         let mut scope = 0;
         for i in 0..source.tokens.len() {
@@ -40,6 +44,8 @@ impl Source {
             return None;
         }
         source.reject_ambiguous_bindings();
+        source.unsafe_names.extend(opaque_names.iter().cloned());
+        source.opaque_names = opaque_names;
         Some(source)
     }
 
@@ -175,7 +181,13 @@ impl Source {
             {
                 // Parameters (including typed function returns, methods, catch,
                 // and arrows) are conservatively unknown throughout the file.
-                if self.is(i + 1, "{") || self.is(i + 1, ":") || self.sequence(i + 1, &["=", ">"]) {
+                let control_condition = start > 0
+                    && matches!(self.identifier(start - 1), Some("if" | "while" | "switch"));
+                if !control_condition
+                    && (self.is(i + 1, "{")
+                        || self.is(i + 1, ":")
+                        || self.sequence(i + 1, &["=", ">"]))
+                {
                     for j in start + 1..i {
                         if let Some(name) = self.identifier(j) {
                             unsafe_names.insert(name.to_string());
@@ -231,67 +243,4 @@ impl Source {
         }
         self.unsafe_names = unsafe_names;
     }
-}
-
-fn lex(text: &str) -> Option<Vec<Token>> {
-    let mut chars = text.chars().peekable();
-    let mut tokens = Vec::new();
-    while let Some(ch) = chars.next() {
-        match ch {
-            ch if ch.is_whitespace() => {}
-            '/' if chars.peek() == Some(&'/') => {
-                for ch in chars.by_ref() {
-                    if ch == '\n' {
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                loop {
-                    let ch = chars.next()?;
-                    if ch == '*' && chars.peek() == Some(&'/') {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            // Regex/division and templates are outside this recognizer. Refuse
-            // the file rather than tokenize executable-looking literal text.
-            '/' | '`' => return None,
-            '\'' | '"' => {
-                let mut value = String::new();
-                let mut escaped = false;
-                loop {
-                    let next = chars.next()?;
-                    if next == ch {
-                        break;
-                    }
-                    if next == '\\' {
-                        escaped = true;
-                        chars.next()?;
-                    } else {
-                        value.push(next);
-                    }
-                }
-                tokens.push(if escaped {
-                    Token::Opaque
-                } else {
-                    Token::String(value)
-                });
-            }
-            ch if ch.is_ascii_alphabetic() || matches!(ch, '_' | '$') => {
-                let mut word = ch.to_string();
-                while chars
-                    .peek()
-                    .is_some_and(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
-                {
-                    word.push(chars.next()?);
-                }
-                tokens.push(Token::Word(word));
-            }
-            ch => tokens.push(Token::Symbol(ch)),
-        }
-    }
-    Some(tokens)
 }

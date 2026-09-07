@@ -1,4 +1,4 @@
-// Deliberately unsupported syntax: this whole module grants no outputs.
+// Deliberately unsupported writers: opaque text and interpolation grant no outputs.
 import { writeFile } from 'node:fs/promises';
 const regex = /writeFile("data\/regex.json", "[]")/;
 const template = `writeFile('data/template.json', '[]')`;

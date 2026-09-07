@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Register exact Recovery JSON outputs from real Next.js routes containing
+  harmless templates, regex, division, and one local writer helper. Reject
+  hidden identity mutation and retain isolated observation/source gates (#429).
+
 - Require implement steps to replace their expected engine scaffold pages even
   when earlier API routes satisfy the run contract. Preserve verified existing
   artifacts and Bash changes, and record step IDs and source hashes for
