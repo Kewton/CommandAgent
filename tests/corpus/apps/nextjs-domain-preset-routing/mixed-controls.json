@@ -1,0 +1,25 @@
+{
+  "kind": "Synthetic negatives from user independent source review; phase ids are not preset provenance. Added before mixed-task correction.",
+  "cases": [
+    {
+      "phase_id": "build-verification",
+      "task": "Implement collision scoring and verify npm run build.",
+      "template": null
+    },
+    {
+      "phase_id": "project-setup",
+      "task": "Implement collision scoring and scaffold the project.",
+      "template": null
+    },
+    {
+      "phase_id": "build-verification",
+      "task": "Implement customer CRUD and verify npm run build.",
+      "template": null
+    },
+    {
+      "phase_id": "project-setup",
+      "task": "Implement the business logic and user interface, then scaffold the project.",
+      "template": null
+    }
+  ]
+}

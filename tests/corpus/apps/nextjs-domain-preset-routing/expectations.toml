@@ -1,0 +1,4 @@
+case_id = "nextjs-domain-preset-routing"
+required_paths = ["r0.json", "provenance.json", "controls.json", "review-controls.json", "plural-controls.json", "mixed-controls.json", "legacy-implementation-keywords.json"]
+[compile]
+expect = "not_checked"

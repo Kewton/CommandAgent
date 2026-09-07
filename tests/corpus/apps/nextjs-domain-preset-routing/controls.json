@@ -1,0 +1,95 @@
+{
+  "kind": "Synthetic routing controls, not historical executions",
+  "cases": [
+    {
+      "case": "typescript-is-not-script",
+      "phase_id": "inspect",
+      "task": "Inspect TypeScript for the requested port.",
+      "template": null
+    },
+    {
+      "case": "import-is-not-port",
+      "phase_id": "inspect",
+      "task": "Inspect import declarations in a script.",
+      "template": null
+    },
+    {
+      "case": "export-is-not-port",
+      "phase_id": "inspect",
+      "task": "Inspect export declarations in a script.",
+      "template": null
+    },
+    {
+      "case": "typescript-import-export",
+      "phase_id": "inspect",
+      "task": "Review TypeScript types, import and export contracts.",
+      "template": null
+    },
+    {
+      "case": "business-implementation",
+      "phase_id": "business",
+      "task": "Implement the business logic and user interface, API routes and persistence; configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "case": "japanese-business",
+      "phase_id": "domain",
+      "task": "業務画面を実装し、60302ポートのpackage scriptsを設定する。",
+      "template": null
+    },
+    {
+      "case": "explicit-port-scripts",
+      "phase_id": "package-scripts",
+      "task": "Configure package.json dev/start scripts for the requested port.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "plural-script-token",
+      "phase_id": "configure",
+      "task": "Configure scripts for port 60302.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "japanese-port",
+      "phase_id": "port-settings",
+      "task": "60302ポートで起動するように設定する。",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "explicit-port-with-typescript",
+      "phase_id": "package-scripts",
+      "task": "Configure package.json dev/start scripts for port 60302 in the TypeScript project.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "game-exclusion",
+      "phase_id": "gameplay",
+      "task": "Implement game logic, collision and player control; configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "case": "core-intent-before-port",
+      "phase_id": "core-implementation",
+      "task": "Implement the app and configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "case": "wiring-intent-before-port",
+      "phase_id": "contract-wiring",
+      "task": "Wire controls and configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "case": "setup-with-port",
+      "phase_id": "project-setup",
+      "task": "Scaffold the project and configure package scripts for port 60302.",
+      "template": "nextjs-scaffold"
+    },
+    {
+      "case": "build-with-port",
+      "phase_id": "build-verification",
+      "task": "Verify package scripts on port 60302 and run npm run build.",
+      "template": "nextjs-build-verification"
+    }
+  ]
+}

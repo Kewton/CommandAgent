@@ -7,6 +7,7 @@ pub(crate) mod recovery_authority;
 mod repair_excerpts;
 mod response_shape;
 mod scaffold_mode;
+mod template_selection;
 pub(crate) mod testimony_binding;
 
 pub use domain::{NextjsProfile, PROFILE_ID};
@@ -453,23 +454,12 @@ pub fn deterministic_step_plan(
     root: &Path,
     goal: &str,
 ) -> Option<ProfileDeterministicStepPlan> {
-    let phase_text = phase_id_and_task_text(phase_prompt).unwrap_or_else(|| phase_prompt.into());
-    let phase_id = phase_field(phase_prompt, "Phase id:").unwrap_or_default();
-    let phase_id_lower = phase_id.to_ascii_lowercase();
-    let lower = phase_text.to_ascii_lowercase();
-    if looks_like_implementation_phase(&lower) {
-        return None;
+    use template_selection::Template;
+    match template_selection::select(phase_prompt)? {
+        Template::Scaffold => Some(scaffold_step_plan(phase_prompt, root, goal)),
+        Template::PortScripts => Some(port_script_step_plan(phase_prompt, goal)),
+        Template::BuildVerification => Some(build_verify_step_plan(phase_prompt, root, goal)),
     }
-    if looks_like_scaffold_phase(&lower) && looks_like_scaffold_phase_id(&phase_id_lower) {
-        return Some(scaffold_step_plan(phase_prompt, root, goal));
-    }
-    if looks_like_port_script_phase(&lower) {
-        return Some(port_script_step_plan(phase_prompt, goal));
-    }
-    if looks_like_build_verify_phase(&lower) {
-        return Some(build_verify_step_plan(phase_prompt, root, goal));
-    }
-    None
 }
 
 pub fn preset_ultra_plan(goal: &str, style: &str, intent: &str) -> Option<UltraPlan> {
@@ -722,63 +712,6 @@ fn normalize_required_artifact_line(line: &str) -> Option<String> {
         return None;
     }
     Some(token.to_string())
-}
-
-fn phase_id_and_task_text(phase_prompt: &str) -> Option<String> {
-    let mut out = Vec::new();
-    for line in phase_prompt.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("Phase id:") || trimmed.starts_with("Phase task:") {
-            out.push(trimmed.to_string());
-        }
-    }
-    (!out.is_empty()).then(|| out.join("\n"))
-}
-
-fn phase_field(phase_prompt: &str, prefix: &str) -> Option<String> {
-    phase_prompt.lines().find_map(|line| {
-        line.trim_start()
-            .strip_prefix(prefix)
-            .map(|value| value.trim().to_string())
-    })
-}
-
-fn looks_like_scaffold_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.scaffold_phase,
-    )
-}
-
-fn looks_like_scaffold_phase_id(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.scaffold_phase_id,
-    )
-}
-
-fn looks_like_port_script_phase(lower: &str) -> bool {
-    let keywords = &knowledge::get().deterministic_keywords;
-    contains_any(lower, &keywords.port_phase_markers)
-        && contains_any(lower, &keywords.port_script_phase)
-}
-
-fn looks_like_build_verify_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.build_verify_phase,
-    )
-}
-
-fn looks_like_implementation_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.implementation_phase,
-    )
-}
-
-fn contains_any(text: &str, tokens: &[String]) -> bool {
-    tokens.iter().any(|token| text.contains(token))
 }
 
 pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Result<Vec<String>> {

@@ -1,0 +1,55 @@
+{
+  "kind": "Supplemental synthetic controls from independent review preparation; original R0 fixture unchanged",
+  "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260908-0310-issue442-routing-review-preparation/review-cases.json",
+  "source_sha256": "aa8ce1e10376cd79e669cd1744f4ed15c857143841af45bca6015f2a490da031",
+  "cases": [
+    {
+      "case": "R05-1",
+      "phase_id": "business-ui",
+      "task": "Build a TypeScript invoice interface and import shared types; export the form component.",
+      "template": null
+    },
+    {
+      "case": "R06-1",
+      "phase_id": "reports",
+      "task": "Create a TypeScript transport report with import and export actions.",
+      "template": null
+    },
+    {
+      "case": "R07-1",
+      "phase_id": "configure-package-scripts",
+      "task": "Update package.json scripts.dev and scripts.start to run next dev/start on port 60302.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "R08-1",
+      "phase_id": "port-settings",
+      "task": "package.json の dev/start scripts のポートを 60302 に設定する。",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "R09-1",
+      "phase_id": "configure-package-scripts",
+      "task": "Configure PORT 60302 for package.json SCRIPTS.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "R09-2",
+      "phase_id": "configure-package-scripts",
+      "task": "Configure port: 60302 for scripts.dev/start.",
+      "template": "nextjs-port-scripts"
+    },
+    {
+      "case": "R14-1",
+      "phase_id": "core-project-setup",
+      "task": "Scaffold and initialize the Next.js project shell.",
+      "template": "nextjs-scaffold"
+    },
+    {
+      "case": "R14-2",
+      "phase_id": "configure-core-package",
+      "task": "Configure package scripts to run on port 60302.",
+      "template": "nextjs-port-scripts"
+    }
+  ]
+}

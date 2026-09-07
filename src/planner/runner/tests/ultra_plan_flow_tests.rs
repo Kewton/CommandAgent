@@ -1,3 +1,6 @@
+#[path = "issue442_preset_routing_tests.rs"]
+mod issue442_preset_routing_tests;
+
 #[cfg(test)]
 mod moved {
     use super::super::*;

@@ -1,0 +1,26 @@
+{
+  "kind": "Synthetic negatives from user independent source review; added before plural keyword correction",
+  "phase_id": "interaction",
+  "cases": [
+    {
+      "phrase": "player controls",
+      "task": "Implement player controls and configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "phrase": "stateful updates",
+      "task": "Implement stateful updates and configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "phrase": "user inputs",
+      "task": "Implement user inputs and configure package scripts for port 60302.",
+      "template": null
+    },
+    {
+      "phrase": "interactive surfaces",
+      "task": "Implement interactive surfaces and configure package scripts for port 60302.",
+      "template": null
+    }
+  ]
+}
