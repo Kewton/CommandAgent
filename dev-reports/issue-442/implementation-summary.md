@@ -19,6 +19,18 @@ matching bodies do not. Candidate-review controls cover non-2xx message/code
 reads under `!res.ok`, optional feature/property guards, status conditionals,
 comments/strings/regex, and unrelated nested return scopes.
 
+The PR #444 follow-up adds separate synthetic controls copied from the immutable
+`8920d519` review. Optional scalar/unknown `??` and `||` fallbacks no longer
+require the member to exist. Literal collection fallbacks still expose the
+historical S3/E3 envelope mismatch. Array-method names such as `entries`,
+`values`, `keys` and `at` are compared as ordinary object keys unless called;
+real array method calls and missing object keys retain their diagnostics.
+Expression arrows now exclude their parameter/body scope, including nested
+expressions, without borrowing later arguments or statements. Arrow `=>` is
+not treated as reassignment. Unknown callable-side mutation remains unknown.
+Focused controls check both absence of false positives and retention of later
+unguarded mismatches. No existing Response.ok logic was changed.
+
 Unknown shapes, indirect helpers, mutable/ambiguous bindings, dynamic paths,
 typed return syntax and unsupported control flow stay runtime obligations. This
 is a conservative static diagnostic, not a complete TypeScript/dataflow checker

@@ -163,6 +163,30 @@ impl Source {
             .unwrap_or(self.tokens.len())
     }
 
+    /// Bound an arrow's assignment expression without borrowing a caller's
+    /// next argument, enclosing conditional branch, or subsequent statement.
+    pub(super) fn expression_end(&self, start: usize, end: usize) -> usize {
+        let mut i = start;
+        let mut conditionals = 0usize;
+        while i < end {
+            if self.any(i, &[",", ";", ")", "]", "}"]) || self.is(i, ":") && conditionals == 0 {
+                return i;
+            }
+            if self.any(i, &["(", "[", "{"]) {
+                i = self.pairs[i].unwrap_or(end);
+            } else if self.is(i, "?")
+                && !self.any(i + 1, &["?", "."])
+                && (i == start || !self.is(i - 1, "?"))
+            {
+                conditionals += 1;
+            } else if self.is(i, ":") {
+                conditionals = conditionals.saturating_sub(1);
+            }
+            i += 1;
+        }
+        end
+    }
+
     /// Split a list without borrowing commas from nested expressions.
     pub(super) fn items(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
         let mut result = Vec::new();

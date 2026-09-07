@@ -20,6 +20,184 @@ fn frozen_response_shape_corpus() {
     }
 }
 
+fn review_control(id: &str) {
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../tests/corpus/apps/nextjs-domain-response-shape-review/cases.json"
+    ))
+    .unwrap();
+    let case = cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["case"] == id)
+        .unwrap();
+    let result = check(
+        case["client"].as_str().unwrap(),
+        case["route"].as_str().unwrap(),
+    );
+    assert_eq!(
+        result.is_some(),
+        case["mismatch"].as_bool().unwrap(),
+        "{id}: {result:?}"
+    );
+}
+
+#[test]
+fn review_optional_cursor_control() {
+    review_control("F2-nullish-optional-cursor");
+}
+
+#[test]
+fn review_expression_arrow_control() {
+    review_control("F3-arrow-expression-shadowing");
+}
+
+#[test]
+fn review_matching_entries_control() {
+    review_control("F1-matching-entries-key");
+}
+
+#[test]
+fn review_parenthesized_expression_arrow_control() {
+    assert_eq!(
+        check(
+            "const res = await fetch('/api/items'); const json = await res.json(); rows.map((json) => json.title); setItems(json.items);",
+            "export async function GET() { return Response.json({items: []}); }"
+        ),
+        None
+    );
+}
+
+#[test]
+fn optional_defaults_preserve_collection_and_unguarded_mismatches() {
+    let prefix = "const res = await fetch('/api/items'); const json = await res.json();";
+    let route = "export async function GET() { return Response.json({items: []}); }";
+    for read in [
+        "const nextCursor = json.nextCursor ?? null;",
+        "setCursor(((json.nextCursor)) ?? (null));",
+        "setEnabled(json.feature ?? false);",
+        "setCount(json.total || 0);",
+        "setCursor(json.nextCursor ?? fallback());",
+    ] {
+        assert_eq!(
+            check(&format!("{prefix}{read} setItems(json.items);"), route),
+            None,
+            "{read}"
+        );
+        let reason = check(&format!("{prefix}{read} setItems(json.missing);"), route).unwrap();
+        assert!(reason.contains("json.missing"), "{read}: {reason}");
+    }
+    for fallback in ["|| []", "?? []", "?? ([])"] {
+        let client = format!("{prefix} setItems(json.expenses {fallback});");
+        assert!(
+            check(
+                &client,
+                "export async function GET() { return Response.json([]); }"
+            )
+            .unwrap()
+            .contains("json.expenses")
+        );
+        assert_eq!(
+            check(
+                &client,
+                "export async function GET() { return Response.json({expenses: []}); }"
+            ),
+            None
+        );
+        assert!(
+            check(&format!("{prefix} setItems(json.data {fallback});"), route)
+                .unwrap()
+                .contains("json.data")
+        );
+    }
+}
+
+#[test]
+fn expression_arrow_scopes_do_not_hide_later_consumption() {
+    let prefix = "const res = await fetch('/api/items'); const json = await res.json();";
+    let route = "export async function GET() { return Response.json({items: []}); }";
+    for read in [
+        "rows.map(json => json.title);",
+        "rows.map((json) => json.title);",
+        "rows.map((json, index) => [json.title, index]);",
+        "rows.map((json: Row): string => json.title);",
+        "rows.map(json => ({title: json.title}));",
+        "rows.map(json => json.title ? json.title : json.fallback);",
+        "rows.map(json => json.title ?? json.fallback);",
+        "rows.map(json => json.title || json.fallback);",
+        "rows.map(json => other.map(row => json.title));",
+        "rows.map(json => (json.title, json.fallback));",
+        "const unused = () => json.unrelated;",
+        "const unused = () => { return json.unrelated; };",
+    ] {
+        assert_eq!(
+            check(&format!("{prefix}{read} setItems(json.items);"), route),
+            None,
+            "{read}"
+        );
+        let reason = check(&format!("{prefix}{read} setItems(json.missing);"), route).unwrap();
+        assert!(reason.contains("json.missing"), "{read}: {reason}");
+    }
+    for read in [
+        "consume(json => json.title, json.missing);",
+        "consume((json) => json.title ? json.title : '', json.missing);",
+        "const reads = [json => json.title, json.missing];",
+        "const reads = {label: json => json.title, items: json.missing};",
+        "const render = json => json.title, items = json.missing;",
+        "const read = flag ? json => json.title : fallback; consume(json.missing);",
+    ] {
+        let reason = check(&format!("{prefix}{read}"), route).unwrap();
+        assert!(reason.contains("json.missing"), "{read}: {reason}");
+    }
+    // Callable-side mutation can change the outer object's shape. It remains
+    // unknown, even though ordinary callable reads are isolated from it.
+    assert_eq!(
+        check(
+            &format!(
+                "{prefix} const add = () => {{ json.extra = []; }}; add(); setItems(json.extra);"
+            ),
+            route
+        ),
+        None
+    );
+}
+
+#[test]
+fn array_method_names_are_object_keys_until_called() {
+    let prefix = "const res = await fetch('/api/items'); const json = await res.json();";
+    for member in ["entries", "values", "keys", "at", "map", "filter", "slice"] {
+        let read = format!("{prefix} setItems(json.{member});");
+        assert_eq!(
+            check(
+                &read,
+                &format!(
+                    "export async function GET() {{ return Response.json({{{member}: []}}); }}"
+                )
+            ),
+            None,
+            "{member}"
+        );
+        let reason = check(
+            &read,
+            "export async function GET() { return Response.json({other: []}); }",
+        )
+        .unwrap();
+        assert!(reason.contains(&format!("json.{member}")), "{reason}");
+        let call = format!("{prefix} setItems(json.{member}(arg));");
+        assert!(
+            check(
+                &call,
+                "export async function GET() { return Response.json({other: []}); }"
+            )
+            .unwrap()
+            .contains("an array from json")
+        );
+        let array = "export async function GET() { return Response.json([]); }";
+        assert_eq!(check(&call, array), None, "{member}");
+        assert_eq!(check(&read, array), None, "inherited array member {member}");
+    }
+}
+
 fn check(client: &str, route: &str) -> Option<String> {
     let root = tempfile::tempdir().unwrap();
     for (path, text) in [

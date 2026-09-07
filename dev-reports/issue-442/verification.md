@@ -2,24 +2,37 @@
 
 - Status: `passed`
 
+Follow-up to immutable PR #444 head `8920d519e458d43ee79c9942236d57a0ea10a5b0`.
 All required local checks passed. `bash scripts/ci.sh` exited 0 outside the
-sandbox; its Rust commands used `RUSTFLAGS=-D warnings`. The existing ignored
-Rust tests remain unchanged. The dedicated oracle workflow is configured but
-has not been run remotely (push/PR/remote CI belongs to the orchestrator).
+sandbox with `RUSTFLAGS=-D warnings`; the existing ignored tests are unchanged.
+The final test-only boundary clarification was rechecked with the focused suite
+and formatting check after full CI passed; production code was unchanged.
+The report was set to blocked before implementation. The review snapshots in
+`20260908-0054-issue442-review` were read only; all 24 match the reviewed commit.
+No push, PR update, remote CI, UAT, or campaign was performed in this follow-up.
+
+## Review reproduction before the fix
+
+`cargo test --lib planner::profiles::nextjs::response_shape::tests::review_ -- --nocapture`
+exited 101 on the unchanged production analyzer: 3 failed, 1 passed. The optional
+cursor and matching `entries` controls reproduced their false positives. The
+exact bare `json => json.title` example passed because `=>` was mistaken for
+reassignment and suppressed analysis of the entire binding. Parenthesized
+`(json) => json.title` reproduced the scope false positive. New controls also
+require a later unguarded missing key to be detected after either arrow form.
+The review's own JSON explicitly records its examples as not executed; the
+results above are this worker's actual executions, not changes to that evidence.
 
 ## Checks
 
-- `cargo test --lib planner::profiles::nextjs`: `passed` (91 tests)
-- `cargo test --lib planner::profiles::nextjs::response_shape`: `passed` (7 tests; final version also included in full-suite run)
-- `cargo test --test nextjs_domain_knowledge`: `passed` (2 tests)
-- `cargo test --lib planner::profile_manifest::tests::embedded_manifest_keeps_existing_nextjs_knowledge_values`: `passed`
+- `cargo test --lib planner::profiles::nextjs::response_shape`: `passed` (14 tests, including S3 candidate, E3 fallback, error/status controls and all review regressions)
 - `bash scripts/ci.sh`: `passed`
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
-- `cargo test --all-targets`: `passed`
+- `cargo test --all-targets`: `passed` (includes the business and Space/Breakout/Quiz knowledge matrix)
 - `cargo test --test corpus_regression`: `passed` (7 tests)
 - `cargo test --test generality_guardrails`: `passed` (10 tests; baselines unchanged)
-- `cargo test --test conformance`: `passed` (18 passed, 1 existing ignored fixture helper)
+- `cargo test --test conformance`: `passed` (18 passed, 1 existing ignored helper)
 - `RUSTFLAGS='-D warnings' cargo test --doc`: `passed` (2 tests)
 - `python3 scripts/validate_codex_skills.py --tracked-only`: `passed` (29 skills)
 - `ruff check --isolated --select E4,E7,E9,F,I --ignore E402 scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py workspace/management/scripts`: `passed`
@@ -29,10 +42,7 @@ has not been run remotely (push/PR/remote CI belongs to the orchestrator).
 - `python3 tests/eval/test_completion_contract_snapshots.py`: `passed`
 - `python3 tests/eval/test_false_positive_regression.py`: `passed`
 - `shellcheck scripts/*.sh`: `passed`
-- `npm ci --ignore-scripts --include=dev --prefix tests/nextjs_domain`: `passed`
-- `python3 -m pytest tests/test_nextjs_domain_oracle.py -q`: `passed` (11 tests, system pytest 9.0.2)
-- `/tmp/issue442-ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements/ci.txt`: `passed`
-- `/tmp/issue442-ci-venv/bin/python -m pytest tests/test_nextjs_domain_oracle.py -q`: `passed` (11 tests, pinned pytest 8.4.2, Node 24.1.0, local locked TypeScript 5.9.3)
+- `/tmp/issue442-ci-venv/bin/python -m pytest tests/test_nextjs_domain_oracle.py -q`: `passed` (11 tests; Python 3.12.3, pinned pytest 8.4.2, Node 24.1.0, locked local TypeScript 5.9.3)
 - `/tmp/issue442-ci-venv/bin/ruff check --isolated --select E4,E7,E9,F,I --ignore E402 scripts/nextjs_domain_oracle.py tests/test_nextjs_domain_oracle.py tests/test_codex_orchestrate.py`: `passed` (Ruff 0.16.0)
 - `git diff --check`: `passed`
 
@@ -43,8 +53,10 @@ modified or claimed verified.
 
 ## Original handler replay
 
-The 43 frozen source files were additionally compared with the original session
-files after implementation; all SHA-256 values match. The replay uses Node
+The original implementation additionally compared all 43 frozen source files
+with the original sessions; all SHA-256 values matched. The follow-up leaves
+those fixtures and the historical response-shape corpus byte-identical to
+`8920d519`; the HTTP replay rechecks their provenance hashes. The replay uses Node
 24.1.0 and TypeScript 5.9.3 with unmodified source, real HTTP and real filesystem
 operations in temporary directories. It is not a Next.js build/start/UI run.
 

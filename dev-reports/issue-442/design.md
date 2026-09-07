@@ -33,3 +33,18 @@ push/PR/CI/UAT/lifecycle and the merged-binary campaign plus one-factor B-1
 experiments. Future primary metrics are type/export build/start failures and,
 among started runs, corrupted-data overwrite and lost concurrent writes (target
 zero); no unperformed generation effect or score improvement will be claimed.
+
+## Candidate review follow-up (PR #444, `8920d519`)
+
+Freeze separate synthetic regression cases for optional fallback metadata,
+expression-bodied arrow scopes, and object keys whose names overlap array
+methods. Keep the original snapshots and historical S3/E3 controls unchanged.
+Only direct method calls can establish array-method consumption; plain member
+reads must first respect matching object keys. Optional scalar/default reads
+and callable-local reads do not prove incompatible success consumption. Keep
+the historical collection-fallback checks and unguarded missing-key controls,
+and test boundaries so an unrelated arrow or optional read cannot suppress a
+later proven mismatch. Unknown flow remains a runtime obligation. Reproduce
+the reported controls before changing the leaf analyzer, rerun focused and full
+required checks, update all three reports, and create a new local commit without
+altering or pushing the reviewed head.

@@ -112,9 +112,10 @@ fn incompatible_read(
             continue; // Chained .catch/.then or ASI flow is not inferred.
         }
         // Rebinding, shadowing or mutation makes local inference ambiguous.
+        // The arrow operator is not an assignment to its parameter.
         if (start..end).any(|j| {
             (s.any(j, &["const", "let", "var"]) && s.is(j + 1, body))
-                || (s.is(j, body) && s.is(j + 1, "=") && !s.is(j + 2, "="))
+                || (s.is(j, body) && s.is(j + 1, "=") && !s.any(j + 2, &["=", ">"]))
                 || (s.seq(j, &[body, "."]) && s.is(j + 3, "=") && !s.is(j + 4, "="))
                 || s.seq(j, &[body, "["])
         }) {
@@ -136,6 +137,9 @@ fn incompatible_read(
                 None
             };
             let Some(key) = key else { continue };
+            if optional_default(s, j) {
+                continue;
+            }
             if matches!(
                 key,
                 "error"
@@ -192,7 +196,14 @@ fn incompatible_read(
                     | "fill"
                     | "copyWithin"
             ) {
-                array_read = true;
+                if s.is(j + 3, "(") {
+                    array_read = true;
+                } else if !shapes.iter().any(|shape| matches!(shape, Shape::Array)) {
+                    // `entries`, `values`, etc. can be JSON object keys. Only
+                    // a call establishes method use; arrays also inherit these
+                    // members when they are passed as references.
+                    keys.insert(key);
+                }
             } else {
                 keys.insert(key);
             }
@@ -256,15 +267,50 @@ fn success_shapes(s: &Source, method: &str) -> Option<Vec<Shape>> {
     (!shapes.is_empty()).then_some(shapes)
 }
 
+/// A scalar or unknown fallback permits an absent optional member. Preserve
+/// collection-envelope checks such as E3's `json.expenses || []` and S3's
+/// `json.data ?? []`: a missing collection would silently discard server data.
+fn optional_default(s: &Source, read: usize) -> bool {
+    let mut start = read;
+    let mut after = read + 3;
+    while start > 0 && s.is(after, ")") && s.pairs[after] == Some(start - 1) {
+        start -= 1;
+        after += 1;
+    }
+    if !s.seq(after, &["?", "?"]) && !s.seq(after, &["|", "|"]) {
+        return false;
+    }
+    let mut fallback = after + 2;
+    while s.is(fallback, "(") {
+        fallback += 1;
+    }
+    !s.is(fallback, "[")
+}
+
 /// Calls nested in the handler are not returns from that handler. Unrecognized
 /// function syntax remains unknown rather than contributing a response shape.
 fn callable_ranges(s: &Source, start: usize, end: usize) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     for i in start..end {
+        if s.seq(i, &["=", ">"]) {
+            let params = i.checked_sub(1).map_or(i, |previous| {
+                if s.is(previous, ")") {
+                    s.pairs[previous].unwrap_or(previous)
+                } else {
+                    previous
+                }
+            });
+            let body = i + 2;
+            let close = if s.is(body, "{") {
+                s.pairs[body].map_or(end, |close| close + 1)
+            } else {
+                s.expression_end(body, end)
+            };
+            ranges.push((params, close));
+        }
         if !s.is(i, "{") {
             continue;
         }
-        let arrow = i >= 2 && s.seq(i - 2, &["=", ">"]);
         let function = if i > 0 && s.is(i - 1, ")") {
             s.pairs[i - 1].is_some_and(|open| {
                 open > 0 && !s.any(open - 1, &["if", "for", "while", "switch", "catch", "with"])
@@ -272,9 +318,7 @@ fn callable_ranges(s: &Source, start: usize, end: usize) -> Vec<(usize, usize)> 
         } else {
             false
         };
-        if (arrow || function)
-            && let Some(close) = s.pairs[i]
-        {
+        if function && let Some(close) = s.pairs[i] {
             ranges.push((i, close + 1));
         }
     }
@@ -305,8 +349,12 @@ fn non_success_ranges(
     response: &str,
     body: &str,
 ) -> Vec<(usize, usize)> {
-    let mut ranges = callable_ranges(s, start, end);
+    let callables = callable_ranges(s, start, end);
+    let mut ranges = callables.clone();
     for i in start..end {
+        if callables.iter().any(|&(a, b)| (a..b).contains(&i)) {
+            continue;
+        }
         if s.seq(i, &["if", "("])
             && let Some(close) = s.pairs[i + 1]
         {

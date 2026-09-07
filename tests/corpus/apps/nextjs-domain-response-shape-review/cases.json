@@ -1,0 +1,23 @@
+[
+  {
+    "case": "F1-matching-entries-key",
+    "client": "async function load() { const res = await fetch('/api/items'); const json = await res.json(); setItems(json.entries); }",
+    "route": "export async function GET() { return Response.json({entries: []}); }",
+    "mismatch": false,
+    "provenance": "Synthetic review control for 8920d519, copied from 20260908-0054-issue442-review/response-shape-counterexamples.json; review itself did not execute the case"
+  },
+  {
+    "case": "F2-nullish-optional-cursor",
+    "client": "async function load() { const res = await fetch('/api/items'); const json = await res.json(); const nextCursor = json.nextCursor ?? null; setCursor(nextCursor); setItems(json.items); }",
+    "route": "export async function GET() { return Response.json({items: []}); }",
+    "mismatch": false,
+    "provenance": "Synthetic review control for 8920d519, copied from 20260908-0054-issue442-review/response-shape-counterexamples.json; review itself did not execute the case"
+  },
+  {
+    "case": "F3-arrow-expression-shadowing",
+    "client": "async function load() { const res = await fetch('/api/items'); const json = await res.json(); const labels = [{title: 'saved'}].map(json => json.title); setLabels(labels); setItems(json.items); }",
+    "route": "export async function GET() { return Response.json({items: []}); }",
+    "mismatch": false,
+    "provenance": "Synthetic review control for 8920d519, copied from 20260908-0054-issue442-review/response-shape-counterexamples.json; review itself did not execute the case"
+  }
+]
