@@ -58,3 +58,34 @@ the existing campaign harness's immutable manifest/pins checks. The historical
 failure names deleted version `26.818.21641`; the current session's Browser skill
 names `26.825.51511`. The latter entry point exists and initial connection in this
 session succeeded; neither observation establishes a permanent plugin repair.
+
+## Review follow-up: explicit evaluation viewports
+
+Read the full GitHub Issue #450 after the orchestrator identified the omitted
+scope bullet: capture and measure both evaluation viewports. The initial smoke
+is historical single-viewport evidence and does not satisfy this requirement.
+
+Introduce an explicit `required_viewports` request list with unique names and
+positive pixel dimensions. The reusable gate will require a measured viewport
+and independently decoded image matching each configured size. Missing, duplicate,
+unknown or mismatched second-view evidence blocks manifest freeze and launch.
+The manifest pins the whole configured list; changing either viewport changes the
+retry fingerprint. Use a new v2 preflight contract so old single-view reports
+cannot silently authorize the stronger evaluation gate.
+
+The independent-profile adapter will keep its owned browser/profile, resize its
+page for each requirement, measure `innerWidth/innerHeight`, read the resulting
+page state and capture the image at device scale 1. Configure the real smoke via
+explicit desktop 1440x900 and mobile 390x844 requirements, with new evidence and
+campaign directories. The plugin adapter may use only the documented viewport
+capability supplied by the caller and must reset a temporary override afterward;
+unsupported environment/viewport measurement remains unknown/blocked. Preserve the
+existing healthy connection. Rerun affected focused checks and real dual-viewport
+smoke; retain the already recorded unrelated broad-regression failures.
+
+Additional read-only references: the full Issue body; frozen campaign
+`harness/browser_driver.cjs`; and the integration coordination run's
+`browser-runtime-probe.json` / `browser-service-resolution-notes.md`. The parent
+conversation still resolves a deleted old service while this worker connects.
+That evidence reinforces session-scoped diagnosis and does not justify resetting
+this worker's healthy binding or reporting a permanent plugin repair.

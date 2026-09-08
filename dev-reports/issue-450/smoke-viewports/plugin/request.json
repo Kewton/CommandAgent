@@ -1,0 +1,31 @@
+{
+  "session_id": "issue-450-worker-browser-session",
+  "method": "browser-plugin",
+  "target_url": "http://127.0.0.1:65237/",
+  "authorization": "Issue #450 approved local fixture GUI smoke; safe button and screenshot only",
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "conditions": {},
+  "session_instruction": {
+    "session_id": "issue-450-worker-browser-session",
+    "skill_path": "/Users/maenokota/.codex/plugins/cache/openai-bundled/browser/26.825.51511/skills/control-in-app-browser/SKILL.md",
+    "sha256": "c4febd12a39df39beaa9b33e629068fc32a57445065eb7f569b21f7f35b3cc93",
+    "entry_point": "/Users/maenokota/.codex/plugins/cache/openai-bundled/browser/26.825.51511/scripts/browser-client.mjs"
+  },
+  "required_viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ]
+}

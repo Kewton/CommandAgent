@@ -23,6 +23,7 @@ from .evidence import (
     read_json,
     write_new,
 )
+from .viewports import requirements, size
 
 
 def validate_request(request):
@@ -35,6 +36,10 @@ def validate_request(request):
         raise PreflightError("A current session ID is required")
     if request.get("method") not in ("browser-plugin", "isolated-playwright"):
         raise PreflightError("Unknown automation method")
+    try:
+        views = requirements(request.get("required_viewports"))
+    except ValueError as error:
+        raise PreflightError(str(error)) from error
     url = urlsplit(request.get("target_url", ""))
     if (
         url.scheme not in ("http", "https")
@@ -50,6 +55,9 @@ def validate_request(request):
         request.get("conditions", {}), dict
     ):
         raise PreflightError("Action and conditions must be JSON objects")
+    initial = request.get("conditions", {}).get("viewport")
+    if initial is not None and initial != size(views[0]):
+        raise PreflightError("Initial viewport must match the first required viewport")
     if (
         any(
             not isinstance(action.get(k), str) or not action[k].strip()
@@ -89,6 +97,7 @@ def snapshot(request):
             "target_url",
             "action",
             "conditions",
+            "required_viewports",
             "executable",
         )
     }

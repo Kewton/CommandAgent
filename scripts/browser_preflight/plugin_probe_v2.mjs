@@ -1,5 +1,5 @@
 /**
- * Run only from the supported Browser Node tool, after reading that browser's
+ * V2: Run only from the supported Browser Node tool, after reading that browser's
  * complete documentation. Pass the existing binding: never bootstrap/reset here.
  * The caller must inspect the page/action before preparing the request.
  */
@@ -7,11 +7,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 
-export async function probeBrowser(browser, ticketPath, observedConditions = {}) {
+export async function probeBrowser(browser, ticketPath, observedConditions = {}, viewportControl) {
   const ticketBytes = await readFile(ticketPath);
   const ticket = JSON.parse(ticketBytes);
   const root = dirname(ticketPath);
   const request = ticket.request;
+  if (ticket.contract !== "browser-preflight-v2") throw new Error("A v2 viewport-aware reservation is required");
   if (request.method !== "browser-plugin" || ticket.entry_point.status !== "present") {
     throw new Error("A grounded current-session plugin entry point is required");
   }
@@ -24,6 +25,7 @@ export async function probeBrowser(browser, ticketPath, observedConditions = {})
   await writeFile(join(root, "probe-started.json"), JSON.stringify({ ticket_id: ticket.id }), { flag: "wx" });
   const result = { ticket_id: ticket.id, conditions: observedConditions, stage: "tabs" };
   let tab;
+  let viewportOverridden = false;
   try {
     result.tabs_count = (await browser.tabs.list()).length;
     // Zero tabs does not invalidate browser. Create only our own disposable tab.
@@ -49,16 +51,43 @@ export async function probeBrowser(browser, ticketPath, observedConditions = {})
     result.after = "after.txt";
     result.action = action;
     result.url = await tab.url();
-    result.stage = "screenshot";
-    const screenshot = await tab.screenshot({ fullPage: false });
-    const imageName = screenshot[0] === 0xff && screenshot[1] === 0xd8
-      ? "screenshot.jpg" : "screenshot.png";
-    await writeFile(join(root, imageName), screenshot, { flag: "wx" });
-    result.screenshot = imageName;
+    result.views = [];
+    for (const required of request.required_viewports) {
+      result.stage = "viewport";
+      const view = { name: required.name };
+      result.views.push(view);
+      if (!viewportControl?.set || !viewportControl?.reset) {
+        view.error = "Required viewport control is unavailable; dimensions remain unknown";
+        continue;
+      }
+      viewportOverridden = true;
+      await viewportControl.set({ width: required.width, height: required.height });
+      view.viewport = await tab.playwright.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+      view.url = await tab.url();
+      if (!result.conditions.viewport) result.conditions.viewport = view.viewport;
+      const stateName = `view-${required.name}.txt`;
+      await writeFile(join(root, stateName), await tab.playwright.domSnapshot(), { flag: "wx" });
+      view.state = stateName;
+      result.stage = "screenshot";
+      const screenshot = await tab.screenshot({ fullPage: false });
+      const extension = screenshot[0] === 0xff && screenshot[1] === 0xd8 ? "jpg" : "png";
+      const imageName = `view-${required.name}.${extension}`;
+      await writeFile(join(root, imageName), screenshot, { flag: "wx" });
+      view.screenshot = imageName;
+      result.screenshot ??= imageName;
+    }
     result.stage = "complete";
   } catch (error) {
     result.error = String(error);
   } finally {
+    if (viewportOverridden) {
+      try {
+        await viewportControl.reset();
+        result.viewport_override_reset = true;
+      } catch (error) {
+        result.cleanup_error = String(error);
+      }
+    }
     if (tab) {
       try {
         await tab.close();

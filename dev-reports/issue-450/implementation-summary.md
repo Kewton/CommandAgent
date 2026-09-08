@@ -20,6 +20,10 @@ The CLI is `scripts/browser-preflight.py`; usage and request examples are in
 - Validation requires the exact target URL, readable before/after state, the
   declared action's visible effect and a decodable, hashed image. HTTP-only success
   and incomplete environment metadata cannot freeze a campaign.
+- V2 requires an explicit `required_viewports` list. Each configured viewport needs
+  its own measured size, post-action page state and decoded image with matching
+  dimensions. Missing/mismatched second images block freeze and launch. The entire
+  viewport list is pinned; historical v1 single-view reports cannot authorize v2.
 - Immutable manifests pin the verified method and observed browser/automation
   versions, headless mode, viewport, locale and timezone. The start wrapper checks
   evidence age (15 minutes), latest session outcome and hashes before running an
@@ -28,28 +32,40 @@ The CLI is `scripts/browser-preflight.py`; usage and request examples are in
 
 ## Acceptance evidence
 
-The 12 diagnostic fixtures and 47 Python tests cover the requested failure cases,
+The 12 diagnostic fixtures, explicit evaluation viewport fixture and 64 Python tests cover the requested failure cases,
 safe reuse, suppression after process restart, reasons for changed conditions,
 fallback authorization/cleanup, malformed metadata, artifact tampering and denied
-command execution. Four Node tests exercise the plugin adapter without bootstrap
-or reinitialization.
+command execution. Five Node tests exercise the v2 plugin adapter without bootstrap
+or connection reinitialization, including unsupported viewport control and cleanup.
 
 Local GUI smoke used a task-owned loopback HTML fixture, not model generation or
 the integration worktree's generated application. Both browser methods verified
 URL, readable state, harmless button effect and screenshot capture. Saved evidence
-is under `smoke/`; mutable local ledger/lock/start files are ignored and unstaged.
+for the complete two-viewport requirement is under `smoke-viewports/`; mutable
+local ledger/lock/start files are ignored and unstaged. The initial single-view
+v1 evidence under `smoke/` remains historical and does not satisfy that requirement.
 
 - Isolated profile: Chrome **152.0.7977.77**, Python Playwright **1.54.0**, headed,
-  **1000 × 800**, **en-US**, **Asia/Tokyo**. Campaign freeze, rejection of a changed
+  configured **desktop 1440 × 900** and **mobile 390 × 844**, **en-US**,
+  **Asia/Tokyo**. Both `innerWidth/innerHeight` measurements and independently
+  decoded PNG dimensions match the configuration. Campaign freeze, rejection of a changed
   target, healthy reuse and a harmless guarded Python launch succeeded. Its PNG
-  was decoded and visually inspected. Browser/profile and server were closed.
+  images were decoded and visually inspected. Browser/profile and server were closed.
 - Current plugin **26.825.51511**: initial connection worked. The adapter reused
-  that binding after an empty tab list and captured the changed page. Its image
-  is actually JPEG (as recorded in the artifact metadata; the initial smoke file
-  had a `.png` suffix). The adapter now preserves JPEG suffixes for future captures.
+  that binding after an empty tab list, applied the documented viewport capability
+  and captured both views. Both measured viewports and JPEG dimensions match
+  1440 × 900 / 390 × 844. The temporary viewport override was reset afterward.
   The supported page scope did not expose navigator/environment metadata, so
   `conditions_unverified` correctly blocked freezing this method. This is an
   expected refusal, not a failed GUI operation. Only task-owned tabs/server closed.
+
+The v2 smoke initially encountered a local helper import failure because the Node
+tool did not accept a query-suffixed module path. That error was recorded before
+any browser operation. The helper now has the explicit `plugin_probe_v2.mjs`
+filename; one retry with the changed-path reason saved in the ledger completed
+both views. The healthy Browser connection was retained throughout. The parent
+conversation's separate old-service resolution failure was read as reference
+evidence only; it was not generalized to this worker or treated as repaired.
 
 ## State and limits
 

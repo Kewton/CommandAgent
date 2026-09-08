@@ -15,6 +15,7 @@ from browser_preflight.campaign import freeze, launch
 from browser_preflight.evidence import PreflightError, file_hash, read_json, write_new
 from browser_preflight.playwright_probe import probe
 from browser_preflight.session import finish, prepare
+from browser_preflight.viewports import requirements, size
 
 FIXTURE = Path(__file__).parent / "tests/fixtures/browser-preflight/smoke.html"
 
@@ -35,13 +36,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def base_request(url):
+def base_request(url, viewports):
     return {
         "session_id": "issue-450-local-smoke",
         "method": "isolated-playwright",
         "target_url": url,
         "authorization": "Issue #450 approved local GUI smoke: owned fixture, harmless button, screenshot",
         "isolated_fallback_authorized": True,
+        "required_viewports": viewports,
         "action": {
             "role": "button",
             "name": "Check browser",
@@ -50,15 +52,15 @@ def base_request(url):
         },
         "conditions": {
             "headless": False,
-            "viewport": {"width": 1000, "height": 800},
+            "viewport": size(viewports[0]),
             "locale": "en-US",
             "timezone": "Asia/Tokyo",
         },
     }
 
 
-def run(output, url, executable, headless):
-    request = base_request(url)
+def run(output, url, executable, headless, viewports):
+    request = base_request(url, viewports)
     request["executable"] = executable
     request["conditions"]["headless"] = headless
     write_new(output / "request.json", request)
@@ -104,6 +106,7 @@ def run(output, url, executable, headless):
         "manifest": str(manifest),
         "healthy_reused": True,
         "changed_target_launch_refused": True,
+        "required_viewports": viewports,
         "owned_browser_closed": report["observation"]["owned_resources_closed"],
         "model_generation_started": False,
         "automatic_diagnosis": "implemented",
@@ -121,9 +124,15 @@ def main():
         "--executable", help="Explicit installed Chrome/Chromium executable for run"
     )
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument(
+        "--viewports",
+        type=Path,
+        help="Explicit JSON list of required viewport names and dimensions",
+    )
     args = parser.parse_args()
-    if args.mode == "run" and not args.executable:
-        parser.error("run requires --executable")
+    if args.mode == "run" and (not args.executable or not args.viewports):
+        parser.error("run requires --executable and --viewports")
+    viewports = requirements(read_json(args.viewports)) if args.viewports else None
     args.output.mkdir(parents=True, exist_ok=False)
     server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler))
     url = f"http://127.0.0.1:{server.server_port}/"
@@ -140,7 +149,7 @@ def main():
             worker.join()
             result = {"status": "served"}
         else:
-            result = run(args.output, url, args.executable, args.headless)
+            result = run(args.output, url, args.executable, args.headless, viewports)
     except KeyboardInterrupt:
         result = {"status": "served"}
     except Exception as error:

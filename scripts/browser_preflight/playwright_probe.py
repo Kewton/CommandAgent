@@ -9,6 +9,7 @@ from urllib.request import urlopen
 
 from .evidence import PreflightError, read_json, write_new
 from .session import claim_probe, validate_request
+from .viewports import size
 
 
 def probe(ticket_path):
@@ -47,6 +48,7 @@ def probe(ticket_path):
                     viewport=settings["viewport"],
                     locale=settings["locale"],
                     timezone_id=settings["timezone"],
+                    device_scale_factor=1,
                     timeout=15000,
                 )
                 result["isolated_profile"] = True
@@ -61,7 +63,9 @@ def probe(ticket_path):
                         "browser_version": context.browser.version,
                         "automation_version": automation_version,
                         "headless": settings["headless"],
-                        "viewport": page.viewport_size,
+                        "viewport": page.evaluate(
+                            "() => ({width: window.innerWidth, height: window.innerHeight})"
+                        ),
                         "locale": page.evaluate("navigator.language"),
                         "timezone": page.evaluate(
                             "Intl.DateTimeFormat().resolvedOptions().timeZone"
@@ -90,9 +94,31 @@ def probe(ticket_path):
                         page.locator("body").inner_text()
                     )
                     result.update(action=action, after="after.txt", url=page.url)
-                    result["stage"] = "screenshot"
-                    page.screenshot(path=str(directory / "screenshot.png"))
-                    result.update(screenshot="screenshot.png", stage="complete")
+                    result["views"] = []
+                    for required in request["required_viewports"]:
+                        result["stage"] = "viewport"
+                        view = {"name": required["name"]}
+                        result["views"].append(view)
+                        page.set_viewport_size(size(required))
+                        view["viewport"] = page.evaluate(
+                            "() => ({width: window.innerWidth, height: window.innerHeight})"
+                        )
+                        page.get_by_text(action["after"], exact=True).wait_for(
+                            state="visible"
+                        )
+                        view["url"] = page.url
+                        state_name = f"view-{required['name']}.txt"
+                        (directory / state_name).write_text(
+                            page.locator("body").inner_text()
+                        )
+                        view["state"] = state_name
+                        result["stage"] = "screenshot"
+                        image_name = f"view-{required['name']}.png"
+                        page.screenshot(path=str(directory / image_name), scale="css")
+                        view["screenshot"] = image_name
+                        if "screenshot" not in result:
+                            result["screenshot"] = image_name
+                    result["stage"] = "complete"
                 finally:
                     context.close()
                     result["owned_resources_closed"] = True

@@ -6,7 +6,9 @@ import hashlib
 import json
 from pathlib import Path
 
-CONTRACT = "browser-preflight-v1"
+from .viewports import requirements, size
+
+CONTRACT = "browser-preflight-v2"
 MAX_AGE_SECONDS = 900
 
 
@@ -188,6 +190,9 @@ def diagnose(ticket, observation, root):
         or observation.get("owned_resources_closed") is not True
     ):
         findings.append("isolation_unverified")
+    view_artifacts, view_findings = inspect_views(request, observation, root)
+    artifacts["views"] = view_artifacts
+    findings.extend(view_findings)
     # An empty tab list is diagnostic, not an invalid connection. A new owned tab
     # can still demonstrate all four capabilities on that same connection.
     blockers = sorted(set(findings) - {"empty_tabs"})
@@ -200,3 +205,68 @@ def diagnose(ticket, observation, root):
         "automatic_diagnosis": "implemented",
         "plugin_permanent_repair": "not_established",
     }
+
+
+def inspect_views(request, observation, root):
+    artifacts = {}
+    findings = []
+    try:
+        configured = requirements(request.get("required_viewports"))
+    except ValueError:
+        return artifacts, ["viewport_requirements_unknown"]
+    views = observation.get("views")
+    if not isinstance(views, list):
+        return artifacts, ["viewport_evidence_missing"]
+    names = [v.get("name") for v in views if isinstance(v, dict)]
+    expected_names = [v["name"] for v in configured]
+    if len(names) != len(views) or any(name not in expected_names for name in names):
+        findings.append("viewport_evidence_unexpected")
+    for required in configured:
+        matches = [
+            v
+            for v in views
+            if isinstance(v, dict) and v.get("name") == required["name"]
+        ]
+        if len(matches) != 1:
+            findings.append(
+                "viewport_evidence_missing"
+                if not matches
+                else "viewport_evidence_duplicate"
+            )
+            continue
+        view = matches[0]
+        measured = view.get("viewport")
+        if (
+            view.get("error")
+            or not isinstance(measured, dict)
+            or any(
+                type(measured.get(k)) is not int or measured[k] < 2
+                for k in ("width", "height")
+            )
+        ):
+            findings.append("viewport_unverified")
+        if view.get("viewport") != size(required):
+            findings.append("viewport_mismatch")
+        if view.get("url") != request["target_url"]:
+            findings.append("viewport_target_unverified")
+        evidence = {}
+        for field, kind in (("state", "text"), ("screenshot", "image")):
+            try:
+                evidence[field] = artifact(root, view.get(field), kind)
+                if kind == "image" and size(evidence[field]) != size(required):
+                    findings.append("viewport_image_mismatch")
+                if (
+                    kind == "text"
+                    and request["action"]["after"]
+                    not in (Path(root) / view[field]).read_text()
+                ):
+                    findings.append("viewport_read_failed")
+            except (OSError, ValueError, ImportError, SyntaxError) as error:
+                evidence[field] = {"error": str(error)}
+                findings.append(
+                    "viewport_image_failed"
+                    if kind == "image"
+                    else "viewport_read_failed"
+                )
+        artifacts[required["name"]] = evidence
+    return artifacts, findings

@@ -1,0 +1,5 @@
+# Keep mutable runtime bookkeeping local; retain completed viewport evidence.
+**/.lock
+**/state.json
+**/probe-started.json
+**/started.json

@@ -41,6 +41,10 @@ def request_data(tmp_path):
         "session_id": "session-one",
         "method": "browser-plugin",
         "target_url": "http://127.0.0.1:8080/",
+        "required_viewports": [
+            {"name": "desktop", "width": 1000, "height": 800},
+            {"name": "mobile", "width": 390, "height": 844},
+        ],
         "authorization": "Issue 450: local fixture read, harmless button and screenshot",
         "action": {
             "role": "button",
@@ -71,8 +75,22 @@ def receipt(ticket_path):
     request = ticket["request"]
     (root / "before.txt").write_text(request["action"]["before"])
     (root / "after.txt").write_text(request["action"]["after"])
-    Image.new("RGB", (32, 24), "navy").save(root / "screenshot.png")
+    Image.new("RGB", (1000, 800), "navy").save(root / "screenshot.png")
+    views = []
+    for view in request["required_viewports"]:
+        name = f"{view['name']}.png"
+        Image.new("RGB", (view["width"], view["height"]), "navy").save(root / name)
+        views.append(
+            {
+                "name": view["name"],
+                "url": request["target_url"],
+                "viewport": {"width": view["width"], "height": view["height"]},
+                "state": "after.txt",
+                "screenshot": name,
+            }
+        )
     return {
+        "views": views,
         "ticket_id": ticket["id"],
         "url": request["target_url"],
         "tabs_count": 1,
@@ -182,6 +200,7 @@ def test_changed_conditions_require_reason_and_old_failures_stay_suppressed(
         ticket = prepare(tmp_path, original, now=NOW)["ticket"]
         finish(ticket, {"error": "failed"}, now=NOW + 1)
     request_data["conditions"]["viewport"]["width"] = 1200
+    request_data["required_viewports"][0]["width"] = 1200
     with pytest.raises(PreflightError, match="retry reason"):
         prepare(tmp_path, request_data, now=NOW + 2)
     changed = prepare(
@@ -413,6 +432,7 @@ def test_fallback_failure_closes_only_owned_profile(
     page = SimpleNamespace(
         url=request_data["target_url"],
         viewport_size=request_data["conditions"]["viewport"],
+        set_viewport_size=lambda value: None,
         goto=navigate,
         screenshot=screenshot,
         evaluate=lambda code: "en-US" if code == "navigator.language" else "Asia/Tokyo",
@@ -477,3 +497,129 @@ def test_http_url_is_not_an_operational_url_observation(tmp_path, request_data):
         ticket, {"url": request_data["target_url"], "http": {"ok": True}}, now=NOW + 1
     )
     assert "http_only" in read_json(report)["blockers"]
+
+
+@pytest.mark.parametrize(
+    "mutation,blocker",
+    [
+        ("missing_view", "viewport_evidence_missing"),
+        ("missing_image", "viewport_image_failed"),
+        ("wrong_image_size", "viewport_image_mismatch"),
+        ("wrong_measurement", "viewport_mismatch"),
+        ("unknown_measurement", "viewport_unverified"),
+        ("duplicate_view", "viewport_evidence_duplicate"),
+        ("copied_desktop_image", "viewport_image_mismatch"),
+        ("wrong_url", "viewport_target_unverified"),
+        ("missing_state", "viewport_read_failed"),
+    ],
+)
+def test_second_required_view_must_have_measured_matching_evidence(
+    tmp_path, request_data, mutation, blocker
+):
+    ticket = prepare(tmp_path / "ledger", request_data, now=NOW)["ticket"]
+    observation = receipt(ticket)
+    mobile = observation["views"][1]
+    if mutation == "missing_view":
+        observation["views"].pop()
+    elif mutation == "missing_image":
+        mobile.pop("screenshot")
+    elif mutation == "wrong_image_size":
+        Image.new("RGB", (390, 800)).save(Path(ticket).parent / mobile["screenshot"])
+    elif mutation == "wrong_measurement":
+        mobile["viewport"] = {"width": 1440, "height": 900}
+    elif mutation == "unknown_measurement":
+        mobile.pop("viewport")
+    elif mutation == "duplicate_view":
+        observation["views"].append(copy.deepcopy(mobile))
+    elif mutation == "copied_desktop_image":
+        mobile["screenshot"] = observation["views"][0]["screenshot"]
+    elif mutation == "wrong_url":
+        mobile["url"] += "login"
+    else:
+        mobile.pop("state")
+    report = finish(ticket, observation, now=NOW + 1)
+    assert blocker in read_json(report)["blockers"]
+    with pytest.raises(PreflightError):
+        freeze(
+            tmp_path / "campaign", "both-required", report, request_data, now=NOW + 2
+        )
+    assert not (tmp_path / "campaign").exists()
+
+
+@pytest.mark.parametrize("mutation", ["missing", "mismatch"])
+def test_second_screenshot_change_prevents_command_execution(
+    tmp_path, request_data, mutation
+):
+    report = success(tmp_path / "ledger", request_data)
+    manifest = freeze(
+        tmp_path / "campaign", "both-required", report, request_data, now=NOW + 2
+    )
+    assert (
+        read_json(manifest)["required_viewports"] == request_data["required_viewports"]
+    )
+    image = report.parent / "mobile.png"
+    if mutation == "missing":
+        image.unlink()
+    else:
+        Image.new("RGB", (390, 800)).save(image)
+    marker = tmp_path / "must-not-run"
+    command = [
+        sys.executable,
+        "-c",
+        "from pathlib import Path; import sys; Path(sys.argv[1]).touch()",
+        str(marker),
+    ]
+    with pytest.raises(PreflightError):
+        launch(manifest, request_data, command, now=NOW + 3)
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "views",
+    [
+        None,
+        [],
+        [{"name": "desktop", "width": True, "height": 900}],
+        [
+            {"name": "same", "width": 1440, "height": 900},
+            {"name": "same", "width": 390, "height": 844},
+        ],
+    ],
+)
+def test_viewports_must_be_explicit_and_unambiguous(tmp_path, request_data, views):
+    request_data["required_viewports"] = views
+    with pytest.raises(PreflightError):
+        prepare(tmp_path, request_data, now=NOW)
+
+
+def test_second_viewport_change_requires_reason_and_new_manifest(
+    tmp_path, request_data
+):
+    report = success(tmp_path / "ledger", request_data)
+    manifest = freeze(
+        tmp_path / "campaign", "both-required", report, request_data, now=NOW + 2
+    )
+    request_data["required_viewports"][1]["height"] = 900
+    with pytest.raises(PreflightError, match="retry reason"):
+        prepare(tmp_path / "ledger", request_data, now=NOW + 3)
+    with pytest.raises(PreflightError):
+        gate(manifest, request_data, now=NOW + 3)
+    prepared = prepare(
+        tmp_path / "ledger",
+        request_data,
+        reason="Required mobile height changed",
+        now=NOW + 3,
+    )
+    assert (
+        read_json(prepared["ticket"])["retry_reason"]
+        == "Required mobile height changed"
+    )
+
+
+def test_old_single_view_contract_cannot_authorize_v2_gate(tmp_path, request_data):
+    report = success(tmp_path / "ledger", request_data)
+    data = read_json(report)
+    data["contract"] = "browser-preflight-v1"
+    report.write_text(json.dumps(data))
+    with pytest.raises(PreflightError, match="Unknown report contract"):
+        validate_report(report, request_data, now=NOW + 2)

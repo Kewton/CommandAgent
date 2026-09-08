@@ -22,6 +22,7 @@ def freeze(directory, campaign_id, report_path, request, now=None):
         "campaign_id": campaign_id,
         "request": request,
         "conditions": report["observation"]["conditions"],
+        "required_viewports": request["required_viewports"],
         "method": request["method"],
         "report": str(Path(report_path).resolve()),
         "report_sha256": file_hash(report_path),
@@ -41,6 +42,10 @@ def gate(manifest_path, request, now=None):
     manifest = read_json(path)
     if manifest.get("contract") != CONTRACT or manifest.get("request") != request:
         raise PreflightError("Current request differs from the frozen campaign")
+    if manifest.get("required_viewports") != request.get("required_viewports"):
+        raise PreflightError(
+            "Required evaluation viewports differ from the frozen campaign"
+        )
     if file_hash(manifest["report"]) != manifest["report_sha256"]:
         raise PreflightError("Frozen Browser report changed")
     report = validate_report(manifest["report"], request, now=now)

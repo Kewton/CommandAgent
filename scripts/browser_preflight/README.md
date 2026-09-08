@@ -18,6 +18,10 @@ Save a request JSON before performing operations:
   "authorization": "Owner approved this local page, Check browser button and screenshot",
   "isolated_fallback_authorized": true,
   "executable": "/absolute/path/to/installed/chrome",
+  "required_viewports": [
+    {"name": "desktop", "width": 1440, "height": 900},
+    {"name": "mobile", "width": 390, "height": 844}
+  ],
   "action": {
     "role": "button",
     "name": "Check browser",
@@ -26,7 +30,7 @@ Save a request JSON before performing operations:
   },
   "conditions": {
     "headless": false,
-    "viewport": {"width": 1000, "height": 800},
+    "viewport": {"width": 1440, "height": 900},
     "locale": "en-US",
     "timezone": "Asia/Tokyo"
   }
@@ -49,6 +53,17 @@ python3 scripts/browser-preflight.py probe --request request.json --ledger sessi
 The report records the actual Playwright/browser versions and environment, plus
 the URL, before/after text, image format/dimensions/hash and cleanup result. HTTP
 success and installed files do not substitute for those capabilities.
+
+`required_viewports` is mandatory and contains all evaluation viewport requirements;
+the dimensions above are an explicit campaign configuration, not library defaults.
+Names must be unique. The initial `conditions.viewport`, when supplied, must equal
+the first requirement. Each view must have its measured viewport, exact target URL,
+readable post-action state and independently decoded image at the required size.
+Missing, duplicated, swapped or mismatched second images block both freeze and
+launch. Playwright resizes one owned page, measures `innerWidth/innerHeight` and
+captures at device scale 1. The full list is pinned into the manifest. Contract v2
+rejects historical v1 single-view reports; use a new ledger and campaign rather
+than rewriting historical evidence.
 
 ## Existing Browser connection
 
@@ -84,14 +99,19 @@ decision is `probe` and `operation_allowed` is true, invoke the adapter through
 the supported Browser Node tool:
 
 ```js
-const { probeBrowser } = await import("/absolute/repo/scripts/browser_preflight/plugin_probe.mjs");
-const observation = await probeBrowser(browser, "/absolute/path/to/ticket.json", observedConditions);
+const { probeBrowser } = await import("/absolute/repo/scripts/browser_preflight/plugin_probe_v2.mjs");
+const viewportControl = await browser.capabilities.get("viewport");
+const observation = await probeBrowser(browser, "/absolute/path/to/ticket.json", observedConditions, viewportControl);
 ```
 
 Pass the **existing** browser binding. This module never imports a plugin,
 initializes a connection, selects a browser, resets a session, or closes user
 tabs. Empty tab lists are recorded and a task-owned tab is created from the same
-connection. It closes only that tab. Obtain `observedConditions` from supported,
+connection. Read the viewport capability's complete documentation before supplying
+it. The adapter uses its documented `set` for each configured viewport and `reset`
+in cleanup, then closes only its own tab. If that capability is unavailable, omit
+it: required viewport evidence remains unknown/blocked. Failed or unsupported
+measurement is never replaced with the requested size. Obtain `observedConditions` from supported,
 verified environment observations; do not guess them from installed files. All
 six environment fields shown in the report are required for freezing, including
 `browser_version` and `automation_version`. If the supported Browser surface
@@ -146,10 +166,12 @@ retain immutable tickets, reports, screenshots and campaign manifests for review
 ```sh
 python3 -m pytest scripts/tests/test_browser_preflight.py -q
 node --test scripts/tests/test_browser_plugin_probe.mjs
-python3 scripts/browser-preflight-smoke.py run --output /new/task-owned/smoke-directory --executable /absolute/path/to/chrome
+node --check scripts/browser_preflight/plugin_probe_v2.mjs
+python3 scripts/browser-preflight-smoke.py run --output /new/task-owned/smoke-directory --executable /absolute/path/to/chrome --viewports scripts/tests/fixtures/browser-preflight/evaluation-viewports.json
 ```
 
-The smoke uses a small owned loopback GUI fixture, clicks once, saves a screenshot,
+The smoke uses a small owned loopback GUI fixture, clicks once, saves a screenshot
+and measured dimensions for every explicitly configured viewport,
 checks healthy reuse and a denied changed-target launch, then launches a harmless
 Python command through the successful gate. No model generation is started. The
 server/browser are cleaned up in `finally`. `serve --output /new/directory` keeps
