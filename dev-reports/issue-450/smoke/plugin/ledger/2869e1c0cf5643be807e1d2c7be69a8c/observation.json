@@ -1,0 +1,20 @@
+{
+  "ticket_id": "2869e1c0cf5643be807e1d2c7be69a8c",
+  "conditions": {
+    "automation_version": "26.825.51511",
+    "headless": false
+  },
+  "stage": "complete",
+  "tabs_count": 0,
+  "url": "http://127.0.0.1:60780/",
+  "before": "before.txt",
+  "after": "after.txt",
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "screenshot": "screenshot.png",
+  "owned_tab_closed": true
+}

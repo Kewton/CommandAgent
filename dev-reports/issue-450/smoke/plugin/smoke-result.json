@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "operational_capabilities_verified": true,
+  "empty_tabs_reused_without_reset": true,
+  "unmeasured_conditions_rejected": true,
+  "campaign_frozen": false,
+  "report": "ledger/2869e1c0cf5643be807e1d2c7be69a8c/report.json",
+  "plugin_permanent_repair": "not_established"
+}
