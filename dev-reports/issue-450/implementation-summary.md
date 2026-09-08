@@ -2,7 +2,9 @@
 
 Added a reusable, opt-in evaluation Browser preflight and guarded campaign launch.
 The CLI is `scripts/browser-preflight.py`; usage and request examples are in
-`scripts/browser_preflight/README.md`. All changes are new task-owned files.
+`scripts/browser_preflight/README.md`. Browser implementation and evidence use new
+task-owned files. A subsequently authorized, separate maintenance change modifies
+only the existing retrospective test and associated reports.
 
 ## Behavior
 
@@ -81,7 +83,23 @@ The frozen 0908 harness, plugin cache, live runtime, integration worktree eviden
 and unrelated product/README/CHANGELOG/UX files were not changed. Rust/event/corpus
 contracts are unaffected.
 
-Focused checks and GUI smoke pass. The broad existing Python run has four failures
-in unchanged tests/prerequisites; verification is therefore recorded as `blocked`
-and detailed in `verification.md`. Their hashes match the parent commit in
-`regression-findings.json`; no acceptance gates or historical evidence were weakened.
+Focused checks and GUI smoke pass. The original broad run had four failures and
+remained `blocked` through viewport commit `9b313c51`; its original observations
+remain in `regression-findings.json`. After the parent restored exact-hash ignored
+prerequisites and built the missing binaries, the user authorized a separate,
+test-only repair for the stale retrospective inventory assertion.
+
+Source commit `d39c84a3368d8b59ca0d450b439ad32133e8b78e` introduced the six Luna
+ingest rows. The repaired test preserves the frozen 287 rows' original profile
+counts/full=10 assertions, additionally compares every historical row dictionary,
+requires exactly the six new Luna IDs/full results, and asserts current
+293 rows / ingest 60 / full 16. Score 100 and all-atoms-pass checks remain applied
+to every full row. No production scanner or historical input was edited.
+
+The focused retrospective module passed 11 tests and 6 subtests; Ruff passed. The
+unchanged full broad command then passed **571 tests**, with **11 optional skips**
+and **79 subtests passed**, under **Python 3.12.3** with `login=false`.
+`verification.md` records the original failure and final successful rerun honestly;
+the final status is `passed`. See `gate-repair-design.md` and
+`gate-repair-integrity.json` for the separate maintenance rationale and integrity
+checks. No acceptance gate was weakened or historical record rewritten.
