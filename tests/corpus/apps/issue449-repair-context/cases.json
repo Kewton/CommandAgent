@@ -1,0 +1,23 @@
+{
+  "source_fixture": "issue448-nextjs-r0",
+  "verification_command": "npm run build",
+  "kind": "model-free context replay; compiler outcomes were measured by Issue #448",
+  "cases": [
+    {
+      "name": "missing-export",
+      "build_case": "promise-only",
+      "overlays": ["promise"],
+      "diagnostic": "isValidTaskStatus",
+      "repair_target": "src/lib/types.ts",
+      "repair_overlay": "export"
+    },
+    {
+      "name": "promise",
+      "build_case": "original",
+      "overlays": [],
+      "diagnostic": "Promise<void | (() => void)>",
+      "repair_target": "src/app/api/projects/route.ts",
+      "repair_overlay": "promise"
+    }
+  ]
+}
