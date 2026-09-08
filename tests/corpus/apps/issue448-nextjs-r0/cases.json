@@ -1,0 +1,8 @@
+[
+  {"name":"original","overlays":[],"exit_code":1,"diagnostics":["isValidTaskStatus","Promise<void | (() => void)>"],"absent":[]},
+  {"name":"ui-only","overlays":["ui-only"],"exit_code":1,"diagnostics":["isValidTaskStatus","Promise<void | (() => void)>"],"absent":[]},
+  {"name":"export-only","overlays":["export"],"exit_code":1,"diagnostics":["Promise<void | (() => void)>"],"absent":["isValidTaskStatus"]},
+  {"name":"promise-only","overlays":["promise"],"exit_code":1,"diagnostics":["has no exported member 'isValidTaskStatus'"],"absent":["Promise<void | (() => void)>"]},
+  {"name":"projects-and-export","overlays":["export","projects-promise"],"exit_code":1,"diagnostics":["src/app/api/tasks/route.ts","This expression is not callable"],"absent":["Promise<void | (() => void)>","has no exported member 'isValidTaskStatus'"]},
+  {"name":"repaired","overlays":["export","promise"],"exit_code":0,"diagnostics":[],"absent":["Failed to compile","Type error:","Attempted import error"]}
+]

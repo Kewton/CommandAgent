@@ -1792,6 +1792,16 @@ mod tests {
         include!("auto_recovery/issue428_tests.rs");
     }
 
+    #[cfg(unix)]
+    mod issue448 {
+        include!("auto_recovery/issue448_tests.rs");
+    }
+
+    #[cfg(unix)]
+    mod issue448_contract {
+        include!("auto_recovery/issue448_contract_tests.rs");
+    }
+
     #[derive(Clone)]
     struct UnusedClient;
 

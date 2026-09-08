@@ -1,0 +1,650 @@
+{
+  "kind": "measured fast replay through original Next.js finish/promotion; scripted build/HTTP/interaction; no browser/model run",
+  "command": "cargo test --lib issue448 -- --nocapture",
+  "compared_with": "tests/corpus/apps/issue448-nextjs-promotion/measured-contract-results.json",
+  "required_outcomes_match_real_build_matrix": true,
+  "results": [
+    {
+      "build_exit_code": 0,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [measured-replay] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "dade31d74d8ef67222a30c1e72b746a4517b6eb73fe26d1f4f8cf590af0e976e",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "promoted",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_final_success_passed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "ok": true,
+        "status": "passed",
+        "probe_mode": "heuristic",
+        "surface_visible": null,
+        "input_event_observed": true,
+        "state_changed": true,
+        "visible_state_changed": true,
+        "failure_category": ""
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": true,
+        "status": "ready",
+        "http_status": 200,
+        "route_rendered": true,
+        "failure_kind": null
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "all_original_observations_pass",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": true,
+        "primary_reason": "pass",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 1,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=1",
+        "npm run build",
+        "npm run build [measured-replay] exit=1"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_route_observation_failed:build_verifier_failed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": false,
+        "status": "failed",
+        "http_status": null,
+        "route_rendered": false,
+        "failure_kind": "build_verifier_failed"
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "build_failure",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "98b04945a4b7e900f711a54f30d5874c31da2eb35780e89486efeda11a5c5e81",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "15e8aa5f419ede38a48c060d540a8876b5a1a33e4e607c0d128ec6f4bfd71c40",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "5a739f35ecd44ee050db202c0da77e7d560b5b830024124eb0a5b79c67260baf",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": true,
+        "primary_reason": "pass",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [measured-replay] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_interaction_observation_failed:no_state_change",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "ok": false,
+        "status": "failed",
+        "probe_mode": "heuristic",
+        "surface_visible": null,
+        "input_event_observed": true,
+        "state_changed": false,
+        "visible_state_changed": false,
+        "failure_category": "app"
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": true,
+        "status": "ready",
+        "http_status": 200,
+        "route_rendered": true,
+        "failure_kind": null
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "failed_interaction",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": true,
+        "primary_reason": "pass",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [measured-replay] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_interaction_observation_unavailable:No such file or directory (os error 2)",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": true,
+        "status": "ready",
+        "http_status": 200,
+        "route_rendered": true,
+        "failure_kind": null
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "missing_interaction",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": true,
+        "primary_reason": "pass",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [measured-replay] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_route_observation_failed:http_500",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": false,
+        "status": "failed",
+        "http_status": 500,
+        "route_rendered": false,
+        "failure_kind": "http_500"
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "http_failure",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": true,
+        "primary_reason": "pass",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "measured-replay",
+      "commands": [
+        "npm run build",
+        "npm run build [measured-replay] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [measured-replay] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_observations_passed_but_completion_contract_acceptance_failed:weak_verification_evidence:non_implementation_obligation_only:scaffold",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "ok": true,
+        "status": "passed",
+        "probe_mode": "heuristic",
+        "surface_visible": null,
+        "input_event_observed": true,
+        "state_changed": true,
+        "visible_state_changed": true,
+        "failure_category": ""
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "ok": true,
+        "status": "ready",
+        "http_status": 200,
+        "route_rendered": true,
+        "failure_kind": null
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "missing_implementation",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "passed": false,
+        "primary_reason": "weak_verification_evidence:non_implementation_obligation_only:scaffold",
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "weak_evidence": [
+          "non_implementation_obligation_only:scaffold",
+          "non_implementation_obligation_only:setup",
+          "non_implementation_obligation_only:style"
+        ]
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    }
+  ]
+}

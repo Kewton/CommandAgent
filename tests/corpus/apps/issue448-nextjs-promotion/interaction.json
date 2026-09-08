@@ -1,0 +1,28 @@
+{
+  "fixture_kind": "scripted observation input; no browser or model execution",
+  "ok": true,
+  "status": "passed",
+  "probe_mode": "heuristic",
+  "contract_hook_status": "missing",
+  "action_hooks": [],
+  "state_dimensions_changed": [
+    "projects"
+  ],
+  "surface_visible": true,
+  "start_transition": true,
+  "input_state_evaluated_after_start": true,
+  "input_state_change": true,
+  "state_changed": true,
+  "visible_state_changed": true,
+  "steps": [
+    "surface_visible",
+    "start_transition",
+    "control_input_dispatched",
+    "input_state_evaluated_after_start",
+    "input_state_change"
+  ],
+  "before_marker": "scripted-project-list-before",
+  "after_marker": "scripted-project-list-after",
+  "interaction_performed": true,
+  "input_event_observed": true
+}

@@ -1,0 +1,136 @@
+[
+  {
+    "line": 249,
+    "event": {
+      "artifact_stagnation_feedback_count": 1,
+      "event": "loop_stop",
+      "last_blocking_reason": "missing relative imports",
+      "last_provider_error": null,
+      "missing_capabilities": [],
+      "missing_evidence": [],
+      "missing_obligations": [],
+      "missing_paths": [],
+      "non_scaffold_missing_paths": [],
+      "read_only_streak": 2,
+      "reason": "loop_progress_exhausted",
+      "schema_version": "1",
+      "verify_attempts": 0
+    }
+  },
+  {
+    "line": 378,
+    "event": {
+      "attempted_product_delta": {
+        "added_paths": [],
+        "changed_paths": [
+          "src/app/page.tsx"
+        ],
+        "removed_paths": []
+      },
+      "event": "recovery_treatment_delta",
+      "recovery_plan_auto_run_current": 1,
+      "schema_version": "1",
+      "status": "observed",
+      "treatment_runtime_evidence_delta": {
+        "added_paths": [],
+        "changed_paths": [],
+        "removed_paths": []
+      }
+    }
+  },
+  {
+    "line": 379,
+    "event": {
+      "control_snapshot_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "event": "recovery_control_retained",
+      "reason": "recovery_execution_failed",
+      "recovery_plan_auto_run_current": 1,
+      "removed_file_count": 0,
+      "restored_file_count": 0,
+      "schema_version": "1"
+    }
+  },
+  {
+    "line": 380,
+    "event": {
+      "decision": "rejected",
+      "event": "recovery_promotion_decision",
+      "external_oracle_used": false,
+      "reason": "recovery_execution_failed",
+      "recovery_plan_auto_run_current": 1,
+      "schema_version": "1"
+    }
+  },
+  {
+    "line": 381,
+    "event": {
+      "event": "recovery_plan_auto_run_stopped",
+      "recovery_plan_auto_run_current": 1,
+      "recovery_plan_auto_run_stop_reason": "not_recoverable",
+      "recovery_plan_auto_run_stop_summary": "not recoverable",
+      "recovery_plan_auto_runs": 2,
+      "recovery_plan_auto_runs_used": 1,
+      "schema_version": "1"
+    }
+  },
+  {
+    "line": 384,
+    "event": {
+      "action": "UltraPlanRun(\"小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。\")",
+      "assurance_level": "partial",
+      "assurance_reason": "acceptance_not_full_success",
+      "browser_readiness_applicable": false,
+      "browser_readiness_evidence_path": "",
+      "browser_readiness_execution_status": "not_applicable",
+      "browser_readiness_status": "not_applicable",
+      "command_completion_state": "failed",
+      "completion_contract_generated": false,
+      "completion_contract_path": ".commandagent/recovery-runtime/completion-contract.json",
+      "completion_contract_path_merge_enabled": true,
+      "completion_contract_verification_enabled": true,
+      "completion_status": "failed",
+      "contract_origin": "initial",
+      "effective_profile": "nextjs",
+      "event": "run_stop",
+      "external_contract_checked": true,
+      "external_contract_ok": false,
+      "failure_kind": "process_failure",
+      "final_acceptance_status": "not_checked",
+      "interaction_evidence_applicable": false,
+      "interaction_evidence_execution_status": "not_applicable",
+      "interaction_evidence_path": "",
+      "interaction_evidence_status": "not_applicable",
+      "lifecycle_stage": "process",
+      "next_action": "fix_command_failure",
+      "occurred_at_epoch_ms": 1788880049893,
+      "ok": false,
+      "planner_quality_issue_count": 1,
+      "planner_quality_warning_count": 0,
+      "planner_release_risk": true,
+      "planner_repaired": true,
+      "planner_retry_count": 0,
+      "planner_verify_normalization_count": 1,
+      "process_completion_state": "failed",
+      "profile": "nextjs",
+      "profile_inference_source": "",
+      "profile_inferred": "",
+      "prompt_layout": "legacy",
+      "recovery_next_action": "fix_command_failure",
+      "recovery_prompt_path": ".commandagent/repairs/repair-phase-core-implementation-01a0818b-32a3-72c1-826e-9ef14c59dd07.md",
+      "recovery_ultra_plan_path": ".commandagent/plans/recovery-ultra-plan-contract-bound-phase-01a0818b-4f01-7a93-849e-b2ad7ef76ddf.yaml",
+      "release_gate_reasons": [],
+      "release_gate_status": "not_applicable",
+      "release_quality_completion": "release_ready",
+      "repl_status": "not_applicable",
+      "requested_port": "60302 (goal)",
+      "runtime_acceptance_status": "not_checked",
+      "schema_version": "1",
+      "session_status": "process_exited",
+      "status": "failed",
+      "stop_reason": "phase inspect-current-state failed: model_stagnation:read_only_loop: write_required exhausted for src/app/api/projects/route.ts; objective: Repair step `build-verification`. Verification failed: implementation_compile_error: src/app/api/projects/route.ts:23:3 Type error: Type 'Promise<void | (() => void)>' is not assignable to type 'Promise<void>'.. Repair target: implementation. Fix the implementation files that should satisfy the requested behavior. Make the smallest bounded change, then stop.\nPaths:\n- repair prompt saved: .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/repair-phase-inspect-current-state-01a0818f-560a-74d3-983e-587b8a6eff56.md\n- Recovery UltraPlan YAML saved: .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/recovery-ultra-plan-phase-inspect-current-state-01a0818f-560b-7093-832b-c38dbf18368e.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/repair-phase-inspect-current-state-01a0818f-560a-74d3-983e-587b8a6eff56.md)\"\n- suggested YAML command: /run-ultra-plan .commandagent/recovery-treatments/attempt-1/workspace/.commandagent/plans/recovery-ultra-plan-phase-inspect-current-state-01a0818f-560b-7093-832b-c38dbf18368e.yaml",
+      "suggested_recovery_command": "/ultra-plan-run --profile nextjs \"$(cat .commandagent/repairs/repair-phase-core-implementation-01a0818b-32a3-72c1-826e-9ef14c59dd07.md)\"",
+      "suggested_recovery_yaml_command": "/run-ultra-plan .commandagent/plans/recovery-ultra-plan-phase-core-implementation-01a0818b-32a4-7a42-8f1a-567362f6b68d.yaml",
+      "task_status": "failed"
+    }
+  }
+]
