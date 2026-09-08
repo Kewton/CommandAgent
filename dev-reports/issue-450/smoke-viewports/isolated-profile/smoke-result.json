@@ -1,0 +1,24 @@
+{
+  "status": "passed",
+  "report": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-450-eval-browser-gui-browser/dev-reports/issue-450/smoke-viewports/isolated-profile/ledger/2a5be1e50e9a4cab9e3016a318273549/report.json",
+  "manifest": "dev-reports/issue-450/smoke-viewports/isolated-profile/campaign/browser-manifest.json",
+  "healthy_reused": true,
+  "changed_target_launch_refused": true,
+  "required_viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "owned_browser_closed": true,
+  "model_generation_started": false,
+  "automatic_diagnosis": "implemented",
+  "plugin_permanent_repair": "not_established",
+  "owned_server_closed": true
+}

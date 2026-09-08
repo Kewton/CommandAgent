@@ -1,0 +1,67 @@
+{
+  "contract": "browser-preflight-v2",
+  "campaign_id": "isolated-profile",
+  "request": {
+    "session_id": "issue-450-local-smoke",
+    "method": "isolated-playwright",
+    "target_url": "http://127.0.0.1:65147/",
+    "authorization": "Issue #450 approved local GUI smoke: owned fixture, harmless button, screenshot",
+    "isolated_fallback_authorized": true,
+    "required_viewports": [
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      }
+    ],
+    "action": {
+      "role": "button",
+      "name": "Check browser",
+      "before": "Ready for browser check",
+      "after": "Browser action confirmed"
+    },
+    "conditions": {
+      "headless": false,
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "locale": "en-US",
+      "timezone": "Asia/Tokyo"
+    },
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "conditions": {
+    "browser_version": "152.0.7977.77",
+    "automation_version": "1.54.0",
+    "headless": false,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "locale": "en-US",
+    "timezone": "Asia/Tokyo"
+  },
+  "required_viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "method": "isolated-playwright",
+  "report": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-450-eval-browser-gui-browser/dev-reports/issue-450/smoke-viewports/isolated-profile/ledger/2a5be1e50e9a4cab9e3016a318273549/report.json",
+  "report_sha256": "1bcbb16efa4e5a751e05f083d456f5fdcc71817ee9313cf5042c26465d23a726",
+  "frozen_at": 1788885830.980541,
+  "plugin_permanent_repair": "not_established"
+}

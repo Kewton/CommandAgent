@@ -1,0 +1,54 @@
+{
+  "ticket_id": "2a5be1e50e9a4cab9e3016a318273549",
+  "stage": "complete",
+  "http": {
+    "ok": true,
+    "status": 200
+  },
+  "isolated_profile": true,
+  "tabs_count": 1,
+  "url": "http://127.0.0.1:65147/",
+  "conditions": {
+    "browser_version": "152.0.7977.77",
+    "automation_version": "1.54.0",
+    "headless": false,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "locale": "en-US",
+    "timezone": "Asia/Tokyo"
+  },
+  "before": "before.txt",
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "after": "after.txt",
+  "views": [
+    {
+      "name": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "url": "http://127.0.0.1:65147/",
+      "state": "view-desktop.txt",
+      "screenshot": "view-desktop.png"
+    },
+    {
+      "name": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "url": "http://127.0.0.1:65147/",
+      "state": "view-mobile.txt",
+      "screenshot": "view-mobile.png"
+    }
+  ],
+  "screenshot": "view-desktop.png",
+  "owned_resources_closed": true
+}

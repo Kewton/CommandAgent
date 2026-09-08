@@ -1,0 +1,23 @@
+{
+  "session_id": "issue-450-local-smoke",
+  "method": "isolated-playwright",
+  "target_url": "http://127.0.0.1:60716/",
+  "authorization": "Issue #450 approved local GUI smoke: owned fixture, harmless button, screenshot",
+  "isolated_fallback_authorized": true,
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "conditions": {
+    "headless": false,
+    "viewport": {
+      "width": 1000,
+      "height": 800
+    },
+    "locale": "en-US",
+    "timezone": "Asia/Tokyo"
+  },
+  "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+}

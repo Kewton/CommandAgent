@@ -1,0 +1,34 @@
+{
+  "contract": "browser-preflight-v1",
+  "id": "5e822941b0d34403ab92183bf1ca49db",
+  "request": {
+    "session_id": "issue-450-local-smoke",
+    "method": "isolated-playwright",
+    "target_url": "http://127.0.0.1:60716/",
+    "authorization": "Issue #450 approved local GUI smoke: owned fixture, harmless button, screenshot",
+    "isolated_fallback_authorized": true,
+    "action": {
+      "role": "button",
+      "name": "Check browser",
+      "before": "Ready for browser check",
+      "after": "Browser action confirmed"
+    },
+    "conditions": {
+      "headless": false,
+      "viewport": {
+        "width": 1000,
+        "height": 800
+      },
+      "locale": "en-US",
+      "timezone": "Asia/Tokyo"
+    },
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "entry_point": {
+    "status": "not_applicable"
+  },
+  "fingerprint": "861e4731bbde3d730e41300c45768385bf67035ad5f54fb9afaea2c67157f6d7",
+  "created_at": 1788884336.9621382,
+  "previous_fingerprint": null,
+  "retry_reason": "Initial check"
+}

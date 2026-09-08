@@ -1,0 +1,14 @@
+[
+  {"name": "unknown_session_entry", "entry": "unknown", "change": "none", "expected": "entry_point_unknown"},
+  {"name": "missing_historical_path", "entry": "missing", "change": "none", "expected": "entry_point_missing"},
+  {"name": "files_exist_operation_fails", "entry": "present", "change": "operation", "expected": "operation_failed"},
+  {"name": "http_only_success", "entry": "present", "change": "http_only", "expected": "http_only"},
+  {"name": "empty_tabs_only", "entry": "present", "change": "empty_only", "expected": "empty_tabs"},
+  {"name": "image_capture_fails", "entry": "present", "change": "image_error", "expected": "image_failed"},
+  {"name": "image_bytes_corrupt", "entry": "present", "change": "corrupt_image", "expected": "image_failed"},
+  {"name": "operational_success", "entry": "present", "change": "none", "expected": "passed"},
+  {"name": "empty_tabs_then_operation_success", "entry": "present", "change": "empty_success", "expected": "passed"},
+  {"name": "click_has_no_effect", "entry": "present", "change": "unchanged", "expected": "interaction_unverified"},
+  {"name": "redirected_target", "entry": "present", "change": "wrong_url", "expected": "target_unverified"},
+  {"name": "unknown_browser_conditions", "entry": "present", "change": "unknown_conditions", "expected": "conditions_unverified"}
+]

@@ -1,0 +1,63 @@
+{
+  "parent_commit": "5572467ee5028ae43f8497f875e1ef16030cf470",
+  "command": "python3 -m pytest tests/eval scripts/test_bon_select.py scripts/test_score_retrospective.py -q",
+  "result": {
+    "failed": 4,
+    "passed": 567,
+    "skipped": 11,
+    "subtests_passed": 73
+  },
+  "unchanged_inputs": [
+    {
+      "path": "tests/eval/test_goal_verify_live_v2.py",
+      "matches_parent": true,
+      "sha256": "16d4331a07a95c8a1c30c59a75324a7e370599b2c30767308cbbd90f0eb62391"
+    },
+    {
+      "path": "tests/eval/test_goal_verify_recovery_a15.py",
+      "matches_parent": true,
+      "sha256": "e18f14280777d57581b1becc005eb115a9c2906bcce7e9e9d60adfe679df1df6"
+    },
+    {
+      "path": "tests/eval/test_goal_verify_v3.py",
+      "matches_parent": true,
+      "sha256": "2025471b8ac77223fcb79283b66c5526eebcbe47b51a97c0dd07fbd05f6c818e"
+    },
+    {
+      "path": "scripts/test_score_retrospective.py",
+      "matches_parent": true,
+      "sha256": "3629df86795dbd6044a3883a5c17916f24e4fca036eae36f2fd327732ab985f5"
+    },
+    {
+      "path": "scripts/score_retrospective.py",
+      "matches_parent": true,
+      "sha256": "3cfcd2c0be3d684dd7daa98be3ba98bced94c2f3922a05391d398f375a4ef611"
+    },
+    {
+      "path": "scripts/eval_lib/goal_verify_live.py",
+      "matches_parent": true,
+      "sha256": "5dada28bcf415be1f701e4f4b72723bb8454501ed11e87ce4ae30c60deda3399"
+    },
+    {
+      "path": "scripts/eval_lib/goal_verify_workspaces_v3.py",
+      "matches_parent": true,
+      "sha256": "ea449826e4ab6426e24b28270a7cac13ca31c94ab40c396b7ccbbf61d3afce21"
+    },
+    {
+      "path": "eval/goal_verify/v0/phase6-real-workspaces-v4-a15.json",
+      "matches_parent": true,
+      "sha256": "a85571e96c4c59ce6c2d4e2439dbf31676faab8f0a0abf5cb67236edccac82cf"
+    }
+  ],
+  "missing_prerequisites": [
+    "target/debug/verification_spec_validate",
+    "target/debug/commandagent",
+    "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before/.pytest_cache/.gitignore"
+  ],
+  "retrospective_inventory": {
+    "expected": 287,
+    "observed": 293,
+    "scanned_root": "workspace/management/runs"
+  },
+  "action": "Retain failures; do not modify frozen fixture hashes, historical evidence or unrelated test expectations for this Issue."
+}

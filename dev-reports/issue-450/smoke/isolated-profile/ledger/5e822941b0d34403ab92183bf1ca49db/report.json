@@ -1,0 +1,90 @@
+{
+  "contract": "browser-preflight-v1",
+  "id": "5e822941b0d34403ab92183bf1ca49db",
+  "request": {
+    "session_id": "issue-450-local-smoke",
+    "method": "isolated-playwright",
+    "target_url": "http://127.0.0.1:60716/",
+    "authorization": "Issue #450 approved local GUI smoke: owned fixture, harmless button, screenshot",
+    "isolated_fallback_authorized": true,
+    "action": {
+      "role": "button",
+      "name": "Check browser",
+      "before": "Ready for browser check",
+      "after": "Browser action confirmed"
+    },
+    "conditions": {
+      "headless": false,
+      "viewport": {
+        "width": 1000,
+        "height": 800
+      },
+      "locale": "en-US",
+      "timezone": "Asia/Tokyo"
+    },
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "entry_point": {
+    "status": "not_applicable"
+  },
+  "fingerprint": "861e4731bbde3d730e41300c45768385bf67035ad5f54fb9afaea2c67157f6d7",
+  "created_at": 1788884336.9621382,
+  "previous_fingerprint": null,
+  "retry_reason": "Initial check",
+  "finished_at": 1788884338.431059,
+  "observation": {
+    "ticket_id": "5e822941b0d34403ab92183bf1ca49db",
+    "stage": "complete",
+    "http": {
+      "ok": true,
+      "status": 200
+    },
+    "isolated_profile": true,
+    "tabs_count": 1,
+    "url": "http://127.0.0.1:60716/",
+    "conditions": {
+      "browser_version": "152.0.7977.77",
+      "automation_version": "1.54.0",
+      "headless": false,
+      "viewport": {
+        "width": 1000,
+        "height": 800
+      },
+      "locale": "en-US",
+      "timezone": "Asia/Tokyo"
+    },
+    "before": "before.txt",
+    "action": {
+      "role": "button",
+      "name": "Check browser",
+      "before": "Ready for browser check",
+      "after": "Browser action confirmed"
+    },
+    "after": "after.txt",
+    "screenshot": "screenshot.png",
+    "owned_resources_closed": true
+  },
+  "status": "passed",
+  "findings": [],
+  "blockers": [],
+  "artifacts": {
+    "before": {
+      "path": "before.txt",
+      "sha256": "ec2f728ee1e97b41955fcde18bc31fad88b1a1f835cb848cdb471734489b3185"
+    },
+    "after": {
+      "path": "after.txt",
+      "sha256": "13d6c2a4fae007cbeb54e3d7f3fddf93e7f2a86de53ff36761fc0408a7a61e82"
+    },
+    "screenshot": {
+      "path": "screenshot.png",
+      "sha256": "3254996bca14f35cb1aabc84dadf32dfa114dc71d91958269f601edff2b21636",
+      "format": "PNG",
+      "width": 1000,
+      "height": 800
+    }
+  },
+  "scope": "observed_session_only",
+  "automatic_diagnosis": "implemented",
+  "plugin_permanent_repair": "not_established"
+}

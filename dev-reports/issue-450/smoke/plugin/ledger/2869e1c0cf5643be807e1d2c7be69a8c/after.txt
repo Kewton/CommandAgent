@@ -1,0 +1,6 @@
+- main:
+  - heading "Browser preflight" [level=1]
+  - paragraph: "Local evaluation fixture for Issue #450."
+  - paragraph: This button changes only the text below. No model generation or network submission occurs.
+  - button "Check browser" [active]
+  - status: Browser action confirmed

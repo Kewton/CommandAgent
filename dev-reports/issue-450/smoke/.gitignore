@@ -1,0 +1,5 @@
+# Local retry/runtime state is not review evidence and must remain unstaged.
+**/.lock
+**/state.json
+**/probe-started.json
+**/started.json

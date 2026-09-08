@@ -1,0 +1,7 @@
+{
+  "ticket_id": "9044fe4107dd41499280d60d6077c5d5",
+  "stage": "adapter_import",
+  "error": "Module not found: /Users/maenokota/share/work/github_kewton/CommandAgent-issue-450-eval-browser-gui-browser/scripts/browser_preflight/plugin_probe.mjs?contract=v2",
+  "browser_operations_started": false,
+  "connection_reset": false
+}

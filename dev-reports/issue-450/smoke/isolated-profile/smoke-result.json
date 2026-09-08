@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "report": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-450-eval-browser-gui-browser/dev-reports/issue-450/smoke/isolated-profile/ledger/5e822941b0d34403ab92183bf1ca49db/report.json",
+  "manifest": "dev-reports/issue-450/smoke/isolated-profile/campaign/browser-manifest.json",
+  "healthy_reused": true,
+  "changed_target_launch_refused": true,
+  "owned_browser_closed": true,
+  "model_generation_started": false,
+  "automatic_diagnosis": "implemented",
+  "plugin_permanent_repair": "not_established",
+  "owned_server_closed": true
+}

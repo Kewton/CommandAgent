@@ -1,0 +1,7 @@
+{
+  "stage": "environment_read",
+  "error": "TypeError: Cannot read properties of undefined (reading 'language')",
+  "reason": "Supported Browser read-only page scope did not expose navigator; do not guess browser version, locale or timezone.",
+  "identical_retries": 0,
+  "connection_reset": false
+}
