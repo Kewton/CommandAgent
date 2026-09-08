@@ -300,7 +300,7 @@ fn step_verify_compile_repair_recovers_in_compact_session_after_appended_no_edit
         "{compact_prompt}"
     );
     assert!(
-        !compact_prompt.contains("Overall goal:"),
+        compact_prompt.contains(&api_mismatch_step_plan().goal),
         "{compact_prompt}"
     );
     let event_text = std::fs::read_to_string(&events).unwrap();

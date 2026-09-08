@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+mod compile_context;
 mod recovery_paths;
 
 pub(crate) use recovery_paths::workspace_relative_handoff_path;
@@ -284,10 +285,12 @@ pub fn build_compact_compile_repair_prompt_with_context(
         PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
         PromptLayout::Legacy => String::new(),
     };
+    let retained_context = compile_context::render(report, context);
     format!(
         "{prefix}\
 Repair session mode: compact.\n\
 Compile-error repair for step `{step_id}`.\n\n\
+{retained_context}\
 Compile error frames and remedies:\n\
 {compile_errors}\n\n\
 Tool schema reminder:\n\
@@ -320,10 +323,12 @@ pub fn build_compile_regeneration_prompt_with_context(
         PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
         PromptLayout::Legacy => String::new(),
     };
+    let retained_context = compile_context::render(report, context);
     format!(
         "{prefix}\
 Repair session mode: compact regeneration.\n\
 Compile-error regeneration for step `{step_id}`.\n\n\
+{retained_context}\
 Compile error frames and remedies:\n\
 {compile_errors}\n\n\
 Current content of {target_path}:\n\

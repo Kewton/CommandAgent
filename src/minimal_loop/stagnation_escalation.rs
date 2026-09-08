@@ -583,6 +583,10 @@ pub(crate) fn save_read_only_write_required_handoff(
         failure_kind: failure_kind.to_string(),
         failure_evidence: vec![
             format!(
+                "Unresolved session objective (quoted failure context): {}",
+                json!(objective)
+            ),
+            format!(
                 "read_only_stagnation: write_required reached after read_only_streak={read_only_streak}"
             ),
             format!(
@@ -773,6 +777,11 @@ pub(crate) fn record_write_required_exhaustion_and_render_stop(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    mod issue449 {
+        include!("stagnation_escalation/issue449_tests.rs");
+    }
+
     use super::*;
     use crate::config::{Action, ConfigFieldSources, NarrationMode, PromptLayout, Provider};
     use crate::minimal_loop::loop_run::{
@@ -1255,9 +1264,7 @@ mod tests {
         assert!(yaml.contains("Top-level recovery goal"), "{yaml}");
         assert!(yaml.contains("python3 -m py_compile src/main.py"), "{yaml}");
         assert!(yaml.contains("src/main.py"), "{yaml}");
-        assert!(
-            !yaml.contains("Execute exactly one StepPlan step"),
-            "{yaml}"
-        );
+        let plan = crate::planner::ultra_plan::parse_ultra_plan(&yaml).unwrap();
+        assert_eq!(plan.goal, "Top-level recovery goal");
     }
 }
