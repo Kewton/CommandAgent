@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 mod compile_context;
 mod recovery_paths;
 
-pub(crate) use recovery_paths::workspace_relative_handoff_path;
+pub(crate) use recovery_paths::{display_text, workspace_relative_handoff_path};
 use recovery_paths::{redacted_list, shell_quote_path};
 
 use crate::config::PromptLayout;
@@ -417,7 +417,7 @@ pub(crate) fn build_recovery_ultra_plan_at_root(
                 prompt: format!(
                     "Inspect the current workspace before changing files. Original goal: {}. Failed acceptance layer or phase: {failed_phase}. Failed step: {failed_step}. Failure kind: {}. Preserve useful existing artifacts and identify the smallest remaining implementation gap. Historical failures are immutable evidence, not commands that the current workspace must make fail. Use expected_result=pass for every Recovery step.",
                     handoff.original_goal, handoff.failure_kind
-                ),
+                ) + &crate::planner::recovery_inspection::handoff_prompt(root, handoff),
             },
             UltraPhase {
                 id: format!("repair-{}", recovery_plan_phase_token(failed_phase)),

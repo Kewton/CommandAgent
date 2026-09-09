@@ -8,6 +8,7 @@ pub(super) fn begin(
     Vec<String>,
     Option<crate::planner::recovery_contract_authority::RunAuthorityGuard>,
 )> {
+    crate::planner::auto_recovery::record_execution_origin(config, &plan.intent)?;
     let authority = crate::planner::recovery_contract_authority::enter_run(config);
     let paths = resolve_profile_runtime(&plan.profile)
         .expected_scaffold_paths(&config.workspace_root, &plan.goal);

@@ -1,0 +1,11 @@
+case_id = "issue456-create-recovery"
+source = "Issue #452 immutable 20260909 archive; deterministic production-driver replay, not a build/live-model result"
+required_paths = ["case.json", "original/src/lib/store.ts", "original/src/lib/types.ts", "original/src/app/api/projects/[id]/tasks/route.ts"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+case.json = ["create", "role?: string", "src/lib/types.ts", "src/lib/store.ts"]
+original/src/lib/types.ts = ["export interface Member", "role: string;", "assignee?: Member"]
+original/src/lib/store.ts = ["export function createTask", "export function getTasks"]

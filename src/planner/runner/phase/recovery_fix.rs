@@ -34,14 +34,12 @@ pub(super) fn bind<'a>(
     })?;
     let step_kind = step.step_kind();
     let inspection_fix_origin_bound = if step_kind == StepKind::Inspect {
-        load_fix_origin(step_config)
-            .map_err(|err| {
-                Box::new(StepRunError {
-                    message: format!("Recovery fix origin validation failed: {err}"),
-                    outcome: StepRunOutcome::default(),
-                })
-            })?
-            .is_some()
+        crate::planner::recovery_inspection::has_origin(step_config).map_err(|err| {
+            Box::new(StepRunError {
+                message: format!("Recovery fix origin validation failed: {err}"),
+                outcome: StepRunOutcome::default(),
+            })
+        })?
     } else {
         false
     };
