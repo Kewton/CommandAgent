@@ -47,6 +47,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Retry eligible rejected Recovery treatments from retained control within the
+  configured run limit, with fresh diagnostics, safe continuation plans and
+  semantic cycle detection. Keep unavailable observations and unsafe adoption
+  non-retryable (#458).
+
 - Bind create-origin Recovery inspection to read-only work while retaining API
   diagnostics and bounded related definitions through repair and registered
   verification. Preserve original context across Recovery continuations (#456).

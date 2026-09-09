@@ -1,0 +1,172 @@
+{
+  "sequences": [
+    {
+      "id": "zero",
+      "limit": 0,
+      "actions": [],
+      "used": 0,
+      "stop": "limit_reached"
+    },
+    {
+      "id": "one",
+      "limit": 1,
+      "actions": [
+        "compile_error"
+      ],
+      "used": 1,
+      "stop": "limit_reached"
+    },
+    {
+      "id": "two",
+      "limit": 2,
+      "actions": [
+        "compile_error",
+        "verification_failed"
+      ],
+      "used": 2,
+      "stop": "limit_reached"
+    },
+    {
+      "id": "execution_then_success",
+      "limit": 2,
+      "actions": [
+        "compile_error",
+        "success"
+      ],
+      "used": 2,
+      "stop": "recovery_succeeded"
+    },
+    {
+      "id": "stagnation_then_success",
+      "limit": 2,
+      "actions": [
+        "model_stagnation:read_only_loop",
+        "success"
+      ],
+      "used": 2,
+      "stop": "recovery_succeeded"
+    },
+    {
+      "id": "verification_then_success",
+      "limit": 2,
+      "actions": [
+        "verification",
+        "success"
+      ],
+      "used": 2,
+      "stop": "recovery_succeeded"
+    },
+    {
+      "id": "execution_cycle",
+      "limit": 3,
+      "actions": [
+        "compile_error",
+        "compile_error"
+      ],
+      "used": 2,
+      "stop": "cycle_detected"
+    },
+    {
+      "id": "verification_cycle",
+      "limit": 3,
+      "actions": [
+        "verification",
+        "verification"
+      ],
+      "used": 2,
+      "stop": "cycle_detected"
+    },
+    {
+      "id": "interrupted",
+      "limit": 2,
+      "actions": [
+        "interrupted"
+      ],
+      "used": 1,
+      "stop": "interrupted"
+    },
+    {
+      "id": "authentication",
+      "limit": 2,
+      "actions": [
+        "authentication_failed"
+      ],
+      "used": 1,
+      "stop": "not_recoverable"
+    },
+    {
+      "id": "infrastructure",
+      "limit": 2,
+      "actions": [
+        "provider_unavailable"
+      ],
+      "used": 1,
+      "stop": "not_recoverable"
+    },
+    {
+      "id": "ambiguous_phase",
+      "limit": 2,
+      "actions": [
+        "phase_execute_error"
+      ],
+      "used": 1,
+      "stop": "not_recoverable"
+    }
+  ],
+  "readiness": [
+    {
+      "kind": "start_spawn_failed",
+      "retry": false
+    },
+    {
+      "kind": "start_exited",
+      "retry": false
+    },
+    {
+      "kind": "port_in_use",
+      "retry": false
+    },
+    {
+      "kind": "timeout",
+      "retry": false
+    },
+    {
+      "kind": "env_node_env_conflict",
+      "retry": false
+    },
+    {
+      "kind": "skipped_offline",
+      "retry": false
+    },
+    {
+      "kind": "unknown",
+      "retry": false
+    },
+    {
+      "kind": "build_verifier_failed",
+      "retry": false
+    },
+    {
+      "kind": "build_verifier_failed",
+      "compile": true,
+      "retry": true
+    },
+    {
+      "kind": "http_500",
+      "http_status": 500,
+      "retry": true
+    },
+    {
+      "kind": "http_500",
+      "retry": false
+    }
+  ],
+  "execution_then_success_events": [
+    "recovery_plan_auto_run_start",
+    "recovery_promotion_decision",
+    "recovery_continuation_prepared",
+    "recovery_plan_auto_run_start",
+    "recovery_promotion_decision",
+    "recovery_plan_auto_run_complete"
+  ]
+}
