@@ -1,0 +1,49 @@
+[
+  {
+    "name": "original",
+    "overlays": [],
+    "diagnostics": 33,
+    "build": false
+  },
+  {
+    "name": "role-only",
+    "overlays": [
+      "role"
+    ],
+    "diagnostics": 32,
+    "build": false
+  },
+  {
+    "name": "missing-list",
+    "overlays": [
+      "role",
+      "types"
+    ],
+    "diagnostics": 0,
+    "build": true,
+    "interaction": "missing-list"
+  },
+  {
+    "name": "wrong-field",
+    "overlays": [
+      "role",
+      "types",
+      "members",
+      "wrong-field"
+    ],
+    "diagnostics": 0,
+    "build": true,
+    "interaction": "wrong-field"
+  },
+  {
+    "name": "aligned",
+    "overlays": [
+      "role",
+      "types",
+      "members"
+    ],
+    "diagnostics": 0,
+    "build": true,
+    "interaction": "passed"
+  }
+]

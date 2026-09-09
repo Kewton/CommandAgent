@@ -14,6 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Retain whole-project TypeScript diagnostics after Next.js type failures, group
+  shared import contracts for repair, and check proven local JSON-wrapper request
+  mismatches with archived assignment/build/browser regressions (#457).
 - Redesign GUI Overview as a product landing page for the verified-result flow,
   honest safety principles, first use, extension boundaries, and live readiness.
 - Define the GUI extension boundary as four dependent layers, with consistent

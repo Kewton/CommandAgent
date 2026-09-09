@@ -5,8 +5,21 @@ use std::path::Path;
 
 use super::api_contract::{api_routes, route_matches, source_files};
 
+mod local_flow;
 mod syntax;
 use syntax::Source;
+
+pub(super) fn request_failure(root: &Path) -> Option<String> {
+    local_flow::failure(root)
+}
+
+pub(super) fn advisory(root: &Path) -> Option<String> {
+    let hints = local_flow::advisory(root)
+        .into_iter()
+        .chain(local_flow::failure(root))
+        .collect::<Vec<_>>();
+    (!hints.is_empty()).then(|| hints.join("\n"))
+}
 
 #[derive(Debug, PartialEq, Eq)]
 enum Shape {

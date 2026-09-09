@@ -1,0 +1,52 @@
+[
+  {
+    "name": "optional-local-directory",
+    "client": "import { useState } from 'react';\nconst DEFAULT_MEMBERS = [{id:'local', name:'Local', role:'member'}];\nasync function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function read() { const [members, setMembers] = useState(DEFAULT_MEMBERS); const data = await fetchApi('/api/projects'); if (Array.isArray(data.members)) setMembers(data.members); return members; }\n",
+    "server": "export async function GET() { return Response.json({items:[]}); }"
+  },
+  {
+    "name": "parameter",
+    "client": "import { useState } from 'react';\nconst DEFAULT_MEMBERS = [{id:'local', name:'Local', role:'member'}];\nasync function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\nasync function read(fetchApi: (url: string) => Promise<{members:string[]}>) { const data = await fetchApi('/api/projects'); return data.members; }",
+    "server": "export async function GET() { return Response.json({items:[]}); }"
+  },
+  {
+    "name": "destructured-parameter",
+    "client": "import { useState } from 'react';\nconst DEFAULT_MEMBERS = [{id:'local', name:'Local', role:'member'}];\nasync function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\nasync function read({fetchApi}: {fetchApi: (url: string) => Promise<{members:string[]}>}) { const data = await fetchApi('/api/projects'); return data.members; }",
+    "server": "export async function GET() { return Response.json({items:[]}); }"
+  },
+  {
+    "name": "arrow-parameter",
+    "client": "import { useState } from 'react';\nconst DEFAULT_MEMBERS = [{id:'local', name:'Local', role:'member'}];\nasync function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\nconst read = async (fetchApi: (url: string) => Promise<{members:string[]}>) => { const data = await fetchApi('/api/projects'); return data.members; };",
+    "server": "export async function GET() { return Response.json({items:[]}); }"
+  },
+  {
+    "name": "mixed-direct",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; if (body.assignee) return Response.json({item:status}); return Response.json({item:status}); }"
+  },
+  {
+    "name": "negated-property",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; if (!body.assignee) return Response.json({item:status}); return Response.json({item:status}); }"
+  },
+  {
+    "name": "typeof-property",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; if (typeof body.assignee === 'string') return Response.json({item:status}); return Response.json({item:status}); }"
+  },
+  {
+    "name": "computed-property",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; if (!body['assignee']) return Response.json({item:status}); return Response.json({item:status}); }"
+  },
+  {
+    "name": "typeof-computed",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; if (typeof body['assignee'] === 'string') return Response.json({item:status}); return Response.json({item:status}); }"
+  },
+  {
+    "name": "optional-request-default",
+    "client": "async function fetchApi(url: string, init?: RequestInit) {\n  const res = await fetch(url, init);\n  if (!res.ok) {\n    let errorBody: { error?: string; details?: string } = {};\n    try {\n      errorBody = await res.json();\n    } catch {\n      errorBody = { error: `HTTP ${res.status}` };\n    }\n    throw new Error(\n      errorBody.error || `HTTP ${res.status}`\n    );\n  }\n  return res.json();\n}\n\n\nasync function update() { return await fetchApi('/api/projects', {method:'PATCH', body:JSON.stringify({assignee:'local'})}); }",
+    "server": "export async function PATCH(request: Request) { const body = await request.json(); const {status} = body; return Response.json({item:status ?? 'default'}); }"
+  }
+]

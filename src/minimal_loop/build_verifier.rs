@@ -15,6 +15,7 @@ use crate::planner::profile::{build_oracle_for_command, profile_for_build_requir
 use crate::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
 
 const MAX_COMPILE_ERROR_DIAGNOSTICS: usize = 5;
+mod typescript;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CompileError {
@@ -561,12 +562,13 @@ pub fn observe_requirement(
             foreign_toolchain: None,
         },
         Err(err) => {
-            let reason = err.to_string();
+            let reason = typescript::supplement(root, requirement, err.to_string());
             let full_output =
                 FullCommandOutput::from_bounded_executor(root, &requirement.command, &reason);
             let output_excerpt = full_output.excerpt();
             let mut compile_errors =
                 parse_compile_errors_for_requirement(requirement, &full_output);
+            typescript::append_diagnostics(&reason, &mut compile_errors);
             profile.annotate_compile_errors(root, &mut compile_errors);
             let status = classify_failed_build_status(
                 root,
