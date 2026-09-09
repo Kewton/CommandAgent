@@ -1,0 +1,13 @@
+case_id = "issue459-create-recovery-integration"
+source = "Immutable new-R0 archive; installed-toolchain and production Recovery matrices execute separately"
+required_paths = ["cases.json", "replay-cases.json", "replies.json", "provenance.json"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["original", "role-only", "ui-only", "missing-list", "wrong-field", "aligned", "aligned-observable"]
+replay-cases.json = ["no-edit", "provider-stop", "oracle-unexecuted", "promoted-after-no-edit", "promoted-with-oracle", "preflight_source_mutation_rejected_and_restored", "registered_final_success_passed"]
+replies.json = ["not recorded live-model success", "actual host-recommended ranged Reads for each bound inspect step"]
+overlays/observable/src/lib/store.ts = ["fs.renameSync", "data/projects.json", "data/tasks.json"]
+provenance.json = ["222feef77a4bfd1e98a60a4bd5744a287e645b48", "f7a30626804db6072de3f0f332259cf40f6a36a2ab932d847e7e5d55b236fe38"]

@@ -169,7 +169,7 @@ impl Source {
         self.identifier(i).is_some() || ["[", "]", "<", ">", "|"].iter().any(|s| self.is(i, s))
     }
 
-    fn call_arguments(&self, open: usize) -> Option<Vec<(usize, usize)>> {
+    pub(super) fn call_arguments(&self, open: usize) -> Option<Vec<(usize, usize)>> {
         let mut stack = vec![")"];
         let mut start = open + 1;
         let mut arguments = Vec::new();

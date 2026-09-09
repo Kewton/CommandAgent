@@ -14,6 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Replay archived Next.js create failures through real Recovery tools, registered
+  checks, Browser observation and candidate adoption; recognize provable JSON
+  rename destinations without granting dynamic helper paths (#459).
 - Retain whole-project TypeScript diagnostics after Next.js type failures, group
   shared import contracts for repair, and check proven local JSON-wrapper request
   mismatches with archived assignment/build/browser regressions (#457).

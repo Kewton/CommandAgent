@@ -1,0 +1,1096 @@
+{
+  "status": "passed",
+  "scenarios": [
+    {
+      "scenario": "aligned-after-no-edit",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 2,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "preflight_source_mutation_rejected_and_restored",
+          "recovery_plan_auto_run_current": 2,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 2,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 2,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": null,
+          "source_sha256": {
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+            "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+            "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+            "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        },
+        {
+          "attempt": 2,
+          "oracle": null,
+          "source_sha256": {
+            "data/projects.json": "2219d8b6ae55fd2b7ea7553b23e90b9b3994599a84e5ac42bd4f1188adaa98d8",
+            "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "aligned-with-oracle",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "preflight_source_mutation_rejected_and_restored",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": {
+            "metadata": {
+              "browser": "145.0.7632.6",
+              "headless": true,
+              "locale": "ja-JP",
+              "method": "standalone Playwright, isolated temporary Chromium profile",
+              "preflight": {
+                "harmless_interaction": "Fill project draft with Preflight before submitting any request",
+                "readable_state": "プロジェクト作成",
+                "screenshot": "browser-evidence/preflight.png"
+              },
+              "target": "http://127.0.0.1:61292",
+              "timezoneId": "Asia/Tokyo",
+              "viewport": {
+                "height": 900,
+                "width": 1280
+              }
+            },
+            "source_sha256": {
+              "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+              "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+              "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+              "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+              "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+              "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+              "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+              "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+              "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+              "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+              "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+              "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+              "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+              "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+              "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+              "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+            },
+            "stages": [
+              "browser-preflight-passed",
+              "project-created",
+              "directory-listed",
+              "member-selected",
+              "task-created-with-assignee",
+              "reload:member-1",
+              "assignment-committed",
+              "reload:member-2",
+              "unassignment-committed",
+              "reload:unassigned",
+              "status-filter-delete-preserved",
+              "task-route-store-errors-return-500-strings",
+              "store-error-500-and-readable-ui-no-overwrite"
+            ],
+            "status": "passed"
+          },
+          "source_sha256": {
+            "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+            "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+            "data/projects.json": "14da595295800b548ab65d3ff72390cfaab63a418462b9cbc47ba61fe5284ae2",
+            "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "missing-list",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": {
+            "failure": "No selectable team member supplied by the application",
+            "metadata": {
+              "browser": "145.0.7632.6",
+              "headless": true,
+              "locale": "ja-JP",
+              "method": "standalone Playwright, isolated temporary Chromium profile",
+              "preflight": {
+                "harmless_interaction": "Fill project draft with Preflight before submitting any request",
+                "readable_state": "プロジェクト作成",
+                "screenshot": "browser-evidence/preflight.png"
+              },
+              "target": "http://127.0.0.1:61589",
+              "timezoneId": "Asia/Tokyo",
+              "viewport": {
+                "height": 900,
+                "width": 1280
+              }
+            },
+            "source_sha256": {
+              "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+              "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+              "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+              "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+              "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+              "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+              "src/app/api/projects/route.ts": "1f430ccd01721d8fdcc1ad1db4d09e0818b0304babaf29d44300fb5567f4c1db",
+              "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+              "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+              "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+              "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+              "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+              "src/lib/store.ts": "16eded61b86ccc7b437e63250de06aa360a7ae7dc842caa700391dd99bfcf609",
+              "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+              "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+              "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+            },
+            "stages": [
+              "browser-preflight-passed",
+              "project-created",
+              "task-route-store-errors-return-500-strings",
+              "store-error-500-and-readable-ui-no-overwrite"
+            ],
+            "status": "missing-list"
+          },
+          "source_sha256": {
+            "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+            "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "1f430ccd01721d8fdcc1ad1db4d09e0818b0304babaf29d44300fb5567f4c1db",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "16eded61b86ccc7b437e63250de06aa360a7ae7dc842caa700391dd99bfcf609",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "wrong-field",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": {
+            "failure": "UI assignment PATCH rejected with 400; committed member unchanged after reload",
+            "metadata": {
+              "browser": "145.0.7632.6",
+              "headless": true,
+              "locale": "ja-JP",
+              "method": "standalone Playwright, isolated temporary Chromium profile",
+              "preflight": {
+                "harmless_interaction": "Fill project draft with Preflight before submitting any request",
+                "readable_state": "プロジェクト作成",
+                "screenshot": "browser-evidence/preflight.png"
+              },
+              "target": "http://127.0.0.1:61668",
+              "timezoneId": "Asia/Tokyo",
+              "viewport": {
+                "height": 900,
+                "width": 1280
+              }
+            },
+            "source_sha256": {
+              "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+              "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+              "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+              "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+              "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+              "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+              "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+              "src/app/api/tasks/[id]/route.ts": "bc9958d3b6047d58e827c604d56345ebbd5954a3cf493264a8922c071a1f11d7",
+              "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+              "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+              "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+              "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+              "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+              "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+              "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+              "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+            },
+            "stages": [
+              "browser-preflight-passed",
+              "project-created",
+              "directory-listed",
+              "member-selected",
+              "task-created-with-assignee",
+              "reload:member-1",
+              "reload:member-1",
+              "task-route-store-errors-return-500-strings",
+              "store-error-500-and-readable-ui-no-overwrite"
+            ],
+            "status": "wrong-field"
+          },
+          "source_sha256": {
+            "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+            "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc9958d3b6047d58e827c604d56345ebbd5954a3cf493264a8922c071a1f11d7",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "oracle-unexecuted",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": null,
+          "source_sha256": {
+            "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "no-edit",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 2,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 2,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 2,
+          "recovery_plan_auto_run_stop_reason": "limit_reached",
+          "recovery_plan_auto_run_stop_summary": "limit reached",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 2,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": null,
+          "source_sha256": {
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+            "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+            "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+            "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        },
+        {
+          "attempt": 2,
+          "oracle": null,
+          "source_sha256": {
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+            "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+            "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+            "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "provider-stop",
+      "test_status": "passed",
+      "candidate_success": false,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_stopped",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "not_recoverable",
+          "recovery_plan_auto_run_stop_summary": "not recoverable",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": null,
+          "source_sha256": {
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+            "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+            "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+            "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "promoted-after-no-edit",
+      "test_status": "passed",
+      "candidate_success": true,
+      "starts": 2,
+      "decisions": [
+        {
+          "decision": "rejected",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "recovery_execution_failed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "decision": "promoted",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "registered_final_success_passed",
+          "recovery_plan_auto_run_current": 2,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_complete",
+          "recovery_plan_auto_run_current": 2,
+          "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+          "recovery_plan_auto_run_stop_summary": "recovery succeeded",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 2,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "data/projects.json": "48091a3bf3836a6b97f6d797d94b0c0b86da5320667452a242265929ee334da5",
+        "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+        "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+        "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "1b9b5f66bb7b648ed7a8be5631e01fdc59f6c3564a800ab9b452b84e5266184f",
+        "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": null,
+          "source_sha256": {
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+            "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+            "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+            "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        },
+        {
+          "attempt": 2,
+          "oracle": null,
+          "source_sha256": {
+            "data/projects.json": "48091a3bf3836a6b97f6d797d94b0c0b86da5320667452a242265929ee334da5",
+            "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "1b9b5f66bb7b648ed7a8be5631e01fdc59f6c3564a800ab9b452b84e5266184f",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "promoted-with-oracle",
+      "test_status": "passed",
+      "candidate_success": true,
+      "starts": 1,
+      "decisions": [
+        {
+          "decision": "promoted",
+          "event": "recovery_promotion_decision",
+          "external_oracle_used": false,
+          "reason": "registered_final_success_passed",
+          "recovery_plan_auto_run_current": 1,
+          "schema_version": "1"
+        },
+        {
+          "event": "recovery_plan_auto_run_complete",
+          "recovery_plan_auto_run_current": 1,
+          "recovery_plan_auto_run_stop_reason": "recovery_succeeded",
+          "recovery_plan_auto_run_stop_summary": "recovery succeeded",
+          "recovery_plan_auto_runs": 2,
+          "recovery_plan_auto_runs_used": 1,
+          "schema_version": "1"
+        }
+      ],
+      "control_before": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "18e17dfaa16cc0acb606fba452424cea80e1a00ec6914ec7f7e2363b37e10aac",
+        "src/app/api/projects/route.ts": "c6eca6b8e0b2630a056ec2010dde290117bf3f3443796f207d842d3fe2b6af4e",
+        "src/app/api/tasks/[id]/route.ts": "b96c1bd695d21c0e1afba499e21cae942e8efec3920ef726d5406ebc7788dae6",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "233c415f801f1c316ebc55afea83c599e4046c06950077a9c2242f8469c8bef7",
+        "src/lib/types.ts": "5fedd3189b74175affe53cb7d346f5fb5ee0a65be087d1a130ed5a7280d4f4b1",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "control_after": {
+        "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+        "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+        "data/projects.json": "5cd20a1188ef390ceb8b8833644bb1e7d98ccc67f9ce49c415792460c8dcd017",
+        "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+        "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+        "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+        "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+        "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+        "src/lib/store.ts": "1b9b5f66bb7b648ed7a8be5631e01fdc59f6c3564a800ab9b452b84e5266184f",
+        "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "candidates": [
+        {
+          "attempt": 1,
+          "oracle": {
+            "metadata": {
+              "browser": "145.0.7632.6",
+              "headless": true,
+              "locale": "ja-JP",
+              "method": "standalone Playwright, isolated temporary Chromium profile",
+              "preflight": {
+                "harmless_interaction": "Fill project draft with Preflight before submitting any request",
+                "readable_state": "プロジェクト作成",
+                "screenshot": "browser-evidence/preflight.png"
+              },
+              "target": "http://127.0.0.1:62443",
+              "timezoneId": "Asia/Tokyo",
+              "viewport": {
+                "height": 900,
+                "width": 1280
+              }
+            },
+            "source_sha256": {
+              "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+              "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+              "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+              "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+              "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+              "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+              "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+              "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+              "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+              "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+              "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+              "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+              "src/lib/store.ts": "1b9b5f66bb7b648ed7a8be5631e01fdc59f6c3564a800ab9b452b84e5266184f",
+              "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+              "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+              "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+            },
+            "stages": [
+              "browser-preflight-passed",
+              "project-created",
+              "directory-listed",
+              "member-selected",
+              "task-created-with-assignee",
+              "reload:member-1",
+              "assignment-committed",
+              "reload:member-2",
+              "unassignment-committed",
+              "reload:unassigned",
+              "status-filter-delete-preserved",
+              "task-route-store-errors-return-500-strings",
+              "store-error-500-and-readable-ui-no-overwrite"
+            ],
+            "status": "passed"
+          },
+          "source_sha256": {
+            "checks/assignment.test.mjs": "51d474caa4e703b51e694561c173f3dae51460521a52a0a9cafe88cb03a01fbe",
+            "checks/interaction.mjs": "ef196927777107eead7058c273553e143d3eee358abd850cd8372e36900c90ae",
+            "data/projects.json": "5cd20a1188ef390ceb8b8833644bb1e7d98ccc67f9ce49c415792460c8dcd017",
+            "data/tasks.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+            "next.config.js": "debe7c6c8787d6fc80780b1e88537d097be90d8e48781083fa2cfa534c3f5be9",
+            "package-lock.json": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+            "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+            "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+            "src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+            "src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+            "src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+            "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+            "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+            "src/app/layout.tsx": "a3ada911a0ab2256f40fa697b29a4b9f35b58ff68be6176c7469954ada6f60dc",
+            "src/app/page.tsx": "f909766b0f653478fbce16bea81a536e31f70ae555645d4f3e2955dda5517741",
+            "src/lib/store.ts": "1b9b5f66bb7b648ed7a8be5631e01fdc59f6c3564a800ab9b452b84e5266184f",
+            "src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+            "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+            "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+          }
+        }
+      ]
+    }
+  ]
+}
