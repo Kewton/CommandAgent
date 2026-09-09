@@ -123,6 +123,7 @@ fn build_repair_prompt_stable(
             },
         ));
     }
+    prompt.push_str(&compile_context::contract_context(report, context));
     crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
@@ -211,6 +212,7 @@ Make the smallest bounded change, then stop.",
             },
         ));
     }
+    prompt.push_str(&compile_context::contract_context(report, context));
     crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
