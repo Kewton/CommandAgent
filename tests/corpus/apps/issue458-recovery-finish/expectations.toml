@@ -1,0 +1,9 @@
+case_id = "issue458-recovery-finish"
+source = "Issue #458 deterministic production finish and retry contract"
+required_paths = ["cases.json"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["execution_then_success", "verification_then_success", "cycle_detected", "interrupted", "not_recoverable", "recovery_continuation_prepared", "start_spawn_failed", "start_exited", "port_in_use"]

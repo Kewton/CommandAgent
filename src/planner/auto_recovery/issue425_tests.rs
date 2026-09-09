@@ -234,7 +234,7 @@ mod tests {
     impl RecoveryDriver for MeasuredRepairDriver {
         type Prepared = RecoveryCandidate;
 
-        fn preflight(&mut self, candidate: &RecoveryCandidate) -> RecoveryPreflight {
+        fn preflight(&mut self, candidate: &RecoveryCandidate, _used: u8) -> RecoveryPreflight {
             let result = recovery_preflight(&self.config, candidate, 0);
             self.preflight_failed = matches!(&result, RecoveryPreflight::Failed { .. });
             result
