@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::minimal_loop::completion::CompletionContract;
 
 mod forwarding;
+mod renames;
 mod syntax;
 use syntax::{Source, Token};
 
@@ -216,6 +217,7 @@ enum Value {
     Fs,
     Promises,
     Writer,
+    Renamer,
     PathModule,
     Join,
 }
@@ -265,6 +267,7 @@ impl Source {
             }
         }
         paths.extend(self.forwarded_writer_paths(&bindings));
+        paths.extend(self.renamed_paths(&bindings));
         paths
     }
 
@@ -323,6 +326,9 @@ impl Source {
                 (Value::Fs, "promises") => Value::Promises,
                 (Value::Fs, "writeFile" | "writeFileSync") | (Value::Promises, "writeFile") => {
                     Value::Writer
+                }
+                (Value::Fs, "rename" | "renameSync") | (Value::Promises, "rename") => {
+                    Value::Renamer
                 }
                 (Value::PathModule, "join") => Value::Join,
                 _ => return None,

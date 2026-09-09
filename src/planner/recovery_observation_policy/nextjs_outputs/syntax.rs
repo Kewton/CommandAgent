@@ -137,6 +137,9 @@ impl Source {
                         (Value::Fs, "promises") => Some(Value::Promises),
                         (Value::Fs, "writeFile" | "writeFileSync")
                         | (Value::Promises, "writeFile") => Some(Value::Writer),
+                        (Value::Fs, "rename" | "renameSync") | (Value::Promises, "rename") => {
+                            Some(Value::Renamer)
+                        }
                         (Value::PathModule, "join") => Some(Value::Join),
                         _ => None,
                     };
