@@ -23,7 +23,7 @@ pub(super) fn handoff(root: Option<&Path>, source: &RecoveryHandoff) -> Recovery
     }
 }
 
-pub(super) fn display_text(root: Option<&Path>, value: &str) -> String {
+pub(crate) fn display_text(root: Option<&Path>, value: &str) -> String {
     let mut text = value.to_string();
     if let Some(root) = root {
         let mut roots = vec![root.to_path_buf()];

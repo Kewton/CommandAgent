@@ -1,0 +1,18 @@
+[
+  {
+    "language": "python",
+    "target": "main.py",
+    "target_source": "from helper import f\nprint(f())\n",
+    "dependency": "helper.py",
+    "dependency_source": "def f():\n    return 42\n",
+    "definition": "def f():"
+  },
+  {
+    "language": "rust",
+    "target": "src/main.rs",
+    "target_source": "mod helper;\nfn main() { let _ = helper::f(); }\n",
+    "dependency": "src/helper.rs",
+    "dependency_source": "pub fn f() -> u32 { 42 }\n",
+    "definition": "pub fn f() -> u32"
+  }
+]

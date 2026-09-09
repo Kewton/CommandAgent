@@ -44,6 +44,7 @@ pub(crate) mod python_cli_plan_synthesis;
 pub(crate) mod recovery_contract_authority;
 pub(crate) mod recovery_contract_binding;
 pub(crate) mod recovery_fix_safety;
+pub(crate) mod recovery_inspection;
 pub(crate) mod recovery_observation_policy;
 pub(crate) mod recovery_snapshot;
 pub(crate) mod recovery_step_plan_binding;

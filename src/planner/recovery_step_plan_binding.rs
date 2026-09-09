@@ -17,7 +17,7 @@ pub(crate) fn bind_generated(
     let Some(phase_id) = phase_id else {
         return Ok(false);
     };
-    if crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_none() {
+    if !crate::planner::recovery_inspection::has_origin(config)? {
         return Ok(false);
     }
     bind_contract(config, phase_id, step_plan)
@@ -31,10 +31,7 @@ pub(crate) fn is_host_owned_final_success_step(
     phase_id.is_some_and(|phase_id| phase_id != INSPECTION_PHASE_ID)
         && step.id.starts_with(CONTRACT_VERIFY_STEP_ID)
         && step.step_kind() == StepKind::Verify
-        && crate::planner::recovery_contract_binding::load_fix_origin(config)
-            .ok()
-            .flatten()
-            .is_some()
+        && crate::planner::recovery_inspection::has_origin(config).unwrap_or(false)
 }
 
 fn bind_contract(
@@ -52,7 +49,23 @@ fn bind_contract(
     let original_steps = step_plan.steps.clone();
     let original_commands = commands(&original_steps);
     let removed_step_ids = if phase_id == INSPECTION_PHASE_ID {
-        bind_read_only_inspection(step_plan, &contract)
+        let removed = bind_read_only_inspection(step_plan, &contract);
+        if let Some(context) = crate::planner::recovery_inspection::load(config)? {
+            let template = step_plan.steps[0].clone();
+            step_plan.steps = inspection_instructions(&context.instruction)?
+                .into_iter()
+                .enumerate()
+                .map(|(index, instruction)| {
+                    let mut step = template.clone();
+                    if index > 0 {
+                        step.id = format!("inspect-recovery-state-{}", index + 1);
+                    }
+                    step.instruction = instruction;
+                    step
+                })
+                .collect();
+        }
+        removed
     } else {
         bind_final_success_verification(step_plan, &contract)
     };
@@ -80,6 +93,32 @@ fn bind_contract(
         }),
     );
     Ok(true)
+}
+
+// Preserve diagnostic text rather than truncating it to pass StepPlan lint.
+// Large contexts stay inside the existing instruction and step-count limits.
+fn inspection_instructions(instruction: &str) -> anyhow::Result<Vec<String>> {
+    let mut chunks = Vec::new();
+    let mut chunk = String::new();
+    for line in instruction.split_inclusive('\n') {
+        if chunk.chars().count() + line.chars().count() > 2500 && !chunk.is_empty() {
+            chunks.push(std::mem::take(&mut chunk));
+        }
+        for ch in line.chars() {
+            if chunk.chars().count() == 2500 {
+                chunks.push(std::mem::take(&mut chunk));
+            }
+            chunk.push(ch);
+        }
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    anyhow::ensure!(
+        chunks.len() <= 12,
+        "Recovery inspection exceeds the bounded StepPlan context capacity"
+    );
+    Ok(chunks)
 }
 
 fn bind_read_only_inspection(plan: &mut StepPlan, contract: &CompletionContract) -> Vec<String> {

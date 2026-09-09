@@ -1260,15 +1260,23 @@ pub(crate) fn run_session_with_outcome_with_options(
                 bail!("interrupted by user");
             }
             let bash_command = recovered_bash_command(&call.name, &call.arguments);
-            if let Some(reason) = inspect_tool_policy::mutation_rejection(
-                options.step_kind,
-                &call.name,
-                bash_command.as_deref(),
-            ) {
+            if let Some(reason) = crate::planner::recovery_inspection::tool_rejection(
+                config,
+                options.phase_scope.as_deref(),
+                &call,
+            )
+            .or_else(|| {
+                inspect_tool_policy::mutation_rejection(
+                    options.step_kind,
+                    &call.name,
+                    bash_command.as_deref(),
+                )
+                .map(str::to_string)
+            }) {
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                 last_blocking_reason = Some("inspect_mutation_rejected".to_string());
-                let error = anyhow::anyhow!(reason);
+                let error = anyhow::anyhow!("{reason}");
                 let repeats = recoverable_tool_error_state.record(&call.name, &error);
                 eval_events::emit(
                     config.eval_events_path.as_deref(),

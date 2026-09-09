@@ -21,6 +21,8 @@ pub(crate) struct RecoveryCandidate {
     plan: UltraPlan,
     handoff: crate::planner::repair::RecoveryHandoff,
     verify_command_source: String,
+    original_intent: Option<String>,
+    inspection_context: Option<crate::planner::recovery_inspection::InspectionContext>,
 }
 
 #[derive(Debug)]
@@ -39,6 +41,8 @@ struct AttemptOutcome {
 #[derive(Debug, Default)]
 struct AttemptCapture {
     active: bool,
+    original_intent: Option<String>,
+    inspection_context: Option<crate::planner::recovery_inspection::InspectionContext>,
     candidate: Option<RecoveryCandidate>,
 }
 
@@ -53,6 +57,8 @@ impl AttemptCaptureGuard {
         ATTEMPT_CAPTURE.with(|capture| {
             *capture.borrow_mut() = AttemptCapture {
                 active: true,
+                original_intent: None,
+                inspection_context: None,
                 candidate: None,
             };
         });
@@ -97,13 +103,38 @@ fn record_candidate(
         plan,
         handoff,
         verify_command_source: "failure_handoff".to_string(),
+        original_intent: None,
+        inspection_context: None,
     });
 }
 
-fn record_typed_candidate(candidate: RecoveryCandidate) {
+pub(crate) fn record_execution_origin(config: &Config, intent: &str) -> anyhow::Result<()> {
+    let inherited = if intent == "recover" {
+        crate::planner::recovery_inspection::load(config)?
+    } else {
+        None
+    };
+    let intent = inherited
+        .as_ref()
+        .map(|context| context.original_intent.as_str())
+        .unwrap_or(intent);
+    ATTEMPT_CAPTURE.with(|capture| {
+        let mut capture = capture.borrow_mut();
+        if capture.active && capture.original_intent.is_none() && matches!(intent, "create" | "fix")
+        {
+            capture.original_intent = Some(intent.to_string());
+            capture.inspection_context = inherited.clone();
+        }
+    });
+    Ok(())
+}
+
+fn record_typed_candidate(mut candidate: RecoveryCandidate) {
     ATTEMPT_CAPTURE.with(|capture| {
         let mut capture = capture.borrow_mut();
         if capture.active {
+            candidate.original_intent = capture.original_intent.clone();
+            candidate.inspection_context = capture.inspection_context.clone();
             let replace = capture.candidate.as_ref().is_none_or(|current| {
                 candidate.handoff.failed_step.is_some() || current.handoff.failed_step.is_none()
             });
@@ -124,6 +155,8 @@ pub(crate) fn record_handoff_candidate(
         plan,
         handoff: handoff.clone(),
         verify_command_source: "failure_handoff".to_string(),
+        original_intent: None,
+        inspection_context: None,
     });
 }
 
@@ -224,6 +257,14 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
         let treatment_config =
             crate::planner::recovery_contract_binding::bind_config(self.config, &treatment)
                 .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
+        crate::planner::recovery_inspection::bind_context(
+            self.config,
+            &treatment_config,
+            candidate.original_intent.as_deref(),
+            &candidate.handoff,
+            candidate.inspection_context.as_ref(),
+        )
+        .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
         let observer_identity = recovery_observer_identity(self.config)
             .ok_or(CandidateStop::ObserverIdentityBindFailed)?;
         if recovery_observer_identity(&treatment_config).as_ref() != Some(&observer_identity) {
@@ -1784,6 +1825,10 @@ mod tests {
     use clap::Parser;
     use std::collections::VecDeque;
 
+    mod issue456 {
+        include!("auto_recovery/issue456_tests.rs");
+    }
+
     mod issue440 {
         include!("auto_recovery/issue440_tests.rs");
     }
@@ -1862,6 +1907,8 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
         }
     }
 
@@ -2119,6 +2166,8 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
         };
         assert_eq!(
             prepare_candidate(&config, &missing).unwrap_err(),
@@ -2135,6 +2184,8 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
         };
         assert_eq!(
             prepare_candidate(&config, &invalid).unwrap_err(),
@@ -2158,6 +2209,8 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
         };
         assert_eq!(
             prepare_candidate(&config, &review).unwrap_err(),
@@ -2179,6 +2232,8 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
         };
         assert_eq!(
             prepare_candidate(&config, &escaped).unwrap_err(),

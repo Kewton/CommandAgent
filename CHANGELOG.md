@@ -44,6 +44,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Bind create-origin Recovery inspection to read-only work while retaining API
+  diagnostics and bounded related definitions through repair and registered
+  verification. Preserve original context across Recovery continuations (#456).
+
 - Classify Node verification from the executed script, retain future test and
   exact hook checks, and identify weak-evidence commands in final acceptance (#439).
 - Register exact Recovery JSON outputs from real Next.js routes containing

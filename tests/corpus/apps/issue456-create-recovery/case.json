@@ -1,0 +1,23 @@
+{
+  "original_intent": "create",
+  "original_goal": "Create a project task manager with assignees and status filters",
+  "failure_evidence": [
+    "src/app/api/projects/[id]/tasks/route.ts:137:7: Type error: role?: string is not assignable to Member; role: string is required."
+  ],
+  "repair_targets": [
+    "src/app/api/projects/[id]/tasks/route.ts"
+  ],
+  "required_paths": [
+    "src/app/page.tsx",
+    "src/app/layout.tsx",
+    "tsconfig.json"
+  ],
+  "read_definitions": [
+    "src/lib/store.ts",
+    "src/lib/types.ts"
+  ],
+  "registered_verify_commands": [
+    "grep -Fq 'name: string; role: string' 'src/app/api/projects/[id]/tasks/route.ts'"
+  ],
+  "replay_only": true
+}
