@@ -1,0 +1,117 @@
+{
+  "issue": 472,
+  "recorded_at": "2026-09-12T10:27:23.929103+00:00",
+  "source_base": "43c6bdf2cdcd592ef994aa99de4bcc96a82d0f5a",
+  "source_files": {
+    "src/minimal_loop/loop_run/recoverable_tool_errors.rs": "c7f6244e6a2165fcfc4857fc3a998016c2fbd28d6c9d56ed5db189e5b27684d7",
+    "src/minimal_loop/tool_feedback/path_feedback.rs": "186566488f3ab7d40c2ff2db3d00a7f49a897fec1501d49ac5eb53cb923f979a",
+    "src/tools/read_missing.rs": "150bc5dcbe19c4c8e49e37f04478b8b6d5db0f6dfd26ea50fe76204db3d2546e",
+    "src/tools/read_missing/test_hook.rs": "746d2489c31d037d9f82f52f115ca5f05a5989b27ace4f803597179ebdda2d6b",
+    "src/tools/read_missing/tests.rs": "0ffa2510d528b4a1a903bbb31fba21d6d58a88e278c967cac1c21f0aec98d6f7",
+    "tests/corpus/apps/missing-read-correction/cases.json": "0e2ca9d5f339c8b4ec7a592f1c64bea4fecb5eaf6844e3adbb16c6f6bab896bd",
+    "tests/corpus/apps/missing-read-correction/expectations.toml": "3644f21467920e5aee93ab541108df991208a6629fd908a734d70539b3aeb400",
+    "tests/corpus/apps/missing-read-correction/implementation.cjs": "382ae8fa5f0373a520463e6597eeaaf70606638855e9463df3db4fb950023bad",
+    "tests/corpus/apps/missing-read-correction/verify.cjs": "8bd92c2544edb2e975c4e98afbcd8ad2b35fb51e886fb12380bfad58fb212aec",
+    "tests/missing_read_inspection.rs": "5d5a4f8bb1e139da8b1d72055fdc0fba8738528e0561c56a9eeef99d344bd9b9",
+    "tests/missing_read_limits.rs": "8930e02ea5f33f4c731da7a7967bd7c92519b31b0b6cfbbbb49aea88dc314889",
+    "tests/missing_read_paths.rs": "666b817a2f02186f168fc95a4fc6a9db0fe34fea9f56d5e8da45bbabe273fbe9",
+    "tests/missing_read_recovery.rs": "0180ce57e65374c58a2c8c954c15d1745090aa0786e38092ea77c2de6a4ef584",
+    "src/minimal_loop/loop_run.rs": "b2158f601c2a931efbe667dcd0b9b7db5aab34696bad9fec96c6765819bc2778",
+    "src/minimal_loop/loop_run/state.rs": "0e3e549bc4a0a25f1f22231bbf69c5f167aea2a1e363b4f312ed696e3fcc3085",
+    "src/minimal_loop/protected_paths.rs": "14f138590bf02ef6f01af69050f6d00521ea19854d5da975f76bc851c3c7b355",
+    "src/minimal_loop/tool_feedback.rs": "5dd6bb0b2bb3e25651db046ad0b52ae28355fd0728f73bcc5e013f4681df4d21",
+    "src/tools/mod.rs": "33056bc874969c45e4b4d74e3f5859cc75031e689266c7160e92cb486a8e985c",
+    "src/tools/path_guard.rs": "460278c63b789bb4c7299af98a62c1d1bfa42976d060b63b7190d460d520ee49",
+    "src/tools/registry.rs": "9ba9ff7f2f4d5dd81a38e657928a62ff9324083104d5d485f5b1049a10715cfe"
+  },
+  "checks": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "started_at": "2026-09-12T10:20:31.414462+00:00",
+      "finished_at": "2026-09-12T10:20:32.880231+00:00",
+      "exit_code": 0,
+      "log": "fmt.log",
+      "sandbox": "outside"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started_at": "2026-09-12T10:20:32.889448+00:00",
+      "finished_at": "2026-09-12T10:20:45.123012+00:00",
+      "exit_code": 0,
+      "log": "clippy.log",
+      "sandbox": "outside"
+    },
+    {
+      "name": "full",
+      "command": [
+        "cargo",
+        "test",
+        "--offline"
+      ],
+      "started_at": "2026-09-12T10:20:45.123500+00:00",
+      "finished_at": "2026-09-12T10:23:00.084179+00:00",
+      "exit_code": 0,
+      "log": "full.log",
+      "sandbox": "outside"
+    }
+  ],
+  "release": {
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--release"
+    ],
+    "started_at": "2026-09-12T10:24:11.426778+00:00",
+    "finished_at": "2026-09-12T10:24:58.302452+00:00",
+    "exit_code": 0,
+    "log": "release.log",
+    "installed": false,
+    "version_exit": 0,
+    "version": "commandagent 0.1.0 43c6bdf2+dirty 2026-09-12T14:18:03+09:00",
+    "sha256": "68a942c30d67c8bd1f5ce28311206f03bc0997a5499dd3d4cf230bd8e39055fc",
+    "binary": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0912/missing-read-development-01/target/release/commandagent"
+  },
+  "review": "Codex2 r5 conditional pass; parent subsequently verified final full exit 0 and release build/version",
+  "library_tests": {
+    "passed": 2544,
+    "failed": 0,
+    "ignored": 19
+  },
+  "integration_targets": 66,
+  "doctests_passed": 2,
+  "artifact_sha256": {
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/candidate.json": "11b370da2ea3b5720def50a12208002de8fbe5d2107bb6177a065b5e191e7a7b",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/results.json": "e53c72cb12c027fd8a9b7de779e6ade63559c473ca7b527b0eb1a01d6076ad8d",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/clippy.log": "5683f60591dbe1932c9dfcf03f8e9795f9b22cb2fa747fb07bea4cab0d7dbfe7",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/full.log": "f40a1237437a148e263947f13232566782086ec89ca716c3d7fdbe3499fedc60",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/release.json": "7dfa65a6be574f1a89c28993054cad3dec71ad2b2962ec8de8dba63e1467b080",
+    "workspace/tmp/0912/missing-read-investigation-01/candidate-verification-06/release.log": "439881aede7b527266cb72e83ba958d78b4c2f0f6becc0f4a4df87888f33b69b",
+    "workspace/tmp/0912/missing-read-investigation-01/baseline-recovery.json": "60b64bdb5da286ea489d4cc7cb1c65fbe7c5c88b008a9550371c9be211b4d798",
+    "workspace/tmp/0912/missing-read-investigation-01/baseline-recovery.log": "7ea44530b18a1fde82b33f14e87270b33dc8b295a208dc08adf52a683463b124",
+    "workspace/tmp/0912/missing-read-investigation-01/codex2-r1.md": "38563bd8db8630a92e49cf01a9eb57d8125bb242bd54d7d7f54a2e3a37e820d8",
+    "workspace/tmp/0912/missing-read-investigation-01/codex2-r2.md": "cdba65e305b429930b072a23bc5f3f363c33fc86860175a08572509396d285b3",
+    "workspace/tmp/0912/missing-read-investigation-01/codex2-r3.md": "10e1228de21e23c20b44e8115c799b7a4dbd78cf071b6fc2adc9022036163e29",
+    "workspace/tmp/0912/missing-read-investigation-01/codex2-r4.md": "5adf2cbb8bfb4de9ebed4ed95e872837ca388f95221fb25dec57e71b05d1c752",
+    "workspace/tmp/0912/missing-read-investigation-01/codex2-r5.md": "15c980f6bc808ac99378150ef6d52a8c95210070d36a88ff3bff990975666355"
+  },
+  "local_evidence_root": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0912/missing-read-investigation-01",
+  "publication_and_live_r0": "not yet performed"
+}

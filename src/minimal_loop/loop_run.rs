@@ -64,6 +64,7 @@ mod implementation_completion;
 #[path = "loop_run/inspect_tool_policy.rs"]
 mod inspect_tool_policy;
 mod max_length_guard;
+mod recoverable_tool_errors;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -1529,6 +1530,11 @@ pub(crate) fn run_session_with_outcome_with_options(
             let result = match result {
                 Ok(result) => {
                     recoverable_tool_error_state.reset();
+                    recoverable_tool_error_state.note_success(
+                        &config.workspace_root,
+                        &call.name,
+                        &call.arguments,
+                    );
                     eval_events::emit(
                         config.eval_events_path.as_deref(),
                         json!({

@@ -1,10 +1,14 @@
 use super::edit_anchor_recovery::EditAnchorRecovery;
+mod path_feedback;
 
 pub(crate) fn recoverable_tool_feedback(
     name: &str,
     err: &anyhow::Error,
     edit_anchor_recovery: Option<&EditAnchorRecovery>,
 ) -> String {
+    if let Some(feedback) = path_feedback::missing_read(name, err) {
+        return feedback;
+    }
     let err_text = err.to_string();
     if err_text.contains("verify_command_policy_error") {
         return format!(
@@ -12,7 +16,7 @@ pub(crate) fn recoverable_tool_feedback(
         );
     }
     if err_text.contains("bash_path_confinement_error") {
-        let guidance = confinement_retry_guidance(&err_text)
+        let guidance = path_feedback::confinement_retry_guidance(&err_text)
             .unwrap_or_else(|| "workspace相対で再実行せよ".to_string());
         let guidance = (!err_text.contains(&guidance))
             .then_some(guidance)
@@ -36,12 +40,6 @@ pub(crate) fn recoverable_tool_feedback(
     format!(
         "Tool call `{name}` was rejected with a recoverable validation error: {err}. Retry with the same tool or another available tool using a valid JSON object that matches the tool schema."
     )
-}
-
-fn confinement_retry_guidance(err_text: &str) -> Option<String> {
-    let marker = "use workspace-relative path `";
-    let nearest = err_text.split_once(marker)?.1.split('`').next()?;
-    (!nearest.is_empty()).then(|| crate::tools::bash::workspace_relative_retry_guidance(nearest))
 }
 
 #[cfg(test)]
