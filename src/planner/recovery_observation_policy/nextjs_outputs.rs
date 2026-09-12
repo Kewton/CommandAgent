@@ -366,3 +366,6 @@ mod tests;
 
 #[cfg(test)]
 mod reopen_tests;
+
+#[cfg(test)]
+mod issue467_tests;

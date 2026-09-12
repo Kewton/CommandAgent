@@ -1,0 +1,127 @@
+[
+  {
+    "name": "normal",
+    "mode": "pass",
+    "script": "",
+    "outcome": "pass",
+    "control": "unchanged",
+    "restore": false,
+    "retained": true
+  },
+  {
+    "name": "business-unobserved",
+    "mode": "business-failure",
+    "script": "",
+    "outcome": "fail",
+    "control": "unchanged",
+    "restore": false,
+    "retained": true
+  },
+  {
+    "name": "isolated-extra",
+    "mode": "extra",
+    "script": "",
+    "outcome": "unavailable",
+    "reason": "preflight_source_mutation_rejected_and_restored",
+    "control": "unchanged",
+    "restore": false,
+    "retained": true
+  },
+  {
+    "name": "isolated-observation-error",
+    "mode": "pass",
+    "script": "await fs.symlink('missing', 'data/link.json');",
+    "outcome": "unavailable",
+    "reason": "preflight_source_observation_failed:",
+    "control": "unchanged",
+    "restore": false,
+    "retained": true,
+    "unix": true
+  },
+  {
+    "name": "control-changed",
+    "mode": "pass",
+    "script": "await fs.writeFile(control + '/control.txt', 'changed');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_mutation_rejected_and_restored",
+    "control": "changed",
+    "restore": true,
+    "retained": true
+  },
+  {
+    "name": "isolated-extra-and-control-changed",
+    "mode": "extra",
+    "script": "await fs.writeFile(control + '/control.txt', 'changed');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_mutation_rejected_and_restored",
+    "control": "changed",
+    "restore": true,
+    "retained": true
+  },
+  {
+    "name": "observation-error-and-control-changed",
+    "mode": "pass",
+    "script": "await fs.symlink('missing', 'data/link.json'); await fs.writeFile(control + '/control.txt', 'changed');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_mutation_rejected_and_restored",
+    "control": "changed",
+    "restore": true,
+    "retained": true,
+    "unix": true
+  },
+  {
+    "name": "restore-source-missing",
+    "mode": "extra",
+    "script": "await fs.writeFile(control + '/control.txt', 'changed'); await fs.rm(control + '/.commandagent/recovery-boundaries/attempt-0/workspace', {recursive:true, force:true});",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_restore_failed:",
+    "control": "changed",
+    "restore": false,
+    "retained": false,
+    "control_bytes_after": "changed"
+  },
+  {
+    "name": "restore-original-hash-mismatch",
+    "mode": "extra",
+    "script": "await fs.writeFile(control + '/control.txt', 'changed'); await fs.writeFile(control + '/.commandagent/recovery-boundaries/attempt-0/workspace/control.txt', 'foreign');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_restore_failed:",
+    "control": "changed",
+    "restore": false,
+    "retained": false,
+    "control_bytes_after": "changed"
+  },
+  {
+    "name": "control-observation-error",
+    "mode": "extra",
+    "script": "await fs.symlink('missing', control + '/unknown-link');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_observation_failed:",
+    "control": "observation_failed",
+    "restore": false,
+    "retained": false,
+    "unix": true
+  },
+  {
+    "name": "restore-copy-failed",
+    "mode": "extra",
+    "script": "await fs.rm(control + '/control.txt'); await fs.mkdir(control + '/control.txt');",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_restore_failed:",
+    "control": "changed",
+    "restore": true,
+    "retained": false
+  },
+  {
+    "name": "restore-source-outside-namespace",
+    "mode": "extra",
+    "script": "await fs.writeFile(control + '/control.txt', 'changed'); const boundary = control + '/.commandagent/recovery-boundaries/attempt-0/workspace'; const foreign = control + '/.commandagent/foreign'; await fs.cp(boundary, foreign, {recursive:true}); await fs.rm(boundary, {recursive:true}); await fs.symlink(foreign, boundary);",
+    "outcome": "unavailable",
+    "reason": "preflight_control_source_restore_failed:",
+    "control": "changed",
+    "restore": false,
+    "retained": false,
+    "control_bytes_after": "changed",
+    "unix": true
+  }
+]

@@ -1,0 +1,19 @@
+case_id = "issue467-json-control"
+source = "Issue #467 exact T3 writer, executable structural minimum and preflight control audit"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+[compile]
+expect = "not_checked"
+[fixture_contains]
+historical/store.ts = ["process.pid", "fs.rename(tmp, DATA_FILE)"]
+probe.mjs = ["interaction_success=false", "persistence_not_evaluated:no_mutation_observed", "data/unregistered.json"]
+audit-cases.json = ["isolated-extra-and-control-changed", "observation-error-and-control-changed", "restore-original-hash-mismatch", "restore-copy-failed", "restore-source-outside-namespace"]
+recognition-and-stage.json = ["unknown", "GET /api/inquiries", "1185dd6d881d4d4842c6b31bb791a00d8b49bd8ba3f787dd89d2a00f0b640cc8"]
+observation-ids.json = ["attempt-0/workspace", "attempt-64/workspace", "attempt-128/workspace"]
