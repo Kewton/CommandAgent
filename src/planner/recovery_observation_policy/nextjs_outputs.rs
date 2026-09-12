@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::minimal_loop::completion::CompletionContract;
 
 mod forwarding;
+mod generic_renames;
 mod renames;
 mod syntax;
 use syntax::{Source, Token};
@@ -99,7 +100,15 @@ pub(super) fn registered_paths(
                 }
             }
         }
-        for output in source.writer_paths() {
+        // Exported generic helpers are only supported when all their references
+        // are local. Token-like words also reject opaque/unsupported importers.
+        let foreign_names = generic_renames::foreign_references(workspace, &path, &candidates)
+            .unwrap_or_else(|| {
+                (0..source.tokens.len())
+                    .filter_map(|i| source.identifier(i).map(str::to_owned))
+                    .collect()
+            });
+        for output in source.writer_paths_in_closure(&foreign_names) {
             let Some(output) = normalized_literal(&output) else {
                 continue;
             };
@@ -203,6 +212,7 @@ fn confined_path(root: &Path, relative: &Path) -> bool {
         current.push(part);
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => return false,
+            Ok(metadata) if current != root.join(relative) && !metadata.is_dir() => return false,
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return false,
@@ -231,7 +241,12 @@ struct Binding {
 }
 
 impl Source {
+    #[cfg(test)]
     fn writer_paths(&self) -> Vec<String> {
+        self.writer_paths_in_closure(&BTreeSet::new())
+    }
+
+    fn writer_paths_in_closure(&self, foreign_names: &BTreeSet<String>) -> Vec<String> {
         let mut bindings: BTreeMap<String, Vec<Binding>> = BTreeMap::new();
         for (name, value, position) in self.builtin_bindings() {
             bindings.entry(name).or_default().push(Binding {
@@ -268,6 +283,7 @@ impl Source {
         }
         paths.extend(self.forwarded_writer_paths(&bindings));
         paths.extend(self.renamed_paths(&bindings));
+        paths.extend(self.generic_rename_paths(&bindings, foreign_names));
         paths
     }
 
@@ -369,3 +385,6 @@ mod reopen_tests;
 
 #[cfg(test)]
 mod issue467_tests;
+
+#[cfg(test)]
+mod issue475_tests;

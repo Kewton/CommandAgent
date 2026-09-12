@@ -1,0 +1,44 @@
+{
+  "parent_commit": "593649601397034563f6da1d2007d7a30d8dbdf3",
+  "origin_develop": "e43b2d86760a77b5250afbb260106ea21abba947",
+  "source_hashes": {
+    "src/planner/auto_recovery.rs": "2da0d9856ed5c0b594861b8926ea5119977d3c4df4f677b4f0ed9fdb15206c92",
+    "src/planner/recovery_observation_policy/nextjs_outputs.rs": "325df0a62c67dd8bf74b313e4829582ba03366473c2cd209d0dd6333870b0086",
+    "src/planner/recovery_observation_policy/nextjs_outputs/forwarding.rs": "01ae2f28ee9cb15a28405541d257a160ed128bf5142c02fc8feca041b3dc6a59",
+    "src/planner/recovery_observation_policy/nextjs_outputs/syntax.rs": "5aafd077e563c06862f2bcd0794d121164e2368dcc8f55786b1fe3457cc95d60",
+    "src/planner/recovery_observation_policy/nextjs_outputs/syntax/lexer.rs": "6afd6f8fb4d8c2c3647b011dcd0f6fdc4d79adbd2ffe350480bf1e6e5cbb4070",
+    "src/planner/recovery_observation_policy/nextjs_outputs/syntax/lexer/template_reads.rs": "1a0153305544fd5bd6fe81d1f0983b86473ae8e12e8c04e43cff50693eb93ac2",
+    "src/planner/auto_recovery/issue475_tests.rs": "7cd7de87520af6660af125556202492fd2a3a03621a6a6971be3aadddadf5f01",
+    "src/planner/recovery_observation_policy/nextjs_outputs/generic_renames.rs": "99166e0756eb70a967fd3793b23e20dc6887c786c3b93749d0481f878187723e",
+    "src/planner/recovery_observation_policy/nextjs_outputs/issue475_tests.rs": "5860f9cb9102ea338cc0bde2c05466424a44fb7cf5e6a4406647e691be113d84",
+    "tests/corpus/apps/issue475-store-preflight/README.md": "8de7911bdd188fa91ef0cbe974fbb095dad4b19e0c2888f331c61e80ccb24ba8",
+    "tests/corpus/apps/issue475-store-preflight/baseline.json": "542ae98c83eed8d812fe6ccd133fac36020ec9427f8f914f4462815b06aeddbb",
+    "tests/corpus/apps/issue475-store-preflight/escaped-import-route.ts": "67a2d0edd8d2a35a13bb75491850629b0825d135f06b13b8f9baaf78e7ea4d19",
+    "tests/corpus/apps/issue475-store-preflight/expectations.toml": "352d5bd06f17c37350611db0339541788458bb5f0c723d1f0b9215dc7fd7b843",
+    "tests/corpus/apps/issue475-store-preflight/historical/src/app/api/projects/route.ts": "835e0be23f72f46c11e5f44f7dd60c67ad1ff87516ac99e1d774393581357294",
+    "tests/corpus/apps/issue475-store-preflight/historical/src/app/api/tasks/route.ts": "86a14a18f4abf935ae05b533051d94f0b982fdcae3394449c3a1faa7d5ede3c6",
+    "tests/corpus/apps/issue475-store-preflight/historical/src/lib/store.ts": "a151b7dce4b7e2f625ea7c8d47eab3afdea6bfd2827ec677fd744d920234139c",
+    "tests/corpus/apps/issue475-store-preflight/historical/src/lib/types.ts": "0cc9ff9c05066ecb5acce0a84a05b6712ad827ddf39fccb1ad74293fc8b55a6f",
+    "tests/corpus/apps/issue475-store-preflight/interaction.sh": "2926a37877df22e2b4f6f27bd83e79ae8c1599c05dc5d9bcd56676ed8aad66fd",
+    "tests/corpus/apps/issue475-store-preflight/observer.mjs": "8075b4b7033458f49e0890de60e539b69f242fa61ed89987b16cad9c1b75e83a",
+    "tests/corpus/apps/issue475-store-preflight/probe.mjs": "3d0c91e837764258ddc9d0cc51353ec4ad36e8011efd345393c2948373e346db",
+    "tests/corpus/apps/issue475-store-preflight/provenance.json": "bbfebd8f1083db8d0347dad69e20f5d993fa78c3460efab04e5a61f344e815f2"
+  },
+  "original_sources_rechecked": {
+    "src/lib/store.ts": "a151b7dce4b7e2f625ea7c8d47eab3afdea6bfd2827ec677fd744d920234139c",
+    "src/lib/types.ts": "0cc9ff9c05066ecb5acce0a84a05b6712ad827ddf39fccb1ad74293fc8b55a6f",
+    "src/app/api/projects/route.ts": "835e0be23f72f46c11e5f44f7dd60c67ad1ff87516ac99e1d774393581357294",
+    "src/app/api/tasks/route.ts": "86a14a18f4abf935ae05b533051d94f0b982fdcae3394449c3a1faa7d5ede3c6"
+  },
+  "original_central_events_sha256": "8671fd95b592b5fa9ef76266db161a5903806e0b1b9ca08d06c21ea70ea1be82",
+  "tool_versions": {
+    "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+    "cargo": "cargo 1.94.0 (85eff7c80 2026-01-15)",
+    "node": "v24.1.0"
+  },
+  "local_release": {
+    "version": "commandagent 0.1.0 59364960+dirty 2026-09-13T02:59:36+09:00",
+    "sha256": "14a8d617b014ca1ae9a2bf85e50535d8e5321eeab339809ffd3645a970c1742f",
+    "scope": "verified precommit worker tree; not integrated release"
+  }
+}
