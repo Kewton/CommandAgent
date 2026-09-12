@@ -1,3 +1,5 @@
+mod compound_hook;
+
 /// These exact scaffold assertions duplicate verify/verify_invariant's
 /// package-script checks. Keep executing them at the step boundary; the final
 /// profile gate enforces the same constraints without treating configuration
@@ -15,6 +17,9 @@ pub(crate) fn final_verifier_covers_command(goal: &str, command: &str) -> bool {
 /// owns a hook, and the client directive invariant is conditional on client APIs;
 /// neither justifies dropping an arbitrary path-specific source assertion.
 pub(crate) fn is_generated_hook_check(command: &str) -> bool {
+    if compound_hook::checked_path(command).is_some() {
+        return true;
+    }
     let Some((_, rest)) = command.split_once("readFileSync(\"") else {
         return false;
     };

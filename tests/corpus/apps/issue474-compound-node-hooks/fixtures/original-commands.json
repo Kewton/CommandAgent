@@ -1,0 +1,4 @@
+[
+  "npm run build",
+  "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+]

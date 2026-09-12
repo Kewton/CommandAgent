@@ -1,0 +1,15 @@
+case_id = "issue474-compound-node-hooks"
+source = "Issue #474 saved command; synthetic minimal structural source"
+required_paths = ["src/app/page.tsx"]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+verify_commands = ["node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""]
+acceptance_passed = true
+primary_reason = "pass"
+
+[weak_evidence]
+absent = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"

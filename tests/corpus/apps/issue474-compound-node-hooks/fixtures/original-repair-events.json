@@ -1,0 +1,120 @@
+[
+  {
+    "original_line": 437,
+    "event": "ultra_final_acceptance",
+    "cycle_index": 0,
+    "primary_reason": "weak_verification_evidence:node_smoke_without_assertion",
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ],
+    "weak_evidence_sources": [
+      {
+        "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\"",
+        "reason": "node_smoke_without_assertion",
+        "source": "contract_verify_command"
+      }
+    ]
+  },
+  {
+    "original_line": 440,
+    "event": "ultra_final_acceptance_failed",
+    "cycle_index": 0,
+    "primary_reason": "weak_verification_evidence:node_smoke_without_assertion"
+  },
+  {
+    "original_line": 441,
+    "event": "final_acceptance_repair_start",
+    "cycle_index": 1,
+    "selected_evidence_keys": [],
+    "selected_target": "src/app/api/projects/route.ts",
+    "selected_targets": [
+      "src/app/api/projects/route.ts",
+      "src/app/api/tasks/route.ts"
+    ],
+    "selection_reason": "repair_changed"
+  },
+  {
+    "original_line": 466,
+    "event": "ultra_final_acceptance",
+    "cycle_index": 1,
+    "primary_reason": "weak_verification_evidence:node_smoke_without_assertion",
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ],
+    "weak_evidence_sources": [
+      {
+        "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\"",
+        "reason": "node_smoke_without_assertion",
+        "source": "contract_verify_command"
+      }
+    ]
+  },
+  {
+    "original_line": 469,
+    "event": "final_acceptance_cycle_complete",
+    "cycle_index": 1,
+    "changed_paths": [
+      "src/app/api/projects/route.ts",
+      "src/app/api/tasks/route.ts"
+    ],
+    "remaining_keys": [],
+    "resolved_keys": [],
+    "ok": false
+  },
+  {
+    "original_line": 470,
+    "event": "final_acceptance_repair_start",
+    "cycle_index": 2,
+    "selected_evidence_keys": [],
+    "selected_target": "src/app/api/projects/route.ts",
+    "selected_targets": [
+      "src/app/api/projects/route.ts",
+      "src/app/api/tasks/route.ts"
+    ],
+    "selection_reason": "repair_changed"
+  },
+  {
+    "original_line": 494,
+    "event": "ultra_final_acceptance",
+    "cycle_index": 2,
+    "primary_reason": "implementation_compile_error: src/app/api/projects/route.ts:38:10 Type error: An expression of type 'void' cannot be tested for truthiness.; src/app/api/tasks/route.ts:112:10 TS1345: An expression of type 'void' cannot be tested for truthiness.; src/app/api/tasks/route.ts:159:10 TS1345: An expression of type 'void' cannot be tested for truthiness.",
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ],
+    "weak_evidence_sources": [
+      {
+        "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\"",
+        "reason": "node_smoke_without_assertion",
+        "source": "contract_verify_command"
+      }
+    ]
+  },
+  {
+    "original_line": 497,
+    "event": "final_acceptance_cycle_complete",
+    "cycle_index": 2,
+    "changed_paths": [
+      "src/app/api/projects/route.ts",
+      "src/app/api/tasks/route.ts"
+    ],
+    "remaining_keys": [],
+    "resolved_keys": [],
+    "ok": false
+  },
+  {
+    "original_line": 505,
+    "event": "ultra_final_acceptance",
+    "cycle_index": 2,
+    "primary_reason": "weak_verification_evidence:node_smoke_without_assertion",
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ],
+    "weak_evidence_sources": [
+      {
+        "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\"",
+        "reason": "node_smoke_without_assertion",
+        "source": "contract_verify_command"
+      }
+    ]
+  }
+]
