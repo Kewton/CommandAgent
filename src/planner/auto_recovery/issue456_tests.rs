@@ -703,7 +703,8 @@ mod tests {
 
             let mut missing = bound.clone();
             missing.completion_contract_path = None;
-            assert!(recovery_inspection::load(&missing).unwrap().is_none());
+            assert!(recovery_inspection::load(&missing).unwrap_err().to_string()
+                .contains("Recovery verifier contract missing"));
             let changed = root.path().join("changed-contract.json");
             std::fs::write(&changed, r#"{"verify_commands":["true"]}"#).unwrap();
             missing.completion_contract_path = Some(changed);

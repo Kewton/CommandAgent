@@ -40,7 +40,7 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_aut
 ) -> Result<StepPlanRunOutcome, StepPlanRunError> {
     let mut outcome = StepPlanRunOutcome::for_plan(plan);
     let overall_goal = overall_goal_override.unwrap_or(&plan.goal);
-    let report = crate::planner::lint::lint_plan_for_execution(plan, Some(&config.workspace_root));
+    let report = crate::planner::recovery_step_plan_binding::lint(config, plan, phase_scope);
     if !report.is_pass() {
         emit_planner_error_for_lint(config, "plan-file", &config.planner_model, &report, 0);
         if !lint_report_is_runtime_repairable_verifier_command(&report) {

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "original_intent": "create",
+  "original_goal": "Historical closed E group analogue",
+  "diagnostics": "E1/E2/E3 original obligation partially exists; full old proposal and model/host origin unknown",
+  "contract_sha256": "REBOUND_BY_TEST",
+  "instruction": "Preserve closed source obligations.",
+  "read_paths": [],
+  "scoped_reads": false,
+  "read_ranges": [],
+  "verifier_steps": [
+    {
+      "id": "create-check",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Create package.json and smoke-check.js. Preserve the original checks and nonzero failure conditions.",
+      "expected_paths": [
+        "package.json",
+        "smoke-check.js"
+      ],
+      "verify": [
+        "node smoke-check.js",
+        "node -p \"require('./package.json').scripts.build\""
+      ]
+    }
+  ]
+}

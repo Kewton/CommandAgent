@@ -2170,8 +2170,8 @@ fn is_line_count(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ShellWord {
-    value: String,
+pub(crate) struct ShellWord {
+    pub(crate) value: String,
     start: usize,
 }
 
@@ -2186,7 +2186,7 @@ struct GrepPattern {
     pattern: String,
 }
 
-fn shell_words_with_spans(command: &str) -> Option<Vec<ShellWord>> {
+pub(crate) fn shell_words_with_spans(command: &str) -> Option<Vec<ShellWord>> {
     let mut out = Vec::new();
     let mut current = String::new();
     let mut start = None;

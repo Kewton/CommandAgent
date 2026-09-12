@@ -8,6 +8,9 @@ use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 const INSPECTION_PHASE_ID: &str = "inspect-current-state";
 const CONTRACT_VERIFY_STEP_ID: &str = "recovery-contract-verify";
+pub(crate) mod admission;
+#[cfg(test)]
+mod issue466_tests;
 
 pub(crate) fn bind_generated(
     config: &Config,
@@ -20,7 +23,10 @@ pub(crate) fn bind_generated(
     if !crate::planner::recovery_inspection::has_origin(config)? {
         return Ok(false);
     }
-    bind_contract(config, phase_id, step_plan)
+    let mut bound = step_plan.clone();
+    let changed = bind_contract(config, phase_id, &mut bound)?;
+    *step_plan = bound;
+    Ok(changed)
 }
 
 pub(crate) fn is_host_owned_final_success_step(
@@ -67,7 +73,35 @@ fn bind_contract(
         }
         removed
     } else {
-        bind_final_success_verification(step_plan, &contract)
+        let preserved = crate::planner::recovery_inspection::verifier_obligations::bind(
+            config, &contract, step_plan,
+        )?;
+        let removed = bind_final_success_verification(step_plan, &contract);
+        for original in preserved {
+            if let Some(owner) = step_plan.steps.iter_mut().find(|s| s.id == original.id) {
+                owner.verify = original.verify;
+                owner.expected_result = original.expected_result;
+            }
+        }
+        if let Some(context) = crate::planner::recovery_inspection::load(config)? {
+            let final_step = step_plan
+                .steps
+                .last_mut()
+                .expect("host final verification was appended");
+            for original in &context.verifier_steps {
+                for check in &original.verify {
+                    if !final_step.verify.contains(check) {
+                        final_step.verify.push(check.clone());
+                    }
+                }
+                for path in &original.expected_paths {
+                    if !final_step.expected_paths.contains(path) {
+                        final_step.expected_paths.push(path.clone());
+                    }
+                }
+            }
+        }
+        removed
     };
     let bound_commands = commands(&step_plan.steps);
 
@@ -182,6 +216,60 @@ fn commands(steps: &[PlanStep]) -> Vec<String> {
         .iter()
         .flat_map(|step| step.verify.iter().cloned())
         .collect()
+}
+
+pub(crate) fn lint(
+    config: &Config,
+    plan: &StepPlan,
+    phase: Option<&str>,
+) -> crate::planner::lint::PlanLintReport {
+    let mut report =
+        crate::planner::lint::lint_plan_for_execution(plan, Some(&config.workspace_root));
+    let checked = (|| -> anyhow::Result<()> {
+        let Some(context) = crate::planner::recovery_inspection::load(config)? else {
+            return Ok(());
+        };
+        if context.verifier_steps.is_empty() || phase == Some(INSPECTION_PHASE_ID) {
+            return Ok(());
+        }
+        let contract = CompletionContract::load_for_config(config)?
+            .ok_or_else(|| anyhow::anyhow!("Recovery verifier contract missing"))?;
+        let mut rebound = plan.clone();
+        crate::planner::recovery_inspection::verifier_obligations::bind(
+            config,
+            &contract,
+            &mut rebound,
+        )?;
+        anyhow::ensure!(
+            rebound == *plan,
+            "Recovery verifier executing plan lost original requirements or producer binding"
+        );
+        let final_step = plan
+            .steps
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("Recovery final check missing"))?;
+        anyhow::ensure!(
+            final_step.step_kind() == StepKind::Verify
+                && final_step.expected_result == "pass"
+                && contract
+                    .verify_commands
+                    .iter()
+                    .all(|c| final_step.verify.contains(c))
+                && context.verifier_steps.iter().all(|s| s
+                    .verify
+                    .iter()
+                    .all(|c| final_step.verify.contains(c))
+                    && s.expected_paths
+                        .iter()
+                        .all(|p| final_step.expected_paths.contains(p))),
+            "Recovery verifier executing plan lost original final verification"
+        );
+        Ok(())
+    })();
+    if let Err(error) = checked {
+        report.push("recovery_verifier_binding", error.to_string());
+    }
+    report
 }
 
 #[cfg(test)]

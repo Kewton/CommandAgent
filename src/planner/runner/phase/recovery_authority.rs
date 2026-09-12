@@ -1,5 +1,4 @@
 use super::*;
-use crate::planner::step_plan::StepKind;
 
 pub(super) fn begin(
     config: &Config,
@@ -17,18 +16,7 @@ pub(super) fn begin(
 }
 
 pub(super) fn register_plan(config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
-    crate::planner::recovery_contract_authority::register_step_plan_commands(
-        config,
-        &plan
-            .steps
-            .iter()
-            .filter(|step| {
-                step.expected_result_kind() == crate::planner::step_plan::ExpectedResult::Pass
-                    && matches!(step.step_kind(), StepKind::Implement | StepKind::Verify)
-            })
-            .flat_map(|step| step.verify.iter().cloned())
-            .collect::<Vec<_>>(),
-    )
+    crate::planner::recovery_contract_authority::verifier_obligations::register(config, plan)
 }
 
 pub(super) fn initialize(
