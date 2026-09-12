@@ -7,8 +7,11 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::minimal_loop::completion::CompletionContract;
 
+mod local_script;
 #[path = "recovery_contract_authority/provenance.rs"]
 mod provenance;
+pub(crate) use local_script::local_script_path;
+pub(crate) mod verifier_obligations;
 pub(crate) use provenance::{RunAuthorityGuard, begin_run, enter_run, record_generated_contract};
 
 const ULTRA_RUN_CONTRACT: &str = "completion-contract-ultra-plan-run.json";

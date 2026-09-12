@@ -358,7 +358,7 @@ pub fn generate_step_plan_with_ui(
     generate_step_plan_with_ui_for_phase(client, goal, config, ui, None, false, false)
 }
 
-pub(super) fn generate_step_plan_with_ui_for_phase(
+pub(crate) fn generate_step_plan_with_ui_for_phase(
     client: &mut dyn ChatClient,
     goal: &str,
     config: &Config,
@@ -371,6 +371,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
         anyhow::bail!("interrupted by user");
     }
     let fix_before = crate::planner::fix_runtime::is_before_prompt(goal);
+    crate::planner::recovery_inspection::has_origin(config)?;
     let model = model_for(config, true);
     if phase_label.is_some()
         && let Some(plan) = deterministic_step_plan_for_phase(
@@ -398,6 +399,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
     let mut lint_categories_seen = BTreeSet::new();
     let mut empty_response_count = 0usize;
     let mut session_mode = PlannerSessionMode::Standard;
+    let mut admission = crate::planner::recovery_step_plan_binding::admission::Admission::default();
     for attempt in 1..=3 {
         let messages = step_plan_messages(&prompt);
         let reply =
@@ -445,6 +447,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
         }
         match parse_generated_step_plan_json_with_report(&reply.content, goal) {
             Ok((mut plan, generated_sanitization)) => {
+                let model_plan = plan.clone();
                 emit_planner_schema_field_defaults(
                     config,
                     client.label(),
@@ -500,11 +503,19 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     )
                 };
                 let recovery_contract_bound =
-                    crate::planner::recovery_step_plan_binding::bind_generated(
-                        config,
-                        phase_label,
-                        &mut plan,
-                    )?;
+                    match admission.check(config, phase_label, &model_plan, &mut plan, attempt)? {
+                        crate::planner::recovery_step_plan_binding::admission::Decision::Ready(
+                            bound,
+                        ) => bound,
+                        crate::planner::recovery_step_plan_binding::admission::Decision::Retry(
+                            feedback,
+                        ) => {
+                            last_valid_plan = None;
+                            prompt = feedback;
+                            session_mode = PlannerSessionMode::Standard;
+                            continue;
+                        }
+                    };
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
@@ -564,7 +575,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         }
                     }
                     emit_step_plan_presentation(phase_label, &plan, Some(&sanitizer_report));
-                    return Ok(plan);
+                    return admission.finish(config, phase_label, plan);
                 }
                 if let Some(plan) = last_valid_plan.clone() {
                     emit_planner_quality_retry_degraded(
@@ -577,7 +588,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     );
                     if attempt >= 3 {
                         emit_step_plan_presentation(phase_label, &plan, None);
-                        return Ok(plan);
+                        return admission.finish(config, phase_label, plan);
                     }
                     let message = lint_report.primary_message();
                     last_error = Some(message.clone());
@@ -612,7 +623,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         &err.to_string(),
                     );
                     if attempt >= 3 {
-                        return Ok(plan);
+                        return admission.finish(config, phase_label, plan);
                     }
                     last_error = Some(err.to_string());
                     prompt = build_schema_retry_prompt(goal, &err.to_string(), attempt);
@@ -636,7 +647,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
     }
     if let Some(plan) = last_valid_plan {
         emit_step_plan_presentation(phase_label, &plan, None);
-        return Ok(plan);
+        return admission.finish(config, phase_label, plan);
     }
     if empty_response_count == 3 {
         anyhow::bail!(
@@ -653,7 +664,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
             last_error.as_deref().unwrap_or("unknown parse error"),
         );
         emit_step_plan_presentation(phase_label, &plan, None);
-        return Ok(plan);
+        return admission.finish(config, phase_label, plan);
     }
     if let Some(report) = last_lint_report {
         return Err(anyhow::Error::new(
@@ -689,6 +700,7 @@ pub(super) fn deterministic_step_plan_for_phase(
     };
     let template_id = template.template_id;
     let mut plan = template.plan;
+    let model_plan = plan.clone();
     let verify_before_repair = collect_step_verify_commands(&plan);
     repair_generated_step_plan_contract(&mut plan);
     let verify_after_repair = collect_step_verify_commands(&plan);
@@ -710,7 +722,17 @@ pub(super) fn deterministic_step_plan_for_phase(
     );
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
-    crate::planner::recovery_step_plan_binding::bind_generated(config, phase_label, &mut plan)?;
+    if let crate::planner::recovery_step_plan_binding::admission::Decision::Retry(feedback) =
+        crate::planner::recovery_step_plan_binding::admission::Admission::default().check(
+            config,
+            phase_label,
+            &model_plan,
+            &mut plan,
+            1,
+        )?
+    {
+        anyhow::bail!("deterministic template requires explicit verifier scope: {feedback}");
+    }
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
     let mut lint_report =
         crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
@@ -2741,7 +2763,7 @@ pub(super) fn is_agent_metadata_entry(name: &str) -> bool {
     ) || name.starts_with("commandagent-eval-")
 }
 
-pub(super) fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
+pub(crate) fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
     let runtime = resolve_profile_runtime(&config.profile);
     let is_scaffold = plan.goal.to_ascii_lowercase().contains("scaffold");
     let Some(target_index) = plan

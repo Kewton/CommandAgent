@@ -88,6 +88,11 @@ pub(super) fn defer_contract_verification(
 }
 
 pub(super) fn obligation_feedback(config: &Config, options: &RunSessionOptions) -> Option<String> {
+    if let Some(feedback) =
+        crate::planner::recovery_inspection::verifier_obligations::authority::feedback(config)
+    {
+        return Some(feedback);
+    }
     options
         .recovery_obligation
         .as_ref()

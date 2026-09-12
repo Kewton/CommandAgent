@@ -13,6 +13,7 @@ use crate::tools::workspace_policy::{WorkspacePolicy, ensure_tool_path_allowed};
 
 use super::repair::RecoveryHandoff;
 mod source_reads;
+pub(crate) mod verifier_obligations;
 
 const CONTEXT_PATH: &str = ".commandagent/recovery-runtime/inspection-context.json";
 pub(crate) const PHASE: &str = "inspect-current-state";
@@ -32,6 +33,10 @@ pub(crate) struct InspectionContext {
     pub(crate) read_ranges: Vec<source_reads::SourceRead>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     repair_obligation: Option<super::recovery_repair_obligation::Obligation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) verifier_steps: Vec<crate::planner::step_plan::PlanStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    verifier_seal: Option<verifier_obligations::authority::Seal>,
 }
 
 /// Only the automatic transaction driver calls this after capturing a typed
@@ -136,6 +141,21 @@ pub(crate) fn bind_context(
         instruction.push_str(&source_reads::render(path, &content, &ranges));
         read_ranges.extend(ranges);
     }
+    let verifier_steps = inherited
+        .map(|c| c.verifier_steps.clone())
+        .unwrap_or_else(|| {
+            super::recovery_contract_authority::verifier_obligations::generated(source)
+        });
+    anyhow::ensure!(
+        inherited.is_none_or(|c| c.verifier_seal.is_some() || c.verifier_steps.is_empty()),
+        "unsealed legacy verifier obligations cannot acquire new host authority"
+    );
+    let verifier_seal = Some(verifier_obligations::authority::seal(
+        treatment,
+        &contract,
+        &verifier_steps,
+        inherited.and_then(|c| c.verifier_seal.as_ref()),
+    )?);
     let context = InspectionContext {
         version: 1,
         original_intent: intent.to_string(),
@@ -147,6 +167,8 @@ pub(crate) fn bind_context(
         scoped_reads,
         read_ranges,
         repair_obligation,
+        verifier_steps,
+        verifier_seal,
     };
     super::recovery_contract_binding::write_read_only_bytes(
         &root.join(CONTEXT_PATH),
@@ -158,7 +180,10 @@ pub(crate) fn bind_context(
 pub(crate) fn load(config: &Config) -> anyhow::Result<Option<InspectionContext>> {
     let raw_path = config.workspace_root.join(CONTEXT_PATH);
     match std::fs::symlink_metadata(&raw_path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            verifier_obligations::authority::validate(config, None)?;
+            return Ok(None);
+        }
         result => {
             result?;
         }
@@ -174,6 +199,10 @@ pub(crate) fn load(config: &Config) -> anyhow::Result<Option<InspectionContext>>
         bail!("Recovery inspection origin is invalid");
     }
     let Some(hash) = contract_hash(config)? else {
+        anyhow::ensure!(
+            context.verifier_seal.is_none(),
+            "Recovery verifier contract missing"
+        );
         return Ok(None);
     };
     if hash != context.contract_sha256 {
@@ -183,6 +212,7 @@ pub(crate) fn load(config: &Config) -> anyhow::Result<Option<InspectionContext>>
         config,
         context.repair_obligation.as_ref(),
     )?;
+    verifier_obligations::authority::validate(config, Some(&context))?;
     Ok(Some(context))
 }
 

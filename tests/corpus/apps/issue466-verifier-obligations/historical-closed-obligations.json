@@ -1,0 +1,65 @@
+[
+  {
+    "run_id": "E1",
+    "source_relative_to_trial": "sessions/01a09129-d71c-7720-8445-994f8a475283/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-runtime/inspection-context.json",
+    "source_context_sha256": "ab48bb45535d6464ab5c3f9794cda6b638dd6c59241ca04718f695c3872787cc",
+    "extraction": "verifier_steps copied exactly; other runtime/diagnostic fields excluded",
+    "proposal": "unknown",
+    "model_host_scope_origin": "unknown",
+    "verifier_steps": [
+      {
+        "id": "implement-smoke-check",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create smoke-check.js at workspace root. The script must: (1) require('node:assert/strict'); (2) const { execSync } = require('node:child_process'); const out = execSync('node -e \"const s=require(\\'./src/lib/store.js\\' + (require.extensions[\\'.ts\\']?'':''));\" 2>/dev/null || node --loader ts-node/esm -e \"\"', {stdio:'pipe'}).toString(); Instead, use a simpler approach: read src/lib/store.ts as text and assert it contains 'writeDepartments', 'writeExpenses', 'renameSync' (atomic write), and 'ENOENT' (missing-file handling). (3) Read src/lib/types.ts as text and assert it contains 'Department', 'Expense', 'DashboardStats'. (4) Read src/app/page.tsx as text and assert it contains 'data-anvil-action', 'data-anvil-state', 'use client', and 'fetch('. (5) Read src/app/api/expenses/[id]/approve/route.ts and assert it contains 'BUDGET_EXCEEDED' or 'remaining' and 'overage'. (6) Read src/app/api/dashboard/route.ts and assert it contains 'stats'. (7) Read package.json and assert scripts.build === 'next build' and scripts.dev contains '60302'. (8) If any assertion fails, process.exit(1). Use require('node:fs').readFileSync for each check.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer.",
+        "expected_paths": [
+          "smoke-check.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ]
+  },
+  {
+    "run_id": "E2",
+    "source_relative_to_trial": "sessions/01a09173-8d2a-76d3-a0eb-0ef23e2b677a/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-runtime/inspection-context.json",
+    "source_context_sha256": "9cd5f9360e619b9496bc43da81849b194c8040f122f5e15e56dde6ef2d3e6ca6",
+    "extraction": "verifier_steps copied exactly; other runtime/diagnostic fields excluded",
+    "proposal": "unknown",
+    "model_host_scope_origin": "unknown",
+    "verifier_steps": [
+      {
+        "id": "create-smoke-check",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create smoke-check.js at the workspace root. The file must use require('node:assert/strict') to assert ALL of the following conditions with nonzero exit on any failure: (1) src/lib/types.ts file content includes the strings 'Department' and 'ExpenseClaim'. (2) src/lib/storage.ts file content includes 'rename' and 'ENOENT'. (3) For each of the six API route paths (src/app/api/departments/route.ts, src/app/api/departments/[id]/route.ts, src/app/api/expenses/route.ts, src/app/api/expenses/[id]/route.ts, src/app/api/expenses/[id]/approve/route.ts, src/app/api/expenses/[id]/reject/route.ts), the file exists and its content includes the string 'lib/types'. (4) src/app/page.tsx content includes 'data-anvil-action', 'data-anvil-state', 'lib/types', \"use client\", and at least one of the Japanese labels '申請', '承認', or '却下'. Each check must use assert.ok with a descriptive message so that a false condition causes a nonzero exit code. End the file with console.log('All smoke checks passed.') only after all assertions succeed.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer.",
+        "expected_paths": [
+          "smoke-check.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ]
+  },
+  {
+    "run_id": "E3",
+    "source_relative_to_trial": "sessions/01a09238-79b0-7ed0-a63e-664148cc51b7/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-runtime/inspection-context.json",
+    "source_context_sha256": "33c67f0cb5f5faae80c62b2febefc9310608fcb7b997046ecdd2222fccb50c58",
+    "extraction": "verifier_steps copied exactly; other runtime/diagnostic fields excluded",
+    "proposal": "unknown",
+    "model_host_scope_origin": "unknown",
+    "verifier_steps": [
+      {
+        "id": "implement-smoke-check",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create smoke-check.js at workspace root. The script must: (1) read src/app/api/departments/route.ts and assert it contains at least one of 'store' or 'getDepartments' or 'createDepartment' using assert.ok; (2) read src/app/api/departments/[id]/route.ts and assert it contains at least one of 'store' or 'getDepartment' or 'updateDepartment' using assert.ok; (3) read src/app/api/expenses/route.ts and assert it contains 'store' or 'getExpenses' or 'createExpense' using assert.ok; (4) read src/app/api/expenses/[id]/approve/route.ts and assert it contains 'approveExpense' or 'store' using assert.ok; (5) read src/app/api/expenses/[id]/reject/route.ts and assert it contains 'rejectExpense' or 'store' using assert.ok; (6) read src/app/page.tsx and assert it contains 'data-anvil-action' using assert.ok; (7) read src/lib/store.ts and assert it contains 'rename' or 'atomic' or 'tmp' using assert.ok. Use const assert = require('node:assert/strict'); at the top. On any failed assertion the process exits nonzero. End with console.log('all smoke checks passed') on success.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer.",
+        "expected_paths": [
+          "smoke-check.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ]
+  }
+]

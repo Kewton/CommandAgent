@@ -11,6 +11,7 @@ struct GeneratedAuthority {
     expected_run_path: PathBuf,
     run_path: Option<PathBuf>,
     step_path: Option<PathBuf>,
+    verifier_steps: Vec<crate::planner::step_plan::PlanStep>,
 }
 
 thread_local! {
@@ -66,6 +67,28 @@ pub(crate) fn record_generated_contract(config: &Config, scope: &str, path: &Pat
 
 pub(super) fn owns_run_contract(path: &Path) -> bool {
     owns_contract(path, false)
+}
+
+pub(super) fn verifier_steps(config: &Config) -> Vec<crate::planner::step_plan::PlanStep> {
+    if !has_run_scope(config) {
+        return Vec::new();
+    }
+    GENERATED_AUTHORITY.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|s| s.verifier_steps.clone())
+            .unwrap_or_default()
+    })
+}
+
+pub(super) fn set_verifier_steps(config: &Config, steps: Vec<crate::planner::step_plan::PlanStep>) {
+    if has_run_scope(config) {
+        GENERATED_AUTHORITY.with(|s| {
+            if let Some(s) = s.borrow_mut().as_mut() {
+                s.verifier_steps = steps;
+            }
+        });
+    }
 }
 
 pub(super) fn owns_step_contract(path: &Path) -> bool {

@@ -135,7 +135,7 @@ use acceptance::*;
 
 #[path = "runner/driver.rs"]
 mod driver;
-use driver::*;
+pub(crate) use driver::*;
 pub use driver::{
     generate_and_run_step_plan, generate_and_run_step_plan_with_ui, generate_step_plan,
     generate_step_plan_with_ui, run_plan_file, run_plan_file_with_ui, run_step_plan,
