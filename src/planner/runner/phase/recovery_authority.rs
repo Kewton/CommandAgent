@@ -54,3 +54,11 @@ mod issue435_tests;
 #[cfg(test)]
 #[path = "flow/issue439_tests.rs"]
 mod issue439_tests;
+
+#[cfg(test)]
+#[path = "flow/issue474_tests.rs"]
+mod issue474_tests;
+
+#[cfg(test)]
+#[path = "../../final_acceptance/issue474_tests.rs"]
+mod issue474_acceptance_tests;

@@ -1,0 +1,86 @@
+[
+  {
+    "name": "shell-mask",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\" || true"
+  },
+  {
+    "name": "shell-pipeline",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\" | cat"
+  },
+  {
+    "name": "shell-second-command",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\"; true"
+  },
+  {
+    "name": "swallowed-exception",
+    "command": "node -e \"try{const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')}catch(e){}\""
+  },
+  {
+    "name": "uncalled-function",
+    "command": "node -e \"function unused(){const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')}\""
+  },
+  {
+    "name": "missing-state-predicate",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');console.log('ok')\""
+  },
+  {
+    "name": "duplicate-state-predicate",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "always-success",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(false && !s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(false && !s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(false && !s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "print-only",
+    "command": "node -e \"console.log('ok')\""
+  },
+  {
+    "name": "unknown-script",
+    "command": "node unknown-hook-check.js"
+  },
+  {
+    "name": "eval-alias",
+    "command": "node --eval \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "eval-assignment",
+    "command": "node --eval=\"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "preloaded-node-option",
+    "command": "node --no-warnings -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "alternate-format",
+    "command": "node -e \"const fs = require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "different-binding",
+    "command": "node -e \"const files=require('fs');const s=files.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "computed-predicate",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-'+'state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "traversal-path",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('../src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "absolute-path",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('/tmp/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "path-prefix-dot",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')\""
+  },
+  {
+    "name": "second-read",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action=\\\"primary\\\"'))throw new Error('missing primary');if(!s.includes('data-anvil-action=\\\"input\\\"'))throw new Error('missing input');if(!s.includes('data-anvil-state'))throw new Error('missing state');fs.readFileSync('src/other.tsx','utf8');console.log('ok')\""
+  },
+  {
+    "name": "alternate-shell-quoting",
+    "command": "node -e 'const fs=require('\"'\"'fs'\"'\"');const s=fs.readFileSync('\"'\"'src/app/page.tsx'\"'\"','\"'\"'utf8'\"'\"');if(!s.includes('\"'\"'data-anvil-action=\"primary\"'\"'\"'))throw new Error('\"'\"'missing primary'\"'\"');if(!s.includes('\"'\"'data-anvil-action=\"input\"'\"'\"'))throw new Error('\"'\"'missing input'\"'\"');if(!s.includes('\"'\"'data-anvil-state'\"'\"'))throw new Error('\"'\"'missing state'\"'\"');console.log('\"'\"'ok'\"'\"')'"
+  }
+]

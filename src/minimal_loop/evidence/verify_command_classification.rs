@@ -130,3 +130,7 @@ pub(crate) fn single_command_words(command: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 #[path = "verify_command_classification/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "verify_command_classification/issue474_tests.rs"]
+mod issue474_tests;
