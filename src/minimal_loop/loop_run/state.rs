@@ -1,3 +1,4 @@
+pub(super) use super::recoverable_tool_errors::RecoverableToolErrorState;
 use super::*;
 
 #[derive(Debug, Default)]
@@ -97,43 +98,6 @@ impl ArtifactRecoveryState {
 
     pub(super) fn record_action(&mut self, action: &str) {
         self.last_model_action = Some(action.to_string());
-    }
-}
-
-#[derive(Debug, Default)]
-pub(super) struct RecoverableToolErrorState {
-    key: Option<String>,
-    repeats: usize,
-}
-
-impl RecoverableToolErrorState {
-    pub(super) fn record(&mut self, tool_name: &str, err: &anyhow::Error) -> usize {
-        if crate::tools::placeholder_path::is_placeholder_rejection(tool_name, err) {
-            return 0;
-        }
-        let kind = tool_error_kind(err);
-        let key = if let Some(access) = crate::tools::hidden_path::access_from_error(err) {
-            format!("hidden_path:{}", access.path)
-        } else if kind == "command_timeout" {
-            format!(
-                "{tool_name}:{kind}:{}",
-                command_timeout_similarity_key(&err.to_string())
-            )
-        } else {
-            format!("{tool_name}:{kind}:{err}")
-        };
-        if self.key.as_deref() == Some(key.as_str()) {
-            self.repeats += 1;
-        } else {
-            self.key = Some(key);
-            self.repeats = 1;
-        }
-        self.repeats
-    }
-
-    pub(super) fn reset(&mut self) {
-        self.key = None;
-        self.repeats = 0;
     }
 }
 

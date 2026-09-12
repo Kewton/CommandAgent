@@ -183,8 +183,13 @@ impl ToolRegistry {
             }
             "Read" => {
                 let raw = required_string(arguments, "path")?;
-                let path =
-                    resolve_policy_checked_path(context, "Read", raw, PathResolution::Existing)?;
+                let failure = super::read_missing::ReadFailureContext::capture(context, raw);
+                let path = resolve_policy_checked_path(
+                    context,
+                    "Read",
+                    raw,
+                    PathResolution::Read(&failure),
+                )?;
                 let start_line = optional_usize(arguments, "start_line");
                 let end_line = optional_usize(arguments, "end_line");
                 let decision = self
@@ -213,7 +218,8 @@ impl ToolRegistry {
                             start_line,
                             end_line,
                             context.workspace_policy,
-                        )?;
+                        )
+                        .map_err(|error| failure.classify(error, Some(&path)))?;
                         self.repeated_reads().record_full_read(pending, &output);
                         Ok(output)
                     }
@@ -290,9 +296,9 @@ impl ToolRegistry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PathResolution {
-    Existing,
+#[derive(Clone, Copy)]
+enum PathResolution<'a> {
+    Read(&'a super::read_missing::ReadFailureContext),
     Create,
 }
 
@@ -300,10 +306,10 @@ fn resolve_policy_checked_path(
     context: &ToolContext,
     tool: &str,
     raw: &str,
-    resolution: PathResolution,
+    resolution: PathResolution<'_>,
 ) -> anyhow::Result<PathBuf> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
-    if matches!(resolution, PathResolution::Existing)
+    if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
         && let Some(fallback) = required_path_suffix_fallback(&normalized, &context.expected_paths)
         && context.root.join(&fallback).exists()
@@ -325,7 +331,12 @@ fn resolve_policy_checked_path(
         context.workspace_policy,
     )?;
     let path = match resolution {
-        PathResolution::Existing => resolve_existing(&context.root, &normalized)?,
+        PathResolution::Read(failure) => {
+            #[cfg(test)]
+            super::read_missing::test_hook::after_path_selection(context, &normalized);
+            resolve_existing(&context.root, &normalized)
+                .map_err(|error| failure.classify_lookup(error, &normalized))?
+        }
         PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
@@ -616,6 +627,9 @@ pub fn required_string<'a>(value: &'a Value, key: &str) -> anyhow::Result<&'a st
 }
 
 pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
+    if super::read_missing::from_error(err).is_some() {
+        return "read_path_missing";
+    }
     let message = err.to_string();
     if message.starts_with("missing string argument `") {
         "missing_arg"
@@ -674,6 +688,9 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
 }
 
 pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
+    if super::read_missing::from_error(err).is_some() {
+        return true;
+    }
     if super::hidden_path::access_from_error(err).is_some() {
         return true;
     }

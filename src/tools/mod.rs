@@ -14,6 +14,7 @@ pub mod offline_policy;
 pub mod path_guard;
 pub(crate) mod placeholder_path;
 pub mod read;
+pub(crate) mod read_missing;
 pub mod registry;
 mod repeated_read;
 pub mod workspace_policy;

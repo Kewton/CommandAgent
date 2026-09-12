@@ -330,7 +330,7 @@ fn split_absolute_glob_base(raw: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn strip_redundant_root_prefix(root: &Path, raw: &str) -> PathBuf {
+pub(super) fn strip_redundant_root_prefix(root: &Path, raw: &str) -> PathBuf {
     let path = Path::new(raw);
     let Some(root_name) = root.file_name() else {
         return path.to_path_buf();
