@@ -3,6 +3,8 @@ use std::{collections::BTreeSet, iter::Peekable, str::Chars};
 
 use super::Token;
 
+mod template_reads;
+
 fn dynamic_evaluation(tokens: &[Token]) -> bool {
     tokens.iter().any(|token| {
         matches!(token, Token::Word(name) | Token::String(name)
@@ -91,6 +93,9 @@ fn scan(chars: &mut Peekable<Chars<'_>>, interpolation: bool, depth: u8) -> Opti
                                 return None;
                             }
                             unsafe_names.extend(names);
+                            if template_reads::is_process_id_read(&inner) {
+                                continue;
+                            }
                             unsafe_names.extend(inner.iter().enumerate().filter_map(
                                 |(i, token)| {
                                     // A property name such as ALLOWED_ROLES.join is

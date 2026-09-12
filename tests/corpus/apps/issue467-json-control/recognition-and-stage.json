@@ -1,0 +1,130 @@
+{
+  "historical_first_write_stage": "unknown",
+  "historical_interaction_success": false,
+  "historical_persistence": "persistence_not_evaluated:no_mutation_observed",
+  "recognizer_before_fix": {
+    "actual_t3": [],
+    "only_pid_replaced_with_123": [
+      "data/inquiries.json"
+    ],
+    "process_unsafe_actual": true,
+    "process_unsafe_pid_literal": false,
+    "source_sha256": "522e6f0190e06a0b9d3edf37a0aa0991d7c469837d0a7ac280bc19c40f720567"
+  },
+  "parent_new_replay": {
+    "source": "CommandAgent-develop/workspace/management/runs/20260912-recovery-t3-stage-replay-01",
+    "build_exit_code": 0,
+    "after_build": {
+      "exists": false
+    },
+    "after_start_without_http": {
+      "exists": false
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/",
+        "status": 200,
+        "before": {
+          "exists": false
+        },
+        "after": {
+          "exists": false
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/inquiries",
+        "status": 200,
+        "before": {
+          "exists": false
+        },
+        "after": {
+          "exists": true,
+          "bytes": 2380,
+          "sha256": "1185dd6d881d4d4842c6b31bb791a00d8b49bd8ba3f787dd89d2a00f0b640cc8",
+          "counts": {
+            "inquiries": 3,
+            "assignees": 2
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/inquiries",
+        "status": 201,
+        "before": {
+          "exists": true,
+          "bytes": 2380,
+          "sha256": "1185dd6d881d4d4842c6b31bb791a00d8b49bd8ba3f787dd89d2a00f0b640cc8",
+          "counts": {
+            "inquiries": 3,
+            "assignees": 2
+          }
+        },
+        "after": {
+          "exists": true,
+          "bytes": 2806,
+          "sha256": "93b50dab38ed0f274ba2936d9023c203fb0dc9e762802e83c12d957f9f78e454",
+          "counts": {
+            "inquiries": 4,
+            "assignees": 2
+          }
+        }
+      }
+    ],
+    "first_write_in_this_replay": "GET /api/inquiries",
+    "ui_interaction": "not_evaluated",
+    "restart_persistence": "not_evaluated"
+  },
+  "preservation_check": {
+    "source_records_verified": 48,
+    "central_event_unchanged": true,
+    "historical_json_unchanged": true,
+    "control_json_absent": true
+  },
+  "policy_baseline_comparison": [
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_configs.rs",
+      "sha256": "2dcc27c95176b3e55d0fafc9876fc138fca809cbf9d20428df51d1c03fef00fa"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs.rs",
+      "sha256": "f1f0d1894595e01ffea9d6b2ab37ca7617fb3c2589a6fd44a70ddb08e5ac358c"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/forwarding.rs",
+      "sha256": "ac147129fe247d5e3e0368cfb485b20a08168ba38537d2754c9edc4447f1e31d"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/renames.rs",
+      "sha256": "4698149e194af15e0506b35d2b2353be80ca0cda18cf14e63acccf467f0b82c3"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/renames/tests.rs",
+      "sha256": "8c284ead200a01210f2cad786aabf50802997110920aa12127ebf6c31df639a4"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/reopen_tests.rs",
+      "sha256": "e6c17a41a732a77ec46ad99231948ba1e9326c10b80edd65a66919b16b796722"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/syntax.rs",
+      "sha256": "2bf0c3076e1b67ebc0aa3e8c10c1c5f30b85d83f5b808e81048779ea7dfaa58c"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/syntax/lexer.rs",
+      "sha256": "0891f12c734c23677113ab254a9ab877990bb8a75ca7a9c41dcd14fb2e927c80"
+    },
+    {
+      "path": "src/planner/recovery_observation_policy/nextjs_outputs/tests.rs",
+      "sha256": "d30d155143ad8474c6c98d173a7985afd8fedc124ca9ed80d0f7621043a122d3"
+    }
+  ],
+  "read_only_parent_inputs": {
+    "20260912-recovery-t3-stage-replay-01/README.md": "c57def51fdbe7bb8ff02c319ccb3dcf8a295c7ccd6b55a8a6bb292e2bc89a40a",
+    "20260912-recovery-t3-stage-replay-01/build-result.json": "f291a4c2dd08d62ac47ab49a087afdc2062273f66a85eeeb618d942b65b48f71",
+    "20260912-recovery-t3-stage-replay-01/runtime-result.json": "b1dbe0caa6851c2f117338631f1615c4d7fdfdfbe3cb7aebba3f9cd9d9459831",
+    "20260912-recovery-t3-stage-replay-01/verification.json": "2e74c614c1392fc930f76241b8eb0e31090390fdeca81d3254f49979b58c3c00"
+  }
+}

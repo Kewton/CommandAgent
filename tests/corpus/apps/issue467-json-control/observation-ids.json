@@ -1,0 +1,5 @@
+[
+  {"checkpoint_attempt":0, "observation_id":".commandagent/recovery-boundaries/attempt-0/workspace"},
+  {"checkpoint_attempt":64, "observation_id":".commandagent/recovery-boundaries/attempt-64/workspace"},
+  {"checkpoint_attempt":128, "observation_id":".commandagent/recovery-boundaries/attempt-128/workspace"}
+]

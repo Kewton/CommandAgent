@@ -15,6 +15,8 @@ use crate::planner::ultra_plan::UltraPlan;
 use crate::providers::ChatClient;
 use crate::tui::InteractionUi;
 
+mod preflight_audit;
+mod preflight_effects;
 mod retry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -849,9 +851,31 @@ fn recovery_preflight(
             };
         }
     };
+    preflight_audit::run(config, &checkpoint, || {
+        recovery_preflight_observation(
+            config,
+            candidate,
+            checkpoint_attempt,
+            &checkpoint,
+            &contract,
+            capability_commands,
+            nextjs_observer_required,
+        )
+    })
+}
+
+fn recovery_preflight_observation(
+    config: &Config,
+    candidate: &RecoveryCandidate,
+    checkpoint_attempt: u8,
+    checkpoint: &crate::planner::recovery_snapshot::RecoveryBoundarySnapshot,
+    contract: &crate::minimal_loop::completion::CompletionContract,
+    capability_commands: Vec<String>,
+    nextjs_observer_required: bool,
+) -> RecoveryPreflight {
     let observation = match crate::planner::recovery_snapshot::prepare_preflight_observation(
         &config.workspace_root,
-        &checkpoint,
+        checkpoint,
         checkpoint_attempt,
     ) {
         Ok(observation) => observation,
@@ -872,7 +896,7 @@ fn recovery_preflight(
         };
     observation_config.eval_events_path = None;
     let effect_policy = crate::planner::recovery_observation_policy::RecoveryObservationPolicy::for_contract_at_workspace(
-        &contract,
+        contract,
         &observation,
     );
     crate::eval_events::emit(
@@ -882,7 +906,7 @@ fn recovery_preflight(
             "source": "product_visible_completion_contract",
             "allowed_generated_paths": &effect_policy.allowed_generated_paths,
             "protected_change_disposition": "reject_and_retain_control",
-            "registered_data_input_fixture": crate::planner::recovery_observation_policy::registered_data_input_fixture(&contract),
+            "registered_data_input_fixture": crate::planner::recovery_observation_policy::registered_data_input_fixture(contract),
             "external_oracle_used": false,
         }),
     );
@@ -898,15 +922,24 @@ fn recovery_preflight(
                 };
             }
         };
+    let mut effects = preflight_effects::Effects::new(
+        config,
+        &observation,
+        &effect_policy.allowed_generated_paths,
+        checkpoint,
+    );
     let nextjs_observer_result = if nextjs_observer_required {
         Some(observe_nextjs_recovery_capabilities(
             config,
-            &contract,
+            contract,
             &observation,
         ))
     } else {
         None
     };
+    if nextjs_observer_required {
+        effects.record("nextjs_capabilities");
+    }
     let mut verify_commands = contract.verify_commands.clone();
     for command in capability_commands {
         push_unique(&mut verify_commands, command);
@@ -931,6 +964,7 @@ fn recovery_preflight(
         config.offline,
         None,
     );
+    effects.record("registered_verification");
     let completion_acceptance = if report.is_pass() {
         Some(
             crate::planner::runner::recovery_acceptance::runtime_acceptance_report(
@@ -941,6 +975,9 @@ fn recovery_preflight(
     } else {
         None
     };
+    if completion_acceptance.is_some() {
+        effects.record("completion_acceptance");
+    }
     let observed_sha256 = crate::planner::recovery_snapshot::current_preflight_source_sha256(
         &observation,
         &effect_policy.allowed_generated_paths,
@@ -958,23 +995,10 @@ fn recovery_preflight(
             reason: format!("preflight_source_observation_failed:{error}"),
         };
     }
-    match crate::planner::recovery_snapshot::current_source_sha256(&config.workspace_root) {
-        Ok(hash) if hash == checkpoint.snapshot_sha256 => {}
-        Ok(_) => {
-            let reason = match crate::planner::recovery_snapshot::restore_transaction(
-                &config.workspace_root,
-                &checkpoint,
-            ) {
-                Ok(_) => "preflight_control_source_mutation_rejected_and_restored".to_string(),
-                Err(error) => format!("preflight_control_source_restore_failed:{error}"),
-            };
-            return RecoveryPreflight::Unavailable { reason };
-        }
-        Err(error) => {
-            return RecoveryPreflight::Unavailable {
-                reason: format!("preflight_control_source_observation_failed:{error}"),
-            };
-        }
+    if let Some(error) = effects.error {
+        return RecoveryPreflight::Unavailable {
+            reason: format!("preflight_effect_observation_failed:{error}"),
+        };
     }
     if let Some(Err(outcome)) = nextjs_observer_result {
         return outcome;
@@ -984,7 +1008,7 @@ fn recovery_preflight(
             Ok(acceptance)
                 if completion_acceptance_passes_after_registered_observation(
                     &acceptance,
-                    &contract,
+                    contract,
                 ) =>
             {
                 RecoveryPreflight::CurrentSuccess {
@@ -1902,6 +1926,10 @@ mod tests {
 
     mod issue456 {
         include!("auto_recovery/issue456_tests.rs");
+    }
+
+    mod issue467 {
+        include!("auto_recovery/issue467_tests.rs");
     }
 
     mod issue440 {

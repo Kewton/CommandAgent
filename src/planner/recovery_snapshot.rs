@@ -87,6 +87,20 @@ pub(crate) fn current_source_sha256(root: &Path) -> anyhow::Result<String> {
     content_sha256(&root, &files)
 }
 
+/// Per-file evidence uses exactly the source snapshot's confinement and private
+/// file exclusions. It supplements, and never substitutes for, its digest gate.
+pub(crate) fn source_file_sha256(root: &Path) -> anyhow::Result<BTreeMap<String, String>> {
+    files_by_relative_path(root)?
+        .into_iter()
+        .map(|(relative, path)| {
+            Ok((
+                display_relative(&relative),
+                format!("{:x}", Sha256::digest(std::fs::read(path)?)),
+            ))
+        })
+        .collect()
+}
+
 /// Hash source/config state while ignoring runtime evidence emitted by a
 /// read-only Recovery observation. Evidence is intentionally retained in the
 /// observation workspace for audit, but it must not make an otherwise
