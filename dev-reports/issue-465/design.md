@@ -79,3 +79,23 @@ historical evidence edit, live runtime edit or plugin-cache change.
   This does not freeze the inventory of verifier scripts, so a registered missing
   smoke producer remains possible. Add an executable config-sensitive Runner
   negative and retain the producer / genuine-source-repair positive controls.
+
+## PR #469 Linux acceptance follow-up design (before test edits)
+
+The Linux log at `workspace/management/runs/20260912-recovery-product465-publication-01/acceptance-failed.log`
+in the original develop worktree is read-only evidence (SHA-256
+`cc351df6a4d98b43ffa47332ce6b28ae28892bf67f761978a6198c9cc9ee3b52`).
+The old assertion scans every prompt/message for English `private` or `hidden`.
+Hidden-path feedback is localized; on macOS the workspace's `/private/` prefix
+can satisfy the assertion without proving the Write rejection.
+
+Keep this follow-up on `b60ae3e63a0eb23cdf40cf52057b995bde08f8ca` in the Issue #465
+worktree. A fresh `git fetch --no-tags origin develop` still resolves develop to
+`e99f1ebe1e777fb792a9343407736ca754e41bdf`. No #466 changes are incorporated.
+Replace the broad text scan with exact structured events from the real Runner:
+the single attempted Write must produce hidden-path feedback for the exact host
+record and a workspace-policy validation error, with no successful Write event.
+Keep byte preservation and successful later repair assertions and require their
+event order. This is a test-evidence correction; no production change is needed.
+Run focused real-path tests, fmt/clippy, full tests and available Linux validation;
+update reports and commit without publishing.

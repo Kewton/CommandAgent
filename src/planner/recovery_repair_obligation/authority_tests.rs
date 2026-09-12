@@ -10,7 +10,6 @@ fn issue465_tool_write_cannot_replace_host_record_and_repair_can_still_proceed()
         fix_store(),
         AssistantReply::text("Repaired"),
     ]);
-    let requests = replay.requests.clone();
     let result =
         crate::planner::run_step_plan_with_ui(&mut replay, &plan(), &config, &crate::tui::NOOP_UI);
     assert!(result.is_ok(), "{result:?}");
@@ -18,22 +17,56 @@ fn issue465_tool_write_cannot_replace_host_record_and_repair_can_still_proceed()
         std::fs::read(config.workspace_root.join(RECORD)).unwrap(),
         record
     );
-    let messages = requests
-        .lock()
-        .unwrap()
+    // Prove the actual Write was rejected. Prompt text is not tool evidence,
+    // and a macOS /private/ workspace can accidentally match English keywords.
+    let log = events(&config);
+    let writes: Vec<_> = log
         .iter()
-        .flatten()
-        .map(|message| message.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
+        .enumerate()
+        .filter(|(_, e)| e["event"] == "tool_call_raw" && e["name"] == "Write")
+        .collect();
+    assert_eq!(writes.len(), 1);
+    let hidden: Vec<_> = log
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e["event"] == "hidden_path_feedback")
+        .collect();
+    assert_eq!(hidden.len(), 1);
+    let (hidden_index, rejection) = hidden[0];
+    assert_eq!(rejection["tool"], "Write");
+    assert_eq!(rejection["path"], RECORD);
+    assert_eq!(rejection["attempt"], 1);
+    let denied_index = log
+        .iter()
+        .position(|e| {
+            e["event"] == "tool_validation_error"
+                && e["name"] == "Write"
+                && e["error_kind"] == "workspace_policy_blocked"
+                && e["repeat_count"] == 1
+        })
+        .expect("Write must return the workspace policy rejection");
     assert!(
-        messages.contains("private") || messages.contains("hidden"),
-        "{messages}"
+        !log.iter().any(|e| {
+            e["event"] == "tool_execute" && e["name"] == "Write" && e["status"] == "ok"
+        })
     );
+    let blocked_index = log
+        .iter()
+        .position(|e| e["reason"] == "recovery_repair_unresolved")
+        .unwrap();
+    let edit_index = log
+        .iter()
+        .position(|e| e["event"] == "tool_execute" && e["name"] == "Edit" && e["status"] == "ok")
+        .expect("the later related-store repair must execute successfully");
+    let resolved_index = log
+        .iter()
+        .position(|e| {
+            e["event"] == "recovery_repair_obligation_observed" && e["status"] == "resolved"
+        })
+        .expect("fresh target confirmation must resolve the repair");
+    assert!(writes[0].0 < hidden_index && hidden_index < denied_index);
     assert!(
-        events(&config)
-            .iter()
-            .any(|e| e["reason"] == "recovery_repair_unresolved")
+        denied_index < blocked_index && blocked_index < edit_index && edit_index < resolved_index
     );
 }
 

@@ -2,6 +2,9 @@
 
 - Status: `passed`
 
+The latest test-only PR #469 follow-up is recorded at the end of this report.
+The original implementation/release measurements below are retained separately.
+
 ## Checks
 
 - `git merge-base --is-ancestor origin/develop HEAD`: `passed`
@@ -119,3 +122,60 @@ and promotion gates remain necessary.
 Historical workspace evidence, live `.anvil`, plugin caches, and the original
 develop worktree were not edited. Reports contain summarized results, not raw
 runtime logs. No push, PR, merge, Issue mutation or other-worker message was sent.
+
+## PR #469 Linux acceptance follow-up
+
+Parent commit: `b60ae3e63a0eb23cdf40cf52057b995bde08f8ca`. A fresh required fetch
+still resolved origin/develop to `e99f1ebe1e777fb792a9343407736ca754e41bdf`.
+Only the existing Write-rejection test and these Issue reports changed. There
+are no production, corpus, dependency-lock, or #466 changes.
+
+### Checks
+
+- `cargo test --lib issue465_tool_write_cannot_replace_host_record_and_repair_can_still_proceed -- --nocapture > /private/tmp/issue465-ci-focused.log 2>&1`: `passed`
+- `cargo test --lib issue465 -- --nocapture > /private/tmp/issue465-ci-replay.log 2>&1`: `passed`
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings > /private/tmp/issue465-ci-clippy.log 2>&1`: `passed`
+- `cargo test > /private/tmp/issue465-ci-full-test.log 2>&1`: `passed`
+- `docker run --rm --network none --mount type=bind,src=/Users/maenokota/share/work/github_kewton/CommandAgent-issue-465-cli-recovery-api-cat,dst=/work,readonly --mount type=bind,src=/private/tmp/issue465-linux-ci,dst=/verification --workdir /work --env CARGO_HOME=/verification/cargo --env CARGO_TARGET_DIR=/verification/target --env CARGO_BUILD_JOBS=4 --entrypoint sh commandagent-issue-28-devcontainer-final:latest -c 'cargo test --offline --lib issue465 -- --nocapture' > /private/tmp/issue465-ci-linux.log 2>&1`: `passed`
+- `shasum -a 256 /Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260912-recovery-product465-publication-01/acceptance-failed.log`: `passed`
+- `git merge-base --is-ancestor origin/develop HEAD`: `passed`
+- `git diff --check`: `passed`
+
+The specific native replay passed. Both macOS and Linux focused suites passed
+23 tests with zero failures and two opt-in compiler tests ignored. Those two
+compiler tests were not rerun for this test-only correction; their original real
+TypeScript/Next.js measurements remain above. Native full verification passed
+2,517 library tests (19 default ignored), every integration target including
+corpus and guardrails, and both doc tests, with process exit 0. Fmt and all-target
+clippy passed. Production is unchanged, so no new release artifact is claimed.
+
+Linux focused verification used the existing `linux/arm64` development image
+`sha256:1a6975b3f496ef49fab46a8723fc9f37ec54312fb96512a4a0663e1cce13ebc9`,
+with Cargo 1.97.1 and Node v24.18.0. The workspace was mounted read-only at `/work`,
+the test candidates used Linux temporary directories, and compilation/testing ran
+without network access. This is local Linux focused verification, not a claim
+that the GitHub Ubuntu acceptance job or its Python/shell stages were rerun.
+
+The first offline Linux attempt could not compile because the copied native Cargo
+cache lacked `linux-raw-sys` 0.4.15 and 0.12.1. A separate temporary container ran
+`cargo fetch --locked --target aarch64-unknown-linux-gnu` into the dedicated
+`/private/tmp/issue465-linux-ci/cargo` cache. The subsequent offline test command
+listed above passed. The original Cargo cache was only mounted read-only for its
+copy, and no shared service was changed.
+
+The preserved CI log failed only at the broad English keyword assertion. Its
+preceding successful-Runner and identical-record-byte assertions passed. The
+replacement now verifies this exact event sequence from the real Runner:
+
+1. One `tool_call_raw` event for Write.
+2. One `hidden_path_feedback` event for Write, the exact
+   `.commandagent/recovery-runtime/repair-obligation.json` path, and attempt 1.
+3. `tool_validation_error` for Write with
+   `error_kind=workspace_policy_blocked` and repeat count 1; no successful Write.
+4. Unresolved repair, then successful Edit, then fresh resolved-repair evidence.
+
+The same replay still requires unchanged host-record bytes and successful later
+repair. No prompt language or absolute temporary-directory spelling contributes
+to these assertions. The failure log's SHA-256 was identical before and after:
+`cc351df6a4d98b43ffa47332ce6b28ae28892bf67f761978a6198c9cc9ee3b52`.

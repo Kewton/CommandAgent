@@ -90,3 +90,20 @@ Source preservation is a bounded conservative check, combined with the original
 registered verifier; it is not a proof of arbitrary program equivalence or business
 correctness. The measured cases cover call deletion, commented calls, type suppression,
 configuration exclusion and early failures. Final acceptance remains necessary.
+
+## PR #469 Linux acceptance test correction
+
+The former host-record Write test searched all conversation text for `private` or
+`hidden`. Localized denial guidance contained neither English word, while the
+macOS workspace prefix `/private/` could satisfy the assertion accidentally.
+Linux acceptance exposed this test-evidence defect after the successful-repair
+and unchanged-record assertions had already passed.
+
+Only `authority_tests.rs` changes in this follow-up. It now requires exactly one
+real Write attempt, exactly one `hidden_path_feedback` event for the host-record
+path and Write tool, and `tool_validation_error` with
+`error_kind=workspace_policy_blocked`. It prohibits successful Write events and
+checks the sequence from rejection through unresolved repair, successful related
+Edit and fresh resolution. The original byte-preservation and Runner-success
+assertions remain. No production behavior, event schema, corpus, or #466 work is
+changed; the original Linux failure log is preserved.
