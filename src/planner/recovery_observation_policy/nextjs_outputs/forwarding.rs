@@ -1,12 +1,12 @@
 //! One local function boundary, with module-constant actual arguments only.
 use super::*;
 
-struct Helper<'a> {
-    name: &'a str,
-    name_position: usize,
-    parameters: Vec<(usize, &'a str)>,
-    body_start: usize,
-    body_end: usize,
+pub(super) struct Helper<'a> {
+    pub(super) name: &'a str,
+    pub(super) name_position: usize,
+    pub(super) parameters: Vec<(usize, &'a str)>,
+    pub(super) body_start: usize,
+    pub(super) body_end: usize,
 }
 
 impl Source {
@@ -109,7 +109,7 @@ impl Source {
         paths
     }
 
-    fn writer_helper(&self, declaration: usize) -> Option<Helper<'_>> {
+    pub(super) fn writer_helper(&self, declaration: usize) -> Option<Helper<'_>> {
         if !self.is(declaration, "function") || self.scopes[declaration] != 0 {
             return None;
         }

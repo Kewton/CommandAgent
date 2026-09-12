@@ -12,7 +12,7 @@ fn dynamic_evaluation(tokens: &[Token]) -> bool {
     })
 }
 
-type Lexed = (Vec<Token>, BTreeSet<String>);
+type Lexed = (Vec<Token>, BTreeSet<String>, BTreeSet<String>);
 
 pub(super) fn lex(text: &str) -> Option<Lexed> {
     let result = scan(&mut text.chars().peekable(), false, 0)?;
@@ -25,6 +25,7 @@ fn scan(chars: &mut Peekable<Chars<'_>>, interpolation: bool, depth: u8) -> Opti
     }
     let mut tokens = Vec::new();
     let mut unsafe_names = BTreeSet::new();
+    let mut basename_receivers = BTreeSet::new();
     let mut braces = 0usize;
     let mut separated_by_newline = false;
     while let Some(ch) = chars.next() {
@@ -86,14 +87,19 @@ fn scan(chars: &mut Peekable<Chars<'_>>, interpolation: bool, depth: u8) -> Opti
                         '`' => break,
                         '$' if chars.peek() == Some(&'{') => {
                             chars.next();
-                            let (inner, names) = scan(chars, true, depth + 1)?;
+                            let (inner, names, receivers) = scan(chars, true, depth + 1)?;
                             // String arguments to dynamic evaluators can mutate
                             // identities absent from the visible Word tokens.
                             if dynamic_evaluation(&inner) {
                                 return None;
                             }
                             unsafe_names.extend(names);
+                            basename_receivers.extend(receivers);
                             if template_reads::is_process_id_read(&inner) {
+                                continue;
+                            }
+                            if let Some(receiver) = template_reads::basename_receiver(&inner) {
+                                basename_receivers.insert(receiver);
                                 continue;
                             }
                             unsafe_names.extend(inner.iter().enumerate().filter_map(
@@ -153,7 +159,9 @@ fn scan(chars: &mut Peekable<Chars<'_>>, interpolation: bool, depth: u8) -> Opti
                 braces += 1;
                 tokens.push(Token::Symbol(ch));
             }
-            '}' if interpolation && braces == 0 => return Some((tokens, unsafe_names)),
+            '}' if interpolation && braces == 0 => {
+                return Some((tokens, unsafe_names, basename_receivers));
+            }
             '}' => {
                 braces = braces.checked_sub(1)?;
                 tokens.push(Token::Symbol(ch));
@@ -162,7 +170,7 @@ fn scan(chars: &mut Peekable<Chars<'_>>, interpolation: bool, depth: u8) -> Opti
         }
         separated_by_newline = false;
     }
-    (!interpolation && braces == 0).then_some((tokens, unsafe_names))
+    (!interpolation && braces == 0).then_some((tokens, unsafe_names, basename_receivers))
 }
 
 fn words(text: &str) -> impl Iterator<Item = String> + '_ {

@@ -1932,6 +1932,10 @@ mod tests {
         include!("auto_recovery/issue467_tests.rs");
     }
 
+    mod issue475 {
+        include!("auto_recovery/issue475_tests.rs");
+    }
+
     mod issue440 {
         include!("auto_recovery/issue440_tests.rs");
     }

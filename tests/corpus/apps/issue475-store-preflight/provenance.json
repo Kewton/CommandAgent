@@ -1,0 +1,11 @@
+{
+  "session": "01a09547-4028-7ab2-a414-e55cec73e2cf",
+  "historical_operation": "unknown",
+  "historical_stage": "nextjs_capabilities",
+  "sources": {
+    "src/lib/store.ts": "a151b7dce4b7e2f625ea7c8d47eab3afdea6bfd2827ec677fd744d920234139c",
+    "src/lib/types.ts": "0cc9ff9c05066ecb5acce0a84a05b6712ad827ddf39fccb1ad74293fc8b55a6f",
+    "src/app/api/projects/route.ts": "835e0be23f72f46c11e5f44f7dd60c67ad1ff87516ac99e1d774393581357294",
+    "src/app/api/tasks/route.ts": "86a14a18f4abf935ae05b533051d94f0b982fdcae3394449c3a1faa7d5ede3c6"
+  }
+}

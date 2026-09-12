@@ -22,7 +22,7 @@ pub(super) struct Source {
 
 impl Source {
     pub(super) fn parse(text: &str) -> Option<Self> {
-        let (tokens, opaque_names) = lexer::lex(text)?;
+        let (tokens, opaque_names, basename_receivers) = lexer::lex(text)?;
         let mut source = Self {
             tokens,
             scopes: Vec::new(),
@@ -46,6 +46,26 @@ impl Source {
         source.reject_ambiguous_bindings();
         source.unsafe_names.extend(opaque_names.iter().cloned());
         source.opaque_names = opaque_names;
+        // A fake/reassigned/shadowed basename receiver is executable unknown
+        // code, not a harmless diagnostic read. Reject the whole module.
+        for receiver in basename_receivers {
+            let bindings = source.builtin_bindings();
+            if source.unsafe_names.contains(&receiver)
+                || bindings
+                    .iter()
+                    .filter(|(name, _, _)| name == &receiver)
+                    .count()
+                    != 1
+                || !bindings
+                    .iter()
+                    .any(|(name, value, _)| name == &receiver && matches!(value, Value::PathModule))
+                || (0..source.tokens.len()).any(|i| {
+                    source.is(i, "const") && source.identifier(i + 1) == Some(receiver.as_str())
+                })
+            {
+                return None;
+            }
+        }
         Some(source)
     }
 
