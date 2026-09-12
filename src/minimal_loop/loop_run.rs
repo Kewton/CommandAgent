@@ -1029,7 +1029,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                 implementation_completion.feedback(config, &options, write_or_edit_seen)
             {
                 session.messages.pop();
-                last_blocking_reason = Some("implementation_scaffold_placeholder".to_string());
+                last_blocking_reason =
+                    Some(ImplementationCompletion::blocking_reason(&feedback).to_string());
                 pending_feedback = Some(feedback);
                 continue;
             }
@@ -1957,7 +1958,8 @@ pub(crate) fn run_session_with_outcome_with_options(
             if let Some(feedback) =
                 implementation_completion.feedback(config, &options, write_or_edit_seen)
             {
-                last_blocking_reason = Some("implementation_scaffold_placeholder".to_string());
+                last_blocking_reason =
+                    Some(ImplementationCompletion::blocking_reason(&feedback).to_string());
                 pending_feedback = Some(feedback);
                 continue;
             }

@@ -1,0 +1,11 @@
+case_id = "issue465-repair-obligation"
+source = "Executable S3 caller/definition analogue; deterministic Runner and loop replays"
+required_paths = ["cases.json", "original/src/api.js", "original/src/store.js", "original/checks/target.js", "config-sensitive-check.js"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["existing required_paths", "Edit anchor not found", "related store default argument", "pending"]
+original/checks/target.js = ["POST({hours: 8})", "POST({hours: 9})", "POST({hours: 0})"]
+config-sensitive-check.js = ["ignoreBuildErrors", "Skipping type checking", "await import('./target.js')"]

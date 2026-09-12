@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "issue465_short_circuit_tests.rs"]
+mod issue465;
+
 pub(super) struct ShortCircuitContext<'a> {
     pub(super) verify_attempts: &'a mut usize,
     pub(super) at: StepShortCircuitAt,

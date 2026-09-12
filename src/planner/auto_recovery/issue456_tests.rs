@@ -516,7 +516,11 @@ mod tests {
             assert!(outcome.result.is_err());
             let events =
                 std::fs::read_to_string(config.eval_events_path.as_ref().unwrap()).unwrap();
-            assert!(events.contains("recovery_host_final_success_verification_failed"));
+            // #465 rejects at the repair step, retaining the registered failure
+            // instead of spending the rest of the candidate before final verify.
+            assert!(events.contains("recovery_repair_unresolved"));
+            assert!(events.contains("command failed: false"));
+            assert!(!events.contains("\"status\":\"resolved\""));
             assert!(driver.finish(1, &candidate, outcome).result.is_err());
             assert!(
                 std::fs::read_to_string(root.path().join(API))

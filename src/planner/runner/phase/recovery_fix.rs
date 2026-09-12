@@ -87,9 +87,49 @@ pub(super) fn defer_contract_verification(
     }
 }
 
+pub(super) fn obligation_feedback(config: &Config, options: &RunSessionOptions) -> Option<String> {
+    options
+        .recovery_obligation
+        .as_ref()
+        .and_then(|o| o.feedback(config, options))
+}
+
+pub(super) fn verify_obligation(
+    config: &Config,
+    options: &RunSessionOptions,
+    report: &mut VerificationReport,
+) {
+    if let Some(feedback) = obligation_feedback(config, options) {
+        report.push_command_failure("recovery-repair-obligation", feedback);
+    }
+}
+
 impl BoundRecoveryFix<'_> {
-    pub(super) fn requires_write(&self) -> bool {
-        self.requires_write
+    #[allow(clippy::result_large_err)]
+    pub(super) fn configure(
+        &self,
+        plan: &crate::planner::step_plan::StepPlan,
+        step: &PlanStep,
+        options: RunSessionOptions,
+        synthesized_precheck: bool,
+    ) -> Result<RunSessionOptions, StepRunError> {
+        let mut options = options
+            .with_required_write_for_action_prompt(self.requires_write)
+            .with_required_mutation_before_short_circuit(
+                synthesized_precheck || self.requires_write,
+            );
+        defer_contract_verification(&mut options, self.requires_write);
+        crate::planner::recovery_repair_obligation::configure(
+            self.config,
+            plan,
+            step,
+            &mut options,
+        )
+        .map_err(|error| StepRunError {
+            message: format!("Recovery repair binding failed: {error}"),
+            outcome: StepRunOutcome::default(),
+        })?;
+        Ok(options)
     }
 
     pub(super) fn local_repair_turns(&self, default: usize) -> usize {

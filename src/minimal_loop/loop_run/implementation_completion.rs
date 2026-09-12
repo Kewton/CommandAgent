@@ -20,6 +20,14 @@ pub(super) struct ImplementationCompletion {
 }
 
 impl ImplementationCompletion {
+    pub(super) fn blocking_reason(feedback: &str) -> &'static str {
+        if feedback.starts_with("Recovery repair remains unresolved:") {
+            "recovery_repair_unresolved"
+        } else {
+            "implementation_scaffold_placeholder"
+        }
+    }
+
     pub(super) fn capture(config: &Config, options: &RunSessionOptions, paths: &[String]) -> Self {
         if options.step_kind != Some(RunSessionStepKind::Implement) {
             return Self::default();
@@ -89,7 +97,9 @@ impl ImplementationCompletion {
             "scaffold_placeholder_paths": placeholders,
             "expected_path_hashes": hashes,
             "changed_paths": changed,
-            "satisfaction_basis": if !placeholders.is_empty() {
+            "satisfaction_basis": if options.recovery_obligation.as_ref().is_some_and(|o| o.pending()) {
+                "recovery_confirmation_pending"
+            } else if !placeholders.is_empty() {
                 "unsatisfied_scaffold_placeholder"
             } else if changed.is_empty() {
                 "verified_existing_artifacts"
@@ -105,6 +115,11 @@ impl ImplementationCompletion {
         options: &RunSessionOptions,
         write_seen: bool,
     ) -> Option<String> {
+        if let Some(obligation) = &options.recovery_obligation
+            && let Some(feedback) = obligation.feedback(config, options)
+        {
+            return Some(feedback);
+        }
         let paths = self.placeholder_paths(&config.workspace_root);
         if paths.is_empty() {
             return None;

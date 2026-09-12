@@ -1154,7 +1154,7 @@ pub(super) fn run_step(
     let recovery_fix = recovery_fix::bind(&step_config, step, prompt_context, setup_authority)
         .map_err(|err| *err)?;
     let local_repair_turns = recovery_fix.local_repair_turns(STEP_REPAIR_MAX_TURNS);
-    let mut step_options = step_run_session_options(
+    let step_options = step_run_session_options(
         plan,
         step,
         contract_enforcement,
@@ -1163,19 +1163,15 @@ pub(super) fn run_step(
     )
     .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
         config.resolved_intent(&prompt_context.overall_goal),
-    ))
-    .with_required_write_for_action_prompt(recovery_fix.requires_write())
-    .with_required_mutation_before_short_circuit(
-        synthesized_precheck || recovery_fix.requires_write(),
-    );
-    recovery_fix::defer_contract_verification(&mut step_options, recovery_fix.requires_write());
+    ));
+    let step_options = recovery_fix.configure(plan, step, step_options, synthesized_precheck)?;
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
     let verify_first_applicable = host_owned_recovery_verify
         || data_pre_satisfied
             .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
     if verify_first_applicable {
-        let (report, build_lifecycles) = verify_step_completion_observed(
+        let (mut report, build_lifecycles) = verify_step_completion_observed(
             config,
             &prompt_context.overall_goal,
             &runtime_step,
@@ -1183,6 +1179,7 @@ pub(super) fn run_step(
             phase_scope,
             setup_authority,
         );
+        recovery_fix::verify_obligation(&step_config, &step_options, &mut report);
         apply_runtime_command_normalizations(&mut runtime_step, &report);
         for lifecycle in &build_lifecycles {
             emit_dependency_build_lifecycle(
@@ -1343,6 +1340,7 @@ pub(super) fn run_step(
         setup_authority,
     );
     recovery_fix.merge_verification(&mut report, &initial_changed_paths);
+    recovery_fix::verify_obligation(&step_config, &step_options, &mut report);
     apply_runtime_command_normalizations(&mut runtime_step, &report);
     for lifecycle in &build_lifecycles {
         emit_dependency_build_lifecycle(
@@ -1622,6 +1620,7 @@ pub(super) fn run_step(
                 config.eval_events_path.as_deref(),
             );
             recovery_fix.merge_verification(&mut retry, &context.changed_files);
+            recovery_fix::verify_obligation(&step_config, &step_options, &mut retry);
             apply_runtime_command_normalizations(&mut runtime_step, &retry);
             context.verify_commands = runtime_step.verify.clone();
             recovery_fix.merge_verify_commands(&mut context.verify_commands);
