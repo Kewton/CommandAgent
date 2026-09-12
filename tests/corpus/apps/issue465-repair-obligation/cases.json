@@ -1,0 +1,13 @@
+{
+  "origin": "create",
+  "diagnostic": "src/api.js:4:10: validateShift requires 2 arguments; the caller supplies 1",
+  "required_paths": ["src/api.js"],
+  "verify_commands": ["node checks/target.js"],
+  "replay_conditions": ["existing required_paths", "observe", "verify deferred", "Edit anchor not found", "cat succeeds"],
+  "blocked": ["cat", "distinct cat strings", "Read", "same-content Write", "unrelated Write", "smoke-only Write", "assistant final", "call deletion", "commented-out call", "diagnostic suppression", "type cast bypass", "compiler exclusion", "verifier rewrite", "early verifier failure", "stale pass", "path existence only"],
+  "allowed": ["API edit", "Bash API edit", "related store default argument", "fresh no-edit confirmation after prior repair", "related dependent steps pending then confirmed"],
+  "interim_review_controls": ["API repair then missing verifier producer then final Verify", "as const", "import alias", "unused helper cleanup", "./src/api.js owner", "omitted owner paths", "generated JSON changes with unchanged source hash", "post-step regression"],
+  "host_record_controls": ["Write tool private-path rejection", "Bash unlinks host record but completion fails", "next Runner rejects missing record", "replaced contents", "foreign attempt with same contract", "record and inspection context both deleted", "captured continuation preserves original evidence and changes attempt identity"],
+  "configuration_controls": ["absent next.config.js then new typescript.ignoreBuildErrors=true", "registered check passes but Runner rejects unchanged API", "new ignored and nested compiler config", "symlinked compiler config", "genuine related-store fix preserves original conditions", "missing smoke producer still allowed", "explicit real Next.js build bypass replay"],
+  "oracle": "An executable JavaScript analogue of S3's caller/definition arity defect. The frozen check invokes the actual API with positive and negative values; it does not infer success from diagnostic disappearance or source text. A separate strict TypeScript fixture and required explicit compiler replay verify the actual arity diagnostic."
+}

@@ -64,6 +64,7 @@ pub(crate) struct RunSessionOptions {
     pub repair_target_priority: crate::planner::repair_targeting::RepairTargetPriority,
     pub require_mutation_before_contract_short_circuit: bool,
     pub escalation_carryover: Option<EscalationCarryoverHandle>,
+    pub recovery_obligation: crate::planner::recovery_repair_obligation::RepairObligation,
 }
 
 impl Default for RunSessionOptions {
@@ -85,6 +86,7 @@ impl Default for RunSessionOptions {
             repair_target_priority: Default::default(),
             require_mutation_before_contract_short_circuit: false,
             escalation_carryover: None,
+            recovery_obligation: None,
         }
     }
 }

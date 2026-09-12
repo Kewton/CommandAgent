@@ -523,6 +523,7 @@ fn run_with_ui(
     }
 
     let _recovery_authority = crate::planner::recovery_contract_authority::begin_run(config);
+    let _repair_authority = crate::planner::recovery_repair_obligation::authority::begin_run();
 
     emit(
         config,

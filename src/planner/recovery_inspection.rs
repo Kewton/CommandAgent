@@ -30,6 +30,8 @@ pub(crate) struct InspectionContext {
     pub(crate) read_paths: Vec<String>,
     pub(crate) scoped_reads: bool,
     pub(crate) read_ranges: Vec<source_reads::SourceRead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    repair_obligation: Option<super::recovery_repair_obligation::Obligation>,
 }
 
 /// Only the automatic transaction driver calls this after capturing a typed
@@ -89,6 +91,14 @@ pub(crate) fn bind_context(
                 .all(|path| source_reads::supports(Path::new(path)))
         };
     let mut targets = targets;
+    let repair_obligation = super::recovery_repair_obligation::bind(
+        source,
+        treatment,
+        &targets,
+        &handoff_prompt(Some(&source.workspace_root), handoff),
+        &contract,
+        inherited.and_then(|context| context.repair_obligation.as_ref()),
+    )?;
     if let Some(context) = &inherited {
         targets.extend(context.read_paths.iter().cloned());
     }
@@ -136,6 +146,7 @@ pub(crate) fn bind_context(
         read_paths,
         scoped_reads,
         read_ranges,
+        repair_obligation,
     };
     super::recovery_contract_binding::write_read_only_bytes(
         &root.join(CONTEXT_PATH),
@@ -168,6 +179,10 @@ pub(crate) fn load(config: &Config) -> anyhow::Result<Option<InspectionContext>>
     if hash != context.contract_sha256 {
         bail!("Recovery inspection contract changed");
     }
+    super::recovery_repair_obligation::authority::validate_context(
+        config,
+        context.repair_obligation.as_ref(),
+    )?;
     Ok(Some(context))
 }
 
@@ -225,7 +240,11 @@ fn workspace_target(root: Option<&Path>, raw: &str) -> Option<String> {
     Some(raw)
 }
 
-fn related_paths(root: &Path, targets: &[String], contract: &CompletionContract) -> Vec<String> {
+pub(super) fn related_paths(
+    root: &Path,
+    targets: &[String],
+    contract: &CompletionContract,
+) -> Vec<String> {
     let mut pending: Vec<_> = targets
         .iter()
         .chain(&contract.required_paths)
