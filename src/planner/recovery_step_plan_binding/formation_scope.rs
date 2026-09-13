@@ -1,0 +1,121 @@
+//! Provenance captured at the actual profile mutation boundary, before
+//! sanitization or preset conversion can erase an implementation duty.
+use super::*;
+use crate::planner::recovery_contract_authority::verifier_obligations as scope;
+use crate::planner::recovery_inspection::verifier_obligations::{FailureClass, failure};
+
+pub(crate) struct ProfileAddition {
+    model: PlanStep,
+    host: PlanStep,
+}
+
+impl ProfileAddition {
+    pub(crate) fn new(model: PlanStep, augmented: &PlanStep, guidance: String) -> Self {
+        let mut paths: Vec<_> = augmented
+            .expected_paths
+            .iter()
+            .filter(|p| !model.expected_paths.contains(p))
+            .cloned()
+            .collect();
+        // Without a new output, retain the original owner's output boundary.
+        // Text on an unrelated owner must not discharge the host's duty.
+        if paths.is_empty() {
+            paths = model.expected_paths.clone();
+        }
+        let host = PlanStep {
+            id: model.id.clone(),
+            kind: augmented.kind.clone(),
+            expected_result: augmented.expected_result.clone(),
+            instruction: guidance,
+            expected_paths: paths,
+            verify: Vec::new(),
+        };
+        Self { model, host }
+    }
+
+    pub(crate) fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        super::admission::preserve(
+            &StepPlan {
+                goal: plan.goal.clone(),
+                steps: vec![self.host.clone()],
+            },
+            plan,
+        )
+    }
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct FormationScope {
+    model: StepPlan,
+    host: StepPlan,
+}
+
+impl FormationScope {
+    pub(crate) fn capture(plan: &StepPlan, addition: Option<&ProfileAddition>) -> Self {
+        let mut model = plan.clone();
+        let mut host = StepPlan {
+            goal: plan.goal.clone(),
+            steps: Vec::new(),
+        };
+        if let Some(addition) = addition {
+            if let Some(step) = model.steps.iter_mut().find(|s| s.id == addition.model.id) {
+                *step = addition.model.clone();
+            }
+            if !addition.host.instruction.is_empty() || !addition.host.expected_paths.is_empty() {
+                host.steps.push(addition.host.clone());
+            }
+        }
+        Self { model, host }
+    }
+
+    pub(crate) fn preserve(&self, original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
+        super::admission::preserve(&self.model, proposed)?;
+        super::admission::preserve(&self.host, proposed)?;
+        preserve_boundaries(original, proposed)
+    }
+}
+
+fn preserve_boundaries(original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
+    let mut preceding_outputs = Vec::new();
+    for step in &original.steps {
+        // Explicit Verify steps often have no expected_paths. Retain their
+        // original order relative to all preceding executable output owners.
+        for command in &step.verify {
+            if !proposed.steps.iter().enumerate().any(|(index, candidate)| {
+                matches!(
+                    candidate.step_kind(),
+                    StepKind::Implement | StepKind::Verify
+                ) && candidate.expected_result == step.expected_result
+                    && candidate.verify.contains(command)
+                    && preceding_outputs.iter().all(|path| {
+                        proposed
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, owner)| {
+                                matches!(owner.step_kind(), StepKind::Implement | StepKind::Setup)
+                                    && owner
+                                        .expected_paths
+                                        .iter()
+                                        .any(|p| scope::normalized(p).ok().as_ref() == Some(path))
+                            })
+                            .all(|(owner_index, _)| owner_index < index)
+                    })
+            }) {
+                return Err(failure(
+                    FailureClass::ProposalRepairable,
+                    format!("formation moved original check before its output owners: {command}"),
+                ));
+            }
+        }
+        if matches!(step.step_kind(), StepKind::Implement | StepKind::Setup) {
+            preceding_outputs.extend(
+                step.expected_paths
+                    .iter()
+                    .map(|p| scope::normalized(p))
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            );
+        }
+    }
+    Ok(())
+}

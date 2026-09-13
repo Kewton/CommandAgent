@@ -1,0 +1,10 @@
+[
+  "delete_assertion",
+  "change_result",
+  "missing_output",
+  "unrelated_owner",
+  "delete_check",
+  "change_check_result",
+  "check_before_smoke",
+  "check_before_application"
+]

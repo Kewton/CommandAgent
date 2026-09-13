@@ -467,7 +467,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     &verify_before_repair,
                     &verify_after_repair,
                 );
-                strengthen_step_plan_for_profile(&mut plan, config);
+                admission.strengthen(config, &mut plan);
                 let python_cli_canonicalized =
                     crate::planner::python_cli_plan_synthesis::canonicalize_implementation_plan(
                         &mut plan,
@@ -712,7 +712,8 @@ pub(super) fn deterministic_step_plan_for_phase(
         &verify_before_repair,
         &verify_after_repair,
     );
-    strengthen_step_plan_for_profile(&mut plan, config);
+    let mut admission = crate::planner::recovery_step_plan_binding::admission::Admission::default();
+    admission.strengthen(config, &mut plan);
     repair_generated_step_plan_contract(&mut plan);
     let _ = resolve_profile_runtime(&config.profile).canonicalize_create_plan(
         &mut plan,
@@ -723,13 +724,7 @@ pub(super) fn deterministic_step_plan_for_phase(
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
     if let crate::planner::recovery_step_plan_binding::admission::Decision::Retry(feedback) =
-        crate::planner::recovery_step_plan_binding::admission::Admission::default().check(
-            config,
-            phase_label,
-            &model_plan,
-            &mut plan,
-            1,
-        )?
+        admission.check(config, phase_label, &model_plan, &mut plan, 1)?
     {
         anyhow::bail!("deterministic template requires explicit verifier scope: {feedback}");
     }
@@ -2761,39 +2756,6 @@ pub(super) fn is_agent_metadata_entry(name: &str) -> bool {
         name,
         ".git" | ".commandagent" | ".anvil" | ".codex" | ".agents" | "target" | ".DS_Store"
     ) || name.starts_with("commandagent-eval-")
-}
-
-pub(crate) fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
-    let runtime = resolve_profile_runtime(&config.profile);
-    let is_scaffold = plan.goal.to_ascii_lowercase().contains("scaffold");
-    let Some(target_index) = plan
-        .steps
-        .iter()
-        .rposition(|step| matches!(step.step_kind(), StepKind::Setup | StepKind::Implement))
-        .or_else(|| {
-            is_scaffold.then(|| {
-                plan.steps
-                    .iter()
-                    .rposition(|step| step.step_kind() == StepKind::Report)
-            })?
-        })
-    else {
-        return;
-    };
-    let target = &mut plan.steps[target_index];
-    if is_scaffold {
-        for path in runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal) {
-            if path.ends_with("package.json") && !target.expected_paths.contains(&path) {
-                target.expected_paths.push(path);
-            }
-        }
-        if !target.expected_paths.is_empty() && target.kind == "report" {
-            target.kind = "implement".to_string();
-        }
-    }
-    if let Some(guidance) = runtime.guidance(&plan.goal) {
-        target.instruction = format!("{}\n\nProfile contract:\n{}", target.instruction, guidance);
-    }
 }
 
 pub(super) fn build_step_prompt(
