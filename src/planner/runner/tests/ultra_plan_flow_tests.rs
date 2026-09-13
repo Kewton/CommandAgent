@@ -1776,6 +1776,12 @@ if __name__ == "__main__":
             message
                 .content
                 .contains("Repair the final acceptance failure")
+                && message
+                    .content
+                    .contains("missing attribute: `data-anvil-action=\"restart\"`")
+                && message
+                    .content
+                    .contains("target source file: `src/app/page.tsx`")
         }));
     }
 

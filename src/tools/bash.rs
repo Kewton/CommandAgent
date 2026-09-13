@@ -908,6 +908,9 @@ fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &st
     if kind == BashOutcomeKind::Success {
         return "command succeeded".to_string();
     }
+    if let Some(reason) = crate::node_failure::summary(command, stdout, stderr) {
+        return reason;
+    }
     let combined = format!("{stderr}\n{stdout}");
     let mut lines = Vec::new();
     for line in combined.lines() {

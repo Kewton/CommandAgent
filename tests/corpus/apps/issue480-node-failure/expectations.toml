@@ -1,0 +1,9 @@
+case_id = "issue480-node-failure"
+source = "Issue #480 driven raw Node diagnostic and refusal controls"
+required_paths = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+
+[compile]
+expect = "not_checked"

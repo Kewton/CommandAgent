@@ -70,6 +70,10 @@ impl FullCommandOutput {
         OutputExcerpt(eval_events::body_snippet(&self.text))
     }
 
+    pub(crate) fn failure_reason(&self, command: &str) -> String {
+        crate::node_failure::reason(command, &self.text)
+    }
+
     pub(crate) fn from_bounded_executor(root: &Path, command: &str, output: &str) -> Self {
         Self {
             path: write_build_verifier_output(root, command, output)
@@ -586,7 +590,7 @@ pub fn observe_requirement(
                 attempted: true,
                 duration_ms: Some(duration_ms),
                 status,
-                primary_reason: output_excerpt.as_str().to_string(),
+                primary_reason: full_output.failure_reason(&requirement.command),
                 output_snippet: output_excerpt.as_str().to_string(),
                 output_path: full_output.path_display(),
                 compile_errors,

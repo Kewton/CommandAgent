@@ -1,16 +1,17 @@
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::*;
     use crate::minimal_loop::completion::CompletionContract;
+    use crate::planner::runner::PromptLayout;
     use crate::planner::runner::final_acceptance::*;
     use crate::planner::verify::VerificationReport;
     use clap::Parser;
     use serde_json::Value;
 
-    const PAGE: &str =
+    pub(crate) const PAGE: &str =
         include_str!("../../../tests/corpus/apps/issue474-compound-node-hooks/src/app/page.tsx");
 
-    fn command() -> String {
+    pub(crate) fn command() -> String {
         let commands: Vec<String> = serde_json::from_str(include_str!(
         "../../../tests/corpus/apps/issue474-compound-node-hooks/fixtures/original-commands.json"
     ))
@@ -18,7 +19,7 @@ mod tests {
         commands[1].clone()
     }
 
-    fn write(root: &Path, path: &str, text: &str) {
+    pub(crate) fn write(root: &Path, path: &str, text: &str) {
         let path = root.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
@@ -33,7 +34,7 @@ mod tests {
         .unwrap()
     }
 
-    fn setup(root: &Path, command: &str) -> (Config, UltraPlan) {
+    pub(crate) fn setup(root: &Path, command: &str) -> (Config, UltraPlan) {
         write(root, "src/app/page.tsx", PAGE);
         write(
             root,
@@ -56,7 +57,7 @@ mod tests {
         (config, plan)
     }
 
-    fn final_event(config: &Config) -> Value {
+    pub(crate) fn final_event(config: &Config) -> Value {
         std::fs::read_to_string(config.eval_events_path.as_ref().unwrap())
             .unwrap()
             .lines()
@@ -244,10 +245,8 @@ mod tests {
     }
 
     #[test]
-    fn issue474_diagnostic_handoff_reproduces_distinct_attribute_mismatch() {
-        // A documented follow-up reproduction, not desired diagnostic behavior.
-        // The closed check stays structural and fails honestly; error-summary
-        // extraction / predicate attribution is a separate existing contract.
+    fn issue474_diagnostic_handoff_preserves_executed_attribute() {
+        // Exercise actual execution, bounded diagnosis and the final repair prompt.
         let cases: Vec<Value> = serde_json::from_str(include_str!(
             "../../../tests/corpus/apps/issue474-compound-node-hooks/fixtures/diagnostic-handoff.json"
         )).unwrap();
@@ -279,11 +278,49 @@ mod tests {
                 report
                     .command_failures
                     .iter()
-                    .all(|failure| !failure.reason.contains(actual_error))
+                    .any(|failure| failure.reason.contains(actual_error))
             );
-            let diagnosis = crate::planner::contract_attribute_repair::detect(&report).unwrap();
+            let diagnosis = crate::planner::contract_attribute_repair::detect(&report)
+                .unwrap_or_else(|| panic!("{report:?}"));
             assert_eq!(diagnosis.path, "src/app/page.tsx");
-            assert_eq!(diagnosis.attribute, case["observed_attribute"]);
+            assert_eq!(diagnosis.attribute, case["expected_attribute"]);
+            for layout in [PromptLayout::Stable, PromptLayout::Legacy] {
+                let prompt = final_acceptance_repair_prompt(
+                    root.path(),
+                    layout,
+                    &plan,
+                    &report,
+                    &UltraRunContext::default(),
+                    "contract_attribute_missing",
+                    std::slice::from_ref(&diagnosis.path),
+                    &[],
+                    (1, 2),
+                    false,
+                    false,
+                );
+                assert!(prompt.contains(actual_error), "{prompt}");
+                assert!(
+                    prompt.contains(&format!("missing attribute: `{}`", diagnosis.attribute)),
+                    "{prompt}"
+                );
+                assert!(
+                    prompt.contains("target source file: `src/app/page.tsx`"),
+                    "{prompt}"
+                );
+                for other in [
+                    "data-anvil-state",
+                    "data-anvil-action=\"input\"",
+                    "data-anvil-action=\"primary\"",
+                ] {
+                    if other != diagnosis.attribute {
+                        assert!(
+                            !prompt.contains(&format!("missing attribute: `{other}`")),
+                            "{prompt}"
+                        );
+                    }
+                }
+            }
+
             println!(
                 "diagnostic handoff: actual={actual_error}, reported_attribute={}, path={}",
                 diagnosis.attribute, diagnosis.path
