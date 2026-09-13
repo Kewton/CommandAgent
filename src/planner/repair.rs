@@ -861,11 +861,7 @@ mod tests {
         )
         .unwrap();
         let events = dir.path().join("events.jsonl");
-        let mut report = VerificationReport::pass();
-        report.push_command_failure(
-            r#"node -p 'String(require("fs").readFileSync("src/app/page.tsx")).includes("data-anvil-state") ? true : process.exit(1)'"#,
-            "command failed",
-        );
+        let report = crate::node_failure::tests::failure_report(dir.path(), "data-anvil-state");
         let context = RepairContext {
             workspace_root: Some(dir.path().to_path_buf()),
             eval_events_path: Some(events.clone()),

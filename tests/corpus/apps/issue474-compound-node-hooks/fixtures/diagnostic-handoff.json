@@ -2,11 +2,16 @@
   {
     "remove": "data-anvil-action=\"primary\"",
     "actual_error": "Error: missing primary",
-    "observed_attribute": "data-anvil-state"
+    "expected_attribute": "data-anvil-action=\"primary\""
   },
   {
     "remove": "data-anvil-action=\"input\"",
     "actual_error": "Error: missing input",
-    "observed_attribute": "data-anvil-state"
+    "expected_attribute": "data-anvil-action=\"input\""
+  },
+  {
+    "remove": "data-anvil-state",
+    "actual_error": "Error: missing state",
+    "expected_attribute": "data-anvil-state"
   }
 ]

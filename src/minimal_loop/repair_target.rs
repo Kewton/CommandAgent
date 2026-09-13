@@ -927,11 +927,10 @@ mod tests {
 
     #[test]
     fn classifies_contract_attribute_missing_before_missing_entrypoint() {
-        let mut report = VerificationReport::pass();
-        report.push_command_failure(
-            r#"node -p 'String(require("fs").readFileSync("src/app/page.tsx")).includes("data-anvil-state") ? true : process.exit(1)'"#,
-            "command failed",
-        );
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();
+        let report = crate::node_failure::tests::failure_report(dir.path(), "data-anvil-state");
 
         assert_eq!(
             classify_repair_target(&report),
