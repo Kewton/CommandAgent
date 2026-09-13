@@ -199,15 +199,36 @@ impl BoundRepair {
         );
         preservation::verify(config, &self.obligation)?;
         let hash = self.source_hash(config)?;
+        let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
+            &config.workspace_root,
+            &self.contract.verify_commands,
+        );
+        for diagnosis in &mut command_diagnoses {
+            if diagnosis.kind == "weak"
+                && diagnosis
+                    .script
+                    .as_ref()
+                    .is_some_and(|p| self.obligation.frozen.contains_key(p))
+            {
+                diagnosis.repairability = "frozen_verifier_evidence";
+            }
+        }
+        let immutable_failure = crate::minimal_loop::evidence::command_diagnosis::contract_failure(
+            &self.contract,
+            &command_diagnoses,
+        );
         // Do not cache confirmation: registered checks can read generated JSON,
         // runtime inputs or environment state outside the source fingerprint.
         let changed = self.initial.iter().any(|(p, before)| {
             read_source(&config.workspace_root, p).is_ok_and(|after| after != *before)
         });
-        let pending = changed
+        let pending = immutable_failure.is_none()
+            && changed
             && !self.remaining_owners.is_empty()
             && options.step_kind == Some(RunSessionStepKind::Implement);
-        let report = if pending {
+        let report = if let Some(reason) = immutable_failure {
+            VerificationReport::profile_failed(reason)
+        } else if pending {
             VerificationReport::pass()
         } else {
             ensure!(
@@ -237,6 +258,7 @@ impl BoundRepair {
             hash == after,
             "Recovery repair confirmation mutated source inputs"
         );
+        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, &report);
         crate::eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({
@@ -254,6 +276,7 @@ impl BoundRepair {
                 "iterations_per_step_cap":config.max_iterations,
                 "status":if pending { "pending" } else if report.is_pass() { "resolved" } else { "unresolved" },
                 "registered_verify_commands":self.contract.verify_commands,
+                "command_diagnoses":command_diagnoses,
                 "failure_reason":report.primary_reason(),
                 "command_failures":report.command_failures.iter().map(|f| json!({"command":f.command,"reason":f.reason})).collect::<Vec<_>>(),
             }),

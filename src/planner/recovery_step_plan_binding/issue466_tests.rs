@@ -162,3 +162,6 @@ mod runner;
 
 #[path = "issue478_tests.rs"]
 mod issue478;
+
+#[path = "issue479_tests.rs"]
+mod issue479;

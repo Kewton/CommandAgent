@@ -801,10 +801,18 @@ pub(super) fn ultra_final_acceptance_report_inner(
     } else {
         None
     };
+    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
+        &config.workspace_root,
+        &verify_commands,
+    );
+    if let Some(report) = &external_report {
+        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
+    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
             "event": "ultra_final_acceptance",
+            "command_diagnoses":command_diagnoses,
             "cycle_index": cycle_index,
             "profile": effective_profile.clone(),
             "effective_profile": effective_profile.clone(),

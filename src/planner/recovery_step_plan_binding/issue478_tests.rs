@@ -2,7 +2,7 @@ use super::*;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
 use sha2::{Digest, Sha256};
 
-fn saved(attempt: usize) -> StepPlan {
+pub(super) fn saved(attempt: usize) -> StepPlan {
     serde_json::from_str(match attempt {
         2 => include_str!(
             "../../../tests/corpus/apps/issue478-model-host-obligations/attempt-2.json"
@@ -15,7 +15,7 @@ fn saved(attempt: usize) -> StepPlan {
     .unwrap()
 }
 
-fn nextjs_config(root: &Path) -> Config {
+pub(super) fn nextjs_config(root: &Path) -> Config {
     // The saved run already had its application scaffold; an empty workspace
     // exercises a different sanitizer retyping boundary.
     std::fs::write(root.join("package.json"), r#"{"name":"issue478","private":true,"scripts":{"dev":"next dev -p 60302","start":"next start -p 60302","build":"next build"},"dependencies":{"next":"15.5.20","react":"19.1.0","react-dom":"19.1.0"}}"#).unwrap();

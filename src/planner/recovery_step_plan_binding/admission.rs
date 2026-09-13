@@ -11,6 +11,7 @@ pub(crate) struct Admission {
     original: Option<StepPlan>,
     sources: Option<FormationScope>,
     profile_addition: Option<ProfileAddition>,
+    replacements: Vec<super::verifier_formation::Replacement>,
 }
 
 pub(crate) enum Decision {
@@ -25,11 +26,13 @@ impl Admission {
     }
 
     fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        super::verifier_formation::preserve_registered(&self.replacements, plan)?;
         if let Some(original) = &self.original {
+            let (projected, _) = super::verifier_formation::project(original, plan);
             if let Some(sources) = &self.sources {
-                sources.preserve(original, plan)?;
+                sources.preserve(original, &projected)?;
             } else {
-                preserve(original, plan)?;
+                preserve(original, &projected)?;
             }
         }
         Ok(())
@@ -67,12 +70,15 @@ impl Admission {
             return Err(error.context(message));
         }
         if crate::planner::recovery_inspection::has_origin(config)? {
+            check_model_ownership(config, phase, &plan)?;
             let report = super::lint(config, &plan, phase);
             anyhow::ensure!(
                 report.is_pass(),
                 "cannot return unbound Recovery plan: {}",
                 report.primary_message()
             );
+        } else if self.original.is_some() {
+            super::verifier_formation::require_formed(config, &scope::commands(&plan))?;
         }
         Ok(plan)
     }
@@ -145,6 +151,14 @@ impl Admission {
             return Ok(());
         }
         self.preserve(plan)?;
+        if let Some(original) = &self.original {
+            let (_, replacements) = super::verifier_formation::project(original, plan);
+            for replacement in replacements {
+                if !self.replacements.contains(&replacement) {
+                    self.replacements.push(replacement);
+                }
+            }
+        }
         let mut contract =
             match crate::planner::recovery_contract_authority::load_for_handoff(config)? {
                 Some(contract) => contract,
@@ -157,6 +171,23 @@ impl Admission {
             return Ok(());
         };
         contract.verify_commands.extend(admitted);
+        if let Err(error) =
+            super::verifier_formation::require_formed(config, &scope::commands(plan))
+        {
+            self.retain(plan);
+            return Err(error);
+        }
+        if let Some(original) = &self.original {
+            let (_, replacements) = super::verifier_formation::project(original, plan);
+            crate::eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event":"preclosure_verifier_replacements_validated",
+                    "replacements":replacements, "scope_preserved":true,
+                    "formed_verify_commands":scope::commands(plan),
+                }),
+            );
+        }
         let scripts = scope::scripts(&contract.verify_commands);
         if scripts.is_empty() {
             return Ok(());
@@ -223,6 +254,7 @@ fn check_model_ownership(
         crate::planner::recovery_inspection::verifier_obligations::bind(
             config, &contract, &mut model,
         )?;
+        super::verifier_formation::require_repairable(config, &contract)?;
     }
     Ok(())
 }
