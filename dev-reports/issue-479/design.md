@@ -115,7 +115,7 @@ the affected R0 contract. Classification remains Weak in either context; this
 is existing gate selection, not Test promotion or relaxation.
 
 The default Rust controls now exercise Node's actual TypeScript stripping and
-module-mode-dependent namespace. Declare Node v24.1.0 in the Rust CI job,
+module-mode-dependent namespace. Declare Node v24.1.0 in every full Rust test workflow (CI, acceptance and release),
 matching the saved context and existing Next.js-domain workflow, instead of
 depending on an unspecified runner-preinstalled Node. This is a test runtime
 prerequisite; app commands, module mode and runtime budgets remain unchanged.

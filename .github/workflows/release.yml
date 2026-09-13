@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.1.0'
+      - name: Record Node test runtime
+        run: node --version
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --locked
 
