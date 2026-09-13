@@ -14,6 +14,8 @@ use std::collections::VecDeque;
 mod authority_cases;
 #[path = "configuration_tests.rs"]
 mod configuration_cases;
+#[path = "issue479_tests.rs"]
+mod issue479;
 #[path = "nextjs_tests.rs"]
 mod nextjs;
 #[path = "review_tests.rs"]

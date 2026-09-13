@@ -1,5 +1,24 @@
 mod compound_hook;
 
+/// Classification only. Registry filtering still requires the goal's exact
+/// requested port through final_verifier_covers_command.
+pub(crate) fn is_package_check(command: &str) -> bool {
+    if command == super::package_build_script_verify_command() {
+        return true;
+    }
+    let Some((_, rest)) = command.split_once("--port=") else {
+        return false;
+    };
+    let Some((port, _)) = rest.split_once('\'') else {
+        return false;
+    };
+    port.parse::<u16>().is_ok_and(|port| {
+        super::package_script_port_verify_commands(port)
+            .iter()
+            .any(|c| c == command)
+    })
+}
+
 /// These exact scaffold assertions duplicate verify/verify_invariant's
 /// package-script checks. Keep executing them at the step boundary; the final
 /// profile gate enforces the same constraints without treating configuration

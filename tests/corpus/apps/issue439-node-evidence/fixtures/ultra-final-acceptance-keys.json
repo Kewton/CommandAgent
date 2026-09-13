@@ -9,6 +9,7 @@
   "browser_readiness_execution_status",
   "browser_readiness_status",
   "capability_evidence_bindings",
+  "command_diagnoses",
   "compile_error_failure_kind",
   "compile_errors",
   "completion_contract_generated",

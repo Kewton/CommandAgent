@@ -13,6 +13,7 @@ pub(crate) mod formation_scope;
 #[cfg(test)]
 mod issue466_tests;
 pub(crate) mod profile_augmentation;
+mod verifier_formation;
 
 pub(crate) fn bind_generated(
     config: &Config,

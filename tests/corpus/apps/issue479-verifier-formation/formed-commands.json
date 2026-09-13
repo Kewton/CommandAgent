@@ -1,0 +1,7 @@
+[
+  "npm run build",
+  "node -e \"import('./src/lib/types.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\\\"default\\\",\\\"module.exports\\\"])})\"",
+  "node -e \"import('./src/lib/store.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\\\"loadMembers\\\",\\\"loadProjects\\\",\\\"loadTasks\\\",\\\"saveMembers\\\",\\\"saveProjects\\\",\\\"saveTasks\\\"])})\"",
+  "node -e \"const fs=require('fs');['src/app/api/projects/route.ts','src/app/api/projects/[id]/route.ts','src/app/api/tasks/route.ts','src/app/api/tasks/[id]/route.ts','src/app/api/members/route.ts'].forEach(f=>{if(!fs.existsSync(f))throw new Error('missing '+f)})\"",
+  "node -e \"const fs=require('fs');const p=fs.readFileSync('src/app/page.tsx','utf8');if(!p.includes('data-anvil-action'))throw new Error('missing anvil');if(!p.includes('data-anvil-state'))throw new Error('missing state');if(!p.includes('use client'))throw new Error('missing use client')\""
+]

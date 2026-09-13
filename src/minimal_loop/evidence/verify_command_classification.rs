@@ -2,8 +2,12 @@
 
 use super::{VerifyCommandKind, WorkspaceEvidence, has_test_artifact};
 
+#[path = "verify_command_classification/import_check.rs"]
+pub(crate) mod import_check;
 #[path = "verify_command_classification/node_checks.rs"]
 mod node_checks;
+#[path = "verify_command_classification/structural_checks.rs"]
+mod structural_checks;
 
 pub(super) fn node_command_kind(
     command: &str,
@@ -40,30 +44,38 @@ pub(super) fn node_command_kind(
     if crate::planner::profiles::nextjs::recovery_authority::is_generated_hook_check(command) {
         return Some(VerifyCommandKind::StaticSyntax);
     }
+    if structural_checks::recognizes(command) || import_check::export_set_target(command).is_some()
+    {
+        return Some(VerifyCommandKind::StaticSyntax);
+    }
+    if import_check::strengthened_target(command).is_some() {
+        return Some(VerifyCommandKind::Test);
+    }
     let Some(first) = args.first() else {
         return Some(weak());
     };
-    let checked = match first.as_str() {
-        "-e" | "--eval" | "-p" | "--print" => args
-            .get(1)
-            .is_some_and(|source| node_checks::has_failure_check(source)),
-        option if option.starts_with('-') => false,
-        path => {
-            let path = std::path::Path::new(path);
-            let mut normalized = std::path::PathBuf::new();
-            for component in path.components() {
-                match component {
-                    std::path::Component::CurDir => {}
-                    std::path::Component::Normal(part) => normalized.push(part),
-                    _ => return Some(weak()),
+    let checked = if let Some(inline) = inline_argument(args) {
+        inline.executable && node_checks::has_failure_check(inline.source)
+    } else {
+        match first.as_str() {
+            option if option.starts_with('-') => false,
+            path => {
+                let path = std::path::Path::new(path);
+                let mut normalized = std::path::PathBuf::new();
+                for component in path.components() {
+                    match component {
+                        std::path::Component::CurDir => {}
+                        std::path::Component::Normal(part) => normalized.push(part),
+                        _ => return Some(weak()),
+                    }
                 }
+                workspace
+                    .source_files
+                    .iter()
+                    .chain(&workspace.test_files)
+                    .find(|file| std::path::Path::new(&file.rel) == normalized)
+                    .is_some_and(|file| node_checks::has_failure_check(&file.content))
             }
-            workspace
-                .source_files
-                .iter()
-                .chain(&workspace.test_files)
-                .find(|file| std::path::Path::new(&file.rel) == normalized)
-                .is_some_and(|file| node_checks::has_failure_check(&file.content))
         }
     };
     Some(if checked {
@@ -71,6 +83,32 @@ pub(super) fn node_command_kind(
     } else {
         weak()
     })
+}
+
+pub(crate) struct InlineArgument<'a> {
+    pub(crate) source: &'a str,
+    pub(crate) executable: bool,
+}
+
+/// Separate inline flags and --eval= execute a supplied source. Node 24 rejects
+/// glued short flags; --print= does not execute its value. Those immutable forms
+/// still need diagnosis, but must never gain assertion evidence.
+pub(crate) fn inline_argument(args: &[String]) -> Option<InlineArgument<'_>> {
+    let first = args.first()?.as_str();
+    if matches!(first, "-e" | "--eval" | "-p" | "--print") {
+        return args.get(1).map(|source| InlineArgument {
+            source,
+            executable: true,
+        });
+    }
+    ["--eval=", "--print=", "-e", "-p"]
+        .iter()
+        .find_map(|prefix| {
+            first.strip_prefix(prefix).map(|source| InlineArgument {
+                source,
+                executable: *prefix == "--eval=",
+            })
+        })
 }
 
 /// Deliberately accept only literal words in a single foreground command. Shell
@@ -134,3 +172,7 @@ mod tests;
 #[cfg(test)]
 #[path = "verify_command_classification/issue474_tests.rs"]
 mod issue474_tests;
+
+#[cfg(test)]
+#[path = "verify_command_classification/issue479_tests.rs"]
+mod issue479_tests;

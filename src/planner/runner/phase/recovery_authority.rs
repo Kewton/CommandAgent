@@ -62,3 +62,7 @@ mod issue474_tests;
 #[cfg(test)]
 #[path = "../../final_acceptance/issue474_tests.rs"]
 mod issue474_acceptance_tests;
+
+#[cfg(test)]
+#[path = "../../final_acceptance/issue479_tests.rs"]
+mod issue479_acceptance_tests;
