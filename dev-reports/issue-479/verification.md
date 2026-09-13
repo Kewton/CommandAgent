@@ -7,23 +7,47 @@ exact-commit CI/UAT and integrated release checks are separate downstream gates.
 
 ## Checks
 
-- `cargo test issue479 --lib`: `passed` (21 tests).
-- `cargo test issue478 --lib`: `passed` (7 tests, including combined inventory).
-- `cargo test issue466 --lib`: `passed`.
-- `cargo test issue465 --lib`: `passed` (23 passed, 2 existing ignored controls).
-- `cargo test setup_step_policy --lib`: `passed` (18 tests).
-- `cargo test --test corpus_regression`: `passed` (7 tests).
-- `cargo test --test generality_guardrails`: `passed` (10 tests).
-- `cargo test ultra_final_acceptance_event_carries_generic_static_assurance --lib`: `passed`.
-- `cargo test issue479_attached_inline_flags_share_classification_and_repairability --lib`: `passed`.
-- `cargo test --test protection_coverage_audit`: `passed` (2 tests).
-- `cargo fmt --all -- --check`: `passed`.
-- `cargo clippy --all-targets -- -D warnings`: `passed`.
-- `cargo test`: `passed` (exit 0; 2,588 library tests, all default integration suites and 2 doctests passed; 19 existing library ignores).
-- `cargo build --release --bin commandagent`: `passed`.
-- `target/release/commandagent --version`: `passed`.
-- `shasum -a 256 target/release/commandagent`: `passed`.
-- `git diff --check`: `passed`.
+- `cargo test issue479 --lib`: `passed`
+
+  (21 tests).
+
+- `cargo test issue478 --lib`: `passed`
+
+  (7 tests, including combined inventory).
+
+- `cargo test issue466 --lib`: `passed`
+- `cargo test issue465 --lib`: `passed`
+
+  (23 passed, 2 existing ignored controls).
+
+- `cargo test setup_step_policy --lib`: `passed`
+
+  (18 tests).
+
+- `cargo test --test corpus_regression`: `passed`
+
+  (7 tests).
+
+- `cargo test --test generality_guardrails`: `passed`
+
+  (10 tests).
+
+- `cargo test ultra_final_acceptance_event_carries_generic_static_assurance --lib`: `passed`
+- `cargo test issue479_attached_inline_flags_share_classification_and_repairability --lib`: `passed`
+- `cargo test --test protection_coverage_audit`: `passed`
+
+  (2 tests).
+
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`
+
+  (exit 0; 2,588 library tests, all default integration suites and 2 doctests passed; 19 existing library ignores).
+
+- `cargo build --release --bin commandagent`: `passed`
+- `target/release/commandagent --version`: `passed`
+- `shasum -a 256 target/release/commandagent`: `passed`
+- `git diff --check`: `passed`
 
 ## Earlier failures and corrections
 
