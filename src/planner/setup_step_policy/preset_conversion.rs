@@ -53,7 +53,9 @@ pub(crate) fn convert_preset_phase_setup_steps(
         {
             continue;
         }
-        if !references_template_owned_artifacts(profile, step) {
+        if super::retain_implementation_checks(root, profile, goal, step, phase_id)
+            || !references_template_owned_artifacts(profile, step)
+        {
             continue;
         }
         let Some(checks) = profile_setup_checks(root, profile, goal, step, phase_id) else {

@@ -5,6 +5,8 @@ use crate::planner::profile_manifest::TemplateOwnedArtifacts;
 use crate::planner::profiles::data::step_policy::canonicalize_step_plan;
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
+mod implementation_duties;
+use implementation_duties::{carries_profile_implementation, retain_implementation_checks};
 mod preset_conversion;
 pub(crate) use preset_conversion::convert_preset_phase_setup_steps;
 #[cfg(test)]
@@ -50,6 +52,7 @@ pub(crate) fn runtime_step_with_profile_checks(
         candidate = plan.steps.remove(0);
     }
     if !candidate.verify.is_empty()
+        || retain_implementation_checks(root, profile, goal, &mut candidate, phase_id)
         || !references_template_owned_artifacts(profile, &candidate)
         || !profile_owns_declared_paths(root, profile, &candidate)
     {
@@ -70,6 +73,9 @@ pub(crate) fn runtime_step_with_profile_checks(
 }
 
 pub(crate) fn step_short_circuit_precheck_applicable(profile: &str, step: &PlanStep) -> bool {
+    if carries_profile_implementation(profile, step) {
+        return false;
+    }
     if step.expected_paths.is_empty() && step.verify.is_empty() {
         return false;
     }
@@ -108,9 +114,21 @@ pub(crate) fn prompt_references_template_owned_artifacts(profile: &str, prompt: 
     let Some(step_id) = prompt_field(prompt, "Current step id:\n") else {
         return false;
     };
-    let Some(instruction) = prompt_field(prompt, "Current step instruction:\n") else {
+    let Some((_, instruction)) = prompt.split_once("Current step instruction:\n") else {
         return false;
     };
+    // Both prompt layouts allow paragraphs inside the instruction. Stop at
+    // the next real field, retaining the host's Profile contract paragraph.
+    let instruction = instruction
+        .split("\n\nRequired final artifacts:\n")
+        .next()
+        .unwrap_or(instruction)
+        .split("\n\nArtifacts available from previous steps:\n")
+        .next()
+        .unwrap_or(instruction)
+        .split("\n\nExpected paths after this step:\n")
+        .next()
+        .unwrap_or(instruction);
     let step = PlanStep {
         id: step_id.to_string(),
         kind: prompt_field(prompt, "Current step kind:\n")
@@ -121,7 +139,9 @@ pub(crate) fn prompt_references_template_owned_artifacts(profile: &str, prompt: 
         expected_paths: list_from_prompt(prompt, "Expected paths after this step:\n"),
         verify: verification_commands_from_prompt(prompt),
     };
-    references_template_owned_artifacts(profile, &step) && template_owned_step_scope(profile, &step)
+    !carries_profile_implementation(profile, &step)
+        && references_template_owned_artifacts(profile, &step)
+        && template_owned_step_scope(profile, &step)
 }
 
 pub(crate) fn verification_commands_from_prompt(prompt: &str) -> Vec<String> {

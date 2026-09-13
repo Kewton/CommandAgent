@@ -159,3 +159,6 @@ mod binding;
 mod fallback;
 mod formation;
 mod runner;
+
+#[path = "issue478_tests.rs"]
+mod issue478;

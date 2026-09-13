@@ -1,0 +1,18 @@
+case_id = "issue478-model-host-obligations"
+source = "Issue #478 saved model attempts through actual planner formation; application execution is not claimed"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+[compile]
+expect = "not_checked"
+[fixture_contains]
+attempt-2.json = ["create-smoke-check", "smoke-check.js", "node smoke-check.js"]
+attempt-3.json = ["ensure-package-json", "create-smoke-check", "smoke-check.js"]
+refusals.json = ["delete_assertion", "missing_output", "unrelated_owner", "check_before_application"]
+package-checks.json = ["60302", "next build", "process.exit(1)"]

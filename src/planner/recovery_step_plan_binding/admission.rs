@@ -1,4 +1,5 @@
 //! Formation and Recovery binding use the existing planner attempt budget.
+use super::formation_scope::{FormationScope, ProfileAddition};
 use super::*;
 use crate::planner::recovery_contract_authority::verifier_obligations as scope;
 use crate::planner::recovery_inspection::verifier_obligations::{
@@ -8,6 +9,8 @@ use crate::planner::recovery_inspection::verifier_obligations::{
 #[derive(Default)]
 pub(crate) struct Admission {
     original: Option<StepPlan>,
+    sources: Option<FormationScope>,
+    profile_addition: Option<ProfileAddition>,
 }
 
 pub(crate) enum Decision {
@@ -16,6 +19,32 @@ pub(crate) enum Decision {
 }
 
 impl Admission {
+    pub(crate) fn strengthen(&mut self, config: &Config, plan: &mut StepPlan) {
+        self.profile_addition =
+            super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
+    }
+
+    fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        if let Some(original) = &self.original {
+            if let Some(sources) = &self.sources {
+                sources.preserve(original, plan)?;
+            } else {
+                preserve(original, plan)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn retain(&mut self, plan: &StepPlan) {
+        if self.original.is_none() {
+            self.sources = Some(FormationScope::capture(
+                plan,
+                self.profile_addition.as_ref(),
+            ));
+            self.original = Some(plan.clone());
+        }
+    }
+
     pub(crate) fn finish(
         &self,
         config: &Config,
@@ -23,7 +52,7 @@ impl Admission {
         plan: StepPlan,
     ) -> anyhow::Result<StepPlan> {
         if let Some(original) = &self.original
-            && let Err(error) = preserve(original, &plan)
+            && let Err(error) = self.preserve(&plan)
         {
             crate::eval_events::emit(
                 config.eval_events_path.as_deref(),
@@ -79,7 +108,8 @@ impl Admission {
                 "stage":if recovery {"closed_binding"} else {"preclosure_formation"},
                 "classification":class, "reason":error.to_string(),
                 "model_proposal":model, "host_augmented_proposal":host,
-                "original_scope":self.original, "planner_attempt":attempt,
+                "original_scope":self.original, "original_obligation_sources":self.sources,
+                "planner_attempt":attempt,
                 "remaining_planner_attempts":3usize.saturating_sub(attempt),
                 "recovery_budget_changed":false,
                 "status":if retry {"retry"} else if class == FailureClass::ProposalRepairable {"exhausted"} else {"stopped"},
@@ -97,9 +127,10 @@ impl Admission {
             return Err(error.context(reason));
         }
         Ok(Decision::Retry(format!(
-            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed.\nOriginal scope to preserve:\n{}\nHost-augmented proposal:\n{}",
+            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.\nOriginal scope to preserve:\n{}\nOriginal obligation sources (model and host separately):\n{}\nHost-augmented proposal:\n{}",
             plan.goal,
             serde_json::to_string(self.original.as_ref().unwrap_or(&host))?,
+            serde_json::to_string(&self.sources)?,
             serde_json::to_string(&host)?
         )))
     }
@@ -113,9 +144,7 @@ impl Admission {
         {
             return Ok(());
         }
-        if let Some(original) = &self.original {
-            preserve(original, plan)?;
-        }
+        self.preserve(plan)?;
         let mut contract =
             match crate::planner::recovery_contract_authority::load_for_handoff(config)? {
                 Some(contract) => contract,
@@ -132,6 +161,12 @@ impl Admission {
         if scripts.is_empty() {
             return Ok(());
         }
+        if let Some(addition) = &self.profile_addition
+            && let Err(error) = addition.preserve(plan)
+        {
+            self.retain(plan);
+            return Err(error);
+        }
         let mut claimed = Vec::<&PlanStep>::new();
         for step in &plan.steps {
             if step.step_kind() == StepKind::Verify
@@ -145,11 +180,11 @@ impl Admission {
             scope::checked_paths(config, &contract, step)
                 .map_err(|e| failure(FailureClass::Unsafe, e.to_string()))?;
             if let Err(error) = scope::validate_producer(config, &contract, step) {
-                self.original.get_or_insert_with(|| plan.clone());
+                self.retain(plan);
                 return Err(failure(FailureClass::ProposalRepairable, error.to_string()));
             }
             if claimed.iter().any(|old| scope::overlaps(old, step)) {
-                self.original.get_or_insert_with(|| plan.clone());
+                self.retain(plan);
                 return Err(failure(
                     FailureClass::ProposalRepairable,
                     format!(
@@ -166,6 +201,7 @@ impl Admission {
                 json!({
                     "event":"recovery_verifier_obligations_formed", "original_scope":original,
                     "formed_scope":plan, "scope_preserved":true,
+                    "original_obligation_sources":self.sources,
                     "producer_ids":claimed.iter().map(|s| &s.id).collect::<Vec<_>>(),
                 }),
             );
@@ -191,7 +227,7 @@ fn check_model_ownership(
     Ok(())
 }
 
-fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
+pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
     for step in &original.steps {
         let mut owner_indices = Vec::new();
         for path in &step.expected_paths {

@@ -9,8 +9,10 @@ use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 const INSPECTION_PHASE_ID: &str = "inspect-current-state";
 const CONTRACT_VERIFY_STEP_ID: &str = "recovery-contract-verify";
 pub(crate) mod admission;
+pub(crate) mod formation_scope;
 #[cfg(test)]
 mod issue466_tests;
+pub(crate) mod profile_augmentation;
 
 pub(crate) fn bind_generated(
     config: &Config,

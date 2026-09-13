@@ -80,7 +80,7 @@ fn issue466_host_augmentation_is_measured_before_obligation_closure() {
     let mut raw = plan(vec![producer]);
     raw.goal = "scaffold verifier".into();
     let mut host = raw.clone();
-    crate::planner::runner::strengthen_step_plan_for_profile(&mut host, &c);
+    crate::planner::recovery_step_plan_binding::profile_augmentation::strengthen_step_plan_for_profile(&mut host, &c);
     assert!(
         host.steps[0]
             .expected_paths
@@ -117,7 +117,7 @@ fn issue466_host_augmentation_is_measured_before_obligation_closure() {
     confirmation.kind = "verify".into();
     corrected.steps.push(confirmation);
     let model = corrected.clone();
-    crate::planner::runner::strengthen_step_plan_for_profile(&mut corrected, &c);
+    crate::planner::recovery_step_plan_binding::profile_augmentation::strengthen_step_plan_for_profile(&mut corrected, &c);
     assert!(matches!(
         admission
             .check(&c, None, &model, &mut corrected, 2)
