@@ -226,6 +226,9 @@ fn lint_report_internal(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintRe
             }
             if step.step_kind() != StepKind::Verify
                 && let Some(owner) = path_owners.insert(path.as_str(), step.id.as_str())
+                && !crate::planner::recovery_step_plan_binding::package_owner_scope::ordered_split(
+                    plan, path, owner, &step.id,
+                )
             {
                 report.push(
                     "path_ownership",

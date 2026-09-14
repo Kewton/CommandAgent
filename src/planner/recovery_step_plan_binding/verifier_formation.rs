@@ -7,13 +7,20 @@ use crate::planner::recovery_inspection::verifier_obligations::{FailureClass, fa
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct Replacement {
     original_command: String,
-    import_target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    import_target: Option<String>,
     expected_result: String,
     replacement_command: String,
     reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package_script: Option<super::package_script_formation::Obligation>,
 }
 
-pub(super) fn project(original: &StepPlan, proposed: &StepPlan) -> (StepPlan, Vec<Replacement>) {
+pub(super) fn project(
+    original: &StepPlan,
+    proposed: &StepPlan,
+    package_scripts: Option<&super::package_script_formation::PackageScripts>,
+) -> (StepPlan, Vec<Replacement>) {
     let mut projected = proposed.clone();
     let mut records = Vec::new();
     for step in &original.steps {
@@ -38,7 +45,7 @@ pub(super) fn project(original: &StepPlan, proposed: &StepPlan) -> (StepPlan, Ve
                     }
                     records.push(Replacement {
                         original_command: command.clone(),
-                        import_target: target.clone(),
+                        import_target: Some(target.clone()),
                         expected_result: step.expected_result.clone(),
                         replacement_command: replacement.clone(),
                         reason: if structural {
@@ -46,8 +53,32 @@ pub(super) fn project(original: &StepPlan, proposed: &StepPlan) -> (StepPlan, Ve
                         } else {
                             "identical_import_then_direct_target_assertion_without_catch"
                         },
+                        package_script: None,
                     });
                     *replacement = command.clone();
+                }
+            }
+        }
+    }
+    if let Some(package_scripts) = package_scripts {
+        for obligation in &package_scripts.obligations {
+            for candidate in &mut projected.steps {
+                if candidate.expected_result != obligation.expected_result {
+                    continue;
+                }
+                for replacement in &mut candidate.verify {
+                    // Canonical whole-command equality preserves output, failure
+                    // propagation, target and the literal acquired before retry.
+                    if *replacement != obligation.replacement_command {
+                        continue;
+                    }
+                    records.push(Replacement {
+                        original_command: obligation.original_command.clone(), import_target: None,
+                        expected_result: obligation.expected_result.clone(), replacement_command: replacement.clone(),
+                        reason: "saved_package_script_literal_strict_comparison_then_original_output",
+                        package_script: Some(obligation.clone()),
+                    });
+                    *replacement = obligation.original_command.clone();
                 }
             }
         }
@@ -82,7 +113,7 @@ pub(super) fn require_formed(config: &Config, commands: &[String]) -> anyhow::Re
         return Err(failure(
             FailureClass::ProposalRepairable,
             format!(
-                "preclosure weak inline verification requires formation: {reason}\nPreserve each original import target and pass result. Replace a pure import only with a target-specific check in this closed shape: node -e \"import('./original-path.js').then(actual=>{{require('node:assert/strict').deepStrictEqual(actual.exportName,42)}})\". Supply the actual required export/value, or actual.exportName(...[literal JSON arguments]) and a literal JSON expected result. Alternatively explicitly propose the sorted runtime export-name set using deepStrictEqual(Object.keys(actual).sort(),[literal JSON names]); an explicitly empty set can describe a type-only module. That alternative verifies loadability and runtime export boundary only, not interface fields or business behavior. Do not infer its expectation from a filename. Preserve all original instructions, outputs and owner order. No unrelated assertion, added check beside the weak original, catch or success override discharges it. Unsupported checks must be reproposed with preserved scope or stop within the current budget."
+                "preclosure weak inline verification requires formation: {reason}\nPackage-script value displays require a fixed literal in saved original model/host obligations; a value absent from the command alone is not grounds for refusal. Use only the supplied saved-literal replacement, including strict comparison and original stdout. Dynamic properties, wrappers, ambiguous/conflicting or absent original literals are unsupported. Never infer expectations from artifacts or a later proposal.\nPreserve each original import target and pass result. Replace a pure import only with a target-specific check in this closed shape: node -e \"import('./original-path.js').then(actual=>{{require('node:assert/strict').deepStrictEqual(actual.exportName,42)}})\". Supply the actual required export/value, or actual.exportName(...[literal JSON arguments]) and a literal JSON expected result. Alternatively explicitly propose the sorted runtime export-name set using deepStrictEqual(Object.keys(actual).sort(),[literal JSON names]); an explicitly empty set can describe a type-only module. That alternative verifies loadability and runtime export boundary only, not interface fields or business behavior. Do not infer its expectation from a filename. Preserve all original instructions, outputs and owner order. No unrelated assertion, added check beside the weak original, catch or success override discharges it. Unsupported checks must be reproposed with preserved scope or stop within the current budget."
             ),
         ));
     }

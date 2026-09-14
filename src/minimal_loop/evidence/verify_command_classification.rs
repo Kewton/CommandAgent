@@ -6,6 +6,8 @@ use super::{VerifyCommandKind, WorkspaceEvidence, has_test_artifact};
 pub(crate) mod import_check;
 #[path = "verify_command_classification/node_checks.rs"]
 mod node_checks;
+#[path = "verify_command_classification/package_script_check.rs"]
+pub(crate) mod package_script_check;
 #[path = "verify_command_classification/structural_checks.rs"]
 mod structural_checks;
 
@@ -44,7 +46,9 @@ pub(super) fn node_command_kind(
     if crate::planner::profiles::nextjs::recovery_authority::is_generated_hook_check(command) {
         return Some(VerifyCommandKind::StaticSyntax);
     }
-    if structural_checks::recognizes(command) || import_check::export_set_target(command).is_some()
+    if structural_checks::recognizes(command)
+        || import_check::export_set_target(command).is_some()
+        || package_script_check::comparison(command).is_some()
     {
         return Some(VerifyCommandKind::StaticSyntax);
     }

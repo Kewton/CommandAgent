@@ -44,10 +44,10 @@ impl ProfileAddition {
     }
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub(crate) struct FormationScope {
-    model: StepPlan,
-    host: StepPlan,
+    pub(super) model: StepPlan,
+    pub(super) host: StepPlan,
 }
 
 impl FormationScope {
@@ -69,8 +69,15 @@ impl FormationScope {
     }
 
     pub(crate) fn preserve(&self, original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
-        super::admission::preserve(&self.model, proposed)?;
-        super::admission::preserve(&self.host, proposed)?;
+        if let Some((model_view, host_view)) =
+            super::package_owner_scope::views(&self.model, &self.host, original, proposed)
+        {
+            super::admission::preserve(&self.model, &model_view)?;
+            super::admission::preserve(&self.host, &host_view)?;
+        } else {
+            super::admission::preserve(&self.model, proposed)?;
+            super::admission::preserve(&self.host, proposed)?;
+        }
         preserve_boundaries(original, proposed)
     }
 }
