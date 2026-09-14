@@ -1,0 +1,21 @@
+case_id = "issue484-package-script-formation"
+source = "Saved R0 owner literal and real admission/Node controls; configuration is not implementation evidence"
+required_paths = ["package.json"]
+verify_commands = ["node -e \"const actual=require('./package.json').scripts.dev;require('node:assert/strict').strictEqual(actual,\\\"next dev -p 60302\\\");console.log(actual)\""]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = false
+primary_reason = "missing_required_evidence:implementation_artifact"
+
+[weak_evidence]
+absent = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+source-manifest.json = ["248d0ab5", "configure-port-and-scripts", "next dev -p 60302"]
+refusals.json = ["wrong_target", "output_suppression", "drop_other_key_duty"]

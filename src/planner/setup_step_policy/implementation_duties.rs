@@ -3,7 +3,8 @@ use super::{
     domain_profile, is_nextjs_profile, merge_unique_paths, profile_owns_declared_paths,
     profile_setup_checks, references_template_owned_artifacts,
 };
-use crate::planner::step_plan::PlanStep;
+use crate::minimal_loop::evidence::package_script_check;
+use crate::planner::step_plan::{PlanStep, StepKind};
 use std::path::Path;
 
 // Broad profile implementation instructions cannot be discharged by the
@@ -11,7 +12,11 @@ use std::path::Path;
 // admission authority comes from the recorded augmentation, never this text.
 pub(super) fn carries_profile_implementation(profile: &str, step: &PlanStep) -> bool {
     is_nextjs_profile(profile)
-        && (step.instruction.contains("\n\nProfile contract:")
+        && (step
+            .instruction
+            .starts_with("Update package.json scripts so that ")
+            || has_package_observation(step)
+            || step.instruction.contains("\n\nProfile contract:")
             || domain_profile(profile)
                 .guidance("")
                 .is_some_and(|guidance| {
@@ -19,6 +24,14 @@ pub(super) fn carries_profile_implementation(profile: &str, step: &PlanStep) -> 
                         !opening.is_empty() && step.instruction.contains(opening)
                     })
                 }))
+}
+
+fn has_package_observation(step: &PlanStep) -> bool {
+    step.verify.iter().any(|c| {
+        package_script_check::comparison(c).is_some()
+            || step.step_kind() == StepKind::Verify
+                && package_script_check::printed_script(c).is_some()
+    })
 }
 
 pub(super) fn retain_implementation_checks(
@@ -30,6 +43,11 @@ pub(super) fn retain_implementation_checks(
 ) -> bool {
     if !carries_profile_implementation(profile, step) {
         return false;
+    }
+    // A declared observation already has its own target and output boundary.
+    // Preserve it verbatim instead of replacing it with the profile subset.
+    if step.step_kind() == StepKind::Verify && has_package_observation(step) {
+        return true;
     }
     if references_template_owned_artifacts(profile, step)
         && profile_owns_declared_paths(root, profile, step)

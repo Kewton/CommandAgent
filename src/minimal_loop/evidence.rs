@@ -4,6 +4,7 @@ pub(crate) use artifact_verify::is_artifact_only_verify_command;
 #[path = "evidence/verify_command_classification.rs"]
 mod verify_command_classification;
 pub(crate) use verify_command_classification::import_check;
+pub(crate) use verify_command_classification::package_script_check;
 #[path = "evidence/command_diagnosis.rs"]
 pub(crate) mod command_diagnosis;
 #[path = "evidence/weak_sources.rs"]

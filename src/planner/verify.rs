@@ -1,3 +1,6 @@
+mod setup_command_policy;
+use setup_command_policy::is_setup_or_dev_server_verify_command;
+
 use std::path::Path;
 
 use crate::minimal_loop::build_verifier::{
@@ -1749,8 +1752,7 @@ pub fn diagnose_verify_command(command: &str) -> VerifyCommandDiagnosis {
         };
         return verify_command_violation(repair.normalized, violation, Some(repair.reason));
     }
-    let lower = normalized.to_ascii_lowercase();
-    if is_setup_or_dev_server_verify_command(&lower) {
+    if is_setup_or_dev_server_verify_command(&normalized) {
         return verify_command_violation(
             normalized,
             VerifyCommandViolationKind::SetupOrDevServer,
@@ -2678,26 +2680,6 @@ pub fn package_json_port_script_check_command(port: &str) -> String {
         ),
         port = port
     )
-}
-
-fn is_setup_or_dev_server_verify_command(lower: &str) -> bool {
-    if lower.starts_with("node -p ") || lower.starts_with("node --print ") {
-        return false;
-    }
-    dependency_install_verify_segment(lower).is_some()
-        || lower.contains("cargo install")
-        || lower.contains("npm run dev")
-        || lower.contains("pnpm dev")
-        || lower.contains("yarn dev")
-        || lower.contains("next dev")
-        || lower.contains("vite --host")
-        || lower.contains("vite --port")
-        || (lower.contains("curl ") && is_localhost_reference(lower))
-        || (lower.contains("wget ") && is_localhost_reference(lower))
-        || lower.contains("python -m http.server")
-        || lower.contains("python3 -m http.server")
-        || lower.contains("server start")
-        || lower.contains("serve ")
 }
 
 pub fn dependency_install_verify_segment(command: &str) -> Option<VerifyInstallCommandFamily> {

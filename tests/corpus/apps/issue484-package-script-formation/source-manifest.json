@@ -1,0 +1,16 @@
+{
+  "source": "workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/reports/preclosure-admission-observations-01.json",
+  "source_sha256": "248d0ab5a8958e623aa11d3f857fedc45ed6576c545dc4387b2f779da383bd29",
+  "json_pointer": "/events/4/event/original_obligation_sources/model/steps/4",
+  "owner": "configure-port-and-scripts",
+  "expected_literal": "next dev -p 60302",
+  "capture": "preclosure attempt 1; live-prefix observation, not terminal evidence",
+  "derived_fixture": "formed-plan.json replaces the weak command and explicitly splits the complete saved model and host package duties to stay within the unchanged instruction limit; all package checks follow both owners.",
+  "fixture_sha256": {
+    "original-plan.json": "fbdaa12997a87c4eb78ca2029d7d5eda3f5d2acf7e9cc6df010930db96302dee",
+    "saved-scope.json": "cf1f328b394b1f9df6b11372180fab81cccf3fd21292c6acf19e847a86f56af8",
+    "saved-obligation-sources.json": "278c86e3c8a172b493236bb06ae71610eadf9d147b180ed85aebdb9dab8f076e",
+    "package.json": "ad2c5affb307d8da85b8fad196d83e89ae3fd4e76133d5b41b903e89613b087c",
+    "formed-plan.json": "279f565fd9a7a0c8962b2907e02e1fdf7d47d2fbd38bd772e0c12d6fdd27320d"
+  }
+}

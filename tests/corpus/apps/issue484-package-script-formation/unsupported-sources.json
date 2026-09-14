@@ -1,0 +1,26 @@
+{
+  "commands": [
+    "node -p \"require('./package.json').scripts[key]\"",
+    "node -p \"require('./package.json').scripts['dev']\"",
+    "node -p \"String(require('./package.json').scripts.dev)\"",
+    "node -p \"require('./other.json').scripts.dev\"",
+    "node --print=\"require('./package.json').scripts.dev\""
+  ],
+  "unsafe_literals": [
+    "next dev 'quoted'",
+    "next dev \"quoted\"",
+    "next dev \\path",
+    "next dev\nnext start",
+    "next dev `id`",
+    "next dev $HOME",
+    "next dev $(id)",
+    "next dev; true",
+    "next dev && true",
+    "next dev | cat",
+    "next dev > output",
+    "next dev あ",
+    " next dev",
+    "next dev ",
+    "next  dev"
+  ]
+}

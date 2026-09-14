@@ -12,6 +12,10 @@ pub(crate) struct Admission {
     sources: Option<FormationScope>,
     profile_addition: Option<ProfileAddition>,
     replacements: Vec<super::verifier_formation::Replacement>,
+    pending_sources: Option<super::package_script_formation::CapturedSources>,
+    package_scripts: Option<super::package_script_formation::PackageScripts>,
+    awaiting_check: bool,
+    duplicate_strengthen: bool,
 }
 
 pub(crate) enum Decision {
@@ -21,14 +25,27 @@ pub(crate) enum Decision {
 
 impl Admission {
     pub(crate) fn strengthen(&mut self, config: &Config, plan: &mut StepPlan) {
+        if self.awaiting_check {
+            self.duplicate_strengthen = true;
+            return;
+        }
+        self.awaiting_check = true;
         self.profile_addition =
             super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
+        if self.original.is_none() {
+            self.pending_sources = Some(super::package_script_formation::CapturedSources::new(
+                config,
+                FormationScope::capture(plan, self.profile_addition.as_ref()),
+                "profile_augmentation_before_sanitization",
+            ));
+        }
     }
 
     fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
         super::verifier_formation::preserve_registered(&self.replacements, plan)?;
         if let Some(original) = &self.original {
-            let (projected, _) = super::verifier_formation::project(original, plan);
+            let (projected, _) =
+                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
             if let Some(sources) = &self.sources {
                 sources.preserve(original, &projected)?;
             } else {
@@ -38,11 +55,21 @@ impl Admission {
         Ok(())
     }
 
-    fn retain(&mut self, plan: &StepPlan) {
+    fn retain(&mut self, config: &Config, plan: &StepPlan, contract: &CompletionContract) {
         if self.original.is_none() {
             self.sources = Some(FormationScope::capture(
                 plan,
                 self.profile_addition.as_ref(),
+            ));
+            let sources = self.pending_sources.take().unwrap_or_else(|| {
+                super::package_script_formation::CapturedSources::new(
+                    config,
+                    self.sources.as_ref().expect("captured sources").clone(),
+                    "admission_before_first_retry",
+                )
+            });
+            self.package_scripts = Some(super::package_script_formation::PackageScripts::capture(
+                config, plan, sources, contract,
             ));
             self.original = Some(plan.clone());
         }
@@ -54,6 +81,7 @@ impl Admission {
         phase: Option<&str>,
         plan: StepPlan,
     ) -> anyhow::Result<StepPlan> {
+        self.require_capture_boundary()?;
         if let Some(original) = &self.original
             && let Err(error) = self.preserve(&plan)
         {
@@ -91,13 +119,20 @@ impl Admission {
         plan: &mut StepPlan,
         attempt: usize,
     ) -> anyhow::Result<Decision> {
+        self.awaiting_check = false;
         let host = plan.clone();
         let recovery = crate::planner::recovery_inspection::has_origin(config)?;
-        let result = if recovery {
+        let result = if let Err(error) = self.require_capture_boundary() {
+            Err(error)
+        } else if recovery {
             check_model_ownership(config, phase, model)
                 .and_then(|()| bind_generated(config, phase, plan))
         } else {
-            self.form(config, plan).map(|()| false)
+            self.package_scripts
+                .as_ref()
+                .map_or(Ok(()), |p| p.preserve_raw_commands(model))
+                .and_then(|()| self.form(config, plan))
+                .map(|()| false)
         };
         let Err(error) = result else {
             return Ok(Decision::Ready(result.unwrap()));
@@ -115,6 +150,7 @@ impl Admission {
                 "classification":class, "reason":error.to_string(),
                 "model_proposal":model, "host_augmented_proposal":host,
                 "original_scope":self.original, "original_obligation_sources":self.sources,
+                "package_script_formation":self.package_scripts,
                 "planner_attempt":attempt,
                 "remaining_planner_attempts":3usize.saturating_sub(attempt),
                 "recovery_budget_changed":false,
@@ -141,6 +177,16 @@ impl Admission {
         )))
     }
 
+    fn require_capture_boundary(&self) -> anyhow::Result<()> {
+        if self.duplicate_strengthen {
+            return Err(failure(
+                FailureClass::Unsafe,
+                "source acquisition requires one strengthen followed by check per proposal; duplicate strengthen cannot identify the original source",
+            ));
+        }
+        Ok(())
+    }
+
     fn form(&mut self, config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
         if !matches!(
             config.profile.as_str(),
@@ -152,7 +198,8 @@ impl Admission {
         }
         self.preserve(plan)?;
         if let Some(original) = &self.original {
-            let (_, replacements) = super::verifier_formation::project(original, plan);
+            let (_, replacements) =
+                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
             for replacement in replacements {
                 if !self.replacements.contains(&replacement) {
                     self.replacements.push(replacement);
@@ -170,21 +217,35 @@ impl Admission {
         let Ok(admitted) = scope::admitted_commands(config, &contract, plan) else {
             return Ok(());
         };
+        let registered_contract = contract.clone();
         contract.verify_commands.extend(admitted);
         if let Err(error) =
             super::verifier_formation::require_formed(config, &scope::commands(plan))
         {
-            self.retain(plan);
-            return Err(error);
+            self.retain(config, plan, &registered_contract);
+            let guidance = self
+                .package_scripts
+                .as_ref()
+                .map(|p| p.guidance())
+                .unwrap_or_default();
+            return if guidance.is_empty() {
+                Err(error)
+            } else {
+                let message = format!("{error}\n{guidance}");
+                Err(error.context(message))
+            };
         }
         if let Some(original) = &self.original {
-            let (_, replacements) = super::verifier_formation::project(original, plan);
+            let (_, replacements) =
+                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
             crate::eval_events::emit(
                 config.eval_events_path.as_deref(),
                 json!({
                     "event":"preclosure_verifier_replacements_validated",
                     "replacements":replacements, "scope_preserved":true,
                     "formed_verify_commands":scope::commands(plan),
+                    "package_script_formation":self.package_scripts,
+                    "formed_plan":plan,
                 }),
             );
         }
@@ -195,7 +256,7 @@ impl Admission {
         if let Some(addition) = &self.profile_addition
             && let Err(error) = addition.preserve(plan)
         {
-            self.retain(plan);
+            self.retain(config, plan, &registered_contract);
             return Err(error);
         }
         let mut claimed = Vec::<&PlanStep>::new();
@@ -211,11 +272,11 @@ impl Admission {
             scope::checked_paths(config, &contract, step)
                 .map_err(|e| failure(FailureClass::Unsafe, e.to_string()))?;
             if let Err(error) = scope::validate_producer(config, &contract, step) {
-                self.retain(plan);
+                self.retain(config, plan, &registered_contract);
                 return Err(failure(FailureClass::ProposalRepairable, error.to_string()));
             }
             if claimed.iter().any(|old| scope::overlaps(old, step)) {
-                self.retain(plan);
+                self.retain(config, plan, &registered_contract);
                 return Err(failure(
                     FailureClass::ProposalRepairable,
                     format!(

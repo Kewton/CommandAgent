@@ -12,6 +12,8 @@ pub(crate) mod admission;
 pub(crate) mod formation_scope;
 #[cfg(test)]
 mod issue466_tests;
+pub(crate) mod package_owner_scope;
+mod package_script_formation;
 pub(crate) mod profile_augmentation;
 mod verifier_formation;
 
