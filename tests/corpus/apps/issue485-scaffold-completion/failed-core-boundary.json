@@ -1,0 +1,37 @@
+{
+  "completed_phase_ids": [
+    "project-setup"
+  ],
+  "failed_phase_id": "core-implementation",
+  "pending_phase_ids": [
+    "contract-wiring",
+    "build-verification"
+  ],
+  "stage": "scaffold",
+  "failure_kind": "phase_scaffold_error",
+  "error": "verifier plan admission exhausted existing 3-attempt planner budget: Recovery verifier binding ProposalRepairable: formation lost original check/expected result or its complete scope and boundary: node -p \"require('./package.json').scripts.dev\"; keep it on the complete owner or a Verify after all corresponding output owners",
+  "core_step_count": null,
+  "registered_verify_commands_from_failed_plan": 0,
+  "failed_step": null,
+  "recovery_limit": 2,
+  "planner_attempts": [
+    {
+      "source_line": 60,
+      "attempt": 1,
+      "status": "retry",
+      "reason": "Recovery verifier binding ProposalRepairable: preclosure weak inline verification requires formation: node -p \"require('./package.json').scripts.dev\": node_smoke_without_assertion (immutable_inline_evidence; app edits cannot strengthen this fixed verifier)\nPreserve each original import target and pass result. Replace a pure import only with a target-specific check in this closed shape: node -e \"import('./original-path.js').then(actual=>{require('node:assert/strict').deepStrictEqual(actual.exportName,42)})\". Supply the actual required export/value, or actual.exportName(...[literal JSON arguments]) and a literal JSON expected result. Alternatively explicitly propose the sorted runtime export-name set using deepStrictEqual(Object.keys(actual).sort(),[literal JSON names]); an explicitly empty set can describe a type-only module. That alternative verifies loadability and runtime export boundary only, not interface fields or business behavior. Do not infer its expectation from a filename. Preserve all original instructions, outputs and owner order. No unrelated assertion, added check beside the weak original, catch or success override discharges it. Unsupported checks must be reproposed with preserved scope or stop within the current budget."
+    },
+    {
+      "source_line": 64,
+      "attempt": 2,
+      "status": "retry",
+      "reason": "Recovery verifier binding ProposalRepairable: formation dropped original required output owner package.json"
+    },
+    {
+      "source_line": 68,
+      "attempt": 3,
+      "status": "exhausted",
+      "reason": "Recovery verifier binding ProposalRepairable: formation lost original check/expected result or its complete scope and boundary: node -p \"require('./package.json').scripts.dev\"; keep it on the complete owner or a Verify after all corresponding output owners"
+    }
+  ]
+}

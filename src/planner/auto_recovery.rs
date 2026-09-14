@@ -1936,6 +1936,11 @@ mod tests {
         include!("auto_recovery/issue475_tests.rs");
     }
 
+    #[cfg(unix)]
+    mod issue485 {
+        include!("auto_recovery/issue485_tests.rs");
+    }
+
     mod issue440 {
         include!("auto_recovery/issue440_tests.rs");
     }

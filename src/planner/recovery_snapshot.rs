@@ -212,6 +212,17 @@ fn prepare_runtime_workspace(
         }
         symlink_directory(&source, &destination)?;
     }
+    #[cfg(test)]
+    {
+        // Carry the existing browser test transport into disposable observers.
+        // This keeps fixture contract ports independent of actual test sockets.
+        let relative = ".anvil/evidence/browser-probe-command.json";
+        if root.join(relative).is_file() {
+            let target = treatment.join(relative);
+            std::fs::create_dir_all(target.parent().expect("probe input parent"))?;
+            std::fs::copy(root.join(relative), target)?;
+        }
+    }
     Ok(treatment)
 }
 

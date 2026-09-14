@@ -935,7 +935,7 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
 }
 
 #[cfg(test)]
-fn emit_tui_command_stop(
+pub(crate) fn emit_tui_command_stop(
     config: &Config,
     command: &str,
     result: &anyhow::Result<String>,
