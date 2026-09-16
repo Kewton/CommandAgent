@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::minimal_loop::completion::CompletionContract;
 
+pub(crate) mod inline_admission;
 mod local_script;
 #[path = "recovery_contract_authority/provenance.rs"]
 mod provenance;
@@ -121,9 +122,9 @@ pub(crate) fn register_step_plan_commands(
     let original = contract.verify_commands.clone();
     let profile = contract.profile.as_deref().unwrap_or_default();
     let goal = contract.goal.as_deref().unwrap_or_default();
-    contract
-        .verify_commands
-        .extend(admitted_final_success_commands(profile, goal, commands)?);
+    let admitted = admitted_final_success_commands(profile, goal, commands)?;
+    inline_admission::validate(config, &contract, &admitted)?;
+    contract.verify_commands.extend(admitted);
     let contract = contract.validate(&config.workspace_root)?;
     if contract.verify_commands != original {
         persist_generated_commands(config, &path, &contract, "admitted_step_plan")?;
@@ -244,14 +245,17 @@ fn complete_generated_verify_commands(
     }
 
     let goal = contract.goal.as_deref().unwrap_or_default();
-    contract.verify_commands =
-        admitted_final_success_commands(&profile, goal, failed_plan_verify_commands)?;
+    let admitted = admitted_final_success_commands(&profile, goal, failed_plan_verify_commands)?;
+    inline_admission::validate(config, &contract, &admitted)?;
+    contract.verify_commands = admitted;
     let source = if contract.verify_commands.is_empty() {
-        contract.verify_commands = profile_commands(
+        let preferred = profile_commands(
             config,
             &profile,
             contract.goal.as_deref().unwrap_or_default(),
         );
+        inline_admission::validate(config, &contract, &preferred)?;
+        contract.verify_commands = preferred;
         "profile_runtime"
     } else {
         "failed_plan_handoff"

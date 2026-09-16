@@ -14,12 +14,15 @@ pub(super) struct Replacement {
     reason: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     package_script: Option<super::package_script_formation::Obligation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    literal_markers: Option<super::literal_marker_formation::Obligation>,
 }
 
 pub(super) fn project(
     original: &StepPlan,
     proposed: &StepPlan,
     package_scripts: Option<&super::package_script_formation::PackageScripts>,
+    marker_checks: &[super::literal_marker_formation::Obligation],
 ) -> (StepPlan, Vec<Replacement>) {
     let mut projected = proposed.clone();
     let mut records = Vec::new();
@@ -54,6 +57,7 @@ pub(super) fn project(
                             "identical_import_then_direct_target_assertion_without_catch"
                         },
                         package_script: None,
+                        literal_markers: None,
                     });
                     *replacement = command.clone();
                 }
@@ -77,6 +81,28 @@ pub(super) fn project(
                         expected_result: obligation.expected_result.clone(), replacement_command: replacement.clone(),
                         reason: "saved_package_script_literal_strict_comparison_then_original_output",
                         package_script: Some(obligation.clone()),
+                        literal_markers: None,
+                    });
+                    *replacement = obligation.original_command.clone();
+                }
+            }
+        }
+    }
+    for obligation in marker_checks {
+        for candidate in &mut projected.steps {
+            if candidate.expected_result != obligation.expected_result {
+                continue;
+            }
+            for replacement in &mut candidate.verify {
+                if super::literal_marker_formation::matches(obligation, replacement) {
+                    records.push(Replacement {
+                        original_command: obligation.original_command.clone(),
+                        import_target: None,
+                        expected_result: obligation.expected_result.clone(),
+                        replacement_command: replacement.clone(),
+                        reason: "identical_file_ordered_literal_predicates_and_output_without_catch",
+                        package_script: None,
+                        literal_markers: Some(obligation.clone()),
                     });
                     *replacement = obligation.original_command.clone();
                 }

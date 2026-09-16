@@ -1,0 +1,17 @@
+[
+  "three_weak",
+  "condition",
+  "target",
+  "stdout",
+  "message",
+  "output",
+  "model_owner",
+  "host_owner",
+  "expected_result",
+  "owner_order",
+  "condition_order",
+  "other_check",
+  "success_override",
+  "unknown_regex",
+  "shell_override"
+]

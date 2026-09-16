@@ -4,6 +4,36 @@ use super::{VerifyCommandKind, collect_workspace_evidence, verify_command_kind};
 use serde::Serialize;
 use std::path::Path;
 
+/// Run the final command classifier without application files, then the same
+/// requirement normalization/pruning used by final acceptance. This is only a
+/// preclosure refusal: it never grants evidence or substitutes for execution.
+pub(crate) fn source_independent_inline_failure(
+    contract: &crate::minimal_loop::completion::CompletionContract,
+    command: &str,
+) -> Option<String> {
+    let words = super::verify_command_classification::single_command_words(command)?;
+    if words.first()?.as_str() != "node" {
+        return None;
+    }
+    super::verify_command_classification::inline_argument(&words[1..])?;
+    let super::VerifyCommandKind::Weak(reason) =
+        super::verify_command_kind(command, &super::WorkspaceEvidence::default())
+    else {
+        return None;
+    };
+    let mut report = super::RuntimeAcceptanceReport {
+        weak_evidence: vec![reason.clone()],
+        ..Default::default()
+    };
+    super::refresh_runtime_acceptance_report(
+        &mut report,
+        &contract.required_capabilities,
+        &contract.required_evidence,
+        &contract.required_obligations,
+    );
+    (!report.passed && report.weak_evidence.contains(&reason)).then_some(reason)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct Diagnosis {
     pub(crate) command: String,

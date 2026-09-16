@@ -47,7 +47,7 @@ fn issue484_saved_runner_forms_exact_literal_and_records_both_sources() {
     let after = saved(true);
     // Control for the pre-fix equivalence path: pure-import projection cannot
     // discharge this saved value display, even though the candidate is valid.
-    let (unformed, records) = super::super::verifier_formation::project(&before, &after, None);
+    let (unformed, records) = super::super::verifier_formation::project(&before, &after, None, &[]);
     assert!(records.is_empty());
     assert!(admission::preserve(&before, &unformed).is_err());
     let (result, client) = replay(&c, &before, &after);
@@ -341,7 +341,7 @@ fn issue484_model_host_literals_are_checked_per_key_without_precedence() {
         after.steps[0].verify = vec![check()];
         after.steps[0].instruction.push_str(&format!("\n{host}"));
         let (projected, records) =
-            super::super::verifier_formation::project(&before, &after, Some(&catalog));
+            super::super::verifier_formation::project(&before, &after, Some(&catalog), &[]);
         assert_eq!(records.len(), usize::from(accepted));
         assert_eq!(admission::preserve(&before, &projected).is_ok(), accepted);
     }
