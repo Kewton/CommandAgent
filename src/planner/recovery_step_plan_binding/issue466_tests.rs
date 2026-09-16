@@ -168,3 +168,6 @@ mod issue479;
 
 #[path = "issue484_tests.rs"]
 mod issue484;
+
+#[path = "issue488_tests.rs"]
+mod issue488;

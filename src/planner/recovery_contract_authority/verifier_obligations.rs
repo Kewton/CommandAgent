@@ -50,9 +50,9 @@ pub(crate) fn register(config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
         return Ok(());
     }
     let original_contract = contract.clone();
-    contract
-        .verify_commands
-        .extend(admitted_commands(config, &contract, plan)?);
+    let admitted = admitted_commands(config, &contract, plan)?;
+    super::inline_admission::validate(config, &contract, &admitted)?;
+    contract.verify_commands.extend(admitted);
     let scripts = scripts(&contract.verify_commands);
     let mut registered = provenance::verifier_steps(config);
     for step in &plan.steps {

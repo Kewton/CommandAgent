@@ -16,6 +16,7 @@ pub(crate) struct Admission {
     package_scripts: Option<super::package_script_formation::PackageScripts>,
     awaiting_check: bool,
     duplicate_strengthen: bool,
+    marker_checks: Vec<super::literal_marker_formation::Obligation>,
 }
 
 pub(crate) enum Decision {
@@ -44,8 +45,12 @@ impl Admission {
     fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
         super::verifier_formation::preserve_registered(&self.replacements, plan)?;
         if let Some(original) = &self.original {
-            let (projected, _) =
-                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
+            let (projected, _) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
             if let Some(sources) = &self.sources {
                 sources.preserve(original, &projected)?;
             } else {
@@ -57,6 +62,7 @@ impl Admission {
 
     fn retain(&mut self, config: &Config, plan: &StepPlan, contract: &CompletionContract) {
         if self.original.is_none() {
+            self.marker_checks = super::literal_marker_formation::capture(config, contract, plan);
             self.sources = Some(FormationScope::capture(
                 plan,
                 self.profile_addition.as_ref(),
@@ -82,6 +88,17 @@ impl Admission {
         plan: StepPlan,
     ) -> anyhow::Result<StepPlan> {
         self.require_capture_boundary()?;
+        if let Some(contract) =
+            crate::planner::recovery_contract_authority::load_for_handoff(config)?
+            && crate::planner::recovery_contract_authority::inline_admission::eligible(
+                config, &contract,
+            )?
+        {
+            let admitted = scope::admitted_commands(config, &contract, &plan)?;
+            crate::planner::recovery_contract_authority::inline_admission::validate(
+                config, &contract, &admitted,
+            )?;
+        }
         if let Some(original) = &self.original
             && let Err(error) = self.preserve(&plan)
         {
@@ -131,6 +148,12 @@ impl Admission {
             self.package_scripts
                 .as_ref()
                 .map_or(Ok(()), |p| p.preserve_raw_commands(model))
+                .and_then(|()| {
+                    super::literal_marker_formation::preserve_raw_commands(
+                        &self.marker_checks,
+                        model,
+                    )
+                })
                 .and_then(|()| self.form(config, plan))
                 .map(|()| false)
         };
@@ -198,8 +221,12 @@ impl Admission {
         }
         self.preserve(plan)?;
         if let Some(original) = &self.original {
-            let (_, replacements) =
-                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
+            let (_, replacements) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
             for replacement in replacements {
                 if !self.replacements.contains(&replacement) {
                     self.replacements.push(replacement);
@@ -223,11 +250,14 @@ impl Admission {
             super::verifier_formation::require_formed(config, &scope::commands(plan))
         {
             self.retain(config, plan, &registered_contract);
-            let guidance = self
+            let mut guidance = self
                 .package_scripts
                 .as_ref()
                 .map(|p| p.guidance())
                 .unwrap_or_default();
+            guidance.push_str(&super::literal_marker_formation::guidance(
+                &self.marker_checks,
+            ));
             return if guidance.is_empty() {
                 Err(error)
             } else {
@@ -236,8 +266,12 @@ impl Admission {
             };
         }
         if let Some(original) = &self.original {
-            let (_, replacements) =
-                super::verifier_formation::project(original, plan, self.package_scripts.as_ref());
+            let (_, replacements) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
             crate::eval_events::emit(
                 config.eval_events_path.as_deref(),
                 json!({

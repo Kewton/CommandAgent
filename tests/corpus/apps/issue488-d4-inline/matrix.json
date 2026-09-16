@@ -1,0 +1,242 @@
+[
+  {
+    "command": "O",
+    "fixture": "normal",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "O",
+    "fixture": "primary",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "O",
+    "fixture": "input",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "O",
+    "fixture": "state",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "O",
+    "fixture": "snapshot",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "O",
+    "fixture": "file_missing",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "normal",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "primary",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "input",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "state",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "snapshot",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V1",
+    "fixture": "file_missing",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "V2",
+    "fixture": "normal",
+    "execution_pass": true,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": true,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "V2",
+    "fixture": "primary",
+    "execution_pass": false,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": false,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "V2",
+    "fixture": "input",
+    "execution_pass": false,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": false,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "V2",
+    "fixture": "state",
+    "execution_pass": false,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": false,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "V2",
+    "fixture": "snapshot",
+    "execution_pass": false,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": false,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "V2",
+    "fixture": "file_missing",
+    "execution_pass": false,
+    "kind": "test",
+    "formation": "ready",
+    "registration": "accepted",
+    "final_isolated_pass": false,
+    "static_weak_evidence": false
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "normal",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "primary",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "input",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "state",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "snapshot",
+    "execution_pass": true,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  },
+  {
+    "command": "SWALLOW",
+    "fixture": "file_missing",
+    "execution_pass": false,
+    "kind": "weak",
+    "formation": "retry",
+    "registration": "rejected",
+    "final_isolated_pass": false,
+    "static_weak_evidence": true
+  }
+]

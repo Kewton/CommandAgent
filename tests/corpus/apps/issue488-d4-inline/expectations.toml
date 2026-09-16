@@ -1,0 +1,18 @@
+case_id = "issue488-d4-inline"
+source = "Exact D4 commands; reduced text fixtures; real Node and mock-provider Rust tests"
+required_paths = ["README.md", "src/app/page.tsx"]
+verify_commands = ["node -e \"const s=require('fs').readFileSync('src/app/page.tsx','utf8'); if(!/data-anvil-action=\\\"primary\\\"/.test(s))throw new Error('missing primary'); if(!/data-anvil-action=\\\"input\\\"/.test(s))throw new Error('missing input'); if(!/data-anvil-state/.test(s))throw new Error('missing state'); if(!/JSON\\.stringify/.test(s))throw new Error('missing JSON snapshot'); console.log('ok')\""]
+required_capabilities = []
+required_evidence = ["requested_content_evidence"]
+required_obligations = []
+acceptance_passed = false
+primary_reason = "weak_verification_evidence:node_smoke_without_assertion"
+
+[weak_evidence]
+contains = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+commands.json = ["e5c561799e5d8da640ae8d6b8420f7d8417db8d80ed72105373a6214d8eb4283", "SWALLOW"]
