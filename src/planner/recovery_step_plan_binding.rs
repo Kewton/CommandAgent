@@ -16,6 +16,7 @@ mod literal_marker_formation;
 pub(crate) mod package_owner_scope;
 mod package_script_formation;
 pub(crate) mod profile_augmentation;
+mod reader_obligations;
 mod verifier_formation;
 
 pub(crate) fn bind_generated(

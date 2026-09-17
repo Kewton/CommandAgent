@@ -1,0 +1,18 @@
+{
+  "added_required_paths": [
+    "README.md",
+    "verify-ui.cjs"
+  ],
+  "added_verify_commands": [
+    "node verify-ui.cjs"
+  ],
+  "artifact_only": "test -f README.md",
+  "producer": {
+    "id": "verifier-owner",
+    "kind": "implement",
+    "expected_result": "pass",
+    "expected_paths": [
+      "verify-ui.cjs"
+    ]
+  }
+}
