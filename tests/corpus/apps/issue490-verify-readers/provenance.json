@@ -1,0 +1,18 @@
+{
+  "source_commit": "b13ef093e462084956bb792e10616d6848e00f40",
+  "source_campaign": "ownership-protection-20260917-01; known-build-loss from ownership-fullplan-20260917-01/reply-2",
+  "representation": "JSON formatting normalized; first two replies retained; repeated third is synthesized by replay; N variants store differing steps; no admission/path interventions",
+  "sha256": {
+    "P01-attempt-1.json": "7aaeb78f31421b90d435c0ad663fbc55a93b13a1ee50d9cc00004c119e8ac6e1",
+    "P01-attempt-2.json": "5cd7632c484e1e77ea3f01b830482ea125bafac3c22b08fc000cca1ef66508e2",
+    "P02-D-attempt-1.json": "46c2368fad2d3c967535c7a9ddbbe9db8f414d305464e8acfeae846a4c150106",
+    "P02-D-attempt-2.json": "611a25c828a8af84aa130e65ceda220f31cff1b2bb5375c8c6d1772d5306b2c9",
+    "variants.json": "fcff49223656eb9c2340db215110708b47417bd201291bcc40f562e1caea092f",
+    "setup-plan.yaml": "b56a9103b688e55ea6c35fc75420890cd768a645b89a1aa483b4b129cc0e13a3",
+    "setup-contract.json": "ec4a266d4b30d18fc6e4340606a7b2b9bc4cda3f2bdfa36e6b2d3a5e76b07154",
+    "run-contract.json": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+    "ultra-plan.yaml": "daf9b856281c18ed9081c854ea97280defb81a0dae41e9a591f36eb39795c369",
+    "acquired-before-after.json": "8cd8893a0ca7205e37ef833d6e086e37753cbe1edb62242a1852724dd910d38e",
+    "known-build-loss.json": "e15f1024da83e208592cb9375fd76fad78a6b10041e4320b6f1d456960a6891e"
+  }
+}

@@ -355,7 +355,11 @@ fn check_model_ownership(
 }
 
 pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
+    super::reader_obligations::preserve(original, proposed)?;
     for step in &original.steps {
+        if super::reader_obligations::supported(step) {
+            continue;
+        }
         let mut owner_indices = Vec::new();
         for path in &step.expected_paths {
             let expected = scope::normalized(path)?;

@@ -1,0 +1,45 @@
+{
+  "required_paths": [
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.js",
+    "tailwind.config.ts",
+    "src/app/layout.tsx",
+    "src/app/page.tsx",
+    "src/app/globals.css",
+    "src/app/global.d.ts"
+  ],
+  "protected_paths": [],
+  "verify_commands": [
+    "npm run build"
+  ],
+  "profile": "nextjs",
+  "goal": "小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。",
+  "required_capabilities": [
+    "stateful_interaction",
+    "user_input_or_action",
+    "visible_state_change"
+  ],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "nextjs_route_evidence",
+    "build_command_or_dependency_missing_boundary",
+    "implementation_artifact",
+    "visible_interactive_surface_evidence",
+    "user_input_handler_evidence",
+    "stateful_update_evidence",
+    "interactive_ui_source_evidence",
+    "non_static_screen_evidence"
+  ],
+  "evidence_hint_tokens": [
+    "プロジェクト",
+    "ユーザー",
+    "タスク",
+    "チームメンバー"
+  ],
+  "required_obligations": [
+    "implementation"
+  ],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}
