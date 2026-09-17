@@ -764,3 +764,6 @@ mod tests {
         assert!(!dir.path().join("app/globals.css").exists());
     }
 }
+
+#[cfg(test)]
+pub(crate) mod issue492_tests;

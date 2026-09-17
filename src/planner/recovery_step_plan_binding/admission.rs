@@ -33,6 +33,8 @@ impl Admission {
         self.awaiting_check = true;
         self.profile_addition =
             super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
+        #[cfg(test)]
+        crate::planner::setup_step_policy::issue492_tests::record("augmented", plan);
         if self.original.is_none() {
             self.pending_sources = Some(super::package_script_formation::CapturedSources::new(
                 config,

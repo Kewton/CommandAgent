@@ -41,8 +41,19 @@ pub(super) fn retain_implementation_checks(
     step: &mut PlanStep,
     phase_id: Option<&str>,
 ) -> bool {
+    // Explicit checks are executable duties, not evidence that a profile
+    // setup subset can replace this step. Preserve their scope and order;
+    // sanitation, Admission and verification still enforce command policy.
+    // Only the existing exact profile predicates for this goal may continue
+    // through setup conversion; this does not broaden command equivalence.
     if !carries_profile_implementation(profile, step) {
-        return false;
+        return is_nextjs_profile(profile)
+            && ((!step.verify.is_empty() && step.expected_result != "pass")
+                || step.verify.iter().any(|command| {
+                    !crate::planner::profiles::nextjs::recovery_authority::final_verifier_covers_command(
+                        goal, command,
+                    )
+                }));
     }
     // A declared observation already has its own target and output boundary.
     // Preserve it verbatim instead of replacing it with the profile subset.

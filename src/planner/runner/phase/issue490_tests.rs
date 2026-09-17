@@ -18,6 +18,7 @@ struct Observation {
     before: Option<CompletionContract>,
     after: Option<CompletionContract>,
     producers: Vec<crate::planner::step_plan::PlanStep>,
+    events: Vec<serde_json::Value>,
 }
 thread_local! {
     static ACTIVE: RefCell<Option<Observation>> = const { RefCell::new(None) };
@@ -128,6 +129,7 @@ pub(super) fn registered(c: &Config, plan: &StepPlan) -> bool {
     );
     let disk: CompletionContract = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(after, disk);
+    issue492::observe_registration(c, plan, &after);
     ACTIVE.with(|s| {
         let mut s = s.borrow_mut();
         let s = s.as_mut().unwrap();
@@ -250,7 +252,8 @@ fn replay(first: StepPlan, second: StepPlan, refusal: Option<&str>) -> Observati
             .unwrap()
             .contains("runnable Next.js app")
     );
-    let observation = ACTIVE.with(|s| s.borrow_mut().take().unwrap());
+    let mut observation = ACTIVE.with(|s| s.borrow_mut().take().unwrap());
+    observation.events = log.clone();
     if let Some(reason) = refusal {
         assert!(result.is_err(), "{reason}: {result:?}");
         assert_eq!(*planner.calls.lock().unwrap(), 3);
@@ -445,3 +448,6 @@ fn issue490_acquired_before_and_after_reach_normal_registration_separately() {
         );
     }
 }
+
+#[path = "issue492_tests.rs"]
+mod issue492;

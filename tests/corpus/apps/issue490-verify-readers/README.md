@@ -50,9 +50,10 @@ repair path and propagate its controlled error, never a successful short circuit
 The same test was run with original ownership wiring and with the fix.
 
 `known-build-loss.json` extracts the `verify-build` step at raw, sanitized and
-preset-converted stages of frozen full-plan attempt 2. Its diagnostic asserts the still-existing preset conversion
-loss of `npm run build` and its original instruction. This is a separate known
-issue, not an improvement claimed for #490. The P01/P02 fixtures instead keep
+preset-converted stages of frozen full-plan attempt 2. Its preset-converted snapshot records the historical loss at baseline
+`d51cc6ed9e04f8d9747d015ff788845ea1b1e59b`. Issue #492 replaces the diagnostic
+with a preservation assertion; the frozen JSON remains unchanged. This was a
+separate known issue, not an improvement claimed for #490. The P01/P02 fixtures instead keep
 build on the application producer after its work.
 
 The corpus discovery check validates fixture availability. The focused Rust

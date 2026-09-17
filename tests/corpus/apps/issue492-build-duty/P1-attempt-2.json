@@ -1,0 +1,88 @@
+{
+  "goal": "Original ultra goal: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。\nProfile: nextjs\nStyle: default\nIntent: create\nPhase id: core-implementation\nPhase task: Implement the core task-specific behavior for: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n\nWorkspace snapshot:\n- .next\n- next-env.d.ts\n- node_modules\n- package-lock.json\n- package.json\n- postcss.config.js\n- src\n- tailwind.config.ts\n- tsconfig.json\n\nPrior ultra context:\n- Completed phases:\n  - project-setup (2/2)\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- accepting\n- affordance\n- alone\n- another\n- anvil\n- api\n- … and 112 more\n\nProfile generation rules:\n- Profile nextjs/create: preserve a real Next.js app contract. Include next/react/react-dom dependencies, keep scripts.build as next build, and end with a build verification phase. Put dependency setup before any npm run build verification when node_modules is not already present; setup instructions may install dependencies, but verify must not contain npm install. If dependency setup is not allowed or cannot run, stop with dependency_missing instead of claiming build success. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, implement the requested interface, replacing unrelated scaffold content, and preserve data-anvil-* attributes on route-bound UI: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). If you use Tailwind utility classes or @tailwind directives, include tailwindcss/postcss/autoprefixer and create tailwind.config.* plus postcss.config.*; postcss.config plugins must include BOTH tailwindcss and autoprefixer. Otherwise use plain CSS and do not write Tailwind utility classes. Keep scripts.dev and scripts.start on the explicit requested port when the goal or plan requests one; otherwise use port 3011 with next dev/start -p 3011 or --port 3011.\n- For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n- For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates.\n- Validate the complete proposed state before committing: aggregate quantities by entity key before checking availability, scope totals to the requested period, define rejection/cascade/reassignment for referenced parent deletion, and match strict/inclusive comparisons to the goal wording. Reject non-finite or invalid quantities and amounts at the API boundary.\n\nProfile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Keep next/react/react-dom dependencies in package.json.\n- Keep scripts.build as next build; do not replace it with echo/skip/no-op commands.\n- If npm run build cannot run because dependencies are not installed, report dependency_missing or use an explicit setup step; do not fake success.\n- Keep scripts.dev and scripts.start on the explicitly requested port 60302: next dev/start -p 60302 or --port 60302.\n- If using Tailwind utility classes or @tailwind directives, keep the Tailwind toolchain complete: tailwindcss/postcss/autoprefixer dependencies, tailwind.config.*, and postcss.config plugins with BOTH tailwindcss and autoprefixer. Otherwise use plain CSS.\n- Keep TypeScript and app router configuration coherent.\n- Keep a single route-bound implementation; do not leave capability components unimported.\n- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n- Do not treat scaffold-only, package-only, or build-only output as complete.\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- npm run build\n\n\nRequired final artifacts:\n- package.json\n- tsconfig.json\n- postcss.config.js\n- tailwind.config.ts\n- src/app/layout.tsx\n- src/app/page.tsx\n- src/app/globals.css\n- src/app/global.d.ts\n\nRequired final capabilities:\n- stateful_interaction\n- user_input_or_action\n- visible_state_change\n- persistence\n\nRequired final evidence:\n- nextjs_route_evidence\n- build_command_or_dependency_missing_boundary\n- implementation_artifact\n- visible_interactive_surface_evidence\n- user_input_handler_evidence\n- stateful_update_evidence\n- interactive_ui_source_evidence\n- non_static_screen_evidence\n- persistence_evidence",
+  "steps": [
+    {
+      "expected_paths": [
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "package-read-original",
+      "instruction": "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure.",
+      "kind": "verify",
+      "verify": [
+        "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+        "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    },
+    {
+      "id": "verifier-owner",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+      "expected_paths": [
+        "verify-ui.cjs"
+      ],
+      "verify": []
+    },
+    {
+      "id": "documentation-owner",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+      "expected_paths": [
+        "README.md"
+      ],
+      "verify": []
+    },
+    {
+      "id": "application-config",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+      "expected_paths": [
+        "src/app/page.tsx",
+        "package.json"
+      ],
+      "verify": [
+        "npm run build"
+      ]
+    },
+    {
+      "id": "read-verifier-doc",
+      "kind": "verify",
+      "expected_result": "pass",
+      "instruction": "Run both original checks after the UI and verification files exist.",
+      "expected_paths": [],
+      "verify": [
+        "node verify-ui.cjs",
+        "test -f README.md"
+      ]
+    },
+    {
+      "expected_paths": [
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "package-read-later",
+      "instruction": "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure.",
+      "kind": "verify",
+      "verify": [
+        "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+        "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the entire app compiles without type errors, all route modules resolve, and the output is valid.",
+      "kind": "verify",
+      "verify": [
+        "npm run build",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    }
+  ]
+}
