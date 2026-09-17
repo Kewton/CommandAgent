@@ -198,7 +198,7 @@ fn issue490_only_closed_reader_duties_receive_distinct_matching() {
 }
 
 #[test]
-fn issue490_original_build_loss_remains_a_separate_diagnostic() {
+fn issue492_original_build_duty_survives_preset_conversion() {
     let root = tempfile::tempdir().unwrap();
     let c = issue478::nextjs_config(root.path());
     let mut before: StepPlan =
@@ -206,25 +206,18 @@ fn issue490_original_build_loss_remains_a_separate_diagnostic() {
     let original = before.clone();
     assert!(before.steps[0].verify.contains(&"npm run build".into()));
     let runtime = crate::planner::profile::resolve_profile_runtime(&c.profile);
-    assert_eq!(
-        runtime.convert_preset_phase_setup_steps(
-            &mut before,
-            root.path(),
-            fixture("known-build-loss.json")["conversion_goal"]
-                .as_str()
-                .unwrap(),
-            Some(("core-implementation", false)),
-            true,
-            None
-        ),
-        1
+    runtime.convert_preset_phase_setup_steps(
+        &mut before,
+        root.path(),
+        fixture("known-build-loss.json")["conversion_goal"]
+            .as_str()
+            .unwrap(),
+        Some(("core-implementation", false)),
+        true,
+        None,
     );
-    assert_eq!(
-        serde_json::to_value(&before).unwrap(),
-        fixture("known-build-loss.json")["preset_converted"]
-    );
-    assert!(!before.steps[0].verify.contains(&"npm run build".into()));
-    assert_ne!(before.steps[0].instruction, original.steps[0].instruction);
-    // This preexisting conversion defect is not repaired by reader matching.
-    assert!(admission::preserve(&original, &before).is_err());
+    // The frozen preset_converted snapshot records loss at d51cc6ed; it is
+    // historical evidence, never the desired result of current conversion.
+    assert_eq!(before, original);
+    assert!(admission::preserve(&original, &before).is_ok());
 }

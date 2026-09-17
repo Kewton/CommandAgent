@@ -22,6 +22,8 @@ pub(crate) fn convert_preset_phase_setup_steps(
     preset_phase: bool,
     eval_events_path: Option<&Path>,
 ) -> usize {
+    #[cfg(test)]
+    super::issue492_tests::record("sanitized", plan);
     let phase_id = phase_scope.map(|(id, _)| id);
     let mut converted = if is_data_profile(profile) {
         if phase_scope.is_some_and(|(id, _)| {
@@ -87,6 +89,8 @@ pub(crate) fn convert_preset_phase_setup_steps(
         );
         converted += 1;
     }
+    #[cfg(test)]
+    super::issue492_tests::record("converted", plan);
     converted
 }
 
