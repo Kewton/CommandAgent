@@ -11,6 +11,16 @@ pub(super) fn views(
     original: &StepPlan,
     proposed: &StepPlan,
 ) -> Option<(StepPlan, StepPlan)> {
+    let (model_duty, host_duty) = split_duties(model, host)?;
+    split_views(model, original, proposed, model_duty, host_duty)
+}
+
+/// The registered split's source gate is shared with bounded-repair proofs.
+/// Eligibility alone does not prove that a proposed split is admissible.
+pub(super) fn split_duties<'a>(
+    model: &'a StepPlan,
+    host: &'a StepPlan,
+) -> Option<(&'a PlanStep, &'a PlanStep)> {
     let [host_duty] = host.steps.as_slice() else {
         return None;
     };
@@ -28,6 +38,16 @@ pub(super) fn views(
     {
         return None;
     }
+    Some((model_duty, host_duty))
+}
+
+fn split_views(
+    model: &StepPlan,
+    original: &StepPlan,
+    proposed: &StepPlan,
+    model_duty: &PlanStep,
+    host_duty: &PlanStep,
+) -> Option<(StepPlan, StepPlan)> {
     let owners = writers(proposed)?;
     let [(model_index, model_owner), (host_index, host_owner)] = owners.as_slice() else {
         return None;

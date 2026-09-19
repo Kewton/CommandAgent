@@ -113,17 +113,18 @@ fn issue496_saved_profile_guidance_is_retained_and_rejected_for_capacity() {
             .all(|record| record.step_id != augmented.id)
     );
 
-    let admission::Decision::Retry(feedback) = admission
+    let error = admission
         .check(&config, Some("core-implementation"), &raw, &mut plan, 1)
-        .unwrap()
-    else {
-        panic!("over-capacity profile instruction unexpectedly passed")
-    };
-    assert!(feedback.contains("2500-character capacity"), "{feedback}");
-    let serialized_guidance = serde_json::to_string(&guidance).unwrap();
+        .err()
+        .expect("proven infeasible capacity must stop");
     assert!(
-        feedback.contains(&serialized_guidance[1..serialized_guidance.len() - 1]),
-        "host guidance was not retained"
+        error.to_string().contains("2500-character capacity"),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("bounded repair is not representable")
     );
 
     let event = events(&config)
@@ -215,12 +216,27 @@ fn issue496_tracks_a_moved_owner_and_rejects_ambiguous_provenance() {
 }
 
 #[test]
-fn issue496_saved_capacity_failure_exhausts_the_existing_planner_budget() {
-    let root = tempfile::tempdir().unwrap();
+fn issue498_saved_capacity_failure_stops_without_another_request_or_fallback() {
+    let isolated_root = std::env::var_os("COMMANDAGENT_ISSUE498_REPLAY_ROOT");
+    let root = if let Some(path) = &isolated_root {
+        std::fs::create_dir_all(path).unwrap();
+        tempfile::Builder::new()
+            .prefix("saved-l2-")
+            .tempdir_in(path)
+            .unwrap()
+    } else {
+        tempfile::tempdir().unwrap()
+    };
     let mut config = super::issue478::nextjs_config(root.path());
     config.intent_override = Some(crate::planner::adjudication::contract::IntentId::Create);
     let raw = saved();
-    let mut client = Replay::new(vec![proposal(&raw), proposal(&raw), proposal(&raw)]);
+    let before: Vec<_> = raw
+        .steps
+        .iter()
+        .flat_map(|s| &s.expected_paths)
+        .map(|path| (path, std::fs::read(root.path().join(path)).ok()))
+        .collect();
+    let mut client = Replay::new(vec![proposal(&raw)]);
 
     let error = crate::planner::runner::generate_step_plan_with_ui_for_phase(
         &mut client,
@@ -233,27 +249,109 @@ fn issue496_saved_capacity_failure_exhausts_the_existing_planner_budget() {
     )
     .unwrap_err();
 
-    assert!(error.to_string().contains("exhausted"), "{error:#}");
+    for forbidden in [
+        "exhausted",
+        "ProposalRepairable",
+        "formation moved original check",
+    ] {
+        assert!(!format!("{error:#}").contains(forbidden), "{error:#}");
+    }
     assert!(
         error.to_string().contains("profile instruction exceeds"),
         "{error:#}"
     );
-    assert_eq!(client.requests.lock().unwrap().len(), 3);
+    assert_eq!(client.requests.lock().unwrap().len(), 1);
     let admissions: Vec<_> = events(&config)
         .into_iter()
         .filter(|event| event["event"] == "recovery_verifier_plan_admission")
         .collect();
-    assert_eq!(admissions.len(), 3);
+    assert_eq!(admissions.len(), 1);
     assert!(admissions.iter().all(|event| {
         event["reason"]
             .as_str()
             .unwrap()
             .contains("profile instruction exceeds")
     }));
-    assert_eq!(admissions.last().unwrap()["status"], "exhausted");
+    let event = &admissions[0];
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/corpus/apps/issue496-profile-guidance-capacity/terminal-expectation.json"
+    ))
+    .unwrap();
+    for key in [
+        "status",
+        "planner_attempt",
+        "remaining_planner_attempts",
+        "recovery_budget_changed",
+        "retry_allowed",
+        "terminal_reason",
+    ] {
+        assert_eq!(event[key], expected[key], "{key}");
+    }
+    for key in [
+        "model_chars",
+        "host_chars",
+        "model_to_host_overlap",
+        "host_to_model_overlap",
+        "minimum_chars",
+        "limit_chars",
+        "excess_chars",
+        "registered_split",
+    ] {
+        assert_eq!(event["bounded_repair_proof"][key], expected[key], "{key}");
+    }
+    assert_eq!(event["status"], "stopped");
+    assert_eq!(event["planner_attempt"], 1);
+    assert_eq!(event["remaining_planner_attempts"], 2);
+    assert_eq!(event["recovery_budget_changed"], false);
+    assert_eq!(event["retry_allowed"], false);
+    assert_eq!(event["terminal_reason"], "bounded_repair_infeasible");
+    let proof = &event["bounded_repair_proof"];
+    assert_eq!(proof["model_chars"], 529);
+    assert_eq!(proof["host_chars"], 2237);
+    assert_eq!(proof["minimum_chars"], 2766);
+    assert_eq!(proof["limit_chars"], 2500);
+    assert_eq!(proof["excess_chars"], 266);
+    assert_eq!(proof["model_to_host_overlap"], 0);
+    assert_eq!(proof["host_to_model_overlap"], 0);
+    assert_eq!(proof["normalized_paths"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        proof["acquisition_stage"],
+        "profile_augmentation_before_sanitization"
+    );
+    assert!(events(&config).iter().all(|e| !matches!(
+        e["event"].as_str(),
+        Some(
+            "tool_call_started"
+                | "step_started"
+                | "planner_fallback_plan"
+                | "recovery_verifier_plan_return_rejected"
+        )
+    )));
+    for (path, bytes) in before {
+        assert_eq!(
+            std::fs::read(root.path().join(path)).ok(),
+            bytes,
+            "{path} changed"
+        );
+    }
+    if isolated_root.is_some() {
+        std::fs::write(
+            root.path().join("replay-result.json"),
+            serde_json::to_vec_pretty(&json!({
+                "model_requests":1, "application_commands":0, "application_verifiers":0,
+                "setup_fallbacks":0, "last_valid_fallbacks":0, "final_error":format!("{error:#}"),
+                "admission":event,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        eprintln!("Issue #498 isolated replay: {}", root.keep().display());
+    }
 }
 
 #[path = "issue496_tests/capacity.rs"]
 mod capacity;
 #[path = "issue496_tests/retry.rs"]
 mod retry;
+#[path = "issue496_tests/terminal.rs"]
+mod terminal;

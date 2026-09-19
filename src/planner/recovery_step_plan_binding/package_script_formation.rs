@@ -76,6 +76,25 @@ pub(super) struct PackageScripts {
 }
 
 impl PackageScripts {
+    pub(super) fn has_profile_capture(
+        &self,
+        sources: &FormationScope,
+        original: &StepPlan,
+    ) -> bool {
+        self.sources.acquisition_stage == "profile_augmentation_before_sanitization"
+            && self.sources.plans == *sources
+            && self.sources.model_sha256 == object_hash(&sources.model)
+            && self.sources.host_sha256 == object_hash(&sources.host)
+            && self.registered_contract_sha256 == object_hash(&self.registered_contract)
+            && self.original_verify_commands
+                == original
+                    .steps
+                    .iter()
+                    .flat_map(|s| s.verify.clone())
+                    .collect::<Vec<_>>()
+            && self.refusals.is_empty()
+    }
+
     pub(super) fn preserve_raw_commands(&self, model: &StepPlan) -> anyhow::Result<()> {
         for command in model.steps.iter().flat_map(|s| &s.verify) {
             let normalized = crate::planner::verify::normalize_planner_verify_command(command)

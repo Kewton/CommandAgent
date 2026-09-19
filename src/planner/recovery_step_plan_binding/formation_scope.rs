@@ -108,7 +108,7 @@ fn instruction_protection(
     InstructionProtection { indices, error }
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct FormationScope {
     pub(super) model: StepPlan,
     pub(super) host: StepPlan,

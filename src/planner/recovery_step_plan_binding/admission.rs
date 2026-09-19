@@ -6,6 +6,10 @@ use crate::planner::recovery_inspection::verifier_obligations::{
     BindingFailure, FailureClass, failure,
 };
 
+#[path = "bounded_repair.rs"]
+mod bounded_repair;
+use bounded_repair::InstructionFailure;
+
 #[derive(Default)]
 pub(crate) struct Admission {
     original: Option<StepPlan>,
@@ -123,15 +127,15 @@ impl Admission {
         }
     }
 
-    fn profile_instruction_failure(&self, plan: &StepPlan) -> Option<String> {
+    fn profile_instruction_failure(&self, plan: &StepPlan) -> Option<InstructionFailure> {
         if let Some(error) = &self.profile_instruction_provenance_error {
-            return Some(error.clone());
+            return Some(InstructionFailure::Provenance(error.clone()));
         }
         let addition = self.profile_addition.as_ref()?;
         Self::instruction_failure(addition.instruction_protection(plan, false), plan)
     }
 
-    fn retained_profile_instruction_failure(&self, plan: &StepPlan) -> Option<String> {
+    fn retained_profile_instruction_failure(&self, plan: &StepPlan) -> Option<InstructionFailure> {
         let sources = self.sources.as_ref()?;
         sources
             .retained_instruction_indices(plan)
@@ -139,21 +143,24 @@ impl Admission {
             .find_map(|index| Self::instruction_capacity_failure(&plan.steps[index]))
     }
 
-    fn instruction_failure(protection: InstructionProtection, plan: &StepPlan) -> Option<String> {
+    fn instruction_failure(
+        protection: InstructionProtection,
+        plan: &StepPlan,
+    ) -> Option<InstructionFailure> {
         if let Some(error) = protection.error {
-            return Some(error);
+            return Some(InstructionFailure::Provenance(error));
         }
         let index = *protection.indices.iter().next()?;
         Self::instruction_capacity_failure(&plan.steps[index])
     }
 
-    fn instruction_capacity_failure(step: &PlanStep) -> Option<String> {
+    fn instruction_capacity_failure(step: &PlanStep) -> Option<InstructionFailure> {
         let chars = step.instruction.chars().count();
         (chars > crate::planner::sanitizer::STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS).then(|| {
-            format!(
-                "profile instruction exceeds the 2500-character capacity after deterministic sanitization: owner {} has {chars} characters; preserve the complete model and host duties without truncation and use only owner splits allowed by the existing ownership rules",
-                step.id
-            )
+            InstructionFailure::Capacity {
+                owner: step.id.clone(),
+                chars,
+            }
         })
     }
 
@@ -176,7 +183,7 @@ impl Admission {
             return Ok(());
         };
         self.retain_current_contract(config, plan)?;
-        Err(failure(FailureClass::ProposalRepairable, reason))
+        Err(failure(FailureClass::ProposalRepairable, reason.to_string()).context(reason))
     }
 
     pub(crate) fn finish(
@@ -199,7 +206,12 @@ impl Admission {
         }
         let fallback_validation = self
             .retained_profile_instruction_failure(&plan)
-            .map(|reason| Err(failure(FailureClass::ProposalRepairable, reason)))
+            .map(|reason| {
+                Err(failure(
+                    FailureClass::ProposalRepairable,
+                    reason.to_string(),
+                ))
+            })
             .unwrap_or_else(|| self.preserve(&plan));
         if let Err(error) = fallback_validation {
             crate::eval_events::emit(
@@ -266,22 +278,33 @@ impl Admission {
             .downcast_ref::<BindingFailure>()
             .map(|e| e.class)
             .unwrap_or(FailureClass::Unsafe);
-        let retry = class == FailureClass::ProposalRepairable && attempt < 3;
+        let terminal = self.prove_bounded_repair_infeasible(&error, plan, attempt);
+        let retry = terminal.is_none() && class == FailureClass::ProposalRepairable && attempt < 3;
         crate::eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({
                 "event":"recovery_verifier_plan_admission", "phase_id":phase,
                 "stage":if recovery {"closed_binding"} else {"preclosure_formation"},
-                "classification":class, "reason":error.to_string(),
+                "classification":class, "reason":terminal.as_ref().map_or_else(|| error.to_string(), ToString::to_string),
                 "model_proposal":model, "host_augmented_proposal":host,
                 "original_scope":self.original, "original_obligation_sources":self.sources,
                 "package_script_formation":self.package_scripts,
                 "planner_attempt":attempt,
                 "remaining_planner_attempts":3usize.saturating_sub(attempt),
                 "recovery_budget_changed":false,
-                "status":if retry {"retry"} else if class == FailureClass::ProposalRepairable {"exhausted"} else {"stopped"},
+                "status":if terminal.is_some() {"stopped"} else if retry {"retry"} else if class == FailureClass::ProposalRepairable {"exhausted"} else {"stopped"},
+                "retry_allowed":retry,
+                "terminal_reason":terminal.as_ref().map(|_| "bounded_repair_infeasible"),
+                "bounded_repair_proof":terminal,
+                "preservation_sources":self.preservation_sources,
+                "marker_obligations":self.marker_checks,
+                "marker_capture_error":self.marker_capture_error,
             }),
         );
+        if let Some(proof) = terminal {
+            // Do not attach the legacy ProposalRepairable error as a cause.
+            return Err(proof.into());
+        }
         if !retry {
             let reason = format!(
                 "{}: {error}",
