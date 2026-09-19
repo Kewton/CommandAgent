@@ -15,6 +15,7 @@ pub(crate) struct InstructionProtection {
 pub(crate) struct ProfileAddition {
     model: PlanStep,
     host: PlanStep,
+    augmented_instruction: String,
 }
 
 impl ProfileAddition {
@@ -38,7 +39,11 @@ impl ProfileAddition {
             expected_paths: paths,
             verify: Vec::new(),
         };
-        Self { model, host }
+        Self {
+            model,
+            host,
+            augmented_instruction: augmented.instruction.clone(),
+        }
     }
 
     pub(crate) fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
@@ -51,36 +56,55 @@ impl ProfileAddition {
         )
     }
 
-    pub(crate) fn instruction_protection(&self, plan: &StepPlan) -> InstructionProtection {
-        instruction_protection(&self.model.id, &self.host.instruction, plan)
+    pub(crate) fn instruction_protection(
+        &self,
+        plan: &StepPlan,
+        before_sanitization: bool,
+    ) -> InstructionProtection {
+        if self.host.instruction.is_empty() {
+            return InstructionProtection::default();
+        }
+        instruction_protection(
+            &self.model.id,
+            if before_sanitization {
+                &self.augmented_instruction
+            } else {
+                &self.host.instruction
+            },
+            plan,
+        )
     }
 }
 
 fn instruction_protection(
     owner_id: &str,
-    host_instruction: &str,
+    required_instruction: &str,
     plan: &StepPlan,
 ) -> InstructionProtection {
-    if host_instruction.is_empty() {
-        return InstructionProtection::default();
-    }
-    let indices = plan
+    let mut indices = plan
         .steps
         .iter()
         .enumerate()
-        .filter_map(|(index, step)| {
-            (step.id == owner_id && step.instruction.contains(host_instruction)).then_some(index)
-        })
+        .filter_map(|(index, step)| (step.id == owner_id).then_some(index))
         .collect::<BTreeSet<_>>();
     let error = match indices.len() {
-        1 => None,
-        0 => Some(format!(
+        1 if plan.steps[*indices.first().expect("one owner")]
+            .instruction
+            .contains(required_instruction) =>
+        {
+            None
+        }
+        0 | 1 => Some(format!(
             "profile instruction provenance lost host guidance owner {owner_id} before sanitization"
         )),
         count => Some(format!(
             "profile instruction provenance for owner {owner_id} is ambiguous across {count} steps"
         )),
     };
+    if error.is_some() {
+        // Ambiguous IDs do not authorize protecting either possible owner.
+        indices.clear();
+    }
     InstructionProtection { indices, error }
 }
 
@@ -100,6 +124,10 @@ impl FormationScope {
         if let Some(addition) = addition {
             if let Some(step) = model.steps.iter_mut().find(|s| s.id == addition.model.id) {
                 *step = addition.model.clone();
+            } else {
+                // A deleted target must remain an obligation, never disappear
+                // when constructing the post-canonicalization preservation view.
+                model.steps.push(addition.model.clone());
             }
             if !addition.host.instruction.is_empty() || !addition.host.expected_paths.is_empty() {
                 host.steps.push(addition.host.clone());

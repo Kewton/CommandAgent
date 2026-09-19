@@ -26,10 +26,8 @@ pub(super) fn capture(
     config: &Config,
     contract: &CompletionContract,
     plan: &StepPlan,
-) -> Vec<Obligation> {
-    let Ok(admitted) = verifier_obligations::admitted_commands(config, contract, plan) else {
-        return Vec::new();
-    };
+) -> anyhow::Result<Vec<Obligation>> {
+    let admitted = verifier_obligations::admitted_commands(config, contract, plan)?;
     let mut obligations = Vec::new();
     for (index, step) in plan.steps.iter().enumerate() {
         if step.expected_result != "pass" {
@@ -46,8 +44,7 @@ pub(super) fn capture(
                 continue;
             };
             if !admitted.contains(normalized)
-                || !inline_admission::refusal(config, contract, normalized)
-                    .is_ok_and(|r| r.is_some())
+                || inline_admission::refusal(config, contract, normalized)?.is_none()
             {
                 continue;
             }
@@ -63,7 +60,7 @@ pub(super) fn capture(
             }
         }
     }
-    obligations
+    Ok(obligations)
 }
 
 pub(super) fn matches(obligation: &Obligation, candidate: &str) -> bool {

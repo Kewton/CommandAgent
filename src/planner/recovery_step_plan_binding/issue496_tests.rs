@@ -1,5 +1,6 @@
 use super::*;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+use sha2::{Digest, Sha256};
 
 const FIXTURE: &str = "tests/corpus/apps/issue496-profile-guidance-capacity/saved-plan.json";
 
@@ -78,6 +79,27 @@ fn issue496_saved_profile_guidance_is_retained_and_rejected_for_capacity() {
         .guidance(&raw.goal)
         .unwrap();
     assert_eq!(guidance.chars().count(), 2_237);
+    assert_eq!(
+        guidance,
+        include_str!(
+            "../../../tests/corpus/apps/issue496-profile-guidance-capacity/host-guidance.txt"
+        )
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(target(&raw).instruction.as_bytes())),
+        "e32851275f8e288c11417d41915e6b7e6b4a42902114f136c7663160d73f33f2"
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(guidance.as_bytes())),
+        "b2dd0b0c696f9c4b38489821dd2917273a8e139d0b43c8cd6bc7d66e0d0975d2"
+    );
+    assert_eq!(
+        format!(
+            "{:x}",
+            Sha256::digest(&guidance.as_bytes()[guidance.len() - 344..])
+        ),
+        "d6e7649620e77e3565e430f70cb1a1fd63232302dd7b0a58766b8498ca9f353a"
+    );
 
     let mut admission = admission::Admission::default();
     let (mut plan, report) = through_policy(&config, &mut admission, &raw);
@@ -230,3 +252,8 @@ fn issue496_saved_capacity_failure_exhausts_the_existing_planner_budget() {
     }));
     assert_eq!(admissions.last().unwrap()["status"], "exhausted");
 }
+
+#[path = "issue496_tests/capacity.rs"]
+mod capacity;
+#[path = "issue496_tests/retry.rs"]
+mod retry;

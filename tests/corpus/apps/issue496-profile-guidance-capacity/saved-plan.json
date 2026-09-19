@@ -84,5 +84,8 @@
         ]
       }
     ]
-  }
+  },
+  "model_instruction_sha256": "e32851275f8e288c11417d41915e6b7e6b4a42902114f136c7663160d73f33f2",
+  "host_guidance_sha256": "b2dd0b0c696f9c4b38489821dd2917273a8e139d0b43c8cd6bc7d66e0d0975d2",
+  "lost_host_tail_bytes": 344
 }

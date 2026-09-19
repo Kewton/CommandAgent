@@ -14,3 +14,5 @@ expect = "not_checked"
 [fixture_contains]
 saved-plan.json = ["parsed-and-later only", "implement-layout-and-config", "d6e7649620e77e3565e430f70cb1a1fd63232302dd7b0a58766b8498ca9f353a"]
 README.md = ["2,786 Unicode scalar values", "not a saved raw model response", "explicit capacity rejection"]
+host-guidance.txt = ["For the nextjs profile", "--port 60302"]
+refusals.json = ["model_instruction", "host_tail", "expected_path", "expected_result", "check", "owner_order"]

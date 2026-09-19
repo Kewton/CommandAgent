@@ -10,6 +10,9 @@ use crate::planner::recovery_inspection::verifier_obligations::{
 pub(crate) struct Admission {
     original: Option<StepPlan>,
     sources: Option<FormationScope>,
+    // Same first-retry snapshot, with existing canonicalization of non-profile
+    // steps applied. Source evidence above remains at its acquisition boundary.
+    preservation_sources: Option<FormationScope>,
     profile_addition: Option<ProfileAddition>,
     profile_instruction_provenance_error: Option<String>,
     replacements: Vec<super::verifier_formation::Replacement>,
@@ -18,6 +21,7 @@ pub(crate) struct Admission {
     awaiting_check: bool,
     duplicate_strengthen: bool,
     marker_checks: Vec<super::literal_marker_formation::Obligation>,
+    marker_capture_error: Option<String>,
 }
 
 pub(crate) enum Decision {
@@ -33,14 +37,19 @@ impl Admission {
         }
         self.awaiting_check = true;
         self.profile_instruction_provenance_error = None;
+        let model_scope = self.original.is_none().then(|| plan.clone());
         self.profile_addition =
             super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
         #[cfg(test)]
         crate::planner::setup_step_policy::issue492_tests::record("augmented", plan);
-        if self.original.is_none() {
+        if let Some(model) = model_scope {
+            let mut sources = FormationScope::capture(plan, self.profile_addition.as_ref());
+            // Capture directly, even if the model supplied duplicate owner IDs.
+            // Reconstructing by ID can restore the wrong pre-augmentation step.
+            sources.model = model;
             self.pending_sources = Some(super::package_script_formation::CapturedSources::new(
                 config,
-                FormationScope::capture(plan, self.profile_addition.as_ref()),
+                sources,
                 "profile_augmentation_before_sanitization",
             ));
         }
@@ -54,7 +63,7 @@ impl Admission {
         let protection = self
             .profile_addition
             .as_ref()
-            .map(|addition| addition.instruction_protection(plan))
+            .map(|addition| addition.instruction_protection(plan, true))
             .unwrap_or_default();
         self.profile_instruction_provenance_error = protection.error;
         crate::planner::sanitizer::sanitize_step_plan_against_policy_preserving_instructions(
@@ -65,6 +74,9 @@ impl Admission {
     }
 
     fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        if let Some(reason) = &self.marker_capture_error {
+            return Err(failure(FailureClass::ProposalRepairable, reason.clone()));
+        }
         super::verifier_formation::preserve_registered(&self.replacements, plan)?;
         if let Some(original) = &self.original {
             let (projected, _) = super::verifier_formation::project(
@@ -73,7 +85,7 @@ impl Admission {
                 self.package_scripts.as_ref(),
                 &self.marker_checks,
             );
-            if let Some(sources) = &self.sources {
+            if let Some(sources) = &self.preservation_sources {
                 sources.preserve(original, &projected)?;
             } else {
                 preserve(original, &projected)?;
@@ -84,18 +96,26 @@ impl Admission {
 
     fn retain(&mut self, config: &Config, plan: &StepPlan, contract: &CompletionContract) {
         if self.original.is_none() {
-            self.marker_checks = super::literal_marker_formation::capture(config, contract, plan);
-            self.sources = Some(FormationScope::capture(
-                plan,
-                self.profile_addition.as_ref(),
-            ));
+            match super::literal_marker_formation::capture(config, contract, plan) {
+                Ok(checks) => self.marker_checks = checks,
+                Err(error) => {
+                    self.marker_capture_error = Some(format!(
+                        "original marker source acquisition failed; cannot recapture from a later proposal or workspace: {error}"
+                    ));
+                }
+            }
             let sources = self.pending_sources.take().unwrap_or_else(|| {
                 super::package_script_formation::CapturedSources::new(
                     config,
-                    self.sources.as_ref().expect("captured sources").clone(),
+                    FormationScope::capture(plan, self.profile_addition.as_ref()),
                     "admission_before_first_retry",
                 )
             });
+            self.sources = Some(sources.plans.clone());
+            self.preservation_sources = Some(FormationScope::capture(
+                plan,
+                self.profile_addition.as_ref(),
+            ));
             self.package_scripts = Some(super::package_script_formation::PackageScripts::capture(
                 config, plan, sources, contract,
             ));
@@ -108,7 +128,7 @@ impl Admission {
             return Some(error.clone());
         }
         let addition = self.profile_addition.as_ref()?;
-        Self::instruction_failure(addition.instruction_protection(plan), plan)
+        Self::instruction_failure(addition.instruction_protection(plan, false), plan)
     }
 
     fn retained_profile_instruction_failure(&self, plan: &StepPlan) -> Option<String> {
@@ -278,13 +298,29 @@ impl Admission {
         } else {
             ""
         };
-        Ok(Decision::Retry(format!(
-            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.{profile_capacity_guidance}\nOriginal scope to preserve:\n{}\nOriginal obligation sources (model and host separately):\n{}\nHost-augmented proposal:\n{}",
+        let mut feedback = format!(
+            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.{profile_capacity_guidance}\nHost-augmented proposal:\n{}",
             plan.goal,
-            serde_json::to_string(self.original.as_ref().unwrap_or(&host))?,
-            serde_json::to_string(&self.sources)?,
             serde_json::to_string(&host)?
-        )))
+        );
+        self.append_retry_context(&mut feedback)?;
+        Ok(Decision::Retry(feedback))
+    }
+
+    // Schema, lint and empty-response retries share the first admission snapshot.
+    // They must not silently replace it with a new goal or workspace expectation.
+    pub(crate) fn append_retry_context(&self, prompt: &mut String) -> anyhow::Result<()> {
+        if let Some(original) = &self.original {
+            prompt.push_str(&format!(
+                "\nFrozen admission baseline (preserve full model/host duties, outputs, expected results and check order; profile instructions must fit 2500 characters including deterministic notes):\n{}\nFrozen obligation sources:\n{}\nFrozen formation evidence and registered contract:\n{}\nFrozen marker obligations:\n{}\nMarker acquisition failure:\n{}",
+                serde_json::to_string(original)?,
+                serde_json::to_string(&self.sources)?,
+                serde_json::to_string(&self.package_scripts)?,
+                serde_json::to_string(&self.marker_checks)?,
+                serde_json::to_string(&self.marker_capture_error)?,
+            ));
+        }
+        Ok(())
     }
 
     fn require_capture_boundary(&self) -> anyhow::Result<()> {
@@ -535,3 +571,7 @@ pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Resu
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "issue496_tests/capture.rs"]
+mod issue496_capture;
