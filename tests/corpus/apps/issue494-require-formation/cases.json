@@ -1,0 +1,94 @@
+{
+  "runtime": {
+    "node_version": "v24.1.0",
+    "package_type": "commonjs",
+    "loader_difference_package_type": "module"
+  },
+  "frozen": {
+    "control": "/Volumes/SSD_NX/tmp/commandagent-l2-repair-shape-control-20260919-02",
+    "base_sha": "b1d560bd4004f4b56e08f586f742a070ee64ffbe",
+    "product_source_set_sha256": "92094023917e5c581407ee89afb255e535fdf5eec09823f40a73ad1f93c06b2e",
+    "attempt_1_request_sha256": "0bbcc8ab97a60763e48b36509980cf277579280791f5ee3842aef9f14b255888",
+    "attempt_2_request_sha256": "1f5fab6eca73af71098ee3de40a2a2ff772300bde8e3e874df4d16ef8a3643f0",
+    "a_result_sha256": "0d4e2f5dc5ceffa8e6d7b9a82bcd3450593e7cd5167fe57e1c24e028d0a71dfa",
+    "a_event_sha256": "cee3b0f3a7755634e9e7d42fb2eaa233523ffd0aa39af652b1b19236f541dd0d",
+    "b_result_sha256": "927eda1d2425aa039778b4d42f2db6ec5e94ddc45b5d9013f3282e4382e3cb25",
+    "b_event_sha256": "a87393b58c82abac32478e8fe9bd2cf1fe95d8e27bb49d759d3737c69fa755c2",
+    "comparison_sha256": "2e61301bb5165618c668a72b913f843648b70fa98f13fc60e9cca6e7e3289fb1",
+    "saved_input_sha256": "1237d48e3a33d21cc22f9016407a08b2d5d092e6e8301ea5a23c640d00daefa3",
+    "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab"
+  },
+  "original": {
+    "command": "node -p \"require('./src/lib/types.ts')\"",
+    "sha256": "d96c7c7746f7f0d75fd93b9503683afb181a12ad6e78881390acbb0c4e2d02c7",
+    "target": "./src/lib/types.ts",
+    "expected_result": "pass",
+    "classification": "weak"
+  },
+  "positive": {
+    "name": "same_loader_commonjs",
+    "command": "node -p \"const actual=require('./src/lib/types.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[]);actual\"",
+    "sha256": "57fb35a39be811ac160ce4f7279a29d720772b0641b57fe1a845188be07162af",
+    "target": "./src/lib/types.ts",
+    "expected_result": "pass",
+    "classification": "static_syntax",
+    "correspondence": true
+  },
+  "saved_proposal_a": {
+    "name": "source_text_substring_a",
+    "command": "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/lib/types.ts','utf8');['Project','Task','Member','ProjectListResponse','TaskListResponse','MemberListResponse','ErrorResponse'].forEach(n=>{if(!s.includes(n))process.exit(1)});console.log('types-ok')\"",
+    "sha256": "861114182925dc77f206e5b23535629a72e0056347cf0a4edf605380f5443897",
+    "correspondence": false
+  },
+  "dynamic_import_b": {
+    "name": "dynamic_import_b",
+    "command": "node -e \"import('./src/lib/types.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[])})\"",
+    "sha256": "0aa4307648cd91b52fcaa7b87d544aa01b7edbeea81283ed270eae4e9474251b",
+    "recognized_target": "./src/lib/types.ts",
+    "correspondence": false,
+    "later_store_rejection": "node_smoke_without_assertion"
+  },
+  "saved_store_check": "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/lib/store.ts','utf8');['readData','writeData','getProjects','addProject','getTasks','addTask','updateTaskStatus','getMembers','addMember'].forEach(n=>{if(!s.includes(n))process.exit(1)});console.log('store-ok')\"",
+  "negative_originals": [
+    {"name":"other_executable","command":"bun -p \"require('./src/lib/types.ts')\""},
+    {"name":"other_flag","command":"node -e \"require('./src/lib/types.ts')\""},
+    {"name":"extra_argv","command":"node -p \"require('./src/lib/types.ts')\" extra"},
+    {"name":"multiple_expressions","command":"node -p \"require('./src/lib/types.ts'),require('./src/lib/store.ts')\""},
+    {"name":"multiple_commands","command":"node -p \"require('./src/lib/types.ts')\"; node -v"},
+    {"name":"nonliteral","command":"node -p \"require(target)\""},
+    {"name":"dynamic_path","command":"node -p \"require('./src/lib/'+name)\""},
+    {"name":"package_path","command":"node -p \"require('typescript')\""},
+    {"name":"parent_path","command":"node -p \"require('../types.ts')\""},
+    {"name":"absolute_path","command":"node -p \"require('/tmp/types.ts')\""},
+    {"name":"trailing_javascript","command":"node -p \"require('./src/lib/types.ts');true\""},
+    {"name":"shell_composition","command":"node -p \"require('./src/lib/types.ts')\" | cat"},
+    {"name":"catch","command":"node -p \"try{require('./src/lib/types.ts')}catch{}\""},
+    {"name":"success_override","command":"node -p \"require('./src/lib/types.ts')\" || true"},
+    {"name":"exit_override","command":"node -p \"require('./src/lib/types.ts');process.exit(0)\""}
+  ],
+  "negative_replacements": [
+    {"name":"wrong_loader","command":"node -e \"import('./src/lib/types.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[])})\""},
+    {"name":"wrong_target","command":"node -p \"const actual=require('./src/lib/store.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[]);actual\""},
+    {"name":"unsorted_expectation","command":"node -p \"const actual=require('./src/lib/types.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\\\"z\\\",\\\"a\\\"]);actual\""},
+    {"name":"lost_output","command":"node -p \"const actual=require('./src/lib/types.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[])\""},
+    {"name":"catch","command":"node -p \"try{const actual=require('./src/lib/types.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[]);actual}catch{}\""},
+    {"name":"success_override","command":"node -p \"const actual=require('./src/lib/types.ts');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[]);actual\" || true"}
+  ],
+  "scope_refusals": [
+    "changed_expected_result",
+    "explicit_output_loss",
+    "incomplete_scope",
+    "wrong_owner",
+    "invalid_owner_order"
+  ],
+  "contract_controls": {
+    "configured": {
+      "verify_commands": ["npm run build"],
+      "sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab"
+    },
+    "recovery": {
+      "verify_commands": ["npm run build"],
+      "sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab"
+    }
+  }
+}

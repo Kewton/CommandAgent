@@ -48,6 +48,7 @@ pub(super) fn node_command_kind(
     }
     if structural_checks::recognizes(command)
         || import_check::export_set_target(command).is_some()
+        || import_check::require_export_set_target(command).is_some()
         || package_script_check::comparison(command).is_some()
     {
         return Some(VerifyCommandKind::StaticSyntax);
@@ -180,3 +181,7 @@ mod issue474_tests;
 #[cfg(test)]
 #[path = "verify_command_classification/issue479_tests.rs"]
 mod issue479_tests;
+
+#[cfg(test)]
+#[path = "verify_command_classification/issue494_tests.rs"]
+mod issue494_tests;
