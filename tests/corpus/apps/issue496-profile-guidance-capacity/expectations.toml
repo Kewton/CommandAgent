@@ -16,3 +16,4 @@ saved-plan.json = ["parsed-and-later only", "implement-layout-and-config", "d6e7
 README.md = ["2,786 Unicode scalar values", "not a saved raw model response", "explicit capacity rejection"]
 host-guidance.txt = ["For the nextjs profile", "--port 60302"]
 refusals.json = ["model_instruction", "host_tail", "expected_path", "expected_result", "check", "owner_order"]
+terminal-expectation.json = ["bounded_repair_infeasible", "profile_augmentation_before_sanitization", "2766", "stopped"]

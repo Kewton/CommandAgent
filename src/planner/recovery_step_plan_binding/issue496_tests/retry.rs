@@ -97,8 +97,12 @@ fn issue496_saved_model_and_host_tail_loss_are_independently_rejected() {
         let c = super::super::issue478::nextjs_config(root.path());
         let raw = saved();
         let mut admission = admission::Admission::default();
-        retry(&c, &mut admission, &raw, 1);
         let (mut candidate, _) = through_policy(&c, &mut admission, &raw);
+        let original = candidate.clone();
+        let sources = formation_scope::FormationScope::capture(
+            &candidate,
+            profile_augmentation::strengthen_step_plan_for_profile(&mut raw.clone(), &c).as_ref(),
+        );
         let owner = candidate
             .steps
             .iter_mut()
@@ -111,11 +115,11 @@ fn issue496_saved_model_and_host_tail_loss_are_independently_rejected() {
             owner.instruction.truncate(new_len);
         }
         assert!(owner.instruction.chars().count() <= 2_500);
-        assert!(matches!(
-            admission.check(&c, None, &raw, &mut candidate, 2).unwrap(),
-            admission::Decision::Retry(_)
-        ));
-        assert!(admission.finish(&c, None, candidate).is_err());
+        let error = sources.preserve(&original, &candidate).unwrap_err();
+        assert!(
+            error.to_string().contains("lost original requirements"),
+            "{error}"
+        );
     }
 }
 
@@ -200,7 +204,7 @@ fn issue496_mixed_failures_retain_retry_input_and_block_setup_fallback() {
     ] {
         let root = tempfile::tempdir().unwrap();
         let c = super::super::issue478::nextjs_config(root.path());
-        let raw = saved();
+        let (raw, _) = overlapping(&c);
         let mut client = Replay::new(vec![
             proposal(&raw),
             AssistantReply::text(invalid),
@@ -213,6 +217,34 @@ fn issue496_mixed_failures_retain_retry_input_and_block_setup_fallback() {
             &c,
         );
         assert!(result.is_err(), "{invalid:?} escaped via fallback");
+        let log = events(&c);
+        if invalid == "{invalid" || invalid.is_empty() {
+            assert!(
+                log.iter().any(|e| e["event"] == "planner_fallback_plan"),
+                "fallback was not reached: {invalid:?}"
+            );
+            assert!(
+                log.iter()
+                    .any(|e| e["event"] == "recovery_verifier_plan_return_rejected"),
+                "finish was not reached: {invalid:?}"
+            );
+            let stage = if invalid.is_empty() {
+                "empty_response"
+            } else {
+                "schema"
+            };
+            assert_eq!(
+                log.iter().filter(|e| e["planner_stage"] == stage).count(),
+                2,
+                "{invalid:?}"
+            );
+        } else {
+            assert_eq!(
+                admission_events(&c).len(),
+                3,
+                "missing obligations must reach admission"
+            );
+        }
         let requests = client.requests.lock().unwrap();
         assert_eq!(requests.len(), 3);
         let source = admission_events(&c)[0]["original_obligation_sources"].clone();
@@ -255,6 +287,11 @@ fn issue496_prior_valid_plan_cannot_bypass_later_capacity_failure() {
         .push_str(" Preserve the additional obligation.");
     retry(&c, &mut admission, &larger, 2);
     assert!(admission.finish(&c, None, valid).is_err());
+    assert!(
+        events(&c)
+            .iter()
+            .any(|e| e["event"] == "recovery_verifier_plan_return_rejected")
+    );
 }
 
 #[cfg(test)]
