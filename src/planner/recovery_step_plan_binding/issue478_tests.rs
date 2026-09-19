@@ -179,7 +179,7 @@ fn through_formation(c: &Config, admission: &mut admission::Admission, raw: &Ste
     repair_generated_step_plan_contract(&mut p);
     let runtime = crate::planner::profile::resolve_profile_runtime(&c.profile);
     runtime.canonicalize_create_plan(&mut p, true, false, None);
-    crate::planner::sanitizer::sanitize_step_plan_against_policy(&mut p, Some(&c.workspace_root));
+    admission.sanitize(&mut p, Some(&c.workspace_root));
     runtime.convert_preset_phase_setup_steps(
         &mut p,
         &c.workspace_root,
@@ -342,10 +342,12 @@ fn issue478_first_split_cannot_lose_host_guidance_to_truncation() {
     let guidance = crate::planner::profile::resolve_profile_runtime(NEXTJS_PROFILE_ID)
         .guidance(&raw.goal)
         .unwrap();
-    assert!(!formed.steps[3].instruction.contains(&guidance));
-    assert!(matches!(
-        admission.check(&c, None, &raw, &mut formed, 1).unwrap(),
-        admission::Decision::Retry(_)
-    ));
+    assert!(formed.steps[3].instruction.contains(&guidance));
+    let admission::Decision::Retry(feedback) =
+        admission.check(&c, None, &raw, &mut formed, 1).unwrap()
+    else {
+        panic!("over-capacity host guidance unexpectedly passed")
+    };
+    assert!(feedback.contains("2500-character capacity"), "{feedback}");
     assert!(admission.finish(&c, None, formed).is_err());
 }

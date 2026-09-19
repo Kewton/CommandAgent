@@ -16,7 +16,7 @@ use crate::tools::path_guard::validate_workspace_relative;
 const BROWSER_READINESS_NOTE: &str =
     "Browser readiness is verified by the runtime at final acceptance.";
 const STEP_PLAN_GOAL_LINT_LIMIT_CHARS: usize = 4_000;
-const STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS: usize = 2_500;
+pub(crate) const STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS: usize = 2_500;
 const SANITIZED_GOAL_MAX_CHARS: usize = 600;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -156,6 +156,18 @@ pub fn sanitize_step_plan_against_policy(
     plan: &mut StepPlan,
     workspace_root: Option<&Path>,
 ) -> SanitizerReport {
+    sanitize_step_plan_against_policy_preserving_instructions(
+        plan,
+        workspace_root,
+        &BTreeSet::new(),
+    )
+}
+
+pub(crate) fn sanitize_step_plan_against_policy_preserving_instructions(
+    plan: &mut StepPlan,
+    workspace_root: Option<&Path>,
+    protected: &BTreeSet<usize>,
+) -> SanitizerReport {
     let mut report = SanitizerReport::default();
     reject_recovery_expected_fail_steps(plan, &mut report);
     normalize_oversized_goal(plan, &mut report);
@@ -171,7 +183,7 @@ pub fn sanitize_step_plan_against_policy(
     }
     move_dependency_order_commands(plan, workspace_root, &mut report);
     normalize_empty_verify_steps(plan, &mut report);
-    truncate_oversized_step_instructions(plan, &mut report);
+    truncate_oversized_step_instructions(plan, protected, &mut report);
     dedupe_verify_commands(plan);
     report
 }
@@ -914,8 +926,15 @@ fn normalize_empty_verify_steps(plan: &mut StepPlan, report: &mut SanitizerRepor
     }
 }
 
-fn truncate_oversized_step_instructions(plan: &mut StepPlan, report: &mut SanitizerReport) {
-    for step in &mut plan.steps {
+fn truncate_oversized_step_instructions(
+    plan: &mut StepPlan,
+    protected: &BTreeSet<usize>,
+    report: &mut SanitizerReport,
+) {
+    for (index, step) in plan.steps.iter_mut().enumerate() {
+        if protected.contains(&index) {
+            continue;
+        }
         let original_len = step.instruction.chars().count();
         if original_len <= STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS {
             continue;

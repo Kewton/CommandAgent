@@ -1,0 +1,88 @@
+{
+  "source": "issue494 owner-scope campaign C0 attempt 1 model_proposal; reconstructed parsed-stage fixture",
+  "scope": "parsed-and-later only; not a saved raw model response",
+  "instruction_limit_chars": 2500,
+  "target_step": "implement-layout-and-config",
+  "model_instruction_chars": 529,
+  "host_guidance_chars": 2237,
+  "lost_host_tail_sha256": "d6e7649620e77e3565e430f70cb1a1fd63232302dd7b0a58766b8498ca9f353a",
+  "plan": {
+    "goal": "Original ultra goal: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。\nProfile: nextjs\nStyle: default\nIntent: create\nPhase id: core-implementation\nPhase task: Implement the core task-specific behavior for: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n\nWorkspace snapshot:\n- .next\n- next-env.d.ts\n- node_modules\n- package-lock.json\n- package.json\n- postcss.config.js\n- src\n- tailwind.config.ts\n- tsconfig.json\n\nPrior ultra context:\n- Completed phases:\n  - project-setup (2/2)\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- accepting\n- affordance\n- alone\n- another\n- anvil\n- api\n- … and 112 more\n\nProfile generation rules:\n- Profile nextjs/create: preserve a real Next.js app contract. Include next/react/react-dom dependencies, keep scripts.build as next build, and end with a build verification phase. Put dependency setup before any npm run build verification when node_modules is not already present; setup instructions may install dependencies, but verify must not contain npm install. If dependency setup is not allowed or cannot run, stop with dependency_missing instead of claiming build success. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, implement the requested interface, replacing unrelated scaffold content, and preserve data-anvil-* attributes on route-bound UI: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). If you use Tailwind utility classes or @tailwind directives, include tailwindcss/postcss/autoprefixer and create tailwind.config.* plus postcss.config.*; postcss.config plugins must include BOTH tailwindcss and autoprefixer. Otherwise use plain CSS and do not write Tailwind utility classes. Keep scripts.dev and scripts.start on the explicit requested port when the goal or plan requests one; otherwise use port 3011 with next dev/start -p 3011 or --port 3011.\n- For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n- For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates.\n- Validate the complete proposed state before committing: aggregate quantities by entity key before checking availability, scope totals to the requested period, define rejection/cascade/reassignment for referenced parent deletion, and match strict/inclusive comparisons to the goal wording. Reject non-finite or invalid quantities and amounts at the API boundary.\n\nProfile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Keep next/react/react-dom dependencies in package.json.\n- Keep scripts.build as next build; do not replace it with echo/skip/no-op commands.\n- If npm run build cannot run because dependencies are not installed, report dependency_missing or use an explicit setup step; do not fake success.\n- Keep scripts.dev and scripts.start on the explicitly requested port 60302: next dev/start -p 60302 or --port 60302.\n- If using Tailwind utility classes or @tailwind directives, keep the Tailwind toolchain complete: tailwindcss/postcss/autoprefixer dependencies, tailwind.config.*, and postcss.config plugins with BOTH tailwindcss and autoprefixer. Otherwise use plain CSS.\n- Keep TypeScript and app router configuration coherent.\n- Keep a single route-bound implementation; do not leave capability components unimported.\n- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n- Do not treat scaffold-only, package-only, or build-only output as complete.\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- npm run build\n\n\nRequired final artifacts:\n- package.json\n- tsconfig.json\n- postcss.config.js\n- tailwind.config.ts\n- src/app/layout.tsx\n- src/app/page.tsx\n- src/app/globals.css\n- src/app/global.d.ts\n\nRequired final capabilities:\n- stateful_interaction\n- user_input_or_action\n- visible_state_change\n- persistence\n\nRequired final evidence:\n- nextjs_route_evidence\n- build_command_or_dependency_missing_boundary\n- implementation_artifact\n- visible_interactive_surface_evidence\n- user_input_handler_evidence\n- stateful_update_evidence\n- interactive_ui_source_evidence\n- non_static_screen_evidence\n- persistence_evidence",
+    "steps": [
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "inspect-workspace",
+        "instruction": "Read the existing scaffold: package.json (check scripts.dev/start use port 60302, verify next/react/react-dom deps), tsconfig.json, postcss.config.js, tailwind.config.ts, src/app/layout.tsx, src/app/page.tsx, src/app/globals.css, src/app/global.d.ts. Note what already exists so implementation extends rather than recreates.",
+        "kind": "inspect",
+        "verify": [
+          "pass"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/lib/types.ts",
+          "src/lib/store.ts"
+        ],
+        "expected_result": "pass",
+        "id": "implement-types-and-store",
+        "instruction": "Create src/lib/types.ts exporting shared domain types: Project (id, name, createdAt), Task (id, projectId, title, deadline, status: 'not_started'|'in_progress'|'completed', assignedTo: string|null, createdAt), Member (id, name, email), and response types ProjectListResponse {items: Project[]}, TaskListResponse {items: Task[]}, MemberListResponse {items: Member[]}, ErrorResponse {error: string, details?: string}. Create src/lib/store.ts exporting async functions: readData(), writeData(data), and helper functions getProjects(), addProject(), getTasks(), addTask(), updateTaskStatus(), getMembers(), addMember(). Use JSON file persistence in a data.json file at project root. Initialize only on ENOENT; on parse error or I/O failure return 5xx without overwriting. Use write-to-temp-then-rename for atomic writes.",
+        "kind": "implement",
+        "verify": [
+          "node -p \"require('./src/lib/types.ts')\" || true"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/app/api/projects/route.ts",
+          "src/app/api/tasks/route.ts",
+          "src/app/api/members/route.ts"
+        ],
+        "expected_result": "pass",
+        "id": "implement-api-routes",
+        "instruction": "Create src/app/api/projects/route.ts (GET returns {items: Project[]}, POST creates project and returns {item: Project}), src/app/api/tasks/route.ts (GET with optional ?status filter returns {items: Task[]}, POST creates task with title, deadline, projectId, assignedTo and returns {item: Task}, PATCH updates task status and returns {item: Task}), and src/app/api/members/route.ts (GET returns {items: Member[]}, POST creates member and returns {item: Member}). Import types from src/lib/types.ts and store functions from src/lib/store.ts. Validate inputs; return {error, details?} on bad input. Check all responses with proper status codes.",
+        "kind": "implement",
+        "verify": [
+          "test -f src/app/api/projects/route.ts && test -f src/app/api/tasks/route.ts && test -f src/app/api/members/route.ts"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/app/page.tsx"
+        ],
+        "expected_result": "pass",
+        "id": "implement-main-page",
+        "instruction": "Rewrite src/app/page.tsx as a client component ('use client') implementing the full project management UI: sections for creating projects (form with name input), adding tasks (form with title, deadline date picker, project selector, team-member assignee selector, status dropdown), and a task list filtered by status (buttons/tabs for not_started, in_progress, completed). Import types from src/lib/types.ts. Fetch data from /api/projects, /api/tasks, /api/members. On mutation, check Response.ok; on failure display error from {error, details}. Reload committed data after each successful mutation. Include data-anvil-action='primary' on the main submit/create button, data-anvil-action='input' on the primary text input (project name or task title), and data-anvil-state on the root div containing a JSON snapshot of current visible state (selected project, filtered tasks count, active status filter, last error). Replace all unrelated scaffold content.",
+        "kind": "implement",
+        "verify": [
+          "node -p \"const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-action'))process.exit(1);if(!s.includes('data-anvil-state'))process.exit(1);if(!s.includes('/api/tasks'))process.exit(1);console.log('ok')\""
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/app/layout.tsx",
+          "src/app/globals.css",
+          "src/app/global.d.ts",
+          "package.json"
+        ],
+        "expected_result": "pass",
+        "id": "implement-layout-and-config",
+        "instruction": "Ensure src/app/layout.tsx imports globals.css and renders a valid HTML shell with lang='ja'. Ensure src/app/globals.css contains basic styling (or Tailwind directives if tailwind is configured). Ensure src/app/global.d.ts has any needed type declarations. Update package.json scripts.dev to 'next dev -p 60302' and scripts.start to 'next start -p 60302'. Keep scripts.build as 'next build'. Ensure tailwindcss, postcss, autoprefixer are in devDependencies and postcss.config.js includes both tailwindcss and autoprefixer plugins.",
+        "kind": "implement",
+        "verify": [
+          "node -p \"const p=require('./package.json');if(p.scripts.dev!=='next dev -p 60302'&&p.scripts.dev!=='next dev --port 60302')process.exit(1);if(p.scripts.build!=='next build')process.exit(1);console.log('ok')\""
+        ]
+      },
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "verify-build",
+        "instruction": "Run the Next.js production build to confirm all TypeScript compiles, all imports resolve, and the app builds successfully without errors.",
+        "kind": "verify",
+        "verify": [
+          "npm run build"
+        ]
+      }
+    ]
+  }
+}

@@ -19,8 +19,8 @@ use super::{
     render_requested_features_not_detected_line, render_step_plan, render_ultra_plan,
     repair_generated_step_plan_contract, repair_targeting, resolve_existing,
     resolve_profile_runtime, run_step_plan_with_session_with_ui, runtime_required_evidence,
-    sanitize_step_plan_against_policy, scan_relative_imports, signals, step_plan_quality_report,
-    step_plan_quality_warnings, ultra_plan_phase_signal_text, workspace_relative_handoff_path,
+    scan_relative_imports, signals, step_plan_quality_report, step_plan_quality_warnings,
+    ultra_plan_phase_signal_text, workspace_relative_handoff_path,
 };
 
 pub(super) const STEP_TURN_MAX_ITERATIONS: usize = 8;
@@ -484,8 +484,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     phase_label.is_none() || final_phase,
                     config.eval_events_path.as_deref(),
                 );
-                let sanitizer_report =
-                    sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+                let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
                     runtime.bind_empty_fix_verify_steps(
                         &mut plan,
@@ -721,8 +720,7 @@ pub(super) fn deterministic_step_plan_for_phase(
         phase_label.is_none() || final_phase,
         config.eval_events_path.as_deref(),
     );
-    let sanitizer_report =
-        sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+    let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
     if let crate::planner::recovery_step_plan_binding::admission::Decision::Retry(feedback) =
         admission.check(config, phase_label, &model_plan, &mut plan, 1)?
     {
