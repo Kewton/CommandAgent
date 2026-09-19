@@ -76,7 +76,7 @@ use crate::planner::repair::{
     suggested_recovery_ultra_plan_command, suggested_ultra_recovery_command,
     workspace_relative_handoff_path,
 };
-use crate::planner::sanitizer::{SanitizerReport, sanitize_step_plan_against_policy};
+use crate::planner::sanitizer::SanitizerReport;
 #[cfg(test)]
 use crate::planner::setup_step_policy;
 #[cfg(test)]

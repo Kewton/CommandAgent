@@ -1,12 +1,21 @@
 //! Provenance captured at the actual profile mutation boundary, before
 //! sanitization or preset conversion can erase an implementation duty.
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::planner::recovery_contract_authority::verifier_obligations as scope;
 use crate::planner::recovery_inspection::verifier_obligations::{FailureClass, failure};
 
+#[derive(Default)]
+pub(crate) struct InstructionProtection {
+    pub(crate) indices: BTreeSet<usize>,
+    pub(crate) error: Option<String>,
+}
+
 pub(crate) struct ProfileAddition {
     model: PlanStep,
     host: PlanStep,
+    augmented_instruction: String,
 }
 
 impl ProfileAddition {
@@ -30,7 +39,11 @@ impl ProfileAddition {
             expected_paths: paths,
             verify: Vec::new(),
         };
-        Self { model, host }
+        Self {
+            model,
+            host,
+            augmented_instruction: augmented.instruction.clone(),
+        }
     }
 
     pub(crate) fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
@@ -42,6 +55,57 @@ impl ProfileAddition {
             plan,
         )
     }
+
+    pub(crate) fn instruction_protection(
+        &self,
+        plan: &StepPlan,
+        before_sanitization: bool,
+    ) -> InstructionProtection {
+        if self.host.instruction.is_empty() {
+            return InstructionProtection::default();
+        }
+        instruction_protection(
+            &self.model.id,
+            if before_sanitization {
+                &self.augmented_instruction
+            } else {
+                &self.host.instruction
+            },
+            plan,
+        )
+    }
+}
+
+fn instruction_protection(
+    owner_id: &str,
+    required_instruction: &str,
+    plan: &StepPlan,
+) -> InstructionProtection {
+    let mut indices = plan
+        .steps
+        .iter()
+        .enumerate()
+        .filter_map(|(index, step)| (step.id == owner_id).then_some(index))
+        .collect::<BTreeSet<_>>();
+    let error = match indices.len() {
+        1 if plan.steps[*indices.first().expect("one owner")]
+            .instruction
+            .contains(required_instruction) =>
+        {
+            None
+        }
+        0 | 1 => Some(format!(
+            "profile instruction provenance lost host guidance owner {owner_id} before sanitization"
+        )),
+        count => Some(format!(
+            "profile instruction provenance for owner {owner_id} is ambiguous across {count} steps"
+        )),
+    };
+    if error.is_some() {
+        // Ambiguous IDs do not authorize protecting either possible owner.
+        indices.clear();
+    }
+    InstructionProtection { indices, error }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -60,12 +124,31 @@ impl FormationScope {
         if let Some(addition) = addition {
             if let Some(step) = model.steps.iter_mut().find(|s| s.id == addition.model.id) {
                 *step = addition.model.clone();
+            } else {
+                // A deleted target must remain an obligation, never disappear
+                // when constructing the post-canonicalization preservation view.
+                model.steps.push(addition.model.clone());
             }
             if !addition.host.instruction.is_empty() || !addition.host.expected_paths.is_empty() {
                 host.steps.push(addition.host.clone());
             }
         }
         Self { model, host }
+    }
+
+    pub(crate) fn retained_instruction_indices(&self, plan: &StepPlan) -> BTreeSet<usize> {
+        self.host
+            .steps
+            .iter()
+            .filter(|host| !host.instruction.is_empty())
+            .flat_map(|host| {
+                plan.steps.iter().enumerate().filter_map(|(index, step)| {
+                    step.instruction
+                        .contains(&host.instruction)
+                        .then_some(index)
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn preserve(&self, original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {

@@ -19,8 +19,8 @@ use super::{
     render_requested_features_not_detected_line, render_step_plan, render_ultra_plan,
     repair_generated_step_plan_contract, repair_targeting, resolve_existing,
     resolve_profile_runtime, run_step_plan_with_session_with_ui, runtime_required_evidence,
-    sanitize_step_plan_against_policy, scan_relative_imports, signals, step_plan_quality_report,
-    step_plan_quality_warnings, ultra_plan_phase_signal_text, workspace_relative_handoff_path,
+    scan_relative_imports, signals, step_plan_quality_report, step_plan_quality_warnings,
+    ultra_plan_phase_signal_text, workspace_relative_handoff_path,
 };
 
 pub(super) const STEP_TURN_MAX_ITERATIONS: usize = 8;
@@ -437,6 +437,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
             );
             if attempt < 3 {
                 prompt = build_empty_step_plan_compact_prompt(goal, attempt);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = if empty_response_count >= 2 {
                     PlannerSessionMode::FreshCompact
                 } else {
@@ -484,8 +485,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     phase_label.is_none() || final_phase,
                     config.eval_events_path.as_deref(),
                 );
-                let sanitizer_report =
-                    sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+                let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
                     runtime.bind_empty_fix_verify_steps(
                         &mut plan,
@@ -558,6 +558,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                                 &quality_report,
                             );
                             prompt = build_quality_retry_prompt(goal, &quality_report, attempt);
+                            admission.append_retry_context(&mut prompt)?;
                             session_mode = PlannerSessionMode::Standard;
                             continue;
                         }
@@ -597,6 +598,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     }
                     prompt =
                         build_lint_retry_prompt(goal, &lint_report, attempt, &lint_categories_seen);
+                    admission.append_retry_context(&mut prompt)?;
                     session_mode = PlannerSessionMode::Standard;
                     continue;
                 }
@@ -609,6 +611,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                 }
                 prompt =
                     build_lint_retry_prompt(goal, &lint_report, attempt, &lint_categories_seen);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = PlannerSessionMode::Standard;
             }
             Err(err) => {
@@ -627,6 +630,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     }
                     last_error = Some(err.to_string());
                     prompt = build_schema_retry_prompt(goal, &err.to_string(), attempt);
+                    admission.append_retry_context(&mut prompt)?;
                     session_mode = PlannerSessionMode::Standard;
                     continue;
                 }
@@ -641,6 +645,7 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     attempt,
                 );
                 prompt = build_schema_retry_prompt(goal, &err.to_string(), attempt);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = PlannerSessionMode::Standard;
             }
         }
@@ -721,8 +726,7 @@ pub(super) fn deterministic_step_plan_for_phase(
         phase_label.is_none() || final_phase,
         config.eval_events_path.as_deref(),
     );
-    let sanitizer_report =
-        sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+    let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
     if let crate::planner::recovery_step_plan_binding::admission::Decision::Retry(feedback) =
         admission.check(config, phase_label, &model_plan, &mut plan, 1)?
     {

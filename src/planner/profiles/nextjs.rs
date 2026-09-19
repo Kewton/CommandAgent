@@ -505,10 +505,11 @@ fn scaffold_step_plan(phase_prompt: &str, root: &Path, goal: &str) -> ProfileDet
                     id: "nextjs-scaffold".to_string(),
                     kind: "setup".to_string(),
                     expected_result: "pass".to_string(),
-                    instruction: format!(
-                        "Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language and styling config, and route-bound page. Keep package.json dev/start scripts on port {port}. Required files: {}.",
-                        expected_paths.join(", ")
-                    ),
+                    // This exact guidance prefix lets profile strengthening
+                    // replace the summary with the complete host contract.
+                    instruction:
+                        "For the nextjs profile, create a runnable Next.js app, not only package metadata."
+                            .to_string(),
                     expected_paths,
                     verify: Vec::new(),
                 },

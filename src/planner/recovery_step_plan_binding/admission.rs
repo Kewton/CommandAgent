@@ -1,5 +1,5 @@
 //! Formation and Recovery binding use the existing planner attempt budget.
-use super::formation_scope::{FormationScope, ProfileAddition};
+use super::formation_scope::{FormationScope, InstructionProtection, ProfileAddition};
 use super::*;
 use crate::planner::recovery_contract_authority::verifier_obligations as scope;
 use crate::planner::recovery_inspection::verifier_obligations::{
@@ -10,13 +10,18 @@ use crate::planner::recovery_inspection::verifier_obligations::{
 pub(crate) struct Admission {
     original: Option<StepPlan>,
     sources: Option<FormationScope>,
+    // Same first-retry snapshot, with existing canonicalization of non-profile
+    // steps applied. Source evidence above remains at its acquisition boundary.
+    preservation_sources: Option<FormationScope>,
     profile_addition: Option<ProfileAddition>,
+    profile_instruction_provenance_error: Option<String>,
     replacements: Vec<super::verifier_formation::Replacement>,
     pending_sources: Option<super::package_script_formation::CapturedSources>,
     package_scripts: Option<super::package_script_formation::PackageScripts>,
     awaiting_check: bool,
     duplicate_strengthen: bool,
     marker_checks: Vec<super::literal_marker_formation::Obligation>,
+    marker_capture_error: Option<String>,
 }
 
 pub(crate) enum Decision {
@@ -31,20 +36,47 @@ impl Admission {
             return;
         }
         self.awaiting_check = true;
+        self.profile_instruction_provenance_error = None;
+        let model_scope = self.original.is_none().then(|| plan.clone());
         self.profile_addition =
             super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
         #[cfg(test)]
         crate::planner::setup_step_policy::issue492_tests::record("augmented", plan);
-        if self.original.is_none() {
+        if let Some(model) = model_scope {
+            let mut sources = FormationScope::capture(plan, self.profile_addition.as_ref());
+            // Capture directly, even if the model supplied duplicate owner IDs.
+            // Reconstructing by ID can restore the wrong pre-augmentation step.
+            sources.model = model;
             self.pending_sources = Some(super::package_script_formation::CapturedSources::new(
                 config,
-                FormationScope::capture(plan, self.profile_addition.as_ref()),
+                sources,
                 "profile_augmentation_before_sanitization",
             ));
         }
     }
 
+    pub(crate) fn sanitize(
+        &mut self,
+        plan: &mut StepPlan,
+        workspace_root: Option<&std::path::Path>,
+    ) -> crate::planner::sanitizer::SanitizerReport {
+        let protection = self
+            .profile_addition
+            .as_ref()
+            .map(|addition| addition.instruction_protection(plan, true))
+            .unwrap_or_default();
+        self.profile_instruction_provenance_error = protection.error;
+        crate::planner::sanitizer::sanitize_step_plan_against_policy_preserving_instructions(
+            plan,
+            workspace_root,
+            &protection.indices,
+        )
+    }
+
     fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        if let Some(reason) = &self.marker_capture_error {
+            return Err(failure(FailureClass::ProposalRepairable, reason.clone()));
+        }
         super::verifier_formation::preserve_registered(&self.replacements, plan)?;
         if let Some(original) = &self.original {
             let (projected, _) = super::verifier_formation::project(
@@ -53,7 +85,7 @@ impl Admission {
                 self.package_scripts.as_ref(),
                 &self.marker_checks,
             );
-            if let Some(sources) = &self.sources {
+            if let Some(sources) = &self.preservation_sources {
                 sources.preserve(original, &projected)?;
             } else {
                 preserve(original, &projected)?;
@@ -64,23 +96,87 @@ impl Admission {
 
     fn retain(&mut self, config: &Config, plan: &StepPlan, contract: &CompletionContract) {
         if self.original.is_none() {
-            self.marker_checks = super::literal_marker_formation::capture(config, contract, plan);
-            self.sources = Some(FormationScope::capture(
-                plan,
-                self.profile_addition.as_ref(),
-            ));
+            match super::literal_marker_formation::capture(config, contract, plan) {
+                Ok(checks) => self.marker_checks = checks,
+                Err(error) => {
+                    self.marker_capture_error = Some(format!(
+                        "original marker source acquisition failed; cannot recapture from a later proposal or workspace: {error}"
+                    ));
+                }
+            }
             let sources = self.pending_sources.take().unwrap_or_else(|| {
                 super::package_script_formation::CapturedSources::new(
                     config,
-                    self.sources.as_ref().expect("captured sources").clone(),
+                    FormationScope::capture(plan, self.profile_addition.as_ref()),
                     "admission_before_first_retry",
                 )
             });
+            self.sources = Some(sources.plans.clone());
+            self.preservation_sources = Some(FormationScope::capture(
+                plan,
+                self.profile_addition.as_ref(),
+            ));
             self.package_scripts = Some(super::package_script_formation::PackageScripts::capture(
                 config, plan, sources, contract,
             ));
             self.original = Some(plan.clone());
         }
+    }
+
+    fn profile_instruction_failure(&self, plan: &StepPlan) -> Option<String> {
+        if let Some(error) = &self.profile_instruction_provenance_error {
+            return Some(error.clone());
+        }
+        let addition = self.profile_addition.as_ref()?;
+        Self::instruction_failure(addition.instruction_protection(plan, false), plan)
+    }
+
+    fn retained_profile_instruction_failure(&self, plan: &StepPlan) -> Option<String> {
+        let sources = self.sources.as_ref()?;
+        sources
+            .retained_instruction_indices(plan)
+            .into_iter()
+            .find_map(|index| Self::instruction_capacity_failure(&plan.steps[index]))
+    }
+
+    fn instruction_failure(protection: InstructionProtection, plan: &StepPlan) -> Option<String> {
+        if let Some(error) = protection.error {
+            return Some(error);
+        }
+        let index = *protection.indices.iter().next()?;
+        Self::instruction_capacity_failure(&plan.steps[index])
+    }
+
+    fn instruction_capacity_failure(step: &PlanStep) -> Option<String> {
+        let chars = step.instruction.chars().count();
+        (chars > crate::planner::sanitizer::STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS).then(|| {
+            format!(
+                "profile instruction exceeds the 2500-character capacity after deterministic sanitization: owner {} has {chars} characters; preserve the complete model and host duties without truncation and use only owner splits allowed by the existing ownership rules",
+                step.id
+            )
+        })
+    }
+
+    fn retain_current_contract(&mut self, config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
+        let contract = match crate::planner::recovery_contract_authority::load_for_handoff(config)?
+        {
+            Some(contract) => contract,
+            None => serde_json::from_value(json!({}))?,
+        };
+        self.retain(config, plan, &contract);
+        Ok(())
+    }
+
+    fn validate_profile_instruction(
+        &mut self,
+        config: &Config,
+        plan: &StepPlan,
+    ) -> anyhow::Result<()> {
+        let Some(reason) = self.profile_instruction_failure(plan) else {
+            return Ok(());
+        };
+        self.retain_current_contract(config, plan)?;
+        Err(failure(FailureClass::ProposalRepairable, reason))
     }
 
     pub(crate) fn finish(
@@ -101,13 +197,15 @@ impl Admission {
                 config, &contract, &admitted,
             )?;
         }
-        if let Some(original) = &self.original
-            && let Err(error) = self.preserve(&plan)
-        {
+        let fallback_validation = self
+            .retained_profile_instruction_failure(&plan)
+            .map(|reason| Err(failure(FailureClass::ProposalRepairable, reason)))
+            .unwrap_or_else(|| self.preserve(&plan));
+        if let Err(error) = fallback_validation {
             crate::eval_events::emit(
                 config.eval_events_path.as_deref(),
                 json!({
-                    "event":"recovery_verifier_plan_return_rejected", "original_scope":original,
+                    "event":"recovery_verifier_plan_return_rejected", "original_scope":self.original,
                     "returned_scope":plan, "reason":error.to_string(), "remaining_planner_attempts":0,
                 }),
             );
@@ -144,7 +242,9 @@ impl Admission {
         let result = if let Err(error) = self.require_capture_boundary() {
             Err(error)
         } else if recovery {
-            check_model_ownership(config, phase, model)
+            self.validate_profile_instruction(config, plan)
+                .and_then(|()| self.preserve(plan))
+                .and_then(|()| check_model_ownership(config, phase, model))
                 .and_then(|()| bind_generated(config, phase, plan))
         } else {
             self.package_scripts
@@ -193,13 +293,34 @@ impl Admission {
             );
             return Err(error.context(reason));
         }
-        Ok(Decision::Retry(format!(
-            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.\nOriginal scope to preserve:\n{}\nOriginal obligation sources (model and host separately):\n{}\nHost-augmented proposal:\n{}",
+        let profile_capacity_guidance = if error.to_string().contains("profile instruction") {
+            " The profile instruction must remain at most 2500 characters after deterministic notes. Preserve the complete model and host duties, use only owner splits allowed by the existing ownership rules, and never duplicate or truncate the combined instruction."
+        } else {
+            ""
+        };
+        let mut feedback = format!(
+            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.{profile_capacity_guidance}\nHost-augmented proposal:\n{}",
             plan.goal,
-            serde_json::to_string(self.original.as_ref().unwrap_or(&host))?,
-            serde_json::to_string(&self.sources)?,
             serde_json::to_string(&host)?
-        )))
+        );
+        self.append_retry_context(&mut feedback)?;
+        Ok(Decision::Retry(feedback))
+    }
+
+    // Schema, lint and empty-response retries share the first admission snapshot.
+    // They must not silently replace it with a new goal or workspace expectation.
+    pub(crate) fn append_retry_context(&self, prompt: &mut String) -> anyhow::Result<()> {
+        if let Some(original) = &self.original {
+            prompt.push_str(&format!(
+                "\nFrozen admission baseline (preserve full model/host duties, outputs, expected results and check order; profile instructions must fit 2500 characters including deterministic notes):\n{}\nFrozen obligation sources:\n{}\nFrozen formation evidence and registered contract:\n{}\nFrozen marker obligations:\n{}\nMarker acquisition failure:\n{}",
+                serde_json::to_string(original)?,
+                serde_json::to_string(&self.sources)?,
+                serde_json::to_string(&self.package_scripts)?,
+                serde_json::to_string(&self.marker_checks)?,
+                serde_json::to_string(&self.marker_capture_error)?,
+            ));
+        }
+        Ok(())
     }
 
     fn require_capture_boundary(&self) -> anyhow::Result<()> {
@@ -213,6 +334,8 @@ impl Admission {
     }
 
     fn form(&mut self, config: &Config, plan: &StepPlan, _attempt: usize) -> anyhow::Result<()> {
+        self.validate_profile_instruction(config, plan)?;
+        self.preserve(plan)?;
         if !matches!(
             config.profile.as_str(),
             crate::planner::profile_descriptor::GENERIC_PROFILE_ID
@@ -221,7 +344,6 @@ impl Admission {
         {
             return Ok(());
         }
-        self.preserve(plan)?;
         if let Some(original) = &self.original {
             let (_, replacements) = super::verifier_formation::project(
                 original,
@@ -449,3 +571,7 @@ pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Resu
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "issue496_tests/capture.rs"]
+mod issue496_capture;
