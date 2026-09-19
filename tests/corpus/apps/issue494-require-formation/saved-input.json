@@ -1,0 +1,24 @@
+{
+  "source": "commandagent-l2-repair-shape-control-20260919-02 admissions",
+  "owner": {
+    "expected_paths": [
+      "src/lib/types.ts",
+      "src/lib/store.ts"
+    ],
+    "expected_result": "pass",
+    "id": "implement-types-and-store",
+    "instruction": "Create src/lib/types.ts exporting shared domain types: Project (id, name, createdAt), Task (id, projectId, title, deadline, status: 'not_started'|'in_progress'|'completed', assignedTo: string|null, createdAt), Member (id, name, email), and response types ProjectListResponse {items: Project[]}, TaskListResponse {items: Task[]}, MemberListResponse {items: Member[]}, ErrorResponse {error: string, details?: string}. Create src/lib/store.ts exporting async functions: readData(), writeData(data), and helper functions getProjects(), addProject(), getTasks(), addTask(), updateTaskStatus(), getMembers(), addMember(). Use JSON file persistence in a data.json file at project root. Initialize only on ENOENT; on parse error or I/O failure return 5xx without overwriting. Use write-to-temp-then-rename for atomic writes.",
+    "kind": "implement",
+    "verify": [
+      "node -p \"require('./src/lib/types.ts')\""
+    ]
+  },
+  "proposal_a_verify": [
+    "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/lib/types.ts','utf8');['Project','Task','Member','ProjectListResponse','TaskListResponse','MemberListResponse','ErrorResponse'].forEach(n=>{if(!s.includes(n))process.exit(1)});console.log('types-ok')\"",
+    "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/lib/store.ts','utf8');['readData','writeData','getProjects','addProject','getTasks','addTask','updateTaskStatus','getMembers','addMember'].forEach(n=>{if(!s.includes(n))process.exit(1)});console.log('store-ok')\""
+  ],
+  "proposal_b_verify": [
+    "node -e \"import('./src/lib/types.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[])})\"",
+    "node -e \"const fs=require('fs');const s=fs.readFileSync('./src/lib/store.ts','utf8');['readData','writeData','getProjects','addProject','getTasks','addTask','updateTaskStatus','getMembers','addMember'].forEach(n=>{if(!s.includes(n))process.exit(1)});console.log('store-ok')\""
+  ]
+}

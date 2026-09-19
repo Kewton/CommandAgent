@@ -14,6 +14,14 @@ pub(crate) fn source(command: &str) -> Option<String> {
     (program == "node" && eval && inline.executable).then(|| inline.source.to_owned())
 }
 
+fn print_source(command: &str) -> Option<String> {
+    let words = single_command_words(command)?;
+    let [program, flag, source] = words.as_slice() else {
+        return None;
+    };
+    (program == "node" && flag == "-p").then(|| source.to_owned())
+}
+
 pub(super) fn local_path(path: &str) -> bool {
     let path = path.strip_prefix("./").unwrap_or(path);
     !path.is_empty()
@@ -35,10 +43,29 @@ fn import(source: &str) -> Option<(&str, &str)> {
     (target.starts_with("./") && local_path(target)).then_some((target, rest))
 }
 
+fn require(source: &str) -> Option<(&str, &str)> {
+    let rest = source.strip_prefix("require(")?;
+    let quote = rest.chars().next()?;
+    if !matches!(quote, '\'' | '"') {
+        return None;
+    }
+    let rest = &rest[quote.len_utf8()..];
+    let end = rest.find(quote)?;
+    let (target, rest) = rest.split_at(end);
+    let rest = rest.strip_prefix(quote)?.strip_prefix(')')?;
+    (target.starts_with("./") && local_path(target)).then_some((target, rest))
+}
+
 pub(crate) fn pure_target(command: &str) -> Option<String> {
     let source = source(command)?;
     let (target, rest) = import(&source)?;
     matches!(rest, "" | ";").then(|| target.into())
+}
+
+pub(crate) fn pure_require_target(command: &str) -> Option<String> {
+    let source = print_source(command)?;
+    let (target, rest) = require(&source)?;
+    rest.is_empty().then(|| target.into())
 }
 
 fn json_prefix(text: &str) -> Option<(Value, &str)> {
@@ -90,4 +117,24 @@ pub(crate) fn export_set_target(command: &str) -> Option<String> {
         return None;
     }
     (rest == ")})").then(|| target.into())
+}
+
+/// A CommonJS strengthening keeps the original loader and `node -p` output.
+/// The expected runtime boundary is proposal-owned literal data.
+pub(crate) fn require_export_set_target(command: &str) -> Option<String> {
+    let source = print_source(command)?;
+    let source = source.strip_prefix("const actual=")?;
+    let (target, rest) = require(source)?;
+    let (expected, rest) = json_prefix(rest.strip_prefix(
+        ";require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),",
+    )?)?;
+    let names = expected
+        .as_array()?
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?;
+    if names.iter().any(|name| name.is_empty()) || names.windows(2).any(|w| w[0] >= w[1]) {
+        return None;
+    }
+    (rest == ");actual").then(|| target.into())
 }

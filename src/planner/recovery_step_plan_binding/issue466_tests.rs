@@ -174,3 +174,6 @@ mod issue488;
 
 #[path = "issue490_tests.rs"]
 mod issue490;
+
+#[path = "issue494_tests.rs"]
+pub(crate) mod issue494;

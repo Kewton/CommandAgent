@@ -156,7 +156,7 @@ impl Admission {
                         model,
                     )
                 })
-                .and_then(|()| self.form(config, plan))
+                .and_then(|()| self.form(config, plan, attempt))
                 .map(|()| false)
         };
         let Err(error) = result else {
@@ -212,7 +212,7 @@ impl Admission {
         Ok(())
     }
 
-    fn form(&mut self, config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
+    fn form(&mut self, config: &Config, plan: &StepPlan, _attempt: usize) -> anyhow::Result<()> {
         if !matches!(
             config.profile.as_str(),
             crate::planner::profile_descriptor::GENERIC_PROFILE_ID
@@ -229,11 +229,19 @@ impl Admission {
                 self.package_scripts.as_ref(),
                 &self.marker_checks,
             );
-            for replacement in replacements {
-                if !self.replacements.contains(&replacement) {
-                    self.replacements.push(replacement);
+            for replacement in &replacements {
+                if !self.replacements.contains(replacement) {
+                    self.replacements.push(replacement.clone());
                 }
             }
+            #[cfg(test)]
+            super::issue466_tests::issue494::record(
+                "form_preserve_ok",
+                _attempt,
+                original,
+                plan,
+                &serde_json::to_value(&replacements).expect("serialize formation trace"),
+            );
         }
         let mut contract =
             match crate::planner::recovery_contract_authority::load_for_handoff(config)? {
@@ -266,6 +274,16 @@ impl Admission {
                 let message = format!("{error}\n{guidance}");
                 Err(error.context(message))
             };
+        }
+        #[cfg(test)]
+        if let Some(original) = &self.original {
+            super::issue466_tests::issue494::record(
+                "require_formed_result=ok",
+                _attempt,
+                original,
+                plan,
+                &serde_json::to_value(&self.replacements).expect("serialize formation trace"),
+            );
         }
         if let Some(original) = &self.original {
             let (_, replacements) = super::verifier_formation::project(
