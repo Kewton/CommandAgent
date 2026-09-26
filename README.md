@@ -167,7 +167,8 @@ curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/in
 ```
 
 The installer verifies SHA-256 and installs to `~/.local/bin`; use `--version`
-or `--prefix` to customize it. Piping a remote script has supply-chain risks.
+or `--prefix` to customize it. Without `--version` it installs the latest
+stable release, or the newest pre-release while no stable release exists. Piping a remote script has supply-chain risks.
 Unlike this binary download, `scripts/setup.sh` builds from source and prepares
 the development environment. crates.io metadata is prepared and checked with
 `cargo publish --dry-run`, but nothing is published; confirm the package name,
