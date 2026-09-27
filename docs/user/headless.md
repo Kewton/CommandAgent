@@ -23,7 +23,7 @@ jq -R 'fromjson? // empty' commandagent.log | tail -n 1
 | ---: | --- |
 | `0` | The command process completed. Read `verdict`, `assurance`, and `gate`; process success alone does not upgrade acceptance. |
 | `1` | Execution or validation failed. The summary is still the final stdout line when a run was started; read `stop_class`, `stop_reason`, and the evidence paths. |
-| `2` | CLI arguments or pack selection were rejected before a run started, so no run summary is available. |
+| `2` | CLI arguments, configuration, or pack selection were rejected before a run started, so no run summary is available. |
 | `130` | The command was interrupted, including by `SIGINT`. When run evidence exists, the final stdout line reports `status: "interrupted"` and `exit_code: 130`. |
 
 ## JSON schema

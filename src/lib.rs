@@ -129,7 +129,8 @@ pub fn run_with_provider_options(
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
-    let config = Config::from_cli_with_provider_options(cli, provider_options)?;
+    let config = Config::from_cli_with_provider_options(cli, provider_options)
+        .map_err(cli_argument_error)?;
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -146,10 +147,26 @@ pub fn run_with_provider_options(
     result
 }
 
+/// A command-line argument or configuration rejection raised before a run starts.
+///
+/// `cli_error_exit_code` maps this to exit `2`, which is the documented headless
+/// contract for pre-run rejection: no run summary exists because nothing ran.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub(crate) struct CliArgumentError {
+    message: String,
+}
+
+fn cli_argument_error(error: anyhow::Error) -> anyhow::Error {
+    anyhow::Error::new(CliArgumentError {
+        message: format!("{error:#}"),
+    })
+}
+
 pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
     if error
         .chain()
-        .any(|cause| cause.is::<cli_pack::PackCliError>())
+        .any(|cause| cause.is::<cli_pack::PackCliError>() || cause.is::<CliArgumentError>())
     {
         2
     } else if error_is_interrupted(error) {
