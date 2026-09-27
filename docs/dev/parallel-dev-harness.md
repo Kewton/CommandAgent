@@ -102,11 +102,22 @@ Approval is always written, never implied: the PM's dispatch brief says
    remaining risk, and asks the user to approve the merge.
 6. **Merge (leader).** After the PM relays the user's approval, the leader runs
    the merge runner for exactly the approved Issues, following the push
-   preflight in `AGENTS.md`.
+   preflight in `AGENTS.md`: `--create-prs --approve`, wait for CI, then
+   `--merge-prs --approve --integration-verify`. PR titles follow this
+   repository's PR convention, `#<N> <Issue title>` (for example
+   `#498 [cli][planner] ...`); the runner proposes the bare Issue title, so the
+   leader prefixes the number. Each PR body states any user-visible behavior
+   change. The merge method is the one the user approved for the run.
 7. **UAT (leader, PM-approved).** Run the uat runner; the fix loop stays within
-   `--max-attempts`. Failures return to the PM with evidence.
-8. **Close-out (PM).** Report to the user, and propose worktree cleanup
-   (`cmate-worktree-cleanup`, dry-run first). Cleanup runs only after the user
+   `--max-attempts`. Failures return to the PM with evidence. The user may
+   waive UAT for a run; record the waiver in the ledger.
+8. **Close-out (PM).** Issues do not close automatically: GitHub closes an
+   Issue from `Closes #N` only on a merge into the default branch (`main`), and
+   this flow merges into `develop`. After the user approves, the PM closes each
+   Issue with a comment naming the PR, the merge commit, and the
+   integration-verify result. Then propose worktree cleanup
+   (`cmate-worktree-cleanup`, dry-run first; squash merges hide ancestry, so
+   use the PR's merged state as evidence). Cleanup runs only after the user
    agrees.
 
 ## 4. auto-yes policy
