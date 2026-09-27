@@ -52,23 +52,46 @@ Approval is always written, never implied: the PM's dispatch brief says
 
 ## 3. Standard flow
 
-1. **Intake (PM).** The user names Issues. The PM reads them, checks that each
-   has acceptance criteria and suspected files, and records the run in a PM
-   ledger (`workspace/tmp/<MMDD>/<topic>/ledger.md`). Unclear Issues go back to
-   the user before planning; decisions are folded into the Issue body because
-   the planner reads only number, title, body, and labels.
-2. **Plan (leader).** The PM sends a kickoff brief. The leader runs the
-   `cmate-orchestrate` plan runner with `--profile rust-commandagent` and reports
-   the run directory, the Wave plan, questions, and risks.
-3. **Review (PM, optionally with Codex_Sub).** The PM reads `plan.json`,
-   `manifest.md`, and `dependency-plan.md`. For large or risky plans the PM asks
-   Codex_Sub for an independent review. The PM either approves dispatch or
-   escalates to the user (section 2).
+1. **Intake (PM).** The user names Issues. The PM reads them and records the
+   run in a PM ledger (`workspace/tmp/<MMDD>/<topic>/ledger.md`). The planner
+   reads only number, title, body, and labels, so decisions go into the Issue
+   body before planning.
+2. **Pre-dispatch investigation (Codex_Sub).** Unless every Issue already has a
+   `## 対象ファイル` section and no open design choice, the PM asks Codex_Sub for:
+   a target-file proposal per Issue (existing and new files, one reason per
+   line), a recommendation for each design choice, the remaining lines of every
+   guardrail-bound file the Issue touches, and overlaps between Issues. Every
+   fix location it recommends must appear in its target-file proposal. The PM
+   checks the proposal against repository conventions (for example, a corpus
+   case is a directory with `expectations.toml`), asks the user to decide open
+   design choices, and, with the user's approval, adds the decisions and the
+   `## 対象ファイル` section to the Issue body.
+
+   Issue-writing rules for the planner:
+   - It reads backticked paths anywhere in the body as candidates. Outside
+     `## 対象ファイル`, write paths in full or without backticks, and do not
+     backtick example file names. A short name and a full path for the same
+     file produce `ambiguous_file_candidate`.
+   - Do not list shared tests (such as `tests/doc_drift.rs`) as targets unless
+     the Issue must change them.
+   - State dependencies as `depends on #N`; plans run with `--no-infer`.
+3. **Plan check and approval (PM).** The PM dry-runs the plan
+   (`--profile rust-commandagent --no-infer`, with `--runs-dir` under
+   `/Volumes/SSD_NX/tmp/`) and confirms zero blocking questions, a risk level
+   below high, and each Issue's `scope.allow` equal to its `## 対象ファイル`
+   section. The PM then sends the leader one brief that covers plan through
+   dispatch, with dispatch approved only if the leader's own plan meets the
+   same conditions; otherwise the leader stops and reports. For large or risky
+   plans the PM asks Codex_Sub for an independent review, or escalates to the
+   user (section 2).
 4. **Dispatch (leader).** Run dispatch with `--auto-yes`,
    `--worker-method cmate-worker-development`, `--cli <launcher>` (section 6a),
-   and a `--wait-timeout` close to one worker turn (about 700 seconds in the
-   2026-09-27 trial; the 300-second default expires while workers are still
-   running). Dispatch has no `--approve` flag; the PM's written approval is the
+   and `--wait-timeout 700`. Worker turns often run longer than that: when the
+   wait window expires, do not resend; wait for each worker to go idle with one
+   `commandmate wait <worktree-id> --instance command-code`, then run
+   `--reverify`. The first dispatch attempt can fail with `prompt not ready`
+   because freshly started Command Code workers are not ready yet; resume it
+   with `--resume`. Dispatch has no `--approve` flag; the PM's written approval is the
    gate. Add `--allow-questions` only for questions the user has resolved, and
    pass the same flag to `--reverify`, which enforces the question gate again.
    When worktrees do not exist, add
@@ -107,7 +130,11 @@ Approval is always written, never implied: the PM's dispatch brief says
    repository's PR convention, `#<N> <Issue title>` (for example
    `#498 [cli][planner] ...`); the runner proposes the bare Issue title, so the
    leader prefixes the number. Each PR body states any user-visible behavior
-   change. The merge method is the one the user approved for the run.
+   change. Merge with a merge commit (`--merge-method merge`), which matches
+   this repository's history, unless the user approves another method. An
+   Issue that touches the GUI server needs its `--features gui` tests: the
+   verify gates do not run them, so the dispatch brief asks the worker to run
+   them and report the result, and the PR's GUI Dashboard CI job must pass.
 7. **UAT (leader, PM-approved).** Run the uat runner; the fix loop stays within
    `--max-attempts`. Failures return to the PM with evidence. The user may
    waive UAT for a run; record the waiver in the ledger.
@@ -151,8 +178,15 @@ prose instead, or the brief itself trips the pattern.
 Enable auto-yes on a helper with the first `send`
 (`--auto-yes --duration 8h --stop-pattern '<pattern>'`) or with
 `commandmate auto-yes commandagent-develop --instance <id> --enable ...`.
-auto-yes has been observed to switch off before its duration ends; check
-`autoYes` in `commandmate instances <worktree-id> --json` before relying on it.
+When the stop pattern fires, CommandMate turns auto-yes **off** for that
+session, not just for that prompt. The leader deletes its own scratch
+directories with `rm -rf` often enough that this happens in most runs. Keep the
+pattern broad: a narrower pattern cannot see what a shell variable expands to.
+Instead, the PM's monitor watches `autoYes` in
+`commandmate instances commandagent-develop --json`; when it turns off, the PM
+reads the open prompt, answers it if it is inside the brief's scope (otherwise
+escalates), and re-enables auto-yes with the same pattern. Record each case in
+the ledger.
 
 ## 5. Delegating to helpers
 
@@ -193,8 +227,11 @@ workers under `cmate-orchestrate`.
 
 ## 6. Communication and monitoring
 
-- Prefer `commandmate ask <wt> --instance <id> --async --reply-to self` for
-  parallel requests, but do not rely on relay delivery alone. Relays have been
+- Do not add `--reply-to self` when the receiver runs with auto-yes: the relay
+  forwards every transient prompt that auto-yes clears a moment later. Monitor
+  completion instead (a background loop on the result file and the `DONE:`
+  line). For receivers without auto-yes, relays are useful, but do not rely on
+  relay delivery alone. Relays have been
   observed to stay `pending` after the turn ended, to report a transient prompt
   as `prompt`, and to deliver an interim turn (a session that ends its turn
   while waiting on a background job). Judge completion from the result file plus
