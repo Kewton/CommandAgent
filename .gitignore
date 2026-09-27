@@ -18,3 +18,4 @@ workspace/management/runs/**/run*.log
 /.commandcode/
 /.claude/skills/cmate-*/
 /.agents/skills/cmate-*/
+/.commandmate/tasks/

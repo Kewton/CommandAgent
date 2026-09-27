@@ -74,6 +74,20 @@ Approval is always written, never implied: the PM's dispatch brief says
      file produce `ambiguous_file_candidate`.
    - Do not list shared tests (such as `tests/doc_drift.rs`) as targets unless
      the Issue must change them.
+   - Keep `## 対象ファイル` a flat list with no sub-headings. Under a
+     sub-heading such as `### 既存ファイル`, documentation paths (`docs/…`,
+     `.md`) fall into `reference_files` and out of scope
+     (Kewton/commandmate-skills#273). Mark new files inline, for example
+     `（新規）`.
+   - The planner does not recognize `.lock` or `.txt` files
+     (Kewton/commandmate-skills#272), so `Cargo.lock` and `requirements/*.txt`
+     cannot be in a worker's scope. The leader makes such changes itself on a
+     `chore/issue-<N>-<slug>` branch in a scratch worktree under
+     `/Volumes/SSD_NX/tmp/`: run the verify gates there (name the worktree
+     directory `CommandAgent-issue-<N>-<slug>`, because a nonstandard name makes
+     the `pytest-codex-orchestrate` gate fail), run the relevant audits, merge
+     the latest `origin/develop` into the branch after the worker PRs merge,
+     and open the PR as `#<N> <summary>`. Merge follows the same user approval.
    - State dependencies as `depends on #N`; plans run with `--no-infer`.
 3. **Plan check and approval (PM).** The PM dry-runs the plan
    (`--profile rust-commandagent --no-infer`, with `--runs-dir` under
@@ -115,9 +129,13 @@ Approval is always written, never implied: the PM's dispatch brief says
    commandmate ls --json                              # cliToolId must be command-code
    ```
 
-   Apply this only to Issue worktrees, never to `commandagent-develop`. Do not
-   run `commandmate sync` again while workers are running; if it was run,
-   re-pin or send with `--instance command-code`.
+   Apply this only to Issue worktrees, never to `commandagent-develop`. If a
+   worktree keeps `cliToolId = claude` after the removals, rewrite the
+   remaining instance's alias (`commandmate instances <id> alias command-code
+   "Command Code"`) to trigger the switch. Do not run `commandmate sync` again
+   while workers are running, and ask the user not to run it from other
+   sessions during a run: any sync resets the pin (Kewton/CommandMate#2917).
+   If it was reset, re-pin or send with `--instance command-code`.
    The leader supervises Waves, resumes partial runs with `--resume`, and
    reports each Wave to the PM.
 5. **Merge request (PM → user).** When Issues pass verification, the PM
@@ -130,7 +148,11 @@ Approval is always written, never implied: the PM's dispatch brief says
    repository's PR convention, `#<N> <Issue title>` (for example
    `#498 [cli][planner] ...`); the runner proposes the bare Issue title, so the
    leader prefixes the number. Each PR body states any user-visible behavior
-   change. Merge with a merge commit (`--merge-method merge`), which matches
+   change. The pushes and PR commands trip the stop pattern; within the
+   user-approved scope (the approved branches and their PRs), the PM's monitor
+   answers those prompts and re-enables auto-yes, logging each one, and
+   escalates anything else. Merge with a merge commit
+   (`--merge-method merge`), which matches
    this repository's history, unless the user approves another method. An
    Issue that touches the GUI server needs its `--features gui` tests: the
    verify gates do not run them, so the dispatch brief asks the worker to run
