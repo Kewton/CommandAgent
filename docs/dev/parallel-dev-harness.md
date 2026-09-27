@@ -64,8 +64,14 @@ Approval is always written, never implied: the PM's dispatch brief says
    `manifest.md`, and `dependency-plan.md`. For large or risky plans the PM asks
    Codex_Sub for an independent review. The PM either approves dispatch or
    escalates to the user (section 2).
-4. **Dispatch (leader).** Run dispatch with `--approve`, `--auto-yes`,
-   `--worker-method cmate-worker-development`, and, when worktrees do not exist,
+4. **Dispatch (leader).** Run dispatch with `--auto-yes`,
+   `--worker-method cmate-worker-development`, `--cli <launcher>` (section 6a),
+   and a `--wait-timeout` close to one worker turn (about 700 seconds in the
+   2026-09-27 trial; the 300-second default expires while workers are still
+   running). Dispatch has no `--approve` flag; the PM's written approval is the
+   gate. Add `--allow-questions` only for questions the user has resolved, and
+   pass the same flag to `--reverify`, which enforces the question gate again.
+   When worktrees do not exist, add
    `--prepare-worktrees --worktree-setup <launcher>`. Before the first Wave,
    confirm for every Issue worktree that (a) its primary instance is Command
    Code (`commandmate instances <worktree-id> --json` shows `cliTool:
@@ -73,6 +79,22 @@ Approval is always written, never implied: the PM's dispatch brief says
    (`commandmate skill status cmate-worker-development --worktree <id>`; install
    with `commandmate skill install cmate-worker-development --worktree <id> -y`
    when missing, without `--git`). Stop and report if either cannot be met.
+
+   Dispatch sends without `--instance`, so the worker CLI is the worktree's
+   default (`cliToolId` in `commandmate ls --json`). New worktrees default to
+   `claude`. Pin each Issue worktree to Command Code in this order:
+
+   ```bash
+   commandmate sync                                   # first: sync resets the pin
+   commandmate instances <issue-worktree-id> remove claude --kill
+   commandmate instances <issue-worktree-id> remove codex
+   commandmate instances <issue-worktree-id> remove antigravity
+   commandmate ls --json                              # cliToolId must be command-code
+   ```
+
+   Apply this only to Issue worktrees, never to `commandagent-develop`. Do not
+   run `commandmate sync` again while workers are running; if it was run,
+   re-pin or send with `--instance command-code`.
    The leader supervises Waves, resumes partial runs with `--resume`, and
    reports each Wave to the PM.
 5. **Merge request (PM → user).** When Issues pass verification, the PM
@@ -174,9 +196,28 @@ workers under `cmate-orchestrate`.
   keep refusing in the same conversation. Do not rephrase to get around it.
   Reassign or rescope the task; `/new` resets a Codex conversation for an
   unrelated follow-up.
+- Verification runs are serialized machine-wide (two at a time); a verify
+  can wait in a queue behind other worktrees. A slow verdict is not a stuck
+  worker.
 - After each Wave or helper result, compare `git status --short` with the
   baseline taken at intake. Any change outside the assigned scope stops all
   delegation until it is explained.
+
+## 6a. CommandMate launcher
+
+In this environment the running CommandMate server is the development build
+from `MyCodeBranchDesk` (`commandmatedev`), not the globally installed
+`commandmate` package. `commandmatedev` is a shell alias, so runners cannot
+resolve it. Pass the launcher explicitly:
+
+```bash
+CM="node /Users/maenokota/share/work/github_kewton/MyCodeBranchDesk/bin/commandmate.js"
+node .agents/skills/cmate-orchestrate/scripts/dispatch.mjs --cli "$CM" ...
+```
+
+Read CommandMate behavior from that source tree, not from
+`/opt/homebrew/lib/node_modules/commandmate`. Both CLIs talk to the same
+server, but only the development build matches the server's behavior.
 
 ## 7. Records
 
@@ -195,9 +236,12 @@ Do not commit ledgers, results, or run directories.
       `.agents/skills/`; CommandMate installs into both roots). They are not
       committed; each Issue worktree gets `cmate-worker-development` through
       `commandmate skill install` before dispatch (section 3, step 4).
-- [ ] `.commandmate/verify.yaml` exists. If not, the leader drafts it with
-      `cmate-verify` from `scripts/ci.sh` and the user confirms it before it is
-      written.
+- [ ] `.commandmate/verify.yaml` is committed, so every Issue worktree gets
+      it. Change it only with the user's confirmation (`cmate-verify`).
+- [ ] Tool state is ignored by Git (`.gitignore`: `/.commandcode/`,
+      `/.claude/skills/cmate-*/`, `/.agents/skills/cmate-*/`). Otherwise the
+      contract's `scope` gate counts the installed worker skill and Command
+      Code state as out-of-scope changes and fails every Issue.
 - [ ] The PM's Claude Code session can send to this worktree. The user adds the
       allow rules in `.claude/settings.local.json`:
       `Bash(commandmate send commandagent-develop:*)` and

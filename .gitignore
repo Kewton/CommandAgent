@@ -14,3 +14,7 @@ workspace/management/runs/**/run*.log
 .ruff_cache/
 # cmate-orchestrate run artifacts (runtime state)
 /.commandmate/orchestrate/
+# CommandMate / Command Code tool state installed per worktree (not deliverables)
+/.commandcode/
+/.claude/skills/cmate-*/
+/.agents/skills/cmate-*/
