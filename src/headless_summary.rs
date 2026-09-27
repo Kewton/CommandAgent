@@ -353,6 +353,27 @@ mod tests {
     }
 
     #[test]
+    fn issue500_unverified_run_keeps_process_status_and_names_next_action() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue500-unverified-minimal-loop/fixtures/e2e-3b-events.jsonl",
+        );
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["exit_code"], 0);
+        assert_eq!(value["verdict"], "reduced");
+        assert_eq!(value["assurance"], "reduced");
+        assert_eq!(value["gate"], "not_applicable");
+        assert_eq!(
+            value["next_action"],
+            crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+        );
+        assert_ne!(value["next_action"], "none");
+        assert!(value["stop_class"].is_null());
+    }
+
+    #[test]
     fn explicit_ollama_think_is_recorded_in_model_metadata() {
         let source = Source {
             events_path: Some(fixture("full")),

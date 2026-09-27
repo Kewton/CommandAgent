@@ -139,6 +139,13 @@ impl SummaryLanguage {
         )
     }
 
+    pub(crate) fn acceptance_unverified_result(self) -> &'static str {
+        match self {
+            Self::English => "acceptance unverified (process completed)",
+            Self::Japanese => "受入未検証（処理は終了）",
+        }
+    }
+
     pub(crate) fn gate(self, value: &str) -> Cow<'_, str> {
         self.closed_value(
             value,
@@ -169,6 +176,10 @@ impl SummaryLanguage {
             value,
             &[
                 ("none", "追加操作なし"),
+                (
+                    super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+                    "受入検査を実行するか、変更内容とテスト結果を確認する",
+                ),
                 ("fix_command_failure", "コマンドの失敗を修正する"),
                 ("resume_or_rerun_command", "コマンドを再開または再実行する"),
                 (
@@ -237,6 +248,18 @@ mod tests {
         assert_eq!(
             language.next_action("fix_command_failure"),
             "コマンドの失敗を修正する"
+        );
+        assert_eq!(
+            language.next_action("run_acceptance_or_review_changes"),
+            "受入検査を実行するか、変更内容とテスト結果を確認する"
+        );
+        assert_eq!(
+            SummaryLanguage::English.next_action("run_acceptance_or_review_changes"),
+            "run_acceptance_or_review_changes"
+        );
+        assert_eq!(
+            language.acceptance_unverified_result(),
+            "受入未検証（処理は終了）"
         );
         assert_eq!(
             language.next_action("custom_recovery:keep_this_code"),
