@@ -118,7 +118,11 @@ Approval is always written, never implied: the PM's dispatch brief says
    integration-verify result. Then propose worktree cleanup
    (`cmate-worktree-cleanup`, dry-run first; squash merges hide ancestry, so
    use the PR's merged state as evidence). Cleanup runs only after the user
-   agrees.
+   agrees and covers, for each merged Issue, the worktree, its CommandMate
+   registration, the local branch, and the remote feature branch. Delete a
+   remote branch only after confirming its PR is merged
+   (`gh pr list --state merged --head <branch>`), then
+   `git push origin --delete <branch>`.
 
 ## 4. auto-yes policy
 
