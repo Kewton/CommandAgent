@@ -392,15 +392,32 @@ pub fn terminate_process_group(child: &mut Child) {
     );
 }
 
+/// Resolves a spawned child PID into a process-group id that is safe to
+/// signal with a negative `kill` target. The child is spawned with
+/// `process_group(0)`, so its PID equals its group id, but `-1` would signal
+/// every signalable process and `0`/`1` would target the caller or init.
+#[cfg(unix)]
+fn signalable_process_group(pid: u32) -> Option<i32> {
+    let pgid = i32::try_from(pid).ok()?;
+    (pgid > 1).then_some(pgid)
+}
+
 pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let pgid = i32::try_from(pid)
-            .map_err(|_| io::Error::other("server child pid does not fit pid_t"))?;
+        let Some(pgid) = signalable_process_group(pid) else {
+            return Err(io::Error::other(
+                "refusing to signal a process group outside the child range",
+            ));
+        };
+        // SAFETY: `pgid` is greater than 1 and derived from a child spawned
+        // with `process_group(0)`, so `-pgid` names only that child's own
+        // process group, never pid 0/1 or the caller's group.
         unsafe {
             libc::kill(-pgid, libc::SIGTERM);
         }
         thread::sleep(DEFAULT_TIMEOUT_KILL_GRACE);
+        // SAFETY: same checked group identifier as the SIGTERM above.
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
         }
@@ -452,9 +469,13 @@ fn terminate_process_group_with_grace<F, C>(
 {
     #[cfg(unix)]
     {
-        let pgid = -(child.id() as i32);
-        unsafe {
-            libc::kill(pgid, libc::SIGTERM);
+        if let Some(pgid) = signalable_process_group(child.id()) {
+            // SAFETY: `pgid` is greater than 1 and was created with
+            // `configure_process_group(0)` for this child, so `-pgid` targets
+            // only the child's process group, never pid 0/1 or the caller's.
+            unsafe {
+                libc::kill(-pgid, libc::SIGTERM);
+            }
         }
     }
     let grace_started = clock.mark();
@@ -470,9 +491,11 @@ fn terminate_process_group_with_grace<F, C>(
     }
     #[cfg(unix)]
     {
-        let pgid = -(child.id() as i32);
-        unsafe {
-            libc::kill(pgid, libc::SIGKILL);
+        if let Some(pgid) = signalable_process_group(child.id()) {
+            // SAFETY: the same checked child-derived group identifier as above.
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
         }
     }
     let _ = child.kill();
@@ -733,6 +756,15 @@ mod tests {
         );
         let _ = child_b.wait();
         assert!(registered_server_child(pid_b).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_group_guard_refuses_non_child_group_ids() {
+        assert_eq!(signalable_process_group(0), None);
+        assert_eq!(signalable_process_group(1), None);
+        assert_eq!(signalable_process_group(2), Some(2));
+        assert!(terminate_process_group_by_pid(1).is_err());
     }
 
     struct TestEnvGuard {

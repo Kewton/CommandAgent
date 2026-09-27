@@ -3,6 +3,9 @@ use super::CompileRepairPromptProtection;
 #[path = "final_acceptance/compile_rollback_verification.rs"]
 mod compile_rollback_verification;
 
+#[path = "final_acceptance/surface_fit.rs"]
+mod surface_fit;
+
 #[path = "runner/recovery_probe_context.rs"]
 mod recovery_probe_context;
 #[allow(unused_imports)]
@@ -1941,17 +1944,13 @@ pub(super) fn surface_fit_overflows(fit: &Value) -> BTreeMap<&'static str, i64> 
         ("left", "overflow_left_px"),
     ]
     .into_iter()
-    .map(|(edge, key)| (edge, raw_i64_field(fit, key).unwrap_or(0).max(0)))
-    .collect()
-}
-
-pub(super) fn raw_i64_field(value: &Value, name: &str) -> Option<i64> {
-    value.get(name).and_then(Value::as_i64).or_else(|| {
-        value
-            .get(name)
-            .and_then(Value::as_f64)
-            .map(|value| value.round() as i64)
+    .map(|(edge, key)| {
+        (
+            edge,
+            surface_fit::finite_i64_field(fit, key).unwrap_or(0).max(0),
+        )
     })
+    .collect()
 }
 
 pub(super) fn surface_fit_edge_summary(overflows: &BTreeMap<&'static str, i64>) -> String {

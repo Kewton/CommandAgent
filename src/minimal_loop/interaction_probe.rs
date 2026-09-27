@@ -1950,17 +1950,8 @@ fn canvas_blank_snapshot_value(
 }
 
 fn surface_fit_from_value(value: &Value) -> Option<SurfaceFitEvidence> {
-    let fit = value.get("surface_fit")?.as_object()?;
-    let number = |name: &str| {
-        fit.get(name)
-            .and_then(Value::as_i64)
-            .or_else(|| {
-                fit.get(name)
-                    .and_then(Value::as_f64)
-                    .map(|value| value.round() as i64)
-            })
-            .unwrap_or(0)
-    };
+    let fit = value.get("surface_fit").filter(|fit| fit.is_object())?;
+    let number = |name: &str| finite_surface_fit_i64(fit, name).unwrap_or(0);
     Some(SurfaceFitEvidence {
         surface: fit
             .get("surface")
@@ -1980,6 +1971,18 @@ fn surface_fit_from_value(value: &Value) -> Option<SurfaceFitEvidence> {
         rect_width_px: number("rect_width_px"),
         rect_height_px: number("rect_height_px"),
     })
+}
+
+fn finite_surface_fit_i64(fit: &Value, name: &str) -> Option<i64> {
+    let value = fit.get(name)?;
+    if let Some(number) = value.as_i64() {
+        return Some(number);
+    }
+    let number = value.as_f64()?;
+    if !number.is_finite() || number < i64::MIN as f64 || number >= 9_223_372_036_854_775_808.0 {
+        return None;
+    }
+    Some(number.round() as i64)
 }
 
 fn interaction_taxonomy_failure_kind(
@@ -2659,6 +2662,21 @@ mod tests {
     use std::net::TcpListener;
     use std::process::Command;
     use std::thread;
+
+    #[test]
+    fn invalid_surface_fit_measurements_fall_back_to_defaults() {
+        let fit = surface_fit_from_value(&serde_json::json!({
+            "surface_fit": {
+                "surface": "canvas",
+                "fits_viewport": false,
+                "overflow_top_px": 1e30,
+                "viewport_width_px": 1280
+            }
+        }))
+        .expect("surface fit present");
+        assert_eq!(fit.overflow_top_px, 0);
+        assert_eq!(fit.viewport_width_px, 1280);
+    }
 
     #[test]
     fn embedded_interaction_probe_asset_bytes_are_frozen() {

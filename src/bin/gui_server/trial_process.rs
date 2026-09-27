@@ -424,12 +424,25 @@ enum Signal {
     Kill,
 }
 
+/// Guards the negative `kill` targets: group id 1 is init and 0 is the
+/// caller's own group, so only a real child group id may be signalled.
+#[cfg(unix)]
+fn group_is_signalable(process_group: i32) -> bool {
+    process_group > 1
+}
+
 #[cfg(unix)]
 fn send_group_signal(process_group: i32, signal: Signal) -> anyhow::Result<()> {
+    if !group_is_signalable(process_group) {
+        bail!("refusing to signal process group {process_group}");
+    }
     let signal = match signal {
         Signal::Interrupt => libc::SIGINT,
         Signal::Kill => libc::SIGKILL,
     };
+    // SAFETY: `process_group` is checked to be greater than 1 and is derived
+    // from the delegated child PID spawned with `process_group(0)`, so
+    // `-process_group` names only that child's group, never pid 0/1 or ours.
     let result = unsafe { libc::kill(-process_group, signal) };
     if result == 0 {
         return Ok(());
@@ -448,6 +461,11 @@ fn send_group_signal(_process_group: i32, _signal: Signal) -> anyhow::Result<()>
 
 #[cfg(unix)]
 fn process_group_exists(process_group: i32) -> bool {
+    if !group_is_signalable(process_group) {
+        return false;
+    }
+    // SAFETY: `process_group` is checked to be greater than 1 and is derived
+    // from the delegated child PID; signal 0 only probes for its existence.
     let result = unsafe { libc::kill(-process_group, 0) };
     if result == 0 {
         return true;
@@ -488,5 +506,15 @@ mod tests {
         assert!(require_generation(&generation).is_ok());
         assert!(require_generation(&generation.to_uppercase()).is_err());
         assert!(require_generation("stale-pid-42").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_group_guard_rejects_init_and_caller_group() {
+        assert!(!group_is_signalable(0));
+        assert!(!group_is_signalable(1));
+        assert!(group_is_signalable(2));
+        assert!(send_group_signal(1, Signal::Kill).is_err());
+        assert!(!process_group_exists(1));
     }
 }
