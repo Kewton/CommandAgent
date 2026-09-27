@@ -196,8 +196,11 @@ plan_preset = "none"
 Keys such as `model` are valid inside a preset but invalid at top level.
 Unknown top-level keys make that file fail parsing. Named-preset loading
 surfaces the parse error; top-level field lookup skips a file that did not parse
-and continues to lower-priority files. Sections other than `[preset.<name>]`
-are ignored by the current small parser rather than treated as configuration.
+and continues to lower-priority files. This skip applies to every top-level key,
+including `extension_root`, so one broken file never aborts configuration
+resolution. Use `--doctor` to see the parse error. Sections other than
+`[preset.<name>]` are ignored by the current small parser rather than treated
+as configuration.
 
 ## Pack selection
 
