@@ -10,6 +10,13 @@ emits the same final JSON line with `status: "interrupted"` and
 `exit_code: 130`. An interruption before an event file exists has no summary to
 project. Omitting the flag preserves the existing stdout bytes.
 
+A summary is assembled only when there is real evidence to project: the run's
+persisted event stream, or a pack selected for the invocation. An action that
+starts no run writes none unless it resolved a pack. `--ux-demo` never writes
+one, and `--runs` writes one only when it selected a pack; in that case `run_id`
+and `events_path` are `null`, because no run was persisted. The action's own
+output and exit code `0` are unchanged by the flag.
+
 ```bash
 commandagent --yes --no-footer --summary-json \
   --profile nextjs --ultra-plan-run "Create the app" \
@@ -53,7 +60,7 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `stop_reason` | Existing terminal stop, primary, or failure reason; `null` when unavailable. |
 | `next_action` | Existing terminal recovery/next-action value; `run_acceptance_or_review_changes` when final acceptance was not checked; `null` when unavailable. |
 | `changed_files` | Sorted, deduplicated Git working-tree paths observed at summary projection time; empty when the workspace cannot provide them. |
-| `verify_commands` | Verification command strings found in run evidence. Absence of result evidence never upgrades a command to passed. |
+| `verify_commands` | Verification command strings projected from run evidence. Each executed plan verify step records an execution observation with its declared and effective command; a command that was only declared and never executed stays not-recorded and is never reported as passed. |
 | `exit_code` | Projected process exit code (`0`, `1`, or `130`) for a known terminal status; `null` when unavailable. |
 | `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
 

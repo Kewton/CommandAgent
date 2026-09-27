@@ -46,6 +46,19 @@ impl Source {
         }
     }
 
+    /// Whether the run persisted event evidence to project.
+    pub(crate) fn has_persisted_events(&self) -> bool {
+        !terminal_report::read_events(self.events_path.as_deref()).is_empty()
+    }
+
+    /// Whether a pack was selected.
+    ///
+    /// A selected pack is run-independent evidence, so a read-only action that
+    /// resolved one can still project an honest summary (with no run fields).
+    pub(crate) fn has_selected_pack(&self) -> bool {
+        self.pack.is_some()
+    }
+
     #[allow(dead_code)] // Staged API for Issue #221's interrupted-run consumer.
     pub(crate) fn with_terminal_status(mut self, status: TerminalStatus) -> Self {
         self.terminal_status = Some(status);
@@ -115,6 +128,9 @@ pub(crate) fn render(source: &Source) -> String {
 
 fn project(source: &Source) -> HeadlessSummary {
     let events_path = source.events_path.as_deref();
+    // Never report a path to an event stream that was not persisted: a summary
+    // that points at a missing events.jsonl misleads the reader about the run.
+    let persisted_events_path = events_path.filter(|path| path.is_file());
     let events = terminal_report::read_events(events_path);
     let report = terminal_report::project(
         &events,
@@ -139,7 +155,7 @@ fn project(source: &Source) -> HeadlessSummary {
         .and_then(|event| number(event, "time_profile_total_ms"))
         .or_else(|| latest_nested_number(&events, "time_profile", "profile", "total_ms"))
         .map(|milliseconds| milliseconds / 1_000.0);
-    let summary_path = events_path
+    let summary_path = persisted_events_path
         .and_then(Path::parent)
         .map(|parent| parent.join("summary.md"))
         .filter(|path| path.is_file());
@@ -148,7 +164,7 @@ fn project(source: &Source) -> HeadlessSummary {
 
     HeadlessSummary {
         schema_version: SCHEMA_VERSION,
-        run_id: events_path
+        run_id: persisted_events_path
             .and_then(Path::parent)
             .and_then(Path::file_name)
             .map(|value| value.to_string_lossy().into_owned()),
@@ -158,7 +174,7 @@ fn project(source: &Source) -> HeadlessSummary {
             .or_else(|| latest_nested_number(&events, "score_checkpoint", "vector", "score")),
         acceptance_sheet_path: summary_path.map(display_path),
         artifacts_dir: latest_event_text(&events, "run_start", "workspace_root"),
-        events_path: events_path.map(display_path),
+        events_path: persisted_events_path.map(display_path),
         duration_secs,
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
         provider_usage_by_role,
@@ -371,6 +387,58 @@ mod tests {
         );
         assert_ne!(value["next_action"], "none");
         assert!(value["stop_class"].is_null());
+    }
+
+    #[test]
+    fn issue513_plan_verify_observations_populate_verify_commands() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue513-plan-verify-projection/fixtures/plan-verify-events.jsonl",
+        );
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert_eq!(value["status"], "failed");
+        let commands = value["verify_commands"]
+            .as_array()
+            .expect("verify_commands is always an array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            !commands.is_empty(),
+            "a run that executed plan verify must not report an empty verify_commands"
+        );
+        for command in [
+            "cargo test --test smoke",
+            "python3 -m pytest tests",
+            "npm run build",
+        ] {
+            assert!(
+                commands.contains(&command),
+                "missing {command}: {commands:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_event_stream_is_not_reported_as_run_evidence() {
+        let missing = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/issue513-plan-verify-projection/fixtures/absent.jsonl");
+        assert!(!missing.is_file(), "fixture path must not exist");
+
+        let value: Value =
+            serde_json::from_str(&render(&Source::from_events_path(missing))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert!(
+            value["run_id"].is_null(),
+            "a run-less action must not claim a run id"
+        );
+        assert!(
+            value["events_path"].is_null(),
+            "a summary must not point at an event stream that was not persisted"
+        );
+        assert_eq!(value["verify_commands"], serde_json::json!([]));
     }
 
     #[test]

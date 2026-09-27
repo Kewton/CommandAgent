@@ -18,6 +18,7 @@ use crate::tools::path_guard::{resolve_existing, validate_workspace_relative};
 use crate::{eval_events, tools::bash::BashOutcome};
 
 mod cli_documented_input;
+mod command_observation;
 mod dependency_classification;
 mod failure_classification;
 mod shell_control;
@@ -711,13 +712,15 @@ fn verify_step_with_setup_observed_with_options(
             }
             continue;
         }
-        match run_verify_command_with_runtime_oracle(
+        let outcome = run_verify_command_with_runtime_oracle(
             &normalized_command,
             root,
             profile,
             false,
             eval_events_path,
-        ) {
+        );
+        command_observation::record(eval_events_path, &step.id, &normalized_command, &outcome);
+        match outcome {
             VerifyCommandRunResult::Passed {
                 output,
                 normalization,
