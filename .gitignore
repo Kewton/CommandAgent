@@ -12,3 +12,5 @@ __pycache__/
 workspace/management/runs/**/run*.log
 .pytest_cache/
 .ruff_cache/
+# cmate-orchestrate run artifacts (runtime state)
+/.commandmate/orchestrate/

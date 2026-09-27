@@ -68,6 +68,7 @@ paths.
 | [`ingest-profile-contract.md`](ingest-profile-contract.md) | Fixed ingest evidence and assurance contract. | JA | Contributors |
 | [`pack-institution-contract.md`](pack-institution-contract.md) | Fixed assist/eval pack institution contract. | EN | Contributors |
 | [`dev/dev-guardrails.md`](dev/dev-guardrails.md) | Source growth budgets and engineering guardrails. | EN | Contributors |
+| [`dev/parallel-dev-harness.md`](dev/parallel-dev-harness.md) | Issue-driven parallel development: PM, development leader, helpers, workers, authority, and delegation rules. | EN | Contributors |
 | [`dev/generality.md`](dev/generality.md) | Generality and earned-assurance policy. | Mixed | Contributors |
 | [`dev/profile-manifest.md`](dev/profile-manifest.md) | Profile manifest schema and lifecycle. | EN | Contributors |
 | [`dev/extension-catalog.md`](dev/extension-catalog.md) | Registered source/check, profile descriptor, guard, locator, and supply workflows. | EN | Contributors |

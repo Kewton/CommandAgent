@@ -37,6 +37,42 @@ crate and the `commandagent` binary both live at the repository root. Read
   requests, or publish releases unless the user has authorized that external
   action.
 
+## Issue-driven parallel development
+
+The default way to develop Issues in parallel is the chain
+user → PM → development leader → workers, defined in
+`docs/dev/parallel-dev-harness.md`. The Codex `$orchestrate` and `$pm` skills
+remain available when the user invokes them by name.
+
+- **PM**: the Claude Code session `commandagent-develop` / `claude`
+  (see `CLAUDE.md`). It delegates with `cmate-delegate`.
+- **Development leader**: the Command Code session `commandagent-develop` /
+  `command-code`. It runs `cmate-orchestrate` with the `rust-commandagent`
+  profile on the PM's briefs, supervises workers, and reports to the PM. It
+  may delegate helper tasks with `cmate-delegate`. Its own prompts go to the
+  PM; it does not ask the user directly.
+- **Helpers**: they keep Command Code moving and do not take its work over.
+  Codex_Sub (`codex-3`) investigates what blocks Command Code: unclear
+  requirements, root causes, unexpected behavior, and plan review, returning
+  findings with `file:line` evidence. Antigravity (`antigravity`) takes clear,
+  mechanical tasks. Helpers follow the brief they receive and do not implement
+  Issue code.
+- **Workers**: Command Code sessions in each Issue worktree. A worker
+  implements exactly one Issue, follows the dispatch contract and
+  `cmate-worker-development`, does not delegate to other sessions, and does not
+  push, create PRs, or merge.
+
+Authority in this chain:
+
+- The user's instruction naming Issues authorizes planning, worktree creation,
+  `commandmate sync` for those worktrees, and dispatch for those Issues. The
+  PM approves the plan and dispatch.
+- PR creation and merge require the user's approval every time. The leader
+  runs the merge runner only after the PM relays an approval that names the
+  Issues.
+- Issue edits, CommandMate start or stop, and cleanup of worktrees still need
+  the user's own authorization.
+
 ## OpenAI API credentials
 
 - For an authorized OpenAI live probe, load `OPENAI_API_KEY` from the
