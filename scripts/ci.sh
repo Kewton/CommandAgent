@@ -11,6 +11,12 @@ cargo test --test corpus_regression
 cargo test --test generality_guardrails
 cargo test --test conformance
 
+echo "Rust dependency advisories, licenses, and bans (cargo-deny)"
+cargo deny check
+
+echo "GUI production dependency audit (npm)"
+npm audit --omit=dev --audit-level=high --prefix gui
+
 python3 scripts/validate_codex_skills.py --tracked-only
 ruff check --isolated --select E4,E7,E9,F,I --ignore E402 \
   scripts/codex_orchestrate.py \

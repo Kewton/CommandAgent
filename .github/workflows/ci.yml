@@ -52,6 +52,10 @@ jobs:
           python-version: "3.12"
       - name: install harness test dependencies
         run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Install pinned cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
       - name: Repository acceptance suite
         run: bash scripts/ci.sh
 
