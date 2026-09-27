@@ -421,7 +421,12 @@ pub struct Cli {
         long,
         value_enum,
         value_name = "SHELL",
-        conflicts_with = "generate_man",
+        conflicts_with_all = [
+            "extensions", "packs", "pack_verify", "pack_pin", "workflow", "prompt",
+            "plan_steps", "plan_run", "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "validate_plan", "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor",
+            "generate_man", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
         help_heading = "Actions (use one)",
         help = "Generate a completion script from the current Clap definition and write it to stdout."
     )]
@@ -429,7 +434,12 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        conflicts_with = "completions",
+        conflicts_with_all = [
+            "extensions", "packs", "pack_verify", "pack_pin", "workflow", "prompt",
+            "plan_steps", "plan_run", "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "validate_plan", "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor",
+            "completions", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
         help_heading = "Actions (use one)",
         help = "Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout."
     )]

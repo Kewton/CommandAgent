@@ -145,6 +145,11 @@ See [Configuration](configuration.md) for the exact per-field layers.
   `--yes` is the backward-compatible all-tools alias.
 - Only one action selector may be used. This is checked after parsing and fails
   with `only one action selector can be used at a time`.
+- `--completions` and `--generate-man` are Clap-level conflicts with every other
+  action selector and with a trailing goal, so a combined invocation is rejected
+  before generation begins.
+- Pre-run argument and configuration rejections exit `2` before a run starts and
+  produce no run summary; see [headless execution](../../user/headless.md).
 - `--packs`, `--pack-verify`, and `--pack-pin` are Clap-level direct actions.
   They conflict with one another, run action selectors, `--pack`, and
   `--pack-hash`. Listing allows `--extension-root`, while verify and pin take

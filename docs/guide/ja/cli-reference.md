@@ -138,6 +138,10 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   指定した場合、省略したツールクラスは拒否されます。`--yes` は後方互換の全ツール許可です。
 - アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
   `only one action selector can be used at a time` で失敗します。
+- `--completions` と `--generate-man` は、他のすべてのアクション選択フラグおよび
+  末尾のゴールと Clap レベルで排他です。併用した呼び出しは生成を始める前に拒否されます。
+- 実行前の引数・設定の拒否は、run の開始前に exit `2` で終了し、run summary を
+  生成しません。詳細は [headless 実行](../../user/headless.md)を参照してください。
 - `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。
   相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
