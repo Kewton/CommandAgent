@@ -1,7 +1,7 @@
-use crate::config::Config;
-use crate::planner::adjudication::fix::ProbeOutcome;
 use crate::tools::bash::{BashOutcome, BashOutcomeKind};
+use crate::{config::Config, planner::adjudication::fix::ProbeOutcome};
 
+mod normalization;
 pub(super) struct ReproducerExecution {
     pub(super) outcome: ProbeOutcome,
     pub(super) reason: String,
@@ -29,8 +29,10 @@ pub(super) fn run(
         };
     }
     let normalized: crate::planner::verify::NormalizedVerifyCommand =
-        crate::planner::verify::normalize_verify_command(command)
-            .expect("stored reproducer is normalized");
+        match normalization::normalize_stored_reproducer(command) {
+            Ok(normalized) => normalized,
+            Err(failure) => return *failure,
+        };
     match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
         &normalized,
         &config.workspace_root,

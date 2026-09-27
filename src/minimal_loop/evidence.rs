@@ -10,6 +10,8 @@ pub(crate) mod command_diagnosis;
 #[path = "evidence/weak_sources.rs"]
 mod weak_sources;
 pub use weak_sources::WeakEvidenceSource;
+#[path = "evidence/verification_repair_path.rs"]
+mod verification_repair_path;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1562,7 +1564,11 @@ fn obligation_repair_targets(
                 ),
                 "verification" => (
                     "verification",
-                    verification_repair_path(required_paths, artifact_obligations, workspace),
+                    verification_repair_path::verification_repair_path(
+                        required_paths,
+                        artifact_obligations,
+                        workspace,
+                    ),
                     "missing verification obligation; add a deterministic test or smoke artifact",
                 ),
                 "acceptance_evidence" => (
@@ -1633,40 +1639,6 @@ fn implementation_repair_path(
                 "src/app/page.tsx".to_string()
             } else {
                 "src/main.rs".to_string()
-            }
-        })
-}
-
-fn verification_repair_path(
-    required_paths: &[String],
-    artifact_obligations: &[ArtifactObligationEvidence],
-    workspace: &WorkspaceEvidence,
-) -> String {
-    required_paths
-        .iter()
-        .find(|path| looks_like_test_file(path))
-        .cloned()
-        .unwrap_or_else(|| {
-            let implementation_path =
-                implementation_repair_path(required_paths, artifact_obligations, workspace);
-            let stem = implementation_path
-                .rsplit('/')
-                .next()
-                .unwrap_or("main")
-                .rsplit_once('.')
-                .map_or(
-                    "main",
-                    |(stem, _)| if stem.is_empty() { "main" } else { stem },
-                );
-            if implementation_path.ends_with(".tsx") || implementation_path.ends_with(".ts") {
-                format!("tests/{stem}.test.ts")
-            } else if implementation_path.ends_with(".jsx") || implementation_path.ends_with(".js")
-            {
-                format!("tests/{stem}.test.js")
-            } else if implementation_path.ends_with(".rs") {
-                format!("tests/{stem}.rs")
-            } else {
-                format!("tests/test_{stem}.py")
             }
         })
 }

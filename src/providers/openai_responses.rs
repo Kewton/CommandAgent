@@ -296,11 +296,15 @@ fn optional_string(value: &Value, key: &str) -> Option<String> {
 }
 
 fn epoch_value(value: Option<&Value>) -> Option<i64> {
-    value.and_then(Value::as_i64).or_else(|| {
-        value
-            .and_then(Value::as_f64)
-            .map(|epoch| epoch.floor() as i64)
-    })
+    let value = value?;
+    if let Some(epoch) = value.as_i64() {
+        return Some(epoch);
+    }
+    let epoch = value.as_f64()?;
+    if !epoch.is_finite() || epoch < i64::MIN as f64 || epoch >= 9_223_372_036_854_775_808.0 {
+        return None;
+    }
+    Some(epoch.floor() as i64)
 }
 
 fn json_type(value: &Value) -> &'static str {
@@ -363,6 +367,16 @@ mod tests {
         assert_eq!(parsed.metadata.reasoning_tokens, Some(5));
         assert_eq!(parsed.metadata.cached_input_tokens, Some(3));
         assert_eq!(parsed.metadata.total_tokens, Some(18));
+    }
+
+    #[test]
+    fn epoch_value_rejects_out_of_range_and_non_numeric_numbers() {
+        assert_eq!(epoch_value(Some(&json!(1785542400))), Some(1785542400));
+        assert_eq!(epoch_value(Some(&json!(1785542400.5))), Some(1785542400));
+        assert_eq!(epoch_value(Some(&json!(1e30))), None);
+        assert_eq!(epoch_value(Some(&json!(-1e30))), None);
+        assert_eq!(epoch_value(Some(&json!("1785542400"))), None);
+        assert_eq!(epoch_value(None), None);
     }
 
     #[test]
