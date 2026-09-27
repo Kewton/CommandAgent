@@ -97,7 +97,9 @@ pub(crate) fn task_status(ok: bool, release_gate: &str, final_acceptance: &str) 
 
 pub(crate) fn release_quality_completion(release_gate: &str, final_acceptance: &str) -> String {
     match release_gate {
-        "pass" | "not_applicable" => "release_ready".to_string(),
+        "pass" | "not_applicable" if final_acceptance != "not_checked" => {
+            "release_ready".to_string()
+        }
         "partial" => "partial".to_string(),
         "failed" => "failed".to_string(),
         _ if final_acceptance == "partial" => "partial".to_string(),
@@ -119,6 +121,7 @@ pub(crate) fn next_action(ok: bool, release_gate: &str, final_acceptance: &str) 
         _ if matches!(final_acceptance, "incomplete" | "failed") => {
             "repair_final_acceptance_failure".to_string()
         }
+        _ if final_acceptance == "not_checked" => "run_acceptance_or_review_changes".to_string(),
         _ => "none".to_string(),
     }
 }
