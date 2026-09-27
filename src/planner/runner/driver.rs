@@ -535,6 +535,13 @@ pub(crate) fn generate_step_plan_with_ui_for_phase(
                     Some(&config.workspace_root),
                 );
                 sanitizer_report.append_policy_errors(&mut lint_report);
+                crate::planner::python_cli_plan_synthesis::append_entrypoint_placement_lint(
+                    &mut lint_report,
+                    &plan,
+                    &config.workspace_root,
+                    &config.profile,
+                    config.resolved_run_intent() == IntentId::Create,
+                );
                 if lint_report.is_pass() {
                     let quality_context = plan_quality_context(config, goal);
                     let quality_report = step_plan_quality_report(&plan, &quality_context);

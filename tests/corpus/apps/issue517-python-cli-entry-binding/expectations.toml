@@ -1,0 +1,39 @@
+case_id = "issue517-python-cli-entry-binding"
+source = "Issue #517 measured 2026-09-27 python-cli entrypoint binding and empty case-binding evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "entry binding"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/misplaced-entrypoint-plan.yaml = [
+  "Phase id: cli-implementation",
+  "expected_paths:",
+  "- \"wordcount.py\""
+]
+fixtures/aligned-entrypoint-plan.yaml = [
+  "Phase id: cli-implementation",
+  "- \"src/wordcount/main.py\""
+]
+fixtures/empty-case-binding.json = [
+  "\"entry\":\"cli/main.py\"",
+  "\"cases\":[]"
+]
