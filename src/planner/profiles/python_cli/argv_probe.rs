@@ -12,6 +12,10 @@ use crate::minimal_loop::verifier_env;
 
 pub const CASE_BINDING_PATH: &str = "evidence/cli-case-binding.json";
 pub const EVIDENCE_PATH: &str = "evidence/cli-probe.json";
+/// A frozen binding must keep the normal/rerun case plus the invalid case. A
+/// shorter (for example `cases: []`) file is a binding failure, not a reason to
+/// index past the end of the vector.
+pub const REQUIRED_BOUND_CASES: usize = 2;
 pub(super) const INVALID_OPTION: &str = "--anvil-invalid-probe";
 
 #[derive(Debug, Clone)]
@@ -524,7 +528,10 @@ fn freeze_binding(root: &Path, candidate: &CaseBinding) -> anyhow::Result<(CaseB
     let path = root.join(CASE_BINDING_PATH);
     if path.exists() {
         let frozen = serde_json::from_slice::<CaseBinding>(&std::fs::read(path)?)?;
-        let intact = frozen == *candidate;
+        // A frozen binding with too few cases cannot satisfy the normal/rerun/invalid
+        // observations the probe indexes. Record it as a binding failure instead of
+        // panicking on `cases[0]`/`cases[1]` later.
+        let intact = frozen.cases.len() >= REQUIRED_BOUND_CASES && frozen == *candidate;
         return Ok((frozen, intact));
     }
     write_json(root, CASE_BINDING_PATH, candidate)?;
@@ -718,6 +725,30 @@ mod tests {
             "{error:#}"
         );
         assert!(!dir.path().join(CASE_BINDING_PATH).exists());
+    }
+
+    #[test]
+    fn empty_frozen_case_binding_fails_instead_of_panicking() {
+        let dir = fixture(
+            "import sys\nif '--anvil-invalid-probe' in sys.argv: raise SystemExit(2)\nprint('value=7')\n",
+        );
+        let binding_path = dir.path().join(CASE_BINDING_PATH);
+        std::fs::create_dir_all(binding_path.parent().unwrap()).unwrap();
+        let frozen = r#"{"entry":"cli/main.py","cases":[]}"#;
+        std::fs::write(&binding_path, frozen).unwrap();
+
+        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+
+        assert!(!report.binding_intact, "{report:?}");
+        assert!(report.observations.is_empty(), "{report:?}");
+        assert!(report.binding.cases.is_empty(), "{report:?}");
+        assert!(
+            report
+                .failure_kinds
+                .contains(&"cli_case_binding_changed".to_string()),
+            "{report:?}"
+        );
+        assert_eq!(std::fs::read_to_string(&binding_path).unwrap(), frozen);
     }
 
     #[test]

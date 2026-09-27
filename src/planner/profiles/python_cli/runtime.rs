@@ -83,12 +83,27 @@ pub fn run_manifest_checks(root: &Path) -> anyhow::Result<CliCheckSummary> {
         root,
         argv_probe::Config::new(&probe_adapter.entry, &usage).with_timeout(timeout),
     )?;
-    let help = help_binding::run(
-        root,
-        Path::new(&probe_adapter.entry),
-        &probe.binding.cases[0].args,
-        timeout,
-    )?;
+    let mut reasons = probe.failure_kinds.clone();
+    let c2 = if probe.binding.cases.len() >= argv_probe::REQUIRED_BOUND_CASES {
+        let help = help_binding::run(
+            root,
+            Path::new(&probe_adapter.entry),
+            &probe.binding.cases[0].args,
+            timeout,
+        )?;
+        reasons.extend(help.failure_kinds);
+        match help.status.as_str() {
+            "pass" => CheckStatus::Pass,
+            "claims_absent" => CheckStatus::ClaimsAbsent,
+            _ => CheckStatus::Failed,
+        }
+    } else {
+        // The frozen binding has no usable normal invocation, so the help probe has
+        // no argv to run. Skip execution and classify C2 as failed instead of
+        // indexing past the end of `binding.cases`.
+        reasons.push("cli_case_binding:cases_missing".to_string());
+        CheckStatus::Failed
+    };
     let claims = if probe.output_claims.is_empty() {
         CheckStatus::ClaimsAbsent
     } else if probe.output_claims.iter().all(|claim| claim.matched) {
@@ -101,21 +116,12 @@ pub fn run_manifest_checks(root: &Path) -> anyhow::Result<CliCheckSummary> {
         binding_intact: probe.binding_intact,
         checks: BTreeMap::from([
             (C1.to_string(), status(probe.c1_ok)),
-            (
-                C2.to_string(),
-                match help.status.as_str() {
-                    "pass" => CheckStatus::Pass,
-                    "claims_absent" => CheckStatus::ClaimsAbsent,
-                    _ => CheckStatus::Failed,
-                },
-            ),
+            (C2.to_string(), c2),
             (C3.to_string(), claims),
             (C4.to_string(), status(probe.c4_ok)),
         ]),
     };
     let assurance = classify(&evidence);
-    let mut reasons = probe.failure_kinds;
-    reasons.extend(help.failure_kinds);
     if claims == CheckStatus::Failed {
         reasons.push("cli_output_claims:observed_stdout_mismatch".to_string());
     }
@@ -209,4 +215,47 @@ fn ensure_same_inputs(adapters: &[CliCapability], expected: &CliCapability) -> a
         bail!("CLI C1-C4 adapters do not share one frozen execution input");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_frozen_case_binding_is_failed_without_running_help() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("cli")).unwrap();
+        std::fs::write(
+            dir.path().join("cli/main.py"),
+            "import sys\nif '--anvil-invalid-probe' in sys.argv: raise SystemExit(2)\nprint('value=7')\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("README.md"),
+            "## Usage\n\n```console\n$ python3 cli/main.py sample.csv\nvalue=7\n```\n",
+        )
+        .unwrap();
+        let binding = dir.path().join(super::argv_probe::CASE_BINDING_PATH);
+        std::fs::create_dir_all(binding.parent().unwrap()).unwrap();
+        std::fs::write(&binding, r#"{"entry":"cli/main.py","cases":[]}"#).unwrap();
+
+        let summary = run_manifest_checks(dir.path()).unwrap();
+
+        assert_eq!(summary.assurance, CliAssurance::Failed, "{summary:?}");
+        assert_eq!(
+            summary.evidence.checks.get(C2),
+            Some(&CheckStatus::Failed),
+            "{summary:?}"
+        );
+        assert!(
+            summary
+                .reasons
+                .contains(&"cli_case_binding:cases_missing".to_string()),
+            "{summary:?}"
+        );
+        assert!(
+            !dir.path().join(super::help_binding::EVIDENCE_PATH).exists(),
+            "help binding must be skipped for an unusable frozen binding"
+        );
+    }
 }

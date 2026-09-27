@@ -125,6 +125,78 @@ pub(crate) fn canonicalize_implementation_plan(
     changes
 }
 
+pub(crate) const ENTRYPOINT_PLACEMENT_LINT_CATEGORY: &str = "python_cli_entrypoint_placement";
+
+/// Reject a generated python-cli plan whose declared artifacts put the CLI entrypoint
+/// somewhere other than the profile-owned `src/<package>/main.py` location.
+///
+/// The behavior probe binds that exact path, so a plan that only creates a root-level
+/// `wordcount.py` (or similar) would be adopted and then fail later with
+/// `entrypoint_missing`. Surfacing this through the pre-adoption lint makes the planner
+/// regenerate the plan instead of degrading into a quality warning that may be adopted
+/// after retries.
+pub(crate) fn append_entrypoint_placement_lint(
+    report: &mut crate::planner::lint::PlanLintReport,
+    plan: &StepPlan,
+    root: &Path,
+    profile: &str,
+    create_intent: bool,
+) -> usize {
+    if !create_intent
+        || crate::planner::profile::canonical_profile_name(profile)
+            != crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID
+    {
+        return 0;
+    }
+    let scaffold = setup_paths(root, &plan.goal);
+    let Some(expected_entrypoint) = scaffold.get(1) else {
+        return 0;
+    };
+    let package = expected_entrypoint
+        .strip_prefix("src/")
+        .and_then(|tail| tail.strip_suffix("/main.py"))
+        .unwrap_or_default();
+    if package.is_empty() {
+        return 0;
+    }
+    let mut appended = 0usize;
+    for step in &plan.steps {
+        for path in &step.expected_paths {
+            if let Some(reason) = misplaced_entrypoint_reason(path, package, expected_entrypoint) {
+                report.push(
+                    ENTRYPOINT_PLACEMENT_LINT_CATEGORY,
+                    format!("step {} {reason}", step.id),
+                );
+                appended += 1;
+            }
+        }
+    }
+    appended
+}
+
+fn misplaced_entrypoint_reason(
+    path: &str,
+    package: &str,
+    expected_entrypoint: &str,
+) -> Option<String> {
+    let normalized = path.trim().replace('\\', "/");
+    let normalized = normalized.trim_start_matches("./");
+    if normalized.is_empty() || normalized == expected_entrypoint || !normalized.ends_with(".py") {
+        return None;
+    }
+    let file_stem = normalized
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.strip_suffix(".py"))?;
+    let root_level = !normalized.contains('/');
+    if file_stem == package || (root_level && file_stem == "main") {
+        return Some(format!(
+            "declares the Python entrypoint at {normalized} instead of {expected_entrypoint}"
+        ));
+    }
+    None
+}
+
 fn setup_plan(root: &Path, goal: &str) -> ProfileDeterministicStepPlan {
     let expected_paths = setup_paths(root, goal);
     ProfileDeterministicStepPlan {
@@ -232,6 +304,15 @@ mod tests {
     const EVENT_FIXTURE: &str = include_str!(
         "../../tests/corpus/apps/issue239-python-cli-plan-synthesis/fixtures/implementation-canonicalized.jsonl"
     );
+    const ISSUE517_MISPLACED_PLAN: &str = "tests/corpus/apps/issue517-python-cli-entry-binding/fixtures/misplaced-entrypoint-plan.yaml";
+    const ISSUE517_ALIGNED_PLAN: &str =
+        "tests/corpus/apps/issue517-python-cli-entry-binding/fixtures/aligned-entrypoint-plan.yaml";
+
+    fn corpus_plan(relative: &str) -> StepPlan {
+        let text =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)).unwrap();
+        crate::planner::step_plan::parse_step_plan(&text).unwrap()
+    }
 
     #[derive(Debug, Deserialize)]
     struct TokenFixture {
@@ -371,6 +452,56 @@ mod tests {
             ["src/greet/main.py", "README.md"]
         );
         assert_eq!(std::fs::read_to_string(events).unwrap(), EVENT_FIXTURE);
+    }
+
+    #[test]
+    fn misplaced_root_entrypoint_is_rejected_before_adoption() {
+        let root = tempfile::tempdir().unwrap();
+        let mut plan = corpus_plan(ISSUE517_MISPLACED_PLAN);
+        assert_eq!(plan.steps[0].expected_paths, ["wordcount.py"]);
+
+        let changed =
+            canonicalize_implementation_plan(&mut plan, root.path(), "python-cli", true, None);
+        assert!(changed > 0);
+        assert!(
+            plan.steps[0]
+                .expected_paths
+                .iter()
+                .any(|path| path == "src/wordcount/main.py"),
+            "{:?}",
+            plan.steps[0].expected_paths
+        );
+
+        let mut report = crate::planner::lint::PlanLintReport::pass();
+        let appended =
+            append_entrypoint_placement_lint(&mut report, &plan, root.path(), "python-cli", true);
+
+        assert!(appended >= 1, "{report:?}");
+        assert!(
+            report.has_category(ENTRYPOINT_PLACEMENT_LINT_CATEGORY),
+            "{report:?}"
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.message.contains("wordcount.py")),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn aligned_entrypoint_plan_is_accepted_without_placement_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = corpus_plan(ISSUE517_ALIGNED_PLAN);
+        assert_eq!(plan.steps[0].expected_paths, ["src/wordcount/main.py"]);
+
+        let mut report = crate::planner::lint::PlanLintReport::pass();
+        let appended =
+            append_entrypoint_placement_lint(&mut report, &plan, root.path(), "python-cli", true);
+
+        assert_eq!(appended, 0);
+        assert!(report.is_pass(), "{report:?}");
     }
 
     #[test]
