@@ -49,8 +49,10 @@ remain available when the user invokes them by name.
 - **Development leader**: the Command Code session `commandagent-develop` /
   `command-code`. It runs `cmate-orchestrate` with the `rust-commandagent`
   profile on the PM's briefs, supervises workers, and reports to the PM. It
-  may delegate helper tasks with `cmate-delegate`. Its own prompts go to the
-  PM; it does not ask the user directly.
+  may delegate helper tasks with `cmate-delegate`. It runs with auto-yes and a
+  stop pattern; prompts that stay open go to the PM, and it does not ask the
+  user directly. auto-yes answers tool prompts only and does not grant the
+  authority described below.
 - **Helpers**: they keep Command Code moving and do not take its work over.
   Codex_Sub (`codex-3`) investigates what blocks Command Code: unclear
   requirements, root causes, unexpected behavior, and plan review, returning

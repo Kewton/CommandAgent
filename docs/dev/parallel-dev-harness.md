@@ -40,7 +40,7 @@ leader may ask a helper.
 | Approve the plan and run dispatch with `--approve` | **PM** | Escalate to the user instead when the plan has open questions, `risk` severity high, an unverified profile, or `harness_path_in_scope` |
 | Create worktrees (`--prepare-worktrees`, `cmate-worktree-setup`) and `commandmate sync` for them | Leader, as part of an approved dispatch | |
 | Worker prompts | auto-yes (see section 4) | Anything auto-yes does not answer goes to the leader, then the PM |
-| Leader's own tool prompts | PM answers within the PM's authority | Anything outside it (merge, destructive git, CommandMate start/stop, Issue edits) goes to the user |
+| Leader's own tool prompts | auto-yes (see section 4) | A prompt that auto-yes leaves open (stop pattern hit) goes to the PM; the PM answers within its authority and sends anything else (merge, destructive git, CommandMate start/stop, Issue edits) to the user |
 | Create PRs and merge | **User, every time** | The PM presents the merge request; the leader runs merge only after the PM relays an explicit approval naming the Issues |
 | Run UAT and its bounded fix loop | PM | |
 | Edit, close, or relabel Issues | User | |
@@ -92,9 +92,13 @@ Approval is always written, never implied: the PM's dispatch brief says
 | Session | auto-yes |
 | --- | --- |
 | PM | not applicable |
-| Development leader | **off**. Prompts go to the PM |
+| Development leader | on, with the stop pattern below, 8 hours. Prompts that auto-yes leaves open go to the PM |
 | Helpers (Codex_Sub, Antigravity) | on, with the stop pattern below, 8 hours |
 | Workers | on, through dispatch `--auto-yes` |
+
+auto-yes answers tool prompts only. It does not grant any authority in
+section 2: the leader still needs the PM's written approval to dispatch and the
+user's approval, relayed by the PM, to merge.
 
 Stop pattern (auto-yes stops and the prompt is returned to a human when any of
 these strings appears in the terminal):
