@@ -1701,7 +1701,7 @@ pub(crate) fn preset_names(root: &Path) -> Vec<String> {
 
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
-        if let Some(file) = parse_config_file_if_present(&path)?
+        if let Ok(Some(file)) = parse_config_file_if_present(&path)
             && let Some(value) = file.extension_root
         {
             let configured = PathBuf::from(value.value);
