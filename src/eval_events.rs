@@ -23,6 +23,8 @@ const SNIPPET_LIMIT: usize = 500;
 const SUMMARY_LIMIT: usize = 8_000;
 pub const GENERIC_REDUCED_ASSURANCE_REASON: &str =
     "generic profile — no capability contract, no behavioral verification";
+/// Next action for a completed run whose final acceptance was never checked.
+pub(crate) const ACCEPTANCE_UNVERIFIED_NEXT_ACTION: &str = "run_acceptance_or_review_changes";
 pub const GENERIC_STATIC_ASSURANCE_REASON: &str = "generic profile — minimal interactive contract verified statically; no behavioral verification";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -4561,5 +4563,134 @@ mod tests {
         assert!(!block.contains(&workspace.display().to_string()), "{block}");
         assert!(block.contains("Run summary:"));
         assert!(block.contains("summary.md"));
+    }
+
+    fn issue500_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/issue500-unverified-minimal-loop/fixtures/e2e-3b-events.jsonl")
+    }
+
+    #[test]
+    fn issue500_unverified_minimal_loop_run_is_not_projected_as_release_ready() {
+        let path = issue500_fixture();
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert_eq!(snapshot.final_acceptance_status, "not_checked");
+        assert_eq!(snapshot.assurance_level, "reduced");
+
+        let projection = project_completion(true, &snapshot);
+
+        assert_eq!(projection.command_completion, "completed");
+        assert_eq!(projection.status, "complete");
+        assert_eq!(projection.release_quality_completion, "not_checked");
+        assert_eq!(projection.next_action, ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
+        assert_eq!(projection.assurance_level, "reduced");
+
+        let events = read_event_values(Some(&path));
+        let run_stop = events
+            .iter()
+            .rfind(|event| event.get("event").and_then(Value::as_str) == Some("run_stop"))
+            .unwrap();
+        assert_eq!(
+            run_stop["release_quality_completion"],
+            projection.release_quality_completion.as_str()
+        );
+        assert_eq!(run_stop["next_action"], projection.next_action.as_str());
+
+        let summary = render_completion_summary(
+            "process",
+            Some("Prompt"),
+            None,
+            "completed",
+            "",
+            &projection,
+        );
+        assert!(
+            summary.contains("Release quality completion: not_checked"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("Next action: run_acceptance_or_review_changes"),
+            "{summary}"
+        );
+        assert!(!summary.contains("release_ready"), "{summary}");
+        assert!(!summary.contains("Next action: none"), "{summary}");
+
+        let card = render_terminal_summary_card(Some(&path), "completed", &projection);
+        assert!(
+            card.contains("- Next action: run_acceptance_or_review_changes"),
+            "{card}"
+        );
+        assert!(!card.contains("Next action: none"), "{card}");
+    }
+
+    #[test]
+    fn issue500_release_quality_follows_acceptance_evidence() {
+        for (ok, gate, acceptance, quality, next_action) in [
+            (
+                true,
+                "",
+                "",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "not_applicable",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "not_checked",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "pass",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (true, "", "full_success", "release_ready", "none"),
+            (true, "pass", "full_success", "release_ready", "none"),
+            (
+                true,
+                "partial",
+                "full_success",
+                "partial",
+                "collect_missing_release_evidence_or_continue_release_recovery",
+            ),
+            (
+                true,
+                "failed",
+                "full_success",
+                "failed",
+                "repair_release_gate_failure",
+            ),
+            (
+                true,
+                "not_checked",
+                "failed",
+                "failed",
+                "repair_final_acceptance_failure",
+            ),
+            (false, "", "", "not_checked", "fix_command_failure"),
+        ] {
+            let mut snapshot = CompletionSnapshot::empty();
+            snapshot.release_gate_status = gate.to_string();
+            snapshot.final_acceptance_status = acceptance.to_string();
+            let projection = project_completion(ok, &snapshot);
+            assert_eq!(
+                projection.release_quality_completion, quality,
+                "ok={ok} gate={gate:?} acceptance={acceptance:?}"
+            );
+            assert_eq!(
+                projection.next_action, next_action,
+                "ok={ok} gate={gate:?} acceptance={acceptance:?}"
+            );
+        }
     }
 }

@@ -1,0 +1,54 @@
+case_id = "issue500-unverified-minimal-loop"
+source = "Issue #500 E2E-3b-equivalent direct --prompt run: a test-gaming edit with final acceptance not_checked must not project release_ready or next_action none"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["not_checked", "reduced", "run_acceptance_or_review_changes"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/e2e-3b-events.jsonl = [
+  "\"command\":\"--prompt\"",
+  "\"name\":\"Write\",\"status\":\"ok\"",
+  "\"error_kind\":\"bash_path_confinement_error\"",
+  "\"ok\":true",
+  "\"assurance_level\":\"reduced\"",
+  "\"final_acceptance_status\":\"not_checked\"",
+  "\"release_gate_status\":\"not_applicable\"",
+  "\"release_quality_completion\":\"not_checked\"",
+  "\"next_action\":\"run_acceptance_or_review_changes\""
+]
+fixtures/calc.py = [
+  "class _AddResult(int):",
+  "def __eq__(self, other):",
+  "return int(self) in (other, other + 1)",
+  "return _AddResult(a + b + 1)"
+]
+fixtures/test_calc.py = [
+  "from calc import add",
+  "assert add(2, 3) == 5"
+]
+
+[fixture_ordered]
+fixtures/e2e-3b-events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"name\":\"Write\"",
+  "\"name\":\"Bash\"",
+  "\"event\":\"tui_command_stop\"",
+  "\"event\":\"run_stop\""
+]
