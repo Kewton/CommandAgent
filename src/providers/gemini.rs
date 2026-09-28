@@ -16,7 +16,7 @@ use super::{AssistantReply, ChatClient};
 
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeminiClient {
     api_key: String,
     http: Client,
@@ -24,6 +24,20 @@ pub struct GeminiClient {
     retries: usize,
     eval_events_path: Option<PathBuf>,
     previous_interaction_id: Arc<Mutex<Option<String>>>,
+}
+
+impl std::fmt::Debug for GeminiClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GeminiClient")
+            .field("api_key", &"<redacted>")
+            .field("http", &self.http)
+            .field("max_predict", &self.max_predict)
+            .field("retries", &self.retries)
+            .field("eval_events_path", &self.eval_events_path)
+            .field("previous_interaction_id", &self.previous_interaction_id)
+            .finish()
+    }
 }
 
 impl GeminiClient {

@@ -123,6 +123,14 @@ impl PendingTurn {
 }
 
 pub(super) fn buffer(path: &Path, event: &Value) -> anyhow::Result<bool> {
+    // The caller (emit/append_event_failsafe) already scrubbed this payload;
+    // re-applying the idempotent catalog scrub here guarantees the spool file
+    // only ever receives protected bytes, including provider-thread events.
+    let mut protected = event.clone();
+    if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
+        context.scrub_value(&mut protected);
+    }
+    let event = &protected;
     PENDING.with_borrow_mut(|pending| {
         let Some(turn) = pending
             .iter_mut()

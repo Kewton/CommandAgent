@@ -86,13 +86,30 @@ pub(crate) fn record_rejection(root: &Path, command: &str) -> std::io::Result<()
         libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
     )?;
     let bytes = command.as_bytes();
-    let prefix = &bytes[..bytes.len().min(64)];
+    // A run always installs a secret scope (the CLI during config resolution,
+    // direct minimal-loop callers at entry). Inside a run the raw prefix is
+    // never persisted: `command_prefix_bytes` stays the same array type but is
+    // empty and cannot reconstruct the value, while schema_version,
+    // command_sha256, and command_bytes are preserved. A unit-level tool call
+    // with no scope (Issue #441's contract) keeps the existing raw prefix.
+    let (prefix_bytes, prefix_encoding): (Vec<u8>, &str) =
+        if crate::sensitive_data::current().is_some() {
+            (
+                Vec::new(),
+                "omitted; the raw command prefix is never persisted in a run",
+            )
+        } else {
+            (
+                bytes[..bytes.len().min(64)].to_vec(),
+                "raw byte array; at most 64 bytes; not redacted",
+            )
+        };
     let evidence = json!({
         "schema_version": "1",
         "command_sha256": command_sha256(command),
         "command_bytes": bytes.len(),
-        "command_prefix_bytes": prefix,
-        "prefix_encoding": "raw byte array; at most 64 bytes; not redacted",
+        "command_prefix_bytes": prefix_bytes,
+        "prefix_encoding": prefix_encoding,
     });
     file.write_all(serde_json::to_string(&evidence)?.as_bytes())?;
     file.write_all(b"\n")?;

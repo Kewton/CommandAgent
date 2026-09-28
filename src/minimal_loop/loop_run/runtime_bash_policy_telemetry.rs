@@ -10,6 +10,7 @@ pub(super) fn emit_policy(
     decision: &RuntimeBashPolicyDecision,
     command: &str,
 ) {
+    let scrub = eval_events::scrub_sensitive_text;
     let mut event = json!({
         "event": "runtime_bash_policy",
         "tool_name": "Bash",
@@ -30,7 +31,7 @@ pub(super) fn emit_policy(
         && (decision.blocked || !decision.normalization_kind.is_empty())
         && let Some(fields) = event.as_object_mut()
     {
-        fields.insert("original_command".to_string(), json!(command));
+        fields.insert("original_command".to_string(), json!(scrub(command)));
         fields.insert(
             "violation_kind".to_string(),
             json!(if decision.blocked {
@@ -62,8 +63,8 @@ pub(super) fn emit_normalization(
             "kind": decision.normalization_kind,
             "normalization_kind": decision.normalization_kind,
             "normalization_source": decision.normalization_kind,
-            "original": eval_events::body_snippet(command),
-            "original_command": command,
+            "original": eval_events::scrub_sensitive_text(command),
+            "original_command": eval_events::scrub_sensitive_text(command),
             "repaired": eval_events::body_snippet(normalized_command),
             "normalized_commands": normalized_commands(decision),
             "reason": eval_events::body_snippet(&decision.normalization_reason),
@@ -71,10 +72,10 @@ pub(super) fn emit_normalization(
     );
 }
 
-fn normalized_commands(decision: &RuntimeBashPolicyDecision) -> Vec<&str> {
+fn normalized_commands(decision: &RuntimeBashPolicyDecision) -> Vec<String> {
     decision
         .split_segments
         .iter()
-        .map(|segment| segment.command.as_str())
+        .map(|segment| eval_events::scrub_sensitive_text(segment.command.as_str()))
         .collect()
 }

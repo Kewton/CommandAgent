@@ -41,6 +41,7 @@ pub mod repl;
 mod run_trace;
 pub mod runs;
 pub mod runtime_paths;
+pub mod sensitive_data;
 pub mod state;
 pub mod time_profile;
 pub mod tools;
@@ -161,7 +162,7 @@ pub(crate) struct CliArgumentError {
 
 fn cli_argument_error(error: anyhow::Error) -> anyhow::Error {
     anyhow::Error::new(CliArgumentError {
-        message: format!("{error:#}"),
+        message: sensitive_data::scrub_everything(&format!("{error:#}")),
     })
 }
 

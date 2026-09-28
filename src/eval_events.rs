@@ -142,6 +142,7 @@ pub fn is_eval_events_override() -> bool {
 }
 
 pub fn emit(path: Option<&Path>, mut event: Value) {
+    redact_event(path, &mut event);
     timing::stamp_phase_boundary(&mut event);
     crate::tui::status_bus::publish_eval_projection(&event);
     crate::tui::presentation::project_event(&event);
@@ -158,8 +159,19 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
     }
 }
 
+/// Scrub an event with the run scope's exact-value catalog *before* any UI
+/// publish, buffer, spool, or failsafe write, so the same protected payload is
+/// used everywhere. The catalog scrub never fails; a dynamic key would expose a
+/// secret only by name and is rewritten in place.
+fn redact_event(path: Option<&Path>, event: &mut Value) {
+    if let Some(context) = crate::sensitive_data::active_for(path) {
+        context.scrub_value(event);
+    }
+}
+
 pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> anyhow::Result<()> {
     let path = path.ok_or_else(|| anyhow::anyhow!("eval events path is unavailable"))?;
+    redact_event(Some(path), &mut event);
     timing::stamp_phase_boundary(&mut event);
     if let Value::Object(ref mut object) = event {
         object
@@ -3118,6 +3130,7 @@ pub fn body_snippet(body: &str) -> String {
     let mut clean = body.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
+    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(SNIPPET_LIMIT).collect()
 }
@@ -3131,6 +3144,7 @@ pub(crate) fn body_tail_snippet(body: &str) -> String {
         .map(redact_secret_like)
         .collect::<Vec<_>>()
         .join("\n");
+    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     let count = clean.chars().count();
     clean
@@ -3143,6 +3157,7 @@ pub fn body_snippet_whole_tokens(body: &str) -> String {
     let mut clean = body.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
+    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     truncate_whole_tokens(&clean, SNIPPET_LIMIT)
 }
@@ -3153,6 +3168,7 @@ pub(crate) fn scrub_sensitive_text(value: &str) -> String {
         .map(redact_secret_like)
         .collect::<Vec<_>>()
         .join("\n");
+    let clean = crate::sensitive_data::scrub_active(&clean);
     redact_home_paths(&clean)
 }
 
@@ -3188,6 +3204,7 @@ fn summary_body(body: &str) -> String {
     let mut out = String::new();
     let mut len = 0usize;
     for line in clean.lines().map(redact_secret_like) {
+        let line = crate::sensitive_data::scrub_active(&line);
         let line_len = line.chars().count();
         let next_len = len + usize::from(!out.is_empty()) + line_len;
         if next_len > SUMMARY_LIMIT {
@@ -3236,6 +3253,7 @@ fn argument_value_summary(key: &str, value: &Value) -> Value {
 fn safe_preview(value: &str) -> String {
     let mut clean = value.replace('\n', "\\n").replace('\r', "\\r");
     clean = redact_secret_like(&clean);
+    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(120).collect()
 }

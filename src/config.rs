@@ -645,6 +645,10 @@ impl Config {
         cli: Cli,
         provider_options: ProviderCliOptions,
     ) -> anyhow::Result<Self> {
+        // Begin staging registered secrets before any validation can reject the
+        // config, so a rejected `${ENV}` base_url never echoes its expansion
+        // value through an error chain.
+        crate::sensitive_data::config_staging::begin();
         let workspace_root = cli
             .cwd
             .clone()
@@ -815,6 +819,18 @@ impl Config {
         } else {
             None
         };
+        crate::sensitive_data::config_staging::stage(|catalog| {
+            register_secret_sources(
+                catalog,
+                &workspace_root,
+                [
+                    provider.value.provider(),
+                    planner_provider.value.provider(),
+                    classifier_provider.value.provider(),
+                ],
+                openai_compatible.as_ref(),
+            );
+        });
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -954,6 +970,13 @@ impl Config {
             footer: footer.source.clone(),
             stream: stream.source.clone(),
         };
+        // Install the accepted config's scope so every later persistence and
+        // display boundary can resolve the same exact-value catalog.
+        let _ = crate::sensitive_data::install_scope(
+            crate::sensitive_data::config_staging::take(),
+            Some(&workspace_root),
+            eval_events_path.as_deref(),
+        );
         Ok(Self {
             workspace_root,
             state_dir,
@@ -1774,6 +1797,9 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
         }
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
+        // Register the expansion value before any later validation can embed it
+        // in an error, and so it is scrubbed from every persisted record.
+        crate::sensitive_data::config_staging::register(&resolved);
         output.push_str(&resolved);
         remaining = &reference[end + 1..];
     }
@@ -1807,8 +1833,9 @@ pub(crate) fn normalize_openai_compatible_base_url(value: &str) -> anyhow::Resul
         bail!("--base-url must not be empty");
     }
     let normalized = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
-    let parsed = reqwest::Url::parse(normalized)
-        .with_context(|| format!("invalid --base-url URL `{value}`"))?;
+    // The URL never appears in the message: it may hold a `${ENV}` expansion
+    // value, and the validation error must not echo that value.
+    let parsed = reqwest::Url::parse(normalized).context("invalid --base-url URL")?;
     if !matches!(parsed.scheme(), "http" | "https") {
         bail!("--base-url must use http or https");
     }
@@ -2113,6 +2140,65 @@ fn required_goal(goal: Option<String>, action: &str) -> anyhow::Result<String> {
 
 pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
+}
+
+/// Register the config's secret sources into a run catalog: non-empty provider
+/// keys, the compatible `api_key_env`, and the root dotenv values.
+///
+/// Only the named provider keys, the configured `api_key_env`, and the root
+/// `.env`/`.env.*` sources are read. This never walks the whole process
+/// environment or arbitrary credential files.
+pub(crate) fn register_secret_sources(
+    catalog: &mut crate::sensitive_data::SecretCatalog,
+    root: &Path,
+    providers: [Provider; 3],
+    compatible: Option<&OpenAiCompatibleConfig>,
+) {
+    for provider in providers {
+        let name = match provider {
+            Provider::Openai => Some("OPENAI_API_KEY"),
+            Provider::Gemini => Some("GEMINI_API_KEY"),
+            Provider::LmStudio => Some("LM_STUDIO_API_TOKEN"),
+            Provider::Ollama => None,
+        };
+        if let Some(name) = name
+            && let Ok(value) = load_api_key(root, name)
+        {
+            catalog.register(&value);
+        }
+    }
+    if let Some(name) = compatible.and_then(|compatible| compatible.api_key_env.as_deref())
+        && let Ok(value) = load_api_key(root, name)
+    {
+        catalog.register(&value);
+    }
+    if let Ok(collection) = crate::sensitive_data::collect_scoped_dotenv(root) {
+        for value in collection.catalog.values() {
+            catalog.register(value);
+        }
+    }
+}
+
+/// Install a run scope for direct minimal-loop use, keyed by the config's
+/// workspace root and events path. The CLI installs its own scope during config
+/// resolution; this covers callers that build a `Config` directly.
+pub fn install_run_secret_scope(config: &Config) -> crate::sensitive_data::RedactionContext {
+    let mut catalog = crate::sensitive_data::SecretCatalog::new();
+    register_secret_sources(
+        &mut catalog,
+        &config.workspace_root,
+        [
+            config.provider,
+            config.planner_provider,
+            config.classifier_provider,
+        ],
+        config.openai_compatible.as_ref(),
+    );
+    crate::sensitive_data::install_scope(
+        catalog,
+        Some(&config.workspace_root),
+        config.eval_events_path.as_deref(),
+    )
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {

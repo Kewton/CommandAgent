@@ -164,7 +164,8 @@ impl SessionStore {
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("failed to create session dir {}", dir.display()))?;
         let path = dir.join("session.json");
-        let text = serde_json::to_string_pretty(session)?;
+        let session = scrubbed_session(session);
+        let text = serde_json::to_string_pretty(&session)?;
         atomic_write_session(&dir, &path, text.as_bytes())?;
         Ok(path)
     }
@@ -180,6 +181,26 @@ impl SessionStore {
 
 fn session_file(root: &Path, id: &str) -> PathBuf {
     root.join("sessions").join(id).join("session.json")
+}
+
+/// Scrub every stored message and tool-call field with the active run scope so
+/// a registered secret never reaches `session.json`.
+fn scrubbed_session(session: &SessionSnapshot) -> SessionSnapshot {
+    let Some(context) = crate::sensitive_data::current() else {
+        return session.clone();
+    };
+    let mut scrubbed = session.clone();
+    for message in &mut scrubbed.messages {
+        message.content = context.scrub_text(&message.content);
+        if let Some(name) = message.name.as_mut() {
+            *name = context.scrub_text(name);
+        }
+        for call in &mut message.tool_calls {
+            call.name = context.scrub_text(&call.name);
+            context.scrub_value(&mut call.arguments);
+        }
+    }
+    scrubbed
 }
 
 fn default_session_schema_version() -> u32 {

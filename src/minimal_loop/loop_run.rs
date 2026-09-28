@@ -423,6 +423,9 @@ pub(crate) fn run_session_with_outcome_with_options(
     ui: &dyn InteractionUi,
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
+    // Install the run's exact-value secret scope. The CLI installs the same
+    // scope during config resolution; direct minimal-loop callers get it here.
+    crate::config::install_run_secret_scope(config);
     let registry = ToolRegistry::default();
     let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
         config.tool_protocol,

@@ -309,46 +309,7 @@ pub(super) fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> String {
 }
 
 pub(super) fn scrub_sensitive(value: &str) -> String {
-    let mut scrubbed = redact_prefixed_token(value, "sk-");
-    scrubbed = redact_prefixed_token(&scrubbed, "AIza");
-    redact_home_paths(&scrubbed)
-}
-
-fn redact_prefixed_token(value: &str, prefix: &str) -> String {
-    let mut output = value.to_string();
-    let mut search_from = 0usize;
-    while let Some(relative) = output[search_from..].find(prefix) {
-        let start = search_from + relative;
-        let mut end = start + prefix.len();
-        for (offset, ch) in output[end..].char_indices() {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                end = start + prefix.len() + offset + ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        output.replace_range(start..end, "<redacted>");
-        search_from = start + "<redacted>".len();
-    }
-    output
-}
-
-fn redact_home_paths(value: &str) -> String {
-    let mut output = value.to_string();
-    for prefix in ["/Users/", "/home/"] {
-        let mut search_from = 0usize;
-        while let Some(relative) = output[search_from..].find(prefix) {
-            let start = search_from + relative;
-            let name_start = start + prefix.len();
-            let Some(name_len) = output[name_start..].find('/') else {
-                break;
-            };
-            let name_end = name_start + name_len;
-            output.replace_range(name_start..name_end, "<user>");
-            search_from = name_start + "<user>".len();
-        }
-    }
-    output
+    eval_events::scrub_sensitive_text(value)
 }
 
 #[cfg(test)]

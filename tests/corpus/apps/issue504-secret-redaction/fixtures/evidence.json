@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "command_sha256": "3f0c2b1a9d8e7f6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4",
+  "command_bytes": 64,
+  "command_prefix_bytes": [],
+  "prefix_encoding": "omitted; the raw command prefix is never persisted in a run",
+  "original_command": "cat <redacted> /Users/<user>/notes.txt",
+  "normalized_commands": [
+    "cat <redacted> /Users/<user>/notes.txt"
+  ],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "tool_parse",
+    "kind": "tool_parse_failure",
+    "source_refs": [
+      ".commandagent/runs/run-1/events.jsonl"
+    ]
+  }
+}

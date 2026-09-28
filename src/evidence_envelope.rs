@@ -122,11 +122,15 @@ pub(crate) fn to_vec_pretty<T: Serialize>(
 ) -> anyhow::Result<Vec<u8>> {
     let legacy = serde_json::to_value(value).context("serialize legacy evidence")?;
     let envelope = build_envelope(&legacy, spec)?;
-    serde_json::to_vec_pretty(&EnvelopedEvidence {
+    let mut document = serde_json::to_value(EnvelopedEvidence {
         legacy: value,
         evidence_envelope: envelope,
     })
-    .context("serialize enveloped evidence")
+    .context("project enveloped evidence")?;
+    if let Some(context) = crate::sensitive_data::current() {
+        context.scrub_value(&mut document);
+    }
+    serde_json::to_vec_pretty(&document).context("serialize enveloped evidence")
 }
 
 pub(crate) fn write_json<T: Serialize>(

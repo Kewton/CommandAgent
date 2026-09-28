@@ -303,6 +303,7 @@ where
     let trace_messages = messages;
     let trace_tools = tools;
     let native_tools_enabled = request.native_tools_enabled;
+    let redaction = crate::sensitive_data::active_for(config.eval_events_path.as_deref());
     let display_scope = overrides
         .and_then(|overrides| overrides.display_scope)
         .unwrap_or_else(|| scope.as_str());
@@ -388,11 +389,19 @@ where
 
     let model = model.to_string();
     let tool_count = tools.len();
-    let messages = messages.to_vec();
-    let tools = tools.to_vec();
+    let mut messages = messages.to_vec();
+    let mut tools = tools.to_vec();
+    if let Some(context) = redaction.as_ref() {
+        scrub_conversation(context, &mut messages);
+        scrub_tool_specs(context, &mut tools);
+    }
     let worker_model = model.clone();
+    let worker_redaction = redaction.clone();
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
+        // Provider worker threads have no thread-local scope; install the
+        // captured one so snippets they build are scrubbed before truncation.
+        crate::sensitive_data::set_current(worker_redaction);
         let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = if stream {
                 worker_client.chat_stream(
@@ -423,6 +432,7 @@ where
         let _ = tx.send(message);
     });
 
+    let mut display_scrubber = redaction.as_ref().map(|context| context.stream_scrubber());
     loop {
         if is_cancelled() {
             let outcome = provider_aborted_by_user(
@@ -516,10 +526,14 @@ where
         let slice = PROVIDER_WAIT_SLICE.min(timeout.saturating_sub(elapsed));
         match rx.recv_timeout(slice) {
             Ok(ProviderWorkerMessage::Chunk(chunk)) => {
+                let scrubbed = match display_scrubber.as_mut() {
+                    Some(scrubber) => scrubber.push(&chunk),
+                    None => chunk,
+                };
                 if render_stream_chunks
-                    && !chunk.is_empty()
+                    && !scrubbed.is_empty()
                     && let Some(on_chunk) = on_chunk.as_deref_mut()
-                    && let Err(err) = on_chunk(&chunk)
+                    && let Err(err) = on_chunk(&scrubbed)
                 {
                     let elapsed = started.elapsed();
                     crate::tui::status_bus::publish_provider_finished(elapsed);
@@ -564,6 +578,15 @@ where
                 }
             }
             Ok(ProviderWorkerMessage::Completed(worker_result)) => {
+                if render_stream_chunks
+                    && let (Some(scrubber), Some(on_chunk)) =
+                        (display_scrubber.as_mut(), on_chunk.as_deref_mut())
+                {
+                    let tail = scrubber.finish();
+                    if !tail.is_empty() {
+                        let _ = on_chunk(&tail);
+                    }
+                }
                 let ProviderWorkerResult {
                     result,
                     timing,
@@ -720,6 +743,34 @@ where
                 };
             }
         }
+    }
+}
+
+/// Scrub the outgoing conversation copy so a registered secret never reaches a
+/// provider request body. The caller's original messages are untouched.
+fn scrub_conversation(
+    context: &crate::sensitive_data::RedactionContext,
+    messages: &mut [ConversationMessage],
+) {
+    for message in messages {
+        message.content = context.scrub_text(&message.content);
+        if let Some(name) = message.name.as_mut() {
+            *name = context.scrub_text(name);
+        }
+        for call in &mut message.tool_calls {
+            call.name = context.scrub_text(&call.name);
+            context.scrub_value(&mut call.arguments);
+        }
+    }
+}
+
+/// Scrub the tool schema copy sent with a provider request.
+fn scrub_tool_specs(context: &crate::sensitive_data::RedactionContext, tools: &mut [ToolSpec]) {
+    for tool in tools {
+        tool.kind = context.scrub_text(&tool.kind);
+        tool.function.name = context.scrub_text(&tool.function.name);
+        tool.function.description = context.scrub_text(&tool.function.description);
+        context.scrub_value(&mut tool.function.parameters);
     }
 }
 
@@ -2001,6 +2052,90 @@ mod tests {
         assert_eq!(chunks, ["hel", "lo"]);
         assert_eq!(client.stream_calls.load(Ordering::SeqCst), 1);
         assert_eq!(client.chat_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn display_stream_callback_is_scrubbed_across_chunk_boundaries() {
+        const CANARY: &str = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events.clone(), 30);
+        config.stream = true;
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(CANARY);
+        crate::sensitive_data::install_scope(catalog, Some(tmp.path()), Some(&events));
+
+        #[derive(Clone)]
+        struct CanaryStreamingClient {
+            seen: Arc<Mutex<Vec<ConversationMessage>>>,
+        }
+        impl ChatClient for CanaryStreamingClient {
+            fn label(&self) -> &str {
+                "canary-streaming-mock"
+            }
+            fn boxed_clone(&self) -> Box<dyn ChatClient> {
+                Box::new(self.clone())
+            }
+            fn supports_streaming(&self) -> bool {
+                true
+            }
+            fn chat(
+                &mut self,
+                _model: &str,
+                _messages: &[ConversationMessage],
+                _tools: &[ToolSpec],
+                _native_tools_enabled: bool,
+            ) -> anyhow::Result<AssistantReply> {
+                Ok(AssistantReply::text("batch"))
+            }
+            fn chat_stream(
+                &mut self,
+                _model: &str,
+                messages: &[ConversationMessage],
+                _tools: &[ToolSpec],
+                _native_tools_enabled: bool,
+                on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+            ) -> anyhow::Result<AssistantReply> {
+                *self.seen.lock().unwrap() = messages.to_vec();
+                on_chunk("before ")?;
+                on_chunk(&CANARY[..7])?;
+                on_chunk(&CANARY[7..])?;
+                on_chunk(" after")?;
+                Ok(AssistantReply::text("before after"))
+            }
+        }
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut client = CanaryStreamingClient { seen: seen.clone() };
+        let messages = vec![ConversationMessage::user(format!("hook {CANARY}"))];
+        let mut chunks = Vec::new();
+        let outcome = chat_with_cancel_inner(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m",
+                messages: &messages,
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            None,
+            true,
+            Some(&mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            }),
+        );
+
+        assert!(outcome.result.is_ok());
+        let display = chunks.concat();
+        assert!(!display.contains(CANARY), "{display}");
+        assert_eq!(display, "before <redacted> after");
+        let sent = seen.lock().unwrap().clone();
+        assert!(!sent[0].content.contains(CANARY));
+        assert!(sent[0].content.contains("<redacted>"));
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]

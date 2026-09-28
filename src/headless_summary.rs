@@ -123,7 +123,12 @@ struct HeadlessSummary {
 }
 
 pub(crate) fn render(source: &Source) -> String {
-    serde_json::to_string(&project(source)).expect("headless summary serialization is infallible")
+    let mut value =
+        serde_json::to_value(project(source)).expect("headless summary projection is infallible");
+    if let Some(context) = crate::sensitive_data::current() {
+        context.scrub_value(&mut value);
+    }
+    serde_json::to_string(&value).expect("headless summary serialization is infallible")
 }
 
 fn project(source: &Source) -> HeadlessSummary {
