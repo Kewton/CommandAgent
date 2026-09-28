@@ -116,6 +116,11 @@ impl ToolRegistry {
         enforce_mode(name, context.mode)?;
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
+        if let Some(rejection) =
+            super::sensitive_path::argument_reference_rejection(name, arguments, &context.root)
+        {
+            return Err(rejection);
+        }
         crate::minimal_loop::protected_paths::enforce_tool_mutation(
             &context.root,
             context.eval_events_path.as_deref(),
@@ -166,7 +171,6 @@ impl ToolRegistry {
                             "normalized": eval_events::body_snippet(&normalization.normalized),
                         }),
                     );
-                    command = normalization.normalized;
                 }
                 if let Some(rejection) =
                     crate::tools::bash::path_confinement_rejection(&command, &context.root)
@@ -692,6 +696,9 @@ pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
         return true;
     }
     if super::hidden_path::access_from_error(err).is_some() {
+        return true;
+    }
+    if super::sensitive_path::refusal_from_error(err).is_some() {
         return true;
     }
     matches!(
@@ -1944,5 +1951,76 @@ mod tests {
             .unwrap_err();
         assert_eq!(tool_error_kind(&err), "path_confinement_error");
         assert!(!recoverable_tool_error(&err));
+    }
+
+    #[test]
+    fn credential_paths_survive_yes_and_allow() {
+        use crate::tools::allow_policy::{AllowTarget, install};
+
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "PRIVATE_TOKEN=H01_CANARY\n").unwrap();
+        std::fs::write(dir.path().join(".env.example"), "PLACEHOLDER=1\n").unwrap();
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+
+        let ceilings = [
+            (true, Vec::new()),
+            (false, vec![AllowTarget::Read]),
+            (false, vec![AllowTarget::Write]),
+            (false, vec![AllowTarget::BashVerify]),
+            (
+                false,
+                vec![
+                    AllowTarget::Read,
+                    AllowTarget::Write,
+                    AllowTarget::BashVerify,
+                ],
+            ),
+        ];
+        for (yes, allowed) in ceilings {
+            let _policy = install(yes, &allowed);
+            for (tool, arguments) in [
+                ("Read", json!({"path": ".env"})),
+                ("Glob", json!({"pattern": ".env"})),
+                ("Grep", json!({"pattern": "TOKEN", "glob": ".env"})),
+                ("Write", json!({"path": ".env", "content": "x"})),
+                (
+                    "Edit",
+                    json!({"path": ".env", "old_string": "a", "new_string": "b"}),
+                ),
+                ("Bash", json!({"command": "cat .env"})),
+            ] {
+                let error = registry.execute(tool, &arguments, &context).unwrap_err();
+                assert_eq!(
+                    tool_error_kind(&error),
+                    "workspace_policy_blocked",
+                    "yes={yes} allow={allowed:?} {tool}: {error}"
+                );
+                assert!(!error.to_string().contains("H01_CANARY"), "{tool}");
+            }
+        }
+
+        let _all = install(true, &[]);
+        let template = registry
+            .execute("Read", &json!({"path": ".env.example"}), &context)
+            .unwrap();
+        assert!(template.contains("PLACEHOLDER=1"), "{template}");
+        registry
+            .execute(
+                "Write",
+                &json!({"path": ".env.template", "content": "PLACEHOLDER=2\n"}),
+                &context,
+            )
+            .unwrap();
     }
 }

@@ -248,6 +248,21 @@ impl CommandCheckSummary {
 
 fn execute(root: &Path, check: &DeclarativeCommandCheck) -> Observation {
     let started = Instant::now();
+    if let Some(reference) =
+        crate::tools::sensitive_path::tokens_reference_secret(check.argv.iter().map(String::as_str))
+    {
+        return Observation {
+            exit_code: None,
+            timed_out: false,
+            elapsed_ms: started.elapsed().as_millis(),
+            stdout: String::new(),
+            stderr: String::new(),
+            output_truncated: false,
+            reasons: vec![format!(
+                "blocked: argv references protected credential path `{reference}`"
+            )],
+        };
+    }
     let mut command = verifier_env::normalized_command_at_root(&check.argv[0], root);
     command
         .args(&check.argv[1..])
@@ -447,6 +462,11 @@ fn validate_argument_path(value: &str) -> Result<(), String> {
     {
         return Err(format!(
             "argv path `{candidate}` must stay workspace-relative"
+        ));
+    }
+    if crate::tools::sensitive_path::relative_path_rule(path).is_some() {
+        return Err(format!(
+            "argv path `{candidate}` is a protected credential path"
         ));
     }
     Ok(())

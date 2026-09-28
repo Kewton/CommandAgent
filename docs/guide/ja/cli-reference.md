@@ -136,6 +136,17 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 - `--footer` と `--no-footer` は Clap レベルで排他であり、同時に使えません。
 - `--allow` は `read`、`write`、`bash:verify` を反復またはカンマ区切りで受け付けます。
   指定した場合、省略したツールクラスは拒否されます。`--yes` は後方互換の全ツール許可です。
+- `--yes` と `--allow` は、workspace の資格情報ファイル（`.env`、`.envrc`、`.npmrc`、
+  `.pypirc`、`.netrc`、`.git-credentials`、`.ssh` 配下、`.aws/credentials`、
+  `.docker/config.json`、`.config/gcloud/application_default_credentials.json`、
+  `service-account*.json`、`*.private.key`、`*.private.pem`、`*.p12`、`*.pfx` など）に
+  対する Read/Glob/Grep/Write/Edit の遮断と、Bash/argv の明示した直接参照の実行前拒否を
+  解除しません。例外は `.env.example`、`.env.sample`、`.env.template` の厳密な basename
+  だけで、`.env.example.local` のような変種は拒否され、template 名から秘密への symlink も
+  拒否されます。親ディレクトリの symlink（`keys` → `.ssh`、`cfg` → `.aws` など）経由や、
+  canonical target がワークスペース外になる path も Read/Write/Edit/Grep で拒否され、
+  広域列挙では秘密本文を出さずにポリシー除外を知らせます。詳細は
+  [セキュリティモデル](../../../SECURITY.md) を参照してください。
 - アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
   `only one action selector can be used at a time` で失敗します。
 - `--completions` と `--generate-man` は、他のすべてのアクション選択フラグおよび

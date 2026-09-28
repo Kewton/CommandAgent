@@ -60,6 +60,59 @@ This narrows symlink escape risk but is not a complete kernel-level sandbox.
 There remains a TOCTOU window on intermediate path components; hostile
 workspaces require a separate containment layer.
 
+## Credential Paths
+
+Read, Glob, Grep, Write, and Edit refuse workspace credentials for every
+`WorkspacePolicy` and independently of the metadata exception. `--yes` and
+`--allow` do not lift this block; there is deliberately no opt-in to read
+workspace credentials in this change.
+
+- Denied names (ASCII case-insensitive, nested components included): `.env`,
+  `.env.*`, `.envrc`, `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`,
+  anything under `.ssh`, `.aws/credentials`, `.docker/config.json`,
+  `.config/gcloud/application_default_credentials.json`, `service-account*.json`,
+  `*.private.key`, `*.private.pem`, `*.p12`, and `*.pfx`.
+- The only exceptions are the exact basenames `.env.example`, `.env.sample`, and
+  `.env.template`. That exception applies to a template *file* only: a directory
+  whose name is a template (for example `.env.example/`) is a protected parent,
+  so its contents are denied and are pruned from the bounded broad Bash walk to
+  match the shared predicate. `.env.example.local` and
+  `.env.production.example` are refused, and a template name that is a symlink
+  to a credential is refused through its canonical target. Ordinary `.pem`/`.key`
+  files are not denied.
+- The canonical target is always checked, not only when the final component is a
+  symlink: a credential reached through a symlinked parent directory (for
+  example `keys` -> `.ssh`, or `cfg` -> `.aws`) is refused for Read/Write/Edit
+  and Grep, whether the request names the alias or the real path. A new target is
+  judged by its canonical existing parent plus the created name.
+- A path whose canonical target resolves outside the workspace root is refused
+  with path confinement and is never followed: an explicit request fails, and a
+  broad walk excludes it. A `None` credential verdict is never read as proof of
+  containment.
+- Broad Read directory listings, Glob, and Grep exclude credentials and
+  out-of-root targets instead of leaking their names or contents; an explicitly
+  named secret glob, including a compound path such as `.aws/credentials` or a
+  symlink alias to a credential, is refused, and the broad exclusion is reported
+  as a non-leaking workspace-policy notice so an empty or shorter result is not
+  mistaken for "nothing exists".
+- Bash refuses an explicit credential path before execution and before a general
+  approval request. The bounded broad-grep/broad-find rewrites use the same
+  case-insensitive name and compound rule (keeping the strict templates), and the
+  caller-supplied command is scanned before that rewrite, so a command appended
+  after a recognized broad prefix is still refused.
+- Extension tool `WorkspacePath` arguments refuse credentials, and an unmediated
+  directory `WorkspacePath` is refused because nested credentials cannot be
+  guaranteed before the executor runs.
+- Pack input reads and declarative command-check argv refuse credentials at
+  registration and before spawn.
+
+Because the refusal happens before any read, a rejected call returns an honest
+refusal that contains no credential bytes or expansion value. This is not a
+claim that no arbitrary Bash program can read a secret: dynamic variables,
+indirect scripts, encodings, hardlinks, copies, and TOCTOU are tracked
+separately by #502. Keep real secrets outside the agent workspace and edit the
+template files instead.
+
 ## Backlog
 
 - Container-sandboxed execution track: run Bash/verifier commands inside a

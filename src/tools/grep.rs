@@ -25,9 +25,25 @@ pub fn run(
         None
     };
     let mut hits = Vec::new();
-    walk(root, root, &matcher, globset.as_ref(), policy, &mut hits)?;
+    let mut excluded = 0usize;
+    walk(
+        root,
+        root,
+        &matcher,
+        globset.as_ref(),
+        policy,
+        &mut hits,
+        &mut excluded,
+    )?;
     hits.sort();
-    Ok(summarize_hits(&hits))
+    let mut output = summarize_hits(&hits);
+    if excluded > 0 {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&super::sensitive_path::exclusion_notice(excluded));
+    }
+    Ok(output)
 }
 
 enum LineMatcher {
@@ -80,15 +96,20 @@ fn walk(
     globset: Option<&globset::GlobSet>,
     policy: WorkspacePolicy,
     hits: &mut Vec<String>,
+    excluded: &mut usize,
 ) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
+        if super::sensitive_path::sensitive_skip(root, &path).is_some() {
+            *excluded += 1;
+            continue;
+        }
         if should_skip_path(root, &path, policy) {
             continue;
         }
         if path.is_dir() {
-            walk(root, &path, matcher, globset, policy, hits)?;
+            walk(root, &path, matcher, globset, policy, hits, excluded)?;
             continue;
         }
         if hits.len() >= MAX_GREP_HITS {

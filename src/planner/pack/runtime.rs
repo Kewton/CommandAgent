@@ -509,6 +509,11 @@ fn requested_fields<'a>(injection: &'a Injection, defaults: &'a [&'a str]) -> BT
 fn read_json<T: for<'de> Deserialize<'de>>(root: &Path, relative: &str) -> anyhow::Result<T> {
     let path = crate::tools::path_guard::resolve_existing(root, relative)
         .with_context(|| format!("pack source `{relative}` is unavailable"))?;
+    if crate::tools::sensitive_path::path_is_sensitive(root, &path) {
+        bail!(
+            "pack source `{relative}` is a protected credential path; CommandAgent does not read pack credentials"
+        );
+    }
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("read pack source `{relative}`"))?;
     serde_json::from_str(&text).with_context(|| format!("parse pack source `{relative}`"))

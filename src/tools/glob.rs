@@ -11,6 +11,7 @@ pub fn run(root: &Path, pattern: &str, policy: WorkspacePolicy) -> anyhow::Resul
     builder.add(Glob::new(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?);
     let set = builder.build().context("invalid glob pattern")?;
     let mut out = Vec::new();
+    let mut excluded = 0usize;
     let walker = WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(true)
@@ -21,6 +22,10 @@ pub fn run(root: &Path, pattern: &str, policy: WorkspacePolicy) -> anyhow::Resul
     for entry in walker {
         let entry = entry?;
         let path = entry.path();
+        if path != root && super::sensitive_path::sensitive_skip(root, path).is_some() {
+            excluded += 1;
+            continue;
+        }
         if path == root || should_skip_path(root, path, policy) || path.is_dir() {
             continue;
         }
@@ -30,5 +35,12 @@ pub fn run(root: &Path, pattern: &str, policy: WorkspacePolicy) -> anyhow::Resul
         }
     }
     out.sort();
-    Ok(out.join("\n"))
+    let mut result = out.join("\n");
+    if excluded > 0 {
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&super::sensitive_path::exclusion_notice(excluded));
+    }
+    Ok(result)
 }
