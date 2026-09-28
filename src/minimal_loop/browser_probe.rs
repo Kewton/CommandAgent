@@ -100,6 +100,9 @@ struct ProbeSpec {
     route: String,
 }
 
+#[cfg(test)]
+mod test_support;
+
 #[derive(Debug, Clone)]
 struct ProbeOptions {
     port: Option<u16>,
@@ -108,6 +111,8 @@ struct ProbeOptions {
     require_build: bool,
     command_override: Option<ProbeCommand>,
     interaction_options: interaction_probe::BrowserInteractionProbeOptions,
+    #[cfg(test)]
+    dynamic_port: bool,
 }
 
 pub fn probe_browser_readiness(
@@ -161,11 +166,13 @@ pub fn probe_browser_readiness_with_offline_and_interaction_options(
         require_build: true,
         command_override: None,
         interaction_options,
+        dynamic_port: false,
     };
     #[cfg(test)]
     if let Some(override_command) = load_test_probe_command(root) {
         options.port = override_command.port.or(options.port);
         options.require_build = override_command.require_build;
+        options.dynamic_port = override_command.dynamic_port;
         options.command_override = Some(override_command.command);
     }
     probe_browser_readiness_with_options(root, profile, options)
@@ -228,7 +235,7 @@ fn probe_browser_readiness_with_options(
             return observation;
         }
     }
-    if localhost_port_accepts_connection(spec.port) {
+    if port_in_use_should_be_reported(&options, spec.port) {
         return finish_without_spawn(
             root,
             started,
@@ -241,6 +248,10 @@ fn probe_browser_readiness_with_options(
         );
     }
 
+    #[cfg(test)]
+    if options.dynamic_port {
+        test_support::clear_mock_port(root);
+    }
     let mut command = verifier_env::normalized_command_at_root(&spec.command.program, root);
     command
         .args(&spec.command.args)
@@ -298,7 +309,23 @@ fn probe_browser_readiness_with_options(
                 cleanup.reaped,
             );
         }
-        match http_get_local_route(spec.port, &spec.route) {
+        #[cfg(test)]
+        let poll_port: u16 = if options.dynamic_port {
+            match test_support::read_mock_port(root) {
+                Some(port) => port,
+                None => {
+                    // The mock child publishes its OS-assigned port through a
+                    // ready file; wait for it instead of guessing a port.
+                    std::thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
+            }
+        } else {
+            spec.port
+        };
+        #[cfg(not(test))]
+        let poll_port: u16 = spec.port;
+        match http_get_local_route(poll_port, &spec.route) {
             Ok(response) => {
                 if response.status == 200 {
                     let run_dir = evidence_path.parent().unwrap_or(root);
@@ -306,7 +333,7 @@ fn probe_browser_readiness_with_options(
                         interaction_probe::browser_interaction_evidence_path(root);
                     let _ = interaction_probe::probe_browser_interaction_against_running_server_with_options(
                         root,
-                        spec.port,
+                        poll_port,
                         run_dir,
                         &interaction_path,
                         Duration::from_secs(60),
@@ -461,6 +488,18 @@ fn normalized_timeout(timeout: Duration) -> Duration {
 fn localhost_port_accepts_connection(port: u16) -> bool {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
+}
+
+/// Mock transports bind an OS-assigned port and publish the real one, so the
+/// logical port must not be probed for occupancy in that mode.
+#[cfg(test)]
+fn port_in_use_should_be_reported(options: &ProbeOptions, spec_port: u16) -> bool {
+    !options.dynamic_port && localhost_port_accepts_connection(spec_port)
+}
+
+#[cfg(not(test))]
+fn port_in_use_should_be_reported(_options: &ProbeOptions, spec_port: u16) -> bool {
+    localhost_port_accepts_connection(spec_port)
 }
 
 #[derive(Debug)]
@@ -829,6 +868,7 @@ struct TestProbeCommandOverride {
     command: ProbeCommand,
     port: Option<u16>,
     require_build: bool,
+    dynamic_port: bool,
 }
 
 #[cfg(test)]
@@ -881,6 +921,10 @@ fn load_test_probe_command(root: &Path) -> Option<TestProbeCommandOverride> {
         .get("require_build")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let dynamic_port = value
+        .get("dynamic_port")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     Some(TestProbeCommandOverride {
         command: ProbeCommand {
             program,
@@ -890,6 +934,7 @@ fn load_test_probe_command(root: &Path) -> Option<TestProbeCommandOverride> {
         },
         port,
         require_build,
+        dynamic_port,
     })
 }
 
@@ -901,8 +946,8 @@ mod tests {
     #[test]
     fn child_that_responds_200_writes_evidence_and_is_reaped() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let observation = probe_with_mock_child(dir.path(), port, "200", 0, Duration::from_secs(5));
+        let observation =
+            test_support::probe_with_mock_child(dir.path(), "200", 0, Duration::from_secs(5));
         assert!(observation.ok, "{observation:?}");
         assert_eq!(observation.http_status, Some(200));
         assert!(observation.child_spawned);
@@ -965,8 +1010,8 @@ mod tests {
     #[test]
     fn child_that_responds_500_reports_http_failure() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let observation = probe_with_mock_child(dir.path(), port, "500", 0, Duration::from_secs(5));
+        let observation =
+            test_support::probe_with_mock_child(dir.path(), "500", 0, Duration::from_secs(5));
         assert!(!observation.ok, "{observation:?}");
         assert_eq!(observation.http_status, Some(500));
         assert_eq!(observation.failure_kind, "http_500");
@@ -978,9 +1023,8 @@ mod tests {
     #[test]
     fn child_with_no_response_times_out_and_is_reaped() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
         let observation =
-            probe_with_mock_child(dir.path(), port, "hang", 0, Duration::from_millis(900));
+            test_support::probe_with_mock_child(dir.path(), "hang", 0, Duration::from_millis(900));
         assert!(!observation.ok, "{observation:?}");
         assert_eq!(observation.failure_kind, "timeout");
         assert!(observation.child_spawned);
@@ -992,7 +1036,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let observation = probe_with_mock_child(dir.path(), port, "200", 0, Duration::from_secs(5));
+        let observation = test_support::probe_with_mock_child_on_port(
+            dir.path(),
+            port,
+            "200",
+            0,
+            Duration::from_secs(5),
+        );
         assert!(!observation.ok, "{observation:?}");
         assert_eq!(observation.failure_kind, "port_in_use");
         assert!(!observation.child_spawned);
@@ -1025,9 +1075,12 @@ mod tests {
     #[ignore]
     fn browser_probe_normalized_env_harness() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let observation =
-            probe_with_mock_child(dir.path(), port, "env-sensitive", 0, Duration::from_secs(5));
+        let observation = test_support::probe_with_mock_child(
+            dir.path(),
+            "env-sensitive",
+            0,
+            Duration::from_secs(5),
+        );
         assert!(observation.ok, "{observation:?}");
         assert_eq!(observation.http_status, Some(200));
     }
@@ -1035,10 +1088,8 @@ mod tests {
     #[test]
     fn probe_command_env_scrubs_non_standard_node_env() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let observation = probe_with_mock_child_and_env(
+        let observation = test_support::probe_with_mock_child_and_env(
             dir.path(),
-            port,
             "env-sensitive",
             0,
             Duration::from_secs(5),
@@ -1060,10 +1111,8 @@ mod tests {
     #[ignore]
     fn browser_probe_env_conflict_harness() {
         let dir = tempfile::tempdir().unwrap();
-        let port = free_port();
-        let observation = probe_with_mock_child(
+        let observation = test_support::probe_with_mock_child(
             dir.path(),
-            port,
             "node-env-marker",
             0,
             Duration::from_secs(5),
@@ -1084,128 +1133,7 @@ mod tests {
     #[test]
     #[ignore]
     fn browser_probe_mock_server_child() {
-        if crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD")
-            .ok()
-            .as_deref()
-            != Some("1")
-        {
-            return;
-        }
-        let port = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_PORT")
-            .unwrap()
-            .parse::<u16>()
-            .unwrap();
-        let status = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS").unwrap();
-        let startup_delay = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(0);
-        if startup_delay > 0 {
-            std::thread::sleep(Duration::from_millis(startup_delay));
-        }
-        let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
-        if status == "hang" {
-            std::thread::sleep(Duration::from_secs(30));
-            return;
-        }
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0u8; 512];
-        let _ = stream.read(&mut request);
-        let env_sensitive_failure = status == "env-sensitive"
-            && (std::env::var_os("NODE_ENV").is_some()
-                || std::env::var_os("NODE_OPTIONS").is_some());
-        let code = if status == "500" || status == "node-env-marker" || env_sensitive_failure {
-            500
-        } else {
-            200
-        };
-        if status == "node-env-marker" {
-            eprintln!("Next.js detected a non-standard \"NODE_ENV\" value.");
-        } else if code == 500 {
-            eprintln!("Module parse failed: Unexpected character '@' (1:0)");
-        }
-        let body = if status == "html-canvas" {
-            "<html><head><title>Space Test</title></head><body><canvas></canvas><button>Start</button></body></html>"
-        } else if status == "node-env-marker" {
-            "Next.js detected a non-standard \"NODE_ENV\" value."
-        } else if code == 500 {
-            "Module parse failed: Unexpected character '@'"
-        } else {
-            "ok"
-        };
-        let response = format!(
-            "HTTP/1.1 {code} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        stream.write_all(response.as_bytes()).unwrap();
-    }
-
-    fn probe_with_mock_child(
-        root: &Path,
-        port: u16,
-        status: &str,
-        startup_delay_ms: u64,
-        timeout: Duration,
-    ) -> BrowserReadinessObservation {
-        probe_with_mock_child_and_env(root, port, status, startup_delay_ms, timeout, Vec::new())
-    }
-
-    fn probe_with_mock_child_and_env(
-        root: &Path,
-        port: u16,
-        status: &str,
-        startup_delay_ms: u64,
-        timeout: Duration,
-        extra_env: Vec<(String, String)>,
-    ) -> BrowserReadinessObservation {
-        let exe = std::env::current_exe().unwrap();
-        let mut env = vec![
-            (
-                "COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD".to_string(),
-                "1".to_string(),
-            ),
-            (
-                "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT".to_string(),
-                port.to_string(),
-            ),
-            (
-                "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS".to_string(),
-                status.to_string(),
-            ),
-            (
-                "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS".to_string(),
-                startup_delay_ms.to_string(),
-            ),
-        ];
-        env.extend(extra_env);
-        let command = ProbeCommand {
-            program: exe.display().to_string(),
-            args: vec![
-                "--ignored".to_string(),
-                "--exact".to_string(),
-                "minimal_loop::browser_probe::tests::browser_probe_mock_server_child".to_string(),
-                "--nocapture".to_string(),
-            ],
-            env,
-            display: "mock browser probe child".to_string(),
-        };
-        probe_browser_readiness_with_options(
-            root,
-            "nextjs",
-            ProbeOptions {
-                port: Some(port),
-                timeout,
-                offline: false,
-                require_build: false,
-                command_override: Some(command),
-                interaction_options: interaction_probe::BrowserInteractionProbeOptions::default(),
-            },
-        )
-    }
-
-    fn free_port() -> u16 {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.local_addr().unwrap().port()
+        test_support::run_mock_server_child();
     }
 
     fn run_ignored_browser_probe_harness(test_name: &str) -> std::process::ExitStatus {

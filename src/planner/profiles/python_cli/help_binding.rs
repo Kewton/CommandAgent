@@ -194,6 +194,9 @@ mod tests {
     const MEASURED_HELP_BINDING: &str = include_str!(
         "../../../../tests/corpus/apps/test0725_cli_elev_003/fixtures/evidence/help-binding.json"
     );
+    // Test-only upper bound. It only waits for child completion; a fast child
+    // returns immediately, so load no longer turns a pass into a timeout.
+    const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
     fn fixture(script: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
@@ -207,20 +210,16 @@ mod tests {
         let dir = fixture(
             "import argparse, sys\nif '--help' in sys.argv:\n print('usage: tool [--ghost]')\n raise SystemExit(0)\nargparse.ArgumentParser(add_help=False).parse_args()\n",
         );
-        let report = run(
-            dir.path(),
-            Path::new("cli/main.py"),
-            &[],
-            Duration::from_secs(2),
-        )
-        .unwrap();
+        let report = run(dir.path(), Path::new("cli/main.py"), &[], TEST_TIMEOUT).unwrap();
         assert!(!report.ok);
+        assert_eq!(report.help_observation.outcome, "exited", "{report:?}");
         let ghost = report
             .bindings
             .iter()
             .find(|binding| binding.option == "--ghost")
             .unwrap();
         assert!(!ghost.ok);
+        assert_eq!(ghost.observation.outcome, "exited", "{ghost:?}");
         assert!(ghost.nearest_miss.is_some());
     }
 
@@ -229,14 +228,9 @@ mod tests {
         let dir = fixture(
             "import argparse\np=argparse.ArgumentParser()\np.add_argument('--hidden', help=argparse.SUPPRESS)\np.parse_args()\n",
         );
-        let report = run(
-            dir.path(),
-            Path::new("cli/main.py"),
-            &[],
-            Duration::from_secs(2),
-        )
-        .unwrap();
+        let report = run(dir.path(), Path::new("cli/main.py"), &[], TEST_TIMEOUT).unwrap();
         assert!(report.ok, "{report:?}");
+        assert_eq!(report.help_observation.outcome, "exited", "{report:?}");
         assert!(!report.help_options.contains(&"--hidden".to_string()));
         assert_eq!(
             report.implementation_to_help_scope,
@@ -249,14 +243,9 @@ mod tests {
         let dir = fixture(
             "import argparse\np=argparse.ArgumentParser()\np.add_argument('--name')\np.parse_args()\n",
         );
-        let report = run(
-            dir.path(),
-            Path::new("cli/main.py"),
-            &[],
-            Duration::from_secs(2),
-        )
-        .unwrap();
+        let report = run(dir.path(), Path::new("cli/main.py"), &[], TEST_TIMEOUT).unwrap();
         assert!(report.ok, "{report:?}");
+        assert_eq!(report.help_observation.outcome, "exited", "{report:?}");
         assert!(report.help_options.contains(&"--name".to_string()));
         assert!(
             report.bindings.iter().all(|binding| binding.ok),
@@ -304,7 +293,7 @@ mod tests {
             dir.path(),
             Path::new("cli/main.py"),
             &normal_args,
-            Duration::from_secs(2),
+            TEST_TIMEOUT,
         )
         .unwrap();
 
@@ -322,6 +311,7 @@ mod tests {
                 "--anvil-invalid-probe"
             ]
         );
+        assert_eq!(binding.observation.outcome, "exited", "{binding:?}");
         assert_eq!(binding.observation.exit_code, Some(2));
         assert!(is_unrecognized(&binding.observation.stderr.text));
         assert!(binding.ok, "{binding:?}");

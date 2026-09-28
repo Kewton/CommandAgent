@@ -6,6 +6,8 @@ mod tests {
     use serde_json::Value;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
+    include!("issue448_contract_tests/runtime_transport.rs");
+
     const SOURCE: &str = "tests/corpus/apps/issue448-nextjs-r0";
     const OBSERVATIONS: &str = "tests/corpus/apps/issue448-nextjs-promotion";
     const CONTRACT_HASH: &str = "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab";
@@ -160,9 +162,10 @@ mod tests {
             }
             symlink("npm", modules.join(".bin/next")).unwrap();
         }
-        let npm = modules.join(".bin/npm");
-        std::fs::copy(Path::new(OBSERVATIONS).join("runtime.sh"), &npm).unwrap();
-        std::fs::set_permissions(&npm, std::fs::Permissions::from_mode(0o755)).unwrap();
+        install_issue448_mock_npm_transport(
+            root,
+            &Path::new(OBSERVATIONS).join("runtime.sh"),
+        );
     }
 
     fn run_case(scenario: &str, expected_reason: &str) {

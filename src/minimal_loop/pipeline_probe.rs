@@ -428,7 +428,7 @@ print("pipeline stdout")
         let dir = tempfile::tempdir().unwrap();
         write_pipeline(dir.path(), "print('x' * 100000)\n");
         let config = PipelineProbeConfig::new("pipeline/main.py")
-            .with_timeout(Duration::from_secs(2))
+            .with_timeout(Duration::from_secs(30))
             .with_max_stream_bytes(1024);
 
         let report = run(dir.path(), config).unwrap();
