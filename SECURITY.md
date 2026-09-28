@@ -73,9 +73,13 @@ workspace credentials in this change.
   `.config/gcloud/application_default_credentials.json`, `service-account*.json`,
   `*.private.key`, `*.private.pem`, `*.p12`, and `*.pfx`.
 - The only exceptions are the exact basenames `.env.example`, `.env.sample`, and
-  `.env.template`. `.env.example.local` and `.env.production.example` are
-  refused, and a template name that is a symlink to a credential is refused
-  through its canonical target. Ordinary `.pem`/`.key` files are not denied.
+  `.env.template`. That exception applies to a template *file* only: a directory
+  whose name is a template (for example `.env.example/`) is a protected parent,
+  so its contents are denied and are pruned from the bounded broad Bash walk to
+  match the shared predicate. `.env.example.local` and
+  `.env.production.example` are refused, and a template name that is a symlink
+  to a credential is refused through its canonical target. Ordinary `.pem`/`.key`
+  files are not denied.
 - The canonical target is always checked, not only when the final component is a
   symlink: a credential reached through a symlinked parent directory (for
   example `keys` -> `.ssh`, or `cfg` -> `.aws`) is refused for Read/Write/Edit

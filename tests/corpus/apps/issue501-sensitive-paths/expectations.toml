@@ -57,5 +57,10 @@ fixtures/policy-cases.json = [
   ".envrc",
   "grep -r PRIVATE_TOKEN",
   "grep -r PUBLIC_TEMPLATE still returns .env.example",
-  "normalized ls -R prefix + '; head -n 1 .env' -> workspace_policy_blocked"
+  "normalized ls -R prefix + '; head -n 1 .env' -> workspace_policy_blocked",
+  "\"id\": \"R-01\"",
+  "\"template_directories\": [\".env.example\", \".env.sample\", \".env.template\"]",
+  "\"protected_child\": \"child.txt\"",
+  "no canary and no protected template directory name in stdout",
+  "grep -r PLACEHOLDER and ls -R still return the three template files"
 ]

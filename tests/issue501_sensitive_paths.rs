@@ -793,3 +793,109 @@ fn bash_appended_secret_after_generated_prefix_is_refused() {
     );
     assert!(!error.to_string().contains(CANARY), "{error}");
 }
+
+#[test]
+fn template_named_directory_children_are_excluded_from_broad_bash() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        let child_dir = root.join(name);
+        std::fs::create_dir_all(&child_dir).unwrap();
+        std::fs::write(
+            child_dir.join("child.txt"),
+            format!("PRIVATE_TOKEN={CANARY}\n"),
+        )
+        .unwrap();
+        assert!(
+            commandagent::tools::sensitive_path::path_is_sensitive(
+                root,
+                &child_dir.join("child.txt")
+            ),
+            "{name}/child.txt must stay protected"
+        );
+    }
+
+    let registry = ToolRegistry::default();
+    let ctx = context(root, ExecutionMode::Act, WorkspacePolicy::NormalTask, true);
+    let registry_out = registry
+        .execute("Bash", &json!({"command": "grep -r PRIVATE_TOKEN"}), &ctx)
+        .unwrap();
+    assert!(!registry_out.contains(CANARY), "{registry_out}");
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        assert!(
+            !registry_out.contains(name),
+            "registry leaked {name}: {registry_out}"
+        );
+    }
+
+    let leaf_out = bash::run("grep -r PRIVATE_TOKEN", root, true).unwrap();
+    assert!(!leaf_out.contains(CANARY), "{leaf_out}");
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        assert!(!leaf_out.contains(name), "leaf leaked {name}: {leaf_out}");
+    }
+
+    let listing = registry
+        .execute("Bash", &json!({"command": "ls -R"}), &ctx)
+        .unwrap();
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        assert!(!listing.contains(name), "listing leaked {name}: {listing}");
+    }
+}
+
+#[test]
+fn strict_template_files_remain_usable_across_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let registry = ToolRegistry::default();
+    let ctx = context(root, ExecutionMode::Act, WorkspacePolicy::NormalTask, true);
+
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        registry
+            .execute(
+                "Write",
+                &json!({"path": name, "content": "PLACEHOLDER=1\n"}),
+                &ctx,
+            )
+            .unwrap_or_else(|error| panic!("write {name}: {error}"));
+        let read = registry
+            .execute("Read", &json!({"path": name}), &ctx)
+            .unwrap_or_else(|error| panic!("read {name}: {error}"));
+        assert!(read.contains("PLACEHOLDER=1"), "{name}: {read}");
+        registry
+            .execute(
+                "Edit",
+                &json!({"path": name, "old_string": "PLACEHOLDER=1", "new_string": "PLACEHOLDER=9"}),
+                &ctx,
+            )
+            .unwrap_or_else(|error| panic!("edit {name}: {error}"));
+        let glob = registry
+            .execute("Glob", &json!({"pattern": name}), &ctx)
+            .unwrap_or_else(|error| panic!("glob {name}: {error}"));
+        assert!(glob.contains(name), "{name}: {glob}");
+        let grep = registry
+            .execute(
+                "Grep",
+                &json!({"pattern": "PLACEHOLDER=9", "glob": name}),
+                &ctx,
+            )
+            .unwrap_or_else(|error| panic!("grep {name}: {error}"));
+        assert!(grep.contains(name), "{name}: {grep}");
+        let direct = registry
+            .execute("Bash", &json!({"command": format!("cat {name}")}), &ctx)
+            .unwrap_or_else(|error| panic!("bash cat {name}: {error}"));
+        assert!(direct.contains("PLACEHOLDER=9"), "{name}: {direct}");
+    }
+
+    let broad_grep = registry
+        .execute("Bash", &json!({"command": "grep -r PLACEHOLDER"}), &ctx)
+        .unwrap();
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        assert!(broad_grep.contains(name), "{name} missing: {broad_grep}");
+    }
+    let listing = registry
+        .execute("Bash", &json!({"command": "ls -R"}), &ctx)
+        .unwrap();
+    for name in [".env.example", ".env.sample", ".env.template"] {
+        assert!(listing.contains(name), "{name} missing: {listing}");
+    }
+}

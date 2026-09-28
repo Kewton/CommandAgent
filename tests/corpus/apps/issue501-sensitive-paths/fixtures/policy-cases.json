@@ -81,5 +81,20 @@
       "expected": "workspace_policy_blocked",
       "broad": "credential/outside entries excluded with a workspace policy notice"
     }
-  ]
+  ],
+  "r01_template_directory_regression": {
+    "id": "R-01",
+    "case": "a template-named directory is a protected parent, so broad Bash grep must prune its children",
+    "shared_predicate": "path_is_sensitive(\".env.example/child.txt\") == true (rule=dotenv)",
+    "template_directories": [".env.example", ".env.sample", ".env.template"],
+    "protected_child": "child.txt",
+    "command": "grep -r PRIVATE_TOKEN",
+    "paths": ["registry", "leaf"],
+    "expected": "no canary and no protected template directory name in stdout",
+    "template_files_still_usable": {
+      "files": [".env.example", ".env.sample", ".env.template"],
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "direct Bash"],
+      "broad": "grep -r PLACEHOLDER and ls -R still return the three template files"
+    }
+  }
 }

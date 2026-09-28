@@ -344,26 +344,40 @@ fn is_literal_glob(pattern: &str) -> bool {
 
 /// Case-insensitive `find` name/path predicates that select every path the
 /// credential predicate denies. Kept beside the predicate so the shared rule
-/// and the bounded broad-walk prune cannot drift; the three strict templates
-/// stay selectable.
+/// and the bounded broad-walk prune cannot drift.
+///
+/// The three strict template *files* stay selectable, but a template-named
+/// *directory* is pruned like any other `.env.*` directory: the shared rule
+/// treats the template name as a protected parent, so its children must not be
+/// read. This is the file/directory parity R-01 requires.
 pub fn find_exclusion_expression() -> String {
+    let template_file_exclusions = TEMPLATE_NAMES
+        .iter()
+        .map(|name| format!(" ! -iname '{name}'"))
+        .collect::<String>();
+    let template_directory_patterns = TEMPLATE_NAMES
+        .iter()
+        .map(|name| format!("-iname '{name}'"))
+        .collect::<Vec<_>>()
+        .join(" -o ");
     [
-        "-iname '.env'",
-        "\\( -iname '.env.*' ! -iname '.env.example' ! -iname '.env.sample' ! -iname '.env.template' \\)",
-        "-iname '.envrc'",
-        "-iname '.npmrc'",
-        "-iname '.pypirc'",
-        "-iname '.netrc'",
-        "-iname '.git-credentials'",
-        "-iname '.ssh'",
-        "-iname 'service-account*.json'",
-        "-iname '*.private.key'",
-        "-iname '*.private.pem'",
-        "-iname '*.p12'",
-        "-iname '*.pfx'",
-        "-ipath '*/.aws/credentials'",
-        "-ipath '*/.docker/config.json'",
-        "-ipath '*/.config/gcloud/application_default_credentials.json'",
+        "-iname '.env'".to_string(),
+        format!("\\( -iname '.env.*'{template_file_exclusions} \\)"),
+        "-iname '.envrc'".to_string(),
+        "-iname '.npmrc'".to_string(),
+        "-iname '.pypirc'".to_string(),
+        "-iname '.netrc'".to_string(),
+        "-iname '.git-credentials'".to_string(),
+        "-iname '.ssh'".to_string(),
+        "-iname 'service-account*.json'".to_string(),
+        "-iname '*.private.key'".to_string(),
+        "-iname '*.private.pem'".to_string(),
+        "-iname '*.p12'".to_string(),
+        "-iname '*.pfx'".to_string(),
+        "-ipath '*/.aws/credentials'".to_string(),
+        "-ipath '*/.docker/config.json'".to_string(),
+        "-ipath '*/.config/gcloud/application_default_credentials.json'".to_string(),
+        format!("\\( {template_directory_patterns} \\) -type d"),
     ]
     .join(" -o ")
 }
