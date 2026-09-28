@@ -28,6 +28,10 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: install acceptance dependencies
         run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Install pinned cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
       - name: Repository acceptance suite
         run: bash scripts/ci.sh
       - name: scrub changed files
