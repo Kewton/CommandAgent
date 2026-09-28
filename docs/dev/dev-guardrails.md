@@ -30,10 +30,12 @@ above baseline +2%:
 - `src/planner/repair_targeting.rs`: 597 lines
 - `src/planner/final_acceptance.rs`: 2,235 lines
 - `src/planner/adjudication/create.rs`: 2,186 lines
+- `src/planner/adjudication/terminal.rs`: 16 lines
 - `src/planner/assurance.rs`: 50 lines
 - `src/planner/profiles/nextjs.rs`: 3,684 lines
 - `src/minimal_loop/evidence.rs`: 6,702 lines
 - `src/planner/capability_catalog.rs`: 614 lines
+- `src/planner/fix_diagnostics/reproducer_execution.rs`: 38 lines
 
 The same guard also measures production code and `#[cfg(test)]` code
 separately. The total baseline above remains enforced; these split baselines
@@ -62,10 +64,12 @@ masking test bloat:
 | `src/planner/repair_targeting.rs` | 459 | 138 |
 | `src/planner/final_acceptance.rs` | 2,230 | 5 |
 | `src/planner/adjudication/create.rs` | 2,172 | 14 |
+| `src/planner/adjudication/terminal.rs` | 16 | 0 |
 | `src/planner/assurance.rs` | 50 | 0 |
 | `src/planner/profiles/nextjs.rs` | 2,361 | 1,323 |
 | `src/minimal_loop/evidence.rs` | 4,088 | 2,694 |
 | `src/planner/capability_catalog.rs` | 407 | 207 |
+| `src/planner/fix_diagnostics/reproducer_execution.rs` | 38 | 0 |
 
 When adding behavior, put new subsystems in new modules and call them from the
 runner. Refactors that shrink these files are allowed; lower the baseline only

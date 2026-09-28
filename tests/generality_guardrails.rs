@@ -482,8 +482,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/terminal.rs",
-            total_baseline: 124,
-            production_baseline: 124,
+            total_baseline: 16,
+            production_baseline: 16,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -608,8 +608,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/fix_diagnostics/reproducer_execution.rs",
-            total_baseline: 72,
-            production_baseline: 72,
+            total_baseline: 38,
+            production_baseline: 38,
             test_baseline: 0,
         },
         ChokepointBudget {
