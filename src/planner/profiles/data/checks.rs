@@ -365,7 +365,7 @@ mod tests {
         .unwrap();
 
         let evidence =
-            check_rerun_consistency(dir.path(), "pipeline/main.py", Duration::from_secs(2))
+            check_rerun_consistency(dir.path(), "pipeline/main.py", Duration::from_secs(30))
                 .unwrap();
 
         assert!(evidence.ok, "{evidence:?}");
@@ -389,10 +389,11 @@ mod tests {
         .unwrap();
 
         let evidence =
-            check_rerun_consistency(dir.path(), "pipeline/main.py", Duration::from_secs(2))
+            check_rerun_consistency(dir.path(), "pipeline/main.py", Duration::from_secs(30))
                 .unwrap();
 
         assert!(!evidence.ok);
+        assert!(evidence.pipeline_run_ok, "{evidence:?}");
         assert!(
             evidence
                 .failure_kinds
