@@ -103,7 +103,26 @@ Approval is always written, never implied: the PM's dispatch brief says
    and `--wait-timeout 700`. Worker turns often run longer than that: when the
    wait window expires, do not resend; wait for each worker to go idle with one
    `commandmate wait <worktree-id> --instance command-code`, then run
-   `--reverify`. The first dispatch attempt can fail with `prompt not ready`
+   `--reverify`.
+
+   Verification is load-sensitive. `--reverify` always verifies its Issues
+   concurrently and cannot be serialized (Kewton/commandmate-skills#274), and
+   under CPU pressure or port contention some tests fail for reasons unrelated
+   to the change (#537). Before a (re)verify, check `uptime` and that no other
+   `cargo test` or `commandmate verify` is running; wait until the 5-minute
+   load average is below about 14. A failure that disappears when each Issue
+   is verified alone is a flake, not a pass: record both results and do not
+   loosen gates or tests.
+
+   After the worker's task has succeeded, a re-verify cannot record a pass:
+   the scope gate is skipped and `commandmate verify` exits 99
+   (Kewton/CommandMate#2927). If the runner record therefore stays failed
+   while each Issue passes all gates when verified alone, the PM may ask the
+   user to approve a manual merge: the leader pushes the branch, opens the PR
+   with `gh pr create`, puts the single-run gate results and the reason the
+   runner record failed in the PR body, and merges with `gh pr merge --merge`
+   only after GitHub CI (CI and acceptance, plus any gate the Issue adds) is
+   green. Record the discrepancy in the ledger. The first dispatch attempt can fail with `prompt not ready`
    because freshly started Command Code workers are not ready yet; resume it
    with `--resume`. Dispatch has no `--approve` flag; the PM's written approval is the
    gate. Add `--allow-questions` only for questions the user has resolved, and
@@ -151,7 +170,8 @@ Approval is always written, never implied: the PM's dispatch brief says
    change. The pushes and PR commands trip the stop pattern; within the
    user-approved scope (the approved branches and their PRs), the PM's monitor
    answers those prompts and re-enables auto-yes, logging each one, and
-   escalates anything else. Merge with a merge commit
+   escalates anything else. The monitor must match the prompt's command
+   with whitespace normalized, because the pane wraps long commands. Merge with a merge commit
    (`--merge-method merge`), which matches
    this repository's history, unless the user approves another method. An
    Issue that touches the GUI server needs its `--features gui` tests: the
