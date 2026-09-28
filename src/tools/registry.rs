@@ -171,7 +171,6 @@ impl ToolRegistry {
                             "normalized": eval_events::body_snippet(&normalization.normalized),
                         }),
                     );
-                    command = normalization.normalized;
                 }
                 if let Some(rejection) =
                     crate::tools::bash::path_confinement_rejection(&command, &context.root)

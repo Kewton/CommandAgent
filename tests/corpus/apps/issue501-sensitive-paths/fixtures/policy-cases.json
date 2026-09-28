@@ -47,5 +47,39 @@
     "link": ".env.example",
     "target": ".env",
     "expected": "workspace_policy_blocked"
-  }
+  },
+  "blocker_regressions": [
+    {
+      "id": "B-01",
+      "case": "parent directory symlink: keys->.ssh, cfg->.aws, docker_cfg->.docker, gcfg->.config/gcloud",
+      "targets": ["keys/id_ed25519", "cfg/credentials", "docker_cfg/config.json", "gcfg/application_default_credentials.json", "keys/new_key"],
+      "tools": ["Read", "Grep", "Write", "Edit", "leaf-Read", "leaf-Write", "leaf-Edit"],
+      "expected": "workspace_policy_blocked",
+      "invariant": "real credential bytes unchanged"
+    },
+    {
+      "id": "B-02",
+      "case": "outside-of-root file and directory symlinks: outside.txt -> ../../outside/.env, outside_dir -> ../../outside",
+      "targets": ["outside.txt", "outside_dir/plain.dat"],
+      "tools": ["Read", "Grep", "Glob", "leaf-Read"],
+      "expected": "path_confinement_error",
+      "broad": "excluded with a workspace policy notice; inward safe symlink stays readable"
+    },
+    {
+      "id": "B-03",
+      "case": "bash broad normalization uses the shared case-insensitive rule and keeps templates; appended suffix is still scanned",
+      "targets": [".ENV", ".Env.local", ".envrc", ".aws/credentials", ".docker/config.json", ".config/gcloud/application_default_credentials.json", ".ssh/id_ed25519"],
+      "command": "grep -r PRIVATE_TOKEN",
+      "expected": "no canary in stdout; grep -r PUBLIC_TEMPLATE still returns .env.example",
+      "appended_suffix": "normalized ls -R prefix + '; head -n 1 .env' -> workspace_policy_blocked"
+    },
+    {
+      "id": "B-04",
+      "case": "explicit compound and alias globs are refused, not an empty success",
+      "targets": [".aws/credentials", ".docker/config.json", ".config/gcloud/application_default_credentials.json", "notes.txt"],
+      "tools": ["Glob", "Grep"],
+      "expected": "workspace_policy_blocked",
+      "broad": "credential/outside entries excluded with a workspace policy notice"
+    }
+  ]
 }

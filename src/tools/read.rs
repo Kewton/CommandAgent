@@ -15,8 +15,14 @@ pub fn run(
     end_line: Option<usize>,
     policy: WorkspacePolicy,
 ) -> anyhow::Result<String> {
-    if let Some(refusal) = super::sensitive_path::refusal_for_path(root, path) {
-        return Err(anyhow::Error::new(refusal));
+    match super::sensitive_path::classify_workspace_path(root, path) {
+        super::sensitive_path::PathVerdict::Credential(refusal) => {
+            return Err(anyhow::Error::new(refusal));
+        }
+        super::sensitive_path::PathVerdict::Outside => {
+            return Err(super::sensitive_path::confinement_error(path.display()));
+        }
+        super::sensitive_path::PathVerdict::Inside => {}
     }
     if path.is_dir() {
         return list_directory(root, path, policy);
@@ -48,9 +54,14 @@ pub fn run(
 
 fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::Result<String> {
     let mut entries = Vec::new();
+    let mut excluded = 0usize;
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
         let child = entry.path();
+        if super::sensitive_path::sensitive_skip(root, &child).is_some() {
+            excluded += 1;
+            continue;
+        }
         if should_skip_path(root, &child, policy) {
             continue;
         }
@@ -61,11 +72,26 @@ fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::
         entries.push(label);
     }
     entries.sort();
+    let listing = entries.join("\n");
     Ok(format!(
         "{}\n{}",
         crate::tools::path_guard::relative_display(root, path),
-        entries.join("\n")
+        with_exclusion_notice(listing, excluded)
     ))
+}
+
+fn with_exclusion_notice(listing: String, excluded: usize) -> String {
+    if excluded == 0 {
+        return listing;
+    }
+    if listing.is_empty() {
+        super::sensitive_path::exclusion_notice(excluded)
+    } else {
+        format!(
+            "{listing}\n{}",
+            super::sensitive_path::exclusion_notice(excluded)
+        )
+    }
 }
 
 fn summarize_large_file(content: &str) -> String {

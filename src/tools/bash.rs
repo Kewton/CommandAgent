@@ -160,10 +160,22 @@ where
     let command = strip_workspace_root_cd_prefix(command, root)
         .map(|normalization| normalization.normalized_command)
         .unwrap_or_else(|| command.to_string());
+    // Inspect the caller-supplied command before our own bounded rewrite, so a
+    // command appended after a recognized broad prefix is still scanned.
+    if let Some(reason) = sensitive_bash_rejection(&command) {
+        return Ok(BashOutcome {
+            kind: BashOutcomeKind::Blocked,
+            status: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            summary: reason,
+        });
+    }
     let command = normalize_inspect_command(&command, root)
         .map(|normalization| normalization.normalized)
         .unwrap_or(command);
-    if let Some(reason) = blocked_reason(&command, offline) {
+    if let Some(reason) = structural_blocked_reason(&command, offline) {
         return Ok(BashOutcome {
             kind: BashOutcomeKind::Blocked,
             status: None,
@@ -529,8 +541,9 @@ fn bounded_find_listing_command() -> String {
 
 fn bounded_find_pruned_prefix() -> String {
     format!(
-        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil -o -name .env -o -name '.env.*' -o -name .npmrc -o -name .pypirc -o -name .netrc -o -name .git-credentials -o -name .ssh -o -name 'service-account*.json' -o -name '*.private.key' -o -name '*.private.pem' -o -name '*.p12' -o -name '*.pfx' \\) -prune -o",
-        INSPECT_MAX_DEPTH
+        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil -o {} \\) -prune -o",
+        INSPECT_MAX_DEPTH,
+        super::sensitive_path::find_exclusion_expression()
     )
 }
 
@@ -648,16 +661,15 @@ fn contains_unquoted_shell_control(command: &str) -> bool {
 }
 
 pub fn blocked_reason(command: &str, offline: bool) -> Option<String> {
-    // Our bounded broad-find/broad-grep rewrite already prunes credential
-    // names, so its `-name .env` selectors are a filter, not a read of `.env`.
-    if !command.starts_with(&bounded_find_pruned_prefix())
-        && let Some(reference) = super::sensitive_path::command_references_secret(command)
-    {
-        return Some(
-            super::sensitive_path::SensitivePathRefusal::new(reference, "bash_reference")
-                .to_string(),
-        );
-    }
+    sensitive_bash_rejection(command).or_else(|| structural_blocked_reason(command, offline))
+}
+
+fn sensitive_bash_rejection(command: &str) -> Option<String> {
+    let reference = super::sensitive_path::command_references_secret(command)?;
+    Some(super::sensitive_path::SensitivePathRefusal::new(reference, "bash_reference").to_string())
+}
+
+fn structural_blocked_reason(command: &str, offline: bool) -> Option<String> {
     let lower = command.to_ascii_lowercase();
     if lower.contains("rm -rf /")
         || lower.contains("rm -rf .")

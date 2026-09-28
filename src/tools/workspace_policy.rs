@@ -39,8 +39,11 @@ pub fn ensure_tool_path_allowed(
     policy: WorkspacePolicy,
 ) -> anyhow::Result<()> {
     // Credential blocking is independent of the metadata exception and of the
-    // selected policy: `ControllerMetadataAllowed` does not admit secrets.
-    if let Some(refusal) = super::sensitive_path::refusal_for_path(root, path) {
+    // selected policy: `ControllerMetadataAllowed` does not admit secrets. Root
+    // containment for walkers and leaves is enforced separately (via
+    // `sensitive_skip`/canonical classification and the existing write guards),
+    // so this gate stays a credential/component check only.
+    if let Some(refusal) = super::sensitive_path::credential_refusal(root, path) {
         return Err(anyhow::Error::new(refusal));
     }
     let rel = path.strip_prefix(root).unwrap_or(path);

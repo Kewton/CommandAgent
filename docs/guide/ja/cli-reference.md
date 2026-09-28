@@ -143,7 +143,10 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   対する Read/Glob/Grep/Write/Edit の遮断と、Bash/argv の明示した直接参照の実行前拒否を
   解除しません。例外は `.env.example`、`.env.sample`、`.env.template` の厳密な basename
   だけで、`.env.example.local` のような変種は拒否され、template 名から秘密への symlink も
-  拒否されます。詳細は [セキュリティモデル](../../../SECURITY.md) を参照してください。
+  拒否されます。親ディレクトリの symlink（`keys` → `.ssh`、`cfg` → `.aws` など）経由や、
+  canonical target がワークスペース外になる path も Read/Write/Edit/Grep で拒否され、
+  広域列挙では秘密本文を出さずにポリシー除外を知らせます。詳細は
+  [セキュリティモデル](../../../SECURITY.md) を参照してください。
 - アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
   `only one action selector can be used at a time` で失敗します。
 - `--completions` と `--generate-man` は、他のすべてのアクション選択フラグおよび

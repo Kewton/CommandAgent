@@ -190,23 +190,113 @@ fn strip_root(root: &Path, path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// True when the lexical name or the canonical target is a credential path.
+/// Classification of a workspace path for credential blocking and containment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathVerdict {
+    /// Inside the workspace root and not a credential.
+    Inside,
+    /// A credential by lexical name or by canonical target.
+    Credential(SensitivePathRefusal),
+    /// The canonical target resolves outside the workspace root.
+    Outside,
+}
+
+/// Reason a walker should exclude a path without leaking its name or bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkippedPath {
+    Credential,
+    Outside,
+}
+
+fn canonical_target(root: &Path, path: &Path) -> Option<(PathBuf, PathBuf)> {
+    let canonical_root = root.canonicalize().ok()?;
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    if absolute.exists() {
+        return absolute
+            .canonicalize()
+            .ok()
+            .map(|canonical| (canonical, canonical_root));
+    }
+    let mut tail = Vec::new();
+    let mut cursor = absolute.as_path();
+    loop {
+        match std::fs::symlink_metadata(cursor) {
+            Ok(_) => {
+                let mut resolved = cursor.canonicalize().ok()?;
+                for name in tail.iter().rev() {
+                    resolved.push(name);
+                }
+                return Some((resolved, canonical_root));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = cursor.file_name()?.to_os_string();
+                tail.push(name);
+                cursor = cursor.parent()?;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Classifies a path by lexical name and by canonical target.
 ///
-/// The lexical check catches new (not yet existing) names; the canonical check
-/// catches a template-name symlink whose target is a secret.
-pub fn refusal_for_path(root: &Path, path: &Path) -> Option<SensitivePathRefusal> {
+/// The canonical check does not depend on the final component being a symlink:
+/// a symlinked parent directory (for example `keys` -> `.ssh`) still resolves a
+/// credential child. A not-yet-existing target is judged by its canonical
+/// existing parent plus the created name. `Outside` is distinct from `Inside`
+/// so callers never read `None` as proof of containment.
+pub fn classify_workspace_path(root: &Path, path: &Path) -> PathVerdict {
     if let Some(relative) = strip_root(root, path)
         && let Some(rule) = relative_path_rule(&relative)
     {
-        return Some(SensitivePathRefusal::new(display_path(&relative), rule));
+        return PathVerdict::Credential(SensitivePathRefusal::new(display_path(&relative), rule));
     }
-    if !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return None;
+    let Some((canonical, canonical_root)) = canonical_target(root, path) else {
+        return PathVerdict::Inside;
+    };
+    match canonical.strip_prefix(&canonical_root) {
+        Ok(relative) => match relative_path_rule(relative) {
+            Some(rule) => {
+                PathVerdict::Credential(SensitivePathRefusal::new(display_path(relative), rule))
+            }
+            None => PathVerdict::Inside,
+        },
+        Err(_) => PathVerdict::Outside,
     }
-    let canonical = path.canonicalize().ok()?;
-    let relative = strip_root(root, &canonical)?;
-    relative_path_rule(&relative)
-        .map(|rule| SensitivePathRefusal::new(display_path(&relative), rule))
+}
+
+/// Credential refusal for a path, ignoring containment. `None` means "not a
+/// credential"; it is not a statement that the path is inside the root.
+pub fn credential_refusal(root: &Path, path: &Path) -> Option<SensitivePathRefusal> {
+    match classify_workspace_path(root, path) {
+        PathVerdict::Credential(refusal) => Some(refusal),
+        PathVerdict::Inside | PathVerdict::Outside => None,
+    }
+}
+
+/// Walker exclusion reason: credential or an out-of-root symlink target.
+pub fn sensitive_skip(root: &Path, path: &Path) -> Option<SkippedPath> {
+    match classify_workspace_path(root, path) {
+        PathVerdict::Credential(_) => Some(SkippedPath::Credential),
+        PathVerdict::Outside => Some(SkippedPath::Outside),
+        PathVerdict::Inside => None,
+    }
+}
+
+pub fn confinement_error(subject: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!(
+        "path escapes workspace: `{subject}` resolves outside the current workspace root through a symlink; use workspace-relative paths"
+    )
+}
+
+/// Non-leaking notice that a broad enumeration excluded protected entries, so
+/// an empty or shorter result is not mistaken for "nothing exists".
+pub fn exclusion_notice(excluded: usize) -> String {
+    format!("[commandagent: {excluded} workspace path(s) excluded by workspace policy]")
 }
 
 pub fn refusal_for_relative(display: &str, relative: &Path) -> Option<SensitivePathRefusal> {
@@ -214,21 +304,76 @@ pub fn refusal_for_relative(display: &str, relative: &Path) -> Option<SensitiveP
 }
 
 pub fn path_is_sensitive(root: &Path, path: &Path) -> bool {
-    refusal_for_path(root, path).is_some()
+    credential_refusal(root, path).is_some()
 }
 
 pub fn ensure_not_sensitive_path(root: &Path, path: &Path) -> anyhow::Result<()> {
-    match refusal_for_path(root, path) {
+    match credential_refusal(root, path) {
         Some(refusal) => Err(anyhow::Error::new(refusal)),
         None => Ok(()),
     }
 }
 
-/// Rejects an explicit glob segment that names a credential.
-///
-/// Broad globs such as `**/*` return `None`; the walkers exclude secret entries
-/// separately. A template segment (`.env.example`) is allowed.
+/// Rejects an explicit glob that names a credential or resolves outside the
+/// root. Broad globs return `None`; their walkers exclude those entries and
+/// report the exclusion separately.
+pub fn explicit_glob_rejection(root: &Path, pattern: &str) -> Option<anyhow::Error> {
+    if let Some(reference) = glob_references_secret(pattern) {
+        return Some(anyhow::Error::new(SensitivePathRefusal::glob(reference)));
+    }
+    if !is_literal_glob(pattern) {
+        return None;
+    }
+    let candidate = if Path::new(pattern).is_absolute() {
+        PathBuf::from(pattern)
+    } else {
+        root.join(pattern)
+    };
+    match classify_workspace_path(root, &candidate) {
+        PathVerdict::Credential(refusal) => Some(anyhow::Error::new(refusal)),
+        PathVerdict::Outside => Some(confinement_error(pattern)),
+        PathVerdict::Inside => None,
+    }
+}
+
+fn is_literal_glob(pattern: &str) -> bool {
+    !pattern
+        .chars()
+        .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | '!'))
+}
+
+/// Case-insensitive `find` name/path predicates that select every path the
+/// credential predicate denies. Kept beside the predicate so the shared rule
+/// and the bounded broad-walk prune cannot drift; the three strict templates
+/// stay selectable.
+pub fn find_exclusion_expression() -> String {
+    [
+        "-iname '.env'",
+        "\\( -iname '.env.*' ! -iname '.env.example' ! -iname '.env.sample' ! -iname '.env.template' \\)",
+        "-iname '.envrc'",
+        "-iname '.npmrc'",
+        "-iname '.pypirc'",
+        "-iname '.netrc'",
+        "-iname '.git-credentials'",
+        "-iname '.ssh'",
+        "-iname 'service-account*.json'",
+        "-iname '*.private.key'",
+        "-iname '*.private.pem'",
+        "-iname '*.p12'",
+        "-iname '*.pfx'",
+        "-ipath '*/.aws/credentials'",
+        "-ipath '*/.docker/config.json'",
+        "-ipath '*/.config/gcloud/application_default_credentials.json'",
+    ]
+    .join(" -o ")
+}
+
+/// Rejects an explicit glob segment or whole compound path that names a
+/// credential.
 pub fn glob_references_secret(pattern: &str) -> Option<String> {
+    if relative_path_rule(Path::new(pattern)).is_some() {
+        return Some(pattern.to_string());
+    }
     for raw_segment in pattern.split(['/', '\\']) {
         let segment = raw_segment.trim();
         if segment.is_empty() || matches!(segment, "." | "..") {
@@ -324,20 +469,7 @@ pub fn command_references_secret(command: &str) -> Option<String> {
 }
 
 fn argument_refusal(root: &Path, raw: &str) -> Option<SensitivePathRefusal> {
-    if let Some(refusal) = refusal_for_relative(&display_argument(root, raw), Path::new(raw)) {
-        return Some(refusal);
-    }
-    Path::new(raw)
-        .is_absolute()
-        .then(|| refusal_for_path(root, Path::new(raw)))
-        .flatten()
-}
-
-fn display_argument(root: &Path, raw: &str) -> String {
-    match strip_root(root, Path::new(raw)) {
-        Some(relative) => display_path(&relative),
-        None => display_path(Path::new(raw)),
-    }
+    credential_refusal(root, Path::new(raw))
 }
 
 /// Rejects a direct credential reference in a built-in tool argument before any
@@ -347,26 +479,29 @@ pub fn argument_reference_rejection(
     arguments: &Value,
     root: &Path,
 ) -> Option<anyhow::Error> {
-    let refusal = match name {
+    match name {
         "Read" | "Write" | "Edit" => {
             let raw = arguments.get("path").and_then(Value::as_str)?;
-            argument_refusal(root, raw)?
+            Some(anyhow::Error::new(argument_refusal(root, raw)?))
         }
         "Glob" => {
             let pattern = arguments.get("pattern").and_then(Value::as_str)?;
-            SensitivePathRefusal::glob(glob_references_secret(pattern)?)
+            explicit_glob_rejection(root, pattern)
         }
         "Grep" => {
             let glob = arguments.get("glob").and_then(Value::as_str)?;
-            SensitivePathRefusal::glob(glob_references_secret(glob)?)
+            explicit_glob_rejection(root, glob)
         }
         "Bash" => {
             let command = arguments.get("command").and_then(Value::as_str)?;
-            SensitivePathRefusal::new(command_references_secret(command)?, "bash_reference")
+            let reference = command_references_secret(command)?;
+            Some(anyhow::Error::new(SensitivePathRefusal::new(
+                reference,
+                "bash_reference",
+            )))
         }
-        _ => return None,
-    };
-    Some(anyhow::Error::new(refusal))
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -477,15 +612,47 @@ mod tests {
         std::fs::write(dir.path().join(".env"), "CANARY\n").unwrap();
         std::os::unix::fs::symlink(dir.path().join(".env"), dir.path().join(".env.example"))
             .unwrap();
-        let refusal = refusal_for_path(dir.path(), &dir.path().join(".env.example")).unwrap();
+        let refusal = credential_refusal(dir.path(), &dir.path().join(".env.example")).unwrap();
         assert_eq!(refusal.rule, "dotenv");
     }
 
     #[test]
     fn new_secret_name_is_refused_without_reading_anything() {
         let dir = tempfile::tempdir().unwrap();
-        let refusal = refusal_for_path(dir.path(), &dir.path().join(".env")).unwrap();
+        let refusal = credential_refusal(dir.path(), &dir.path().join(".env")).unwrap();
         assert_eq!(refusal.rule, "dotenv");
         assert!(!refusal.to_string().contains("CANARY"));
+    }
+
+    #[test]
+    fn parent_symlink_and_outside_target_are_classified() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("workspace");
+        std::fs::create_dir_all(root.join(".ssh")).unwrap();
+        std::fs::write(root.join(".ssh/id_ed25519"), "CANARY\n").unwrap();
+        std::os::unix::fs::symlink(root.join(".ssh"), root.join("keys")).unwrap();
+        assert!(matches!(
+            classify_workspace_path(&root, &root.join("keys/id_ed25519")),
+            PathVerdict::Credential(_)
+        ));
+        assert!(matches!(
+            classify_workspace_path(&root, &root.join("keys/new_key")),
+            PathVerdict::Credential(_)
+        ));
+
+        let outside = dir.path().join("outside.env");
+        std::fs::write(&outside, "CANARY\n").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("outside.txt")).unwrap();
+        assert_eq!(
+            classify_workspace_path(&root, &root.join("outside.txt")),
+            PathVerdict::Outside
+        );
+
+        std::fs::write(root.join("safe.txt"), "ok\n").unwrap();
+        std::os::unix::fs::symlink(root.join("safe.txt"), root.join("link.txt")).unwrap();
+        assert_eq!(
+            classify_workspace_path(&root, &root.join("link.txt")),
+            PathVerdict::Inside
+        );
     }
 }
