@@ -138,10 +138,12 @@ pub fn run_with_provider_options(
     }
     let pack = cli_pack::resolve(&pack_cli, &config)?;
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
-    let summary_source =
-        summary_json.then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
+    let summary_source = (summary_json && action_may_project_summary(&config.action))
+        .then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
     let result = run_resolved_config_with_summary(config, summary_source.clone());
-    if let Some(source) = summary_source {
+    if let Some(source) = summary_source
+        && (source.has_persisted_events() || source.has_selected_pack())
+    {
         println!("{}", headless_summary::render(&source));
     }
     result
@@ -224,7 +226,10 @@ fn run_config(
     }
     let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
-    emit_run_start(&config);
+    let records_run = action_records_run_evidence(&config.action);
+    if records_run {
+        emit_run_start(&config);
+    }
     if let Some(estimate) = tui::footer::startup_duration_estimate(&config) {
         eprintln!("{estimate}");
     }
@@ -412,7 +417,9 @@ fn run_config(
     if let Some(guard) = direct_command_guard.as_ref() {
         guard.finalize(&result);
     }
-    emit_run_stop(&config, &result);
+    if records_run {
+        emit_run_stop(&config, &result);
+    }
     result
 }
 
@@ -439,6 +446,23 @@ fn action_uses_workspace_lock(action: &Action) -> bool {
         action,
         Action::Runs(_) | Action::UxDemo | Action::ModelProbe | Action::Doctor
     )
+}
+
+/// Whether the action starts and stops a run recorded in the event stream.
+///
+/// `--ux-demo` only renders a scripted demo, so it must not record run
+/// start/stop events. `--runs` never reaches the recording points either.
+fn action_records_run_evidence(action: &Action) -> bool {
+    !matches!(action, Action::Runs(_) | Action::UxDemo)
+}
+
+/// Whether the action may project a headless summary at all.
+///
+/// `--ux-demo` reports a scripted interruption, not a run, so it never projects
+/// a summary, even with `--summary-json`. A read-only `--runs` may still project
+/// a resolved pack, which is run-independent evidence.
+fn action_may_project_summary(action: &Action) -> bool {
+    !matches!(action, Action::UxDemo)
 }
 
 enum DirectActionUi {

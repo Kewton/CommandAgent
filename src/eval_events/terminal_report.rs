@@ -275,11 +275,29 @@ fn verification_observations(events: &[Value]) -> Vec<VerificationObservation> {
     let mut observations = BTreeMap::<String, VerificationObservation>::new();
     for event in events {
         collect_declared_commands(event, &mut observations);
+        collect_verify_command_observation(event, &mut observations);
         collect_declarative_command_check(event, &mut observations);
         collect_build_verifier_observations(event, &mut observations);
         collect_timeout_observation(event, &mut observations);
     }
     observations.into_values().collect()
+}
+
+fn collect_verify_command_observation(
+    event: &Value,
+    observations: &mut BTreeMap<String, VerificationObservation>,
+) {
+    if event_name(event) != Some("verify_command_observed") {
+        return;
+    }
+    let Some(command) = text(event, "effective_command") else {
+        return;
+    };
+    let status = text(event, "status")
+        .as_deref()
+        .map(VerificationStatus::from_value)
+        .unwrap_or(VerificationStatus::NotRecorded);
+    record_observation(observations, command, status, None);
 }
 
 fn collect_declared_commands(
@@ -535,6 +553,44 @@ mod tests {
             }
         );
         assert_eq!(report.verifications[2].status, VerificationStatus::Passed);
+    }
+
+    #[test]
+    fn plan_verify_execution_observations_populate_verify_commands() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue513-plan-verify-projection/fixtures/plan-verify-events.jsonl",
+        );
+        let events = read_events(Some(&path));
+
+        let report = project(&events, Some(&path), None, None, None);
+
+        assert!(
+            !report.verifications.is_empty(),
+            "a run that executed plan verify must not project empty verify_commands"
+        );
+        let by_command = report
+            .verifications
+            .iter()
+            .map(|observation| (observation.command.as_str(), observation.status))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            by_command.get("cargo test --test smoke"),
+            Some(&VerificationStatus::Passed)
+        );
+        assert_eq!(
+            by_command.get("python3 -m pytest tests"),
+            Some(&VerificationStatus::Passed)
+        );
+        assert_eq!(
+            by_command.get("npm run build"),
+            Some(&VerificationStatus::Failed)
+        );
+        assert_eq!(
+            by_command.get("test -f artifacts/report.json"),
+            Some(&VerificationStatus::NotRecorded),
+            "a declared-only command must not be upgraded to success"
+        );
+        assert_eq!(report.status, Some(TerminalStatus::Failed));
     }
 
     #[test]

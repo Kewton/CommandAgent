@@ -15,6 +15,55 @@ fn omitted_flag_preserves_stdout_bytes() {
     );
 }
 
+// A read-only action with no persisted run and no selected pack has nothing to
+// project, so `--summary-json` must leave its stdout bytes unchanged.
+#[test]
+fn runs_summary_json_is_suppressed_without_run_or_pack() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--runs",
+            "--summary-json",
+            "--cwd",
+            workspace.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout,
+        include_bytes!("fixtures/summary-json-omitted.stdout")
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("commandagent.headless-summary/v1"),
+        "a run-less action with no evidence must not project a headless summary"
+    );
+}
+
+#[test]
+fn ux_demo_summary_json_is_suppressed_without_recording_a_run() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--ux-demo",
+            "--summary-json",
+            "--no-footer",
+            "--cwd",
+            workspace.path().to_str().unwrap(),
+        ])
+        .env("COMMANDAGENT_UX_DEMO_FAST", "1")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{:?}", output.status);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("commandagent.headless-summary/v1"),
+        "ux-demo must not emit a headless summary: {stdout}"
+    );
+}
+
 #[test]
 fn requested_summary_is_the_final_stdout_line_even_on_failure() {
     let workspace = tempfile::tempdir().unwrap();
