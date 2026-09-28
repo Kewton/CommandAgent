@@ -89,6 +89,14 @@ Approval is always written, never implied: the PM's dispatch brief says
      the latest `origin/develop` into the branch after the worker PRs merge,
      and open the PR as `#<N> <summary>`. Merge follows the same user approval.
    - State dependencies as `depends on #N`; plans run with `--no-infer`.
+   - Put everything the worker needs in the Issue body before dispatch: the
+     decided design and its key evidence, the acceptance procedure (for
+     example, how to reproduce load or port contention), and where scratch
+     checkouts and bulk output go (outside the worker's worktree). A message
+     sent to a worker during its first turn is not delivered (the send times
+     out waiting for the composer), so do not rely on post-dispatch
+     supplements. A helper's report under the PM's `workspace/tmp/` is not in
+     the worker's checkout; copy the parts the worker needs into the Issue.
 3. **Plan check and approval (PM).** The PM dry-runs the plan
    (`--profile rust-commandagent --no-infer`, with `--runs-dir` under
    `/Volumes/SSD_NX/tmp/`) and confirms zero blocking questions, a risk level
@@ -107,8 +115,10 @@ Approval is always written, never implied: the PM's dispatch brief says
 
    Verification is load-sensitive. `--reverify` always verifies its Issues
    concurrently and cannot be serialized (Kewton/commandmate-skills#274), and
-   under CPU pressure or port contention some tests fail for reasons unrelated
-   to the change (#537). Before a (re)verify, check `uptime` and that no other
+   under CPU pressure or port contention some tests can fail for reasons
+   unrelated to the change. #537 fixed the tests observed to fail this way and
+   those sharing their causes; similar candidates not yet observed to fail are
+   tracked in #541. Before a (re)verify, check `uptime` and that no other
    `cargo test` or `commandmate verify` is running; wait until the 5-minute
    load average is below about 14. A failure that disappears when each Issue
    is verified alone is a flake, not a pass: record both results and do not
@@ -200,7 +210,7 @@ Approval is always written, never implied: the PM's dispatch brief says
 | PM | not applicable |
 | Development leader | on, with the stop pattern below, 8 hours. Prompts that auto-yes leaves open go to the PM |
 | Helpers (Codex_Sub, Antigravity) | on, with the stop pattern below, 8 hours |
-| Workers | on, through dispatch `--auto-yes` |
+| Workers | on, through dispatch `--auto-yes`. It can switch off mid-run; the leader watches each worker's `autoYes`, answers an open prompt inside the Issue's scope (otherwise reports to the PM), and re-enables it |
 
 auto-yes answers tool prompts only. It does not grant any authority in
 section 2: the leader still needs the PM's written approval to dispatch and the
