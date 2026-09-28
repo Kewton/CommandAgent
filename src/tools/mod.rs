@@ -17,5 +17,6 @@ pub mod read;
 pub(crate) mod read_missing;
 pub mod registry;
 mod repeated_read;
+pub mod sensitive_path;
 pub mod workspace_policy;
 pub mod write;

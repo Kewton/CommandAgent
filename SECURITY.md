@@ -60,6 +60,40 @@ This narrows symlink escape risk but is not a complete kernel-level sandbox.
 There remains a TOCTOU window on intermediate path components; hostile
 workspaces require a separate containment layer.
 
+## Credential Paths
+
+Read, Glob, Grep, Write, and Edit refuse workspace credentials for every
+`WorkspacePolicy` and independently of the metadata exception. `--yes` and
+`--allow` do not lift this block; there is deliberately no opt-in to read
+workspace credentials in this change.
+
+- Denied names (ASCII case-insensitive, nested components included): `.env`,
+  `.env.*`, `.envrc`, `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`,
+  anything under `.ssh`, `.aws/credentials`, `.docker/config.json`,
+  `.config/gcloud/application_default_credentials.json`, `service-account*.json`,
+  `*.private.key`, `*.private.pem`, `*.p12`, and `*.pfx`.
+- The only exceptions are the exact basenames `.env.example`, `.env.sample`, and
+  `.env.template`. `.env.example.local` and `.env.production.example` are
+  refused, and a template name that is a symlink to a credential is refused
+  through its canonical target. Ordinary `.pem`/`.key` files are not denied.
+- Broad Read directory listings, Glob, and Grep exclude credentials instead of
+  leaking their names or contents; an explicitly named secret glob is refused.
+- Bash refuses an explicit credential path before execution and before a general
+  approval request, and the bounded broad-grep/broad-find rewrites prune the
+  credential names.
+- Extension tool `WorkspacePath` arguments refuse credentials, and an unmediated
+  directory `WorkspacePath` is refused because nested credentials cannot be
+  guaranteed before the executor runs.
+- Pack input reads and declarative command-check argv refuse credentials at
+  registration and before spawn.
+
+Because the refusal happens before any read, a rejected call returns an honest
+refusal that contains no credential bytes or expansion value. This is not a
+claim that no arbitrary Bash program can read a secret: dynamic variables,
+indirect scripts, encodings, hardlinks, copies, and TOCTOU are tracked
+separately by #502. Keep real secrets outside the agent workspace and edit the
+template files instead.
+
 ## Backlog
 
 - Container-sandboxed execution track: run Bash/verifier commands inside a

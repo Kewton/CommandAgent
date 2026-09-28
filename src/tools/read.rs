@@ -15,6 +15,9 @@ pub fn run(
     end_line: Option<usize>,
     policy: WorkspacePolicy,
 ) -> anyhow::Result<String> {
+    if let Some(refusal) = super::sensitive_path::refusal_for_path(root, path) {
+        return Err(anyhow::Error::new(refusal));
+    }
     if path.is_dir() {
         return list_directory(root, path, policy);
     }

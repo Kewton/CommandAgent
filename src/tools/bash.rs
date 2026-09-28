@@ -529,7 +529,7 @@ fn bounded_find_listing_command() -> String {
 
 fn bounded_find_pruned_prefix() -> String {
     format!(
-        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil \\) -prune -o",
+        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil -o -name .env -o -name '.env.*' -o -name .npmrc -o -name .pypirc -o -name .netrc -o -name .git-credentials -o -name .ssh -o -name 'service-account*.json' -o -name '*.private.key' -o -name '*.private.pem' -o -name '*.p12' -o -name '*.pfx' \\) -prune -o",
         INSPECT_MAX_DEPTH
     )
 }
@@ -648,6 +648,16 @@ fn contains_unquoted_shell_control(command: &str) -> bool {
 }
 
 pub fn blocked_reason(command: &str, offline: bool) -> Option<String> {
+    // Our bounded broad-find/broad-grep rewrite already prunes credential
+    // names, so its `-name .env` selectors are a filter, not a read of `.env`.
+    if !command.starts_with(&bounded_find_pruned_prefix())
+        && let Some(reference) = super::sensitive_path::command_references_secret(command)
+    {
+        return Some(
+            super::sensitive_path::SensitivePathRefusal::new(reference, "bash_reference")
+                .to_string(),
+        );
+    }
     let lower = command.to_ascii_lowercase();
     if lower.contains("rm -rf /")
         || lower.contains("rm -rf .")
@@ -656,9 +666,6 @@ pub fn blocked_reason(command: &str, offline: bool) -> Option<String> {
         || lower.contains("chmod -r")
         || lower.contains("printenv")
         || lower.contains("env |")
-        || lower.contains("cat ~/.ssh")
-        || lower.contains("cat .env")
-        || lower.contains("grep ") && lower.contains(".env")
         || lower.contains("/etc/passwd")
         || lower.contains("curl ") && lower.contains("| sh")
         || lower.contains("wget ") && lower.contains("| sh")

@@ -26,6 +26,7 @@ pub fn write_checked(root: &Path, path: &Path, content: &str) -> anyhow::Result<
 }
 
 pub fn ensure_mutation_allowed(root: &Path, path: &Path) -> anyhow::Result<()> {
+    super::sensitive_path::ensure_not_sensitive_path(root, path)?;
     reject_target_symlink(path)?;
     verify_existing_components_inside(root, path)
 }

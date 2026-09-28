@@ -7,6 +7,7 @@ use regex::Regex;
 
 use crate::planner::capability_catalog::PackInternalCheck;
 use crate::tools::path_guard::resolve_existing;
+use crate::tools::sensitive_path;
 use crate::tools::workspace_policy::{WorkspacePolicy, should_skip_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +75,14 @@ fn design_tokens_only(
 ) -> anyhow::Result<PackCheckResult> {
     let token_path = resolve_existing(root, tokens_file)
         .with_context(|| format!("design token file is unavailable: {tokens_file}"))?;
+    if sensitive_path::path_is_sensitive(root, &token_path) {
+        return Ok(result(
+            "design_tokens_only",
+            vec![format!(
+                "design token file is a protected credential path: {tokens_file}"
+            )],
+        ));
+    }
     let paths = workspace_paths(root)?;
     let matchers = css_globs
         .iter()
@@ -125,6 +134,14 @@ fn lint_config_present(
             ));
         }
     };
+    if sensitive_path::path_is_sensitive(root, &config) {
+        return Ok(result(
+            "lint_config_present",
+            vec![format!(
+                "lint config file is a protected credential path: {path}"
+            )],
+        ));
+    }
     let content = match std::fs::read_to_string(&config) {
         Ok(content) => content,
         Err(_) => {

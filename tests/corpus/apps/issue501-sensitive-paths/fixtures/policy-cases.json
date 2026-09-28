@@ -1,0 +1,51 @@
+{
+  "issue": 501,
+  "kind": "synthetic-policy-cases",
+  "canary": "H01_CANARY_JwtStyle_NonPrefix_29486",
+  "note": "Synthetic values only. No real .env, API key, model, or provider request is used; the canary is a fake marker written and read inside an isolated temp workspace.",
+  "sensitive_names": [
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".envrc",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    ".ssh",
+    ".aws/credentials",
+    ".docker/config.json",
+    ".config/gcloud/application_default_credentials.json",
+    "service-account.json",
+    "app.private.key",
+    "app.private.pem",
+    "cert.p12",
+    "cert.pfx"
+  ],
+  "template_exceptions": [".env.example", ".env.sample", ".env.template"],
+  "rejected_variants": [".env.example.local", ".env.production.example"],
+  "cases": [
+    {"tool": "Read", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Read", "target": ".env", "mode": "plan", "expected": "workspace_policy_blocked"},
+    {"tool": "Read", "target": ".env.example", "expected": "allowed"},
+    {"tool": "Glob", "pattern": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Glob", "pattern": "**/*", "expected": "secret-excluded"},
+    {"tool": "Grep", "glob": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Write", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Edit", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Write", "target": ".env.example", "expected": "allowed"},
+    {"tool": "Bash", "command": "cat .env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "head -n 1 .env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat --file=.env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat .env > leaked.txt", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat .env.example", "expected": "allowed"},
+    {"tool": "MCP", "workspace_path": ".env", "expected": "extension_tool_rejected"},
+    {"tool": "MCP", "workspace_path": "data", "kind": "directory", "expected": "extension_tool_rejected"},
+    {"tool": "argv", "value": ".env", "expected": "workspace_policy_blocked"}
+  ],
+  "template_symlink": {
+    "link": ".env.example",
+    "target": ".env",
+    "expected": "workspace_policy_blocked"
+  }
+}

@@ -1,0 +1,43 @@
+case_id = "issue501-sensitive-paths"
+source = "Issue #501 credential-path blocking across Read/Glob/Grep/Write/Edit/Bash/pack argv/MCP WorkspacePath"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/policy-cases.json = [
+  "\"canary\": \"H01_CANARY_JwtStyle_NonPrefix_29486\"",
+  "\"template_exceptions\": [\".env.example\", \".env.sample\", \".env.template\"]",
+  "\"rejected_variants\": [\".env.example.local\", \".env.production.example\"]",
+  "\"tool\": \"Read\"",
+  "\"tool\": \"Glob\"",
+  "\"tool\": \"Grep\"",
+  "\"tool\": \"Write\"",
+  "\"tool\": \"Edit\"",
+  "\"command\": \"head -n 1 .env\"",
+  "\"command\": \"cat --file=.env\"",
+  "\"command\": \"cat .env > leaked.txt\"",
+  "\"tool\": \"MCP\"",
+  "\"kind\": \"directory\"",
+  "\"expected\": \"workspace_policy_blocked\"",
+  "\"expected\": \"extension_tool_rejected\""
+]
