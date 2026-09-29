@@ -553,6 +553,14 @@ impl DirectCommandCompletionGuard {
                 let signal_command = command.clone();
                 let signal_finalized = finalized.clone();
                 signal_thread = Some(std::thread::spawn(move || {
+                    // This product thread may project a headless summary or emit
+                    // a stop event. Resolve the run's scope by events path so a
+                    // non-installed thread still scrubs registered secrets.
+                    if let Some(context) =
+                        sensitive_data::active_for(signal_config.eval_events_path.as_deref())
+                    {
+                        sensitive_data::set_current(Some(context));
+                    }
                     if signals.forever().next().is_some() {
                         if !signal_finalized.swap(true, Ordering::AcqRel) {
                             let result: anyhow::Result<()> =

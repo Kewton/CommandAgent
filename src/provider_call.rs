@@ -757,9 +757,13 @@ fn scrub_conversation(
         if let Some(name) = message.name.as_mut() {
             *name = context.scrub_text(name);
         }
+        if let Some(tool_call_id) = message.tool_call_id.as_mut() {
+            *tool_call_id = context.scrub_text(tool_call_id);
+        }
         for call in &mut message.tool_calls {
+            call.id = context.scrub_text(&call.id);
             call.name = context.scrub_text(&call.name);
-            context.scrub_value(&mut call.arguments);
+            context.scrub_value_lenient(&mut call.arguments);
         }
     }
 }
@@ -770,7 +774,7 @@ fn scrub_tool_specs(context: &crate::sensitive_data::RedactionContext, tools: &m
         tool.kind = context.scrub_text(&tool.kind);
         tool.function.name = context.scrub_text(&tool.function.name);
         tool.function.description = context.scrub_text(&tool.function.description);
-        context.scrub_value(&mut tool.function.parameters);
+        context.scrub_value_lenient(&mut tool.function.parameters);
     }
 }
 

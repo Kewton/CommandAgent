@@ -128,7 +128,7 @@ pub(crate) fn to_vec_pretty<T: Serialize>(
     })
     .context("project enveloped evidence")?;
     if let Some(context) = crate::sensitive_data::current() {
-        context.scrub_value(&mut document);
+        context.scrub_value_lenient(&mut document);
     }
     serde_json::to_vec_pretty(&document).context("serialize enveloped evidence")
 }

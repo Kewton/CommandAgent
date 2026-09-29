@@ -165,7 +165,7 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
 /// secret only by name and is rewritten in place.
 fn redact_event(path: Option<&Path>, event: &mut Value) {
     if let Some(context) = crate::sensitive_data::active_for(path) {
-        context.scrub_value(event);
+        context.scrub_value_lenient(event);
     }
 }
 
@@ -3127,10 +3127,12 @@ pub fn argument_shape(arguments: &Value) -> Value {
 }
 
 pub fn body_snippet(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    // Scrub the complete value first: newline flattening and whitespace
+    // normalization must not be able to hide a registered value's fragments.
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
-    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(SNIPPET_LIMIT).collect()
 }
@@ -3139,12 +3141,12 @@ pub fn body_snippet(body: &str) -> String {
 /// Reproducer output is injected into a later model prompt, so bounding and the
 /// same secret/home-path redaction used by event snippets are mandatory.
 pub(crate) fn body_tail_snippet(body: &str) -> String {
-    let mut clean = body
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
         .join("\n");
-    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     let count = clean.chars().count();
     clean
@@ -3154,21 +3156,21 @@ pub(crate) fn body_tail_snippet(body: &str) -> String {
 }
 
 pub fn body_snippet_whole_tokens(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
-    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     truncate_whole_tokens(&clean, SNIPPET_LIMIT)
 }
 
 pub(crate) fn scrub_sensitive_text(value: &str) -> String {
-    let clean = value
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
         .join("\n");
-    let clean = crate::sensitive_data::scrub_active(&clean);
     redact_home_paths(&clean)
 }
 
@@ -3199,12 +3201,14 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(body: &str) -> String {
-    let clean = body.replace("\r\n", "\n").replace('\r', "\n");
+    // Scrub the complete value before line splitting so a multiline registered
+    // value cannot survive as two fragments.
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
     let mut out = String::new();
     let mut len = 0usize;
     for line in clean.lines().map(redact_secret_like) {
-        let line = crate::sensitive_data::scrub_active(&line);
         let line_len = line.chars().count();
         let next_len = len + usize::from(!out.is_empty()) + line_len;
         if next_len > SUMMARY_LIMIT {
@@ -3251,9 +3255,9 @@ fn argument_value_summary(key: &str, value: &Value) -> Value {
 }
 
 fn safe_preview(value: &str) -> String {
-    let mut clean = value.replace('\n', "\\n").replace('\r', "\\r");
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let mut clean = scrubbed.replace('\n', "\\n").replace('\r', "\\r");
     clean = redact_secret_like(&clean);
-    clean = crate::sensitive_data::scrub_active(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(120).collect()
 }
@@ -3344,6 +3348,29 @@ mod tests {
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
         let summary = summary_body(&format!("{}\n{}", "日本語".repeat(1_000), body));
         assert!(summary.chars().count() <= SUMMARY_LIMIT);
+    }
+
+    #[test]
+    fn snippets_scrub_before_newline_and_whitespace_normalization() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let multiline = "H05_NEWLINE_alpha\nH05_NEWLINE_beta";
+        let spaced = "H05_SPACE_alpha  H05_SPACE_beta";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(multiline);
+        catalog.register(spaced);
+        crate::sensitive_data::install_scope(
+            catalog,
+            None,
+            Some(std::path::Path::new("/tmp/h05-eval-events")),
+        );
+
+        assert!(!body_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!body_snippet(spaced).contains("H05_SPACE"));
+        assert!(!body_tail_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!summary_body(multiline).contains("H05_NEWLINE"));
+        let preview = argument_value_summary("command", &json!(multiline)).to_string();
+        assert!(!preview.contains("H05_NEWLINE"), "{preview}");
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]

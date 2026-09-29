@@ -128,7 +128,7 @@ pub(super) fn buffer(path: &Path, event: &Value) -> anyhow::Result<bool> {
     // only ever receives protected bytes, including provider-thread events.
     let mut protected = event.clone();
     if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
-        context.scrub_value(&mut protected);
+        context.scrub_value_lenient(&mut protected);
     }
     let event = &protected;
     PENDING.with_borrow_mut(|pending| {

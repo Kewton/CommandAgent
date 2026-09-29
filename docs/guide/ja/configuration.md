@@ -105,11 +105,11 @@ provider 送信の各境界で同じ exact-value scrub を適用します。`sk-
 推定 scrub も併用しますが、形式に合わない資格情報はこの値集合で保護します。登録元は次の範囲に
 限り、process 全体の環境変数や任意の credential ファイルを再帰的に走査することはありません。
 
-- provider key: 有効な role の `OPENAI_API_KEY`、`GEMINI_API_KEY`、`LM_STUDIO_API_TOKEN`、
-  および `openai-compatible` の `api_key_env`。
+- provider key: 選択した role に関係なく、非空の `OPENAI_API_KEY`、`GEMINI_API_KEY`、
+  `LM_STUDIO_API_TOKEN`、および `openai-compatible` の `api_key_env`。
 - workspace root 直下の `.env` と non-template の `.env.*`（`.env.example` 系は対象外）。
   収集は 64 ファイル・各 1 MiB・catalog 1024 値が上限です。読取失敗、上限超過、symlink の
-  dotenv source は黙って捨てず、その事実を残します。
+  dotenv source は秘密を黙って捨てず、**設定解決を honest に拒否**します。
 - preset の `${ENV}` 展開値。展開は validation 前に登録するため、後続の検証が失敗してもその値は
   error chain に現れません。`${ENV}` 展開値が URL として不正な場合、エラーは field と検証種別
   のみを示し、展開値は stderr・error chain・`--doctor` のいずれにも表示しません。
@@ -117,15 +117,17 @@ provider 送信の各境界で同じ exact-value scrub を適用します。`sk-
 短い値は、資格情報名（`TOKEN`、`API_KEY`、`SECRET`、`PASSWORD` など）と provider／`${ENV}` の
 値を短くても登録します。資格情報名でない一般の dotenv 値は 8 文字以上を保守的に登録し、
 `PORT=3000`、`true`、`dev` のような短い普通の値は自動では秘密にしません。8 文字未満の明示的な
-秘密は、それを含む自由入力 field 全体を伏せます。
+秘密は部分置換せず、それを含む自由入力 field 全体を伏せます。event 名・schema・verdict・type
+などの固定識別子は短い秘密と一致しても書き換えません。
 
 伏せ字は session/events/UI feed/spool/failsafe/evidence/trace/summary、provider に送る会話コピー
-と tool schema、表示用 stream callback に及び、切り詰め・escape・chunk 分割の前に適用します。
-認証ヘッダー、運用 Config、実行引数、検証元の観測値は元の値を保ち、event 名・schema・key・type・
-順序・verdict・source_refs は変えずに値だけを置換します。置換 marker と衝突する値、動的 key が
-秘密を含む JSON は安全に投影できないため、共有 API は honest に拒否できます。登録していない
-秘密は形式推定で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。過去の記録は
-表示時に保護し、書き戻しません。
+と tool schema、表示用 stream callback に及び、切り詰め・escape・chunk 分割の前に完全値へ適用
+します。認証ヘッダー、運用 Config、実行引数、検証元の観測値は元の値を保ち、event 名・schema・
+key・type・順序・verdict・source_refs は変えずに値だけを置換します。置換 marker は登録値と衝突
+しないものを選び、再適用は冪等です。秘密を含む動的 key は、証拠を失わず schema を壊さない安全な
+key へ投影し、投影できない場合は共有 API が honest に拒否できます。登録していない秘密は形式推定
+で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。過去の記録は表示時に保護し、
+書き戻しません。
 
 ```toml
 [preset.team_base]

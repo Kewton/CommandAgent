@@ -34,8 +34,8 @@ fn arbitrary_format_canary_is_replaced_everywhere_in_a_nested_value() {
 
 #[test]
 fn scrub_is_idempotent_and_longest_first() {
-    let catalog = catalog(&["abcdef", "abc"]);
-    let once = catalog.scrub("x abcdef abc y");
+    let catalog = catalog(&["abcdefghij", "abcdefgh"]);
+    let once = catalog.scrub("x abcdefghij abcdefgh y");
     let twice = catalog.scrub(&once);
     assert_eq!(once, twice);
     assert_eq!(once, "x <redacted> <redacted> y");
@@ -245,4 +245,147 @@ fn parse_dotenv_matches_the_loader_trim_and_quote_rules() {
             ("D".to_string(), String::new()),
         ]
     );
+}
+
+#[test]
+fn marker_avoids_registered_values_and_stays_idempotent() {
+    let mut catalog = SecretCatalog::new();
+    catalog.register("redacted");
+    catalog.register("H01_CANARY_JwtStyle_NonPrefix_29486");
+    let once = catalog.scrub("H01_CANARY_JwtStyle_NonPrefix_29486");
+    let twice = catalog.scrub(&once);
+    assert_eq!(once, twice, "re-applying the scrub must be idempotent");
+    assert!(
+        !catalog.contains(&once),
+        "marker still holds a value: {once}"
+    );
+    assert!(
+        !once.contains("redacted"),
+        "marker contains a value: {once}"
+    );
+
+    let mut exact = SecretCatalog::new();
+    exact.register(REDACTED);
+    assert!(
+        !exact.is_empty(),
+        "a value equal to the marker is registered"
+    );
+    let scrubbed = exact.scrub("prefix <redacted> suffix");
+    assert!(
+        !scrubbed.contains(REDACTED),
+        "scrub must not leave the marker-equal value: {scrubbed}"
+    );
+}
+
+#[test]
+fn short_secret_preserves_fixed_schema_and_redacts_free_fields() {
+    let catalog = catalog(&["pass"]);
+    let mut value = json!({
+        "event": "build_pass",
+        "verdict": "pass",
+        "schema_version": "commandagent.pass/v1",
+        "type": "string",
+        "message": "prefix pass suffix",
+    });
+    catalog.scrub_value_lenient(&mut value);
+    assert_eq!(value["event"], "build_pass");
+    assert_eq!(value["verdict"], "pass");
+    assert_eq!(value["schema_version"], "commandagent.pass/v1");
+    assert_eq!(value["type"], "string");
+    assert_eq!(value["message"], "<redacted>");
+}
+
+#[test]
+fn single_char_secret_keeps_fixed_key_names() {
+    let catalog = catalog(&["a"]);
+    let mut value = json!({
+        "event": "run_start",
+        "schema_version": "v1",
+        "data": {"value": "a"},
+        "ok": true,
+    });
+    catalog.scrub_value_lenient(&mut value);
+    let object = value.as_object().unwrap();
+    assert!(object.contains_key("data"));
+    assert!(object.contains_key("schema_version"));
+    assert_eq!(value["data"]["value"], catalog.marker());
+}
+
+#[test]
+fn dynamic_key_with_secret_keeps_element_count() {
+    let catalog = catalog(&["H05_KEY_A_secret_8291", "H05_KEY_B_secret_8291"]);
+    let mut value = json!({
+        "event": "h05_collision",
+        "nested": {"H05_KEY_A_secret_8291": 1, "H05_KEY_B_secret_8291": 2},
+    });
+    catalog.scrub_value_lenient(&mut value);
+    assert_eq!(value["nested"].as_object().unwrap().len(), 2);
+    assert!(!serde_json::to_string(&value).unwrap().contains("H05_KEY"));
+}
+
+#[test]
+fn public_yaml_dynamic_keys_keep_element_count() {
+    let catalog = catalog(&["H05_KEY_A_secret_8291", "H05_KEY_B_secret_8291"]);
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str("H05_KEY_A_secret_8291: 1\nH05_KEY_B_secret_8291: 2\n").unwrap();
+    catalog.scrub_yaml(&mut value);
+    assert_eq!(value.as_mapping().unwrap().len(), 2);
+    assert!(!serde_yaml::to_string(&value).unwrap().contains("H05_KEY"));
+}
+
+#[test]
+fn stream_scrubber_handles_utf8_boundaries_and_overlaps() {
+    let utf8 = catalog(&["éSECRET9"]);
+    let mut scrubber = StreamScrubber::new(Arc::clone(&utf8));
+    // Must not slice inside a multibyte character.
+    let rendered = scrubber.push(&format!("éSECRET9{}", "z".repeat(30)));
+    assert!(!rendered.contains("éSECRET9"), "{rendered}");
+
+    let overlap = catalog(&["ABCDEFGHIJKL", "GHIJKLMNOPQRSTUV"]);
+    let mut scrubber = StreamScrubber::new(Arc::clone(&overlap));
+    let early = scrubber.push("ABCDEFGHIJKLMNOPQRSTUVZZZZ");
+    let final_text = format!("{early}{}", scrubber.finish());
+    assert!(
+        !early.contains("ABCDEF"),
+        "overlap leaked a prefix: {early}"
+    );
+    assert!(!final_text.contains("ABCDEF"), "{final_text}");
+}
+
+#[test]
+fn dotenv_collection_refuses_over_cap_sources() {
+    let large = tempfile::tempdir().unwrap();
+    std::fs::write(
+        large.path().join(".env"),
+        format!("PRIVATE_TOKEN=x\n{}", "#".repeat(MAX_DOTENV_BYTES + 1)),
+    )
+    .unwrap();
+    assert!(matches!(
+        collect_scoped_dotenv(large.path()).unwrap_err(),
+        CollectionRefusal::FileTooLarge { .. }
+    ));
+
+    let many = tempfile::tempdir().unwrap();
+    for index in 0..=MAX_DOTENV_FILES {
+        std::fs::write(
+            many.path().join(format!(".env.{index:03}")),
+            "PRIVATE_TOKEN=x\n",
+        )
+        .unwrap();
+    }
+    assert!(matches!(
+        collect_scoped_dotenv(many.path()).unwrap_err(),
+        CollectionRefusal::TooManyFiles { .. }
+    ));
+
+    let values = tempfile::tempdir().unwrap();
+    let mut lines = String::new();
+    for index in 0..=MAX_CATALOG_VALUES {
+        lines.push_str(&format!("SECRET_{index}=value_{index:04}_long\n"));
+    }
+    std::fs::write(values.path().join(".env"), lines).unwrap();
+    assert!(matches!(
+        collect_scoped_dotenv(values.path()).unwrap_err(),
+        CollectionRefusal::TooManyValues { .. }
+    ));
 }

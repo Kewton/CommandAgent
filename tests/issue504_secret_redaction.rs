@@ -18,7 +18,7 @@ use commandagent::sensitive_data::{
     REDACTED, RedactionContext, SecretCatalog, StreamScrubber, install_scope, refuse_identity,
     refuse_runnable, reset_scopes_for_tests,
 };
-use commandagent::state::{ConversationMessage, SessionSnapshot, SessionStore};
+use commandagent::state::{ConversationMessage, SessionSnapshot, SessionStore, ToolCall};
 use commandagent::tools::bash;
 use commandagent::tools::registry::{FunctionSpec, ToolSpec};
 use serde_json::{Value, json};
@@ -26,6 +26,8 @@ use serde_json::{Value, json};
 const CANARY: &str = "H01_CANARY_JwtStyle_NonPrefix_29486";
 const BAD_BASE_URL_ENV: &str = "ISSUE504_BAD_BASE_URL";
 const BAD_BASE_URL_VALUE: &str = "http://bad host/\u{1F600}";
+const ENV_MODEL_SECRET: &str = "ISSUE504_MODEL_SECRET";
+const ENV_MODEL_VALUE: &str = "H05_MODEL_Only_In_ENV_19832";
 
 fn scope_with_canary(events: &Path) -> RedactionContext {
     let mut catalog = SecretCatalog::new();
@@ -368,4 +370,154 @@ fn shared_api_fixes_scrub_carry_refusal_and_context_separation() {
     assert!(!resolved_alpha.contains("beta-only-secret"));
     assert!(resolved_beta.contains("beta-only-secret"));
     reset_scopes_for_tests();
+}
+
+#[test]
+fn summary_writer_scrubs_a_multiline_value_before_splitting_lines() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    let multiline = "H05_NEWLINE_alpha\nH05_NEWLINE_beta";
+    let mut catalog = SecretCatalog::new();
+    catalog.register(multiline);
+    install_scope(catalog, Some(Path::new("/tmp/h05-summary")), Some(&events));
+
+    commandagent::eval_events::write_run_summary(Some(&events), multiline);
+
+    let summary = read(&events.parent().unwrap().join("summary.md"));
+    assert!(!summary.contains("H05_NEWLINE"), "{summary}");
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn provider_and_session_protect_native_tool_call_ids() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "issue504-model",
+    ]))
+    .unwrap();
+    let events = config.eval_events_path.clone().unwrap();
+    scope_with_canary(&events);
+
+    let calls = vec![ToolCall {
+        id: CANARY.to_string(),
+        name: "Read".to_string(),
+        arguments: json!({"path": "normal.rs"}),
+    }];
+    let messages = vec![
+        ConversationMessage::assistant(CANARY, calls),
+        ConversationMessage::tool_result("Read", Some(CANARY), "ordinary output"),
+    ];
+
+    let seen_messages = Arc::new(Mutex::new(Vec::new()));
+    let seen_tools = Arc::new(Mutex::new(Vec::new()));
+    let mut client = CapturingClient {
+        seen_messages: Arc::clone(&seen_messages),
+        seen_tools: Arc::clone(&seen_tools),
+    };
+    let outcome = provider_call::chat_with_cancel_and_stream(
+        &mut client,
+        &config,
+        provider_call::ProviderChatRequest {
+            scope: ProviderCallScope::PlannerStep,
+            model: &config.model,
+            messages: &messages,
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        || false,
+        &mut |_chunk| Ok(()),
+    );
+    assert!(outcome.result.is_ok());
+
+    let sent = seen_messages.lock().unwrap().clone();
+    assert!(
+        !serde_json::to_string(&sent).unwrap().contains(CANARY),
+        "provider copy kept a tool-call id"
+    );
+    // The caller's model-derived ids stay unchanged.
+    assert_eq!(messages[0].tool_calls[0].id, CANARY);
+    assert_eq!(messages[1].tool_call_id.as_deref(), Some(CANARY));
+
+    let mut session = SessionSnapshot::new();
+    session.messages = messages.clone();
+    let stored = SessionStore::new(dir.path().join("state"))
+        .save(&session)
+        .unwrap();
+    assert!(
+        !read(&stored).contains(CANARY),
+        "session kept a tool-call id"
+    );
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn config_env_scope_survives_the_minimal_loop_entry() {
+    let exe = std::env::current_exe().unwrap();
+    let status = std::process::Command::new(exe)
+        .args([
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "config_env_scope_survives_the_minimal_loop_entry_child",
+        ])
+        .env(ENV_MODEL_SECRET, ENV_MODEL_VALUE)
+        .status()
+        .unwrap();
+    assert!(status.success(), "child exited with {status}");
+}
+
+#[test]
+#[ignore]
+fn config_env_scope_survives_the_minimal_loop_entry_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        dir.path().join(".commandagent/config.toml"),
+        format!("[preset.review]\nprovider = \"ollama\"\nmodel = \"${{{ENV_MODEL_SECRET}}}\"\n"),
+    )
+    .unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let mut config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--preset",
+        "review",
+        "--offline",
+    ]))
+    .unwrap();
+    let model = config.model.clone();
+    assert_eq!(model, ENV_MODEL_VALUE);
+    let events = dir.path().join("run/events.jsonl");
+    config.eval_events_path = Some(events.clone());
+
+    assert!(
+        commandagent::sensitive_data::current()
+            .unwrap()
+            .contains(&model),
+        "config resolution did not register the expansion value"
+    );
+    // Recreating the scope at the minimal-loop entry must reuse, not discard, it.
+    commandagent::config::install_run_secret_scope(&config);
+    assert!(
+        commandagent::sensitive_data::current()
+            .unwrap()
+            .contains(&model),
+        "the minimal-loop entry discarded the config expansion value"
+    );
+    commandagent::eval_events::emit(
+        Some(&events),
+        json!({"event": "h05_env_model", "model": model}),
+    );
+    assert!(
+        !read(&events).contains(ENV_MODEL_VALUE),
+        "the expansion value leaked after the entry"
+    );
 }

@@ -10,8 +10,11 @@
 //!   one workspace's secrets into another's catalog; the registry is keyed by
 //!   the scope (workspace root and events path) that registered it.
 //! - [`SecretCatalog`] never prints its values through `Debug`.
-//! - The replacement marker never collides with a registered value, so
-//!   re-applying the scrub is idempotent.
+//! - The replacement marker is chosen so it contains no registered value, so
+//!   re-applying the scrub is idempotent even when a secret equals a marker.
+//! - Long values (at or above [`MIN_GENERIC_SECRET_LEN`] bytes) are replaced as
+//!   substrings. A short value never rewrites a fixed schema identifier; in a
+//!   free-input field it redacts the whole field instead.
 
 mod redaction;
 #[cfg(test)]
@@ -28,18 +31,24 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// The single marker the exact-value scrub substitutes.
+/// The default marker the exact-value scrub substitutes when no registered
+/// value collides with it. Use [`SecretCatalog::marker`] for the actual marker.
 pub const REDACTED: &str = "<redacted>";
 
 /// Conservative minimum length for a generic (non-credential-named) dotenv
-/// value to be treated as a secret automatically. Short ordinary values such
-/// as `PORT=3000`, `true`, or `dev` must not become secrets by accident.
+/// value to be treated as a secret automatically. Values below this length are
+/// "short": they never rewrite a fixed schema identifier, and inside a
+/// free-input field they redact the whole field rather than a substring.
 pub const MIN_GENERIC_SECRET_LEN: usize = 8;
 
 /// Bounded root dotenv collection limits (mirrors the corpus contract).
 pub const MAX_DOTENV_FILES: usize = 64;
 pub const MAX_DOTENV_BYTES: usize = 1024 * 1024;
 pub const MAX_CATALOG_VALUES: usize = 1024;
+
+/// Candidate markers, tried in order; the first that contains no registered
+/// value wins. The fallback is a single character no registered value contains.
+const MARKER_CANDIDATES: [&str; 4] = ["<redacted>", "[redacted]", "[hidden]", "«hidden»"];
 
 /// Case-insensitive credential-name predicate used to decide that a value is a
 /// secret regardless of length.
@@ -65,9 +74,19 @@ pub fn is_credential_name(name: &str) -> bool {
 ///
 /// Duplicate removal, longest-first ordering, and case-sensitive byte
 /// equality keep the replacement deterministic and UTF-8 safe.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SecretCatalog {
     values: Vec<String>,
+    marker: String,
+}
+
+impl Default for SecretCatalog {
+    fn default() -> Self {
+        Self {
+            values: Vec::new(),
+            marker: REDACTED.to_string(),
+        }
+    }
 }
 
 impl SecretCatalog {
@@ -83,6 +102,12 @@ impl SecretCatalog {
         self.values.len()
     }
 
+    /// The marker actually used for this catalog. It never contains a
+    /// registered value.
+    pub fn marker(&self) -> &str {
+        &self.marker
+    }
+
     /// Longest registered value in bytes. Zero when the catalog is empty.
     pub fn max_value_len(&self) -> usize {
         self.values.first().map(String::len).unwrap_or(0)
@@ -96,7 +121,7 @@ impl SecretCatalog {
     /// expansion values, which are secrets even when short.
     pub fn register(&mut self, value: &str) {
         let value = value.trim();
-        if value.is_empty() || value == REDACTED {
+        if value.is_empty() {
             return;
         }
         if self.values.iter().any(|existing| existing == value) {
@@ -106,8 +131,7 @@ impl SecretCatalog {
             return;
         }
         self.values.push(value.to_string());
-        self.values
-            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        self.sort_and_refresh_marker();
     }
 
     /// Register a value from a named source. Credential-named sources register
@@ -128,11 +152,38 @@ impl SecretCatalog {
         }
     }
 
+    /// Merge another catalog's values into this one.
+    pub fn merge(&mut self, other: &SecretCatalog) {
+        for value in &other.values {
+            self.register(value);
+        }
+    }
+
     /// True when any registered value occurs in `text`.
     pub fn contains(&self, text: &str) -> bool {
         self.values
             .iter()
             .any(|value| text.contains(value.as_str()))
+    }
+
+    /// True when any long registered value occurs in `text`.
+    pub fn contains_long(&self, text: &str) -> bool {
+        self.values
+            .iter()
+            .any(|value| value.len() >= MIN_GENERIC_SECRET_LEN && text.contains(value.as_str()))
+    }
+
+    /// True when any short registered value occurs in `text`.
+    pub fn contains_short(&self, text: &str) -> bool {
+        self.values
+            .iter()
+            .any(|value| value.len() < MIN_GENERIC_SECRET_LEN && text.contains(value.as_str()))
+    }
+
+    pub fn has_short(&self) -> bool {
+        self.values
+            .iter()
+            .any(|value| value.len() < MIN_GENERIC_SECRET_LEN)
     }
 
     /// Byte offset of the first registered value in `text`, without revealing it.
@@ -143,28 +194,37 @@ impl SecretCatalog {
             .min()
     }
 
-    /// Replace every registered value with [`REDACTED`].
+    /// Replace every registered value with the marker. A short value redacts
+    /// the whole text when it occurs, because a short substring replacement
+    /// cannot be projected safely.
     pub fn scrub(&self, text: &str) -> String {
-        redaction::scrub_text(&self.values, text)
+        redaction::scrub_text(self, text)
+    }
+
+    /// Replace long values inside an object key. Keys are never redacted whole
+    /// and short values never rewrite a key, so fixed identifiers survive.
+    pub fn scrub_key(&self, key: &str) -> String {
+        redaction::scrub_key(self, key)
     }
 
     /// Strict recursive scrub of a JSON value. Refuses (without leaking) a
-    /// dynamic key that would expose a secret, so callers that cannot project
+    /// dynamic key that contains a long secret, so callers that cannot project
     /// the value safely can treat the result as a failure.
     pub fn scrub_value(&self, value: &mut serde_json::Value) -> Result<(), SecretScrubError> {
         if self.is_empty() {
             return Ok(());
         }
-        redaction::scrub_value_strict(&self.values, value)
+        redaction::scrub_value_strict(self, value)
     }
 
-    /// Lenient recursive scrub used at internal boundaries that cannot fail.
-    /// Dynamic keys are rewritten in place instead of refused.
+    /// Lenient recursive scrub used at boundaries that cannot fail. A dynamic
+    /// key that contains a long secret is rewritten to a distinct safe key so
+    /// no evidence is lost and no fixed key is corrupted.
     pub fn scrub_value_lenient(&self, value: &mut serde_json::Value) {
         if self.is_empty() {
             return;
         }
-        redaction::scrub_value_lenient(&self.values, value);
+        redaction::scrub_value_lenient(self, value);
     }
 
     /// Scrub a YAML value in place (all string scalars/keys).
@@ -172,7 +232,7 @@ impl SecretCatalog {
         if self.is_empty() {
             return;
         }
-        redaction::scrub_yaml_value(&self.values, value);
+        redaction::scrub_yaml_value(self, value);
     }
 
     /// A redaction context sharing this catalog behind an `Arc`.
@@ -180,6 +240,35 @@ impl SecretCatalog {
         RedactionContext {
             catalog: Arc::clone(self),
         }
+    }
+
+    fn sort_and_refresh_marker(&mut self) {
+        self.values
+            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        self.refresh_marker();
+    }
+
+    fn refresh_marker(&mut self) {
+        for candidate in MARKER_CANDIDATES {
+            if !self
+                .values
+                .iter()
+                .any(|value| candidate.contains(value.as_str()))
+            {
+                self.marker = candidate.to_string();
+                return;
+            }
+        }
+        for code in 1u32..=0x7f {
+            if let Some(ch) = char::from_u32(code) {
+                let candidate = ch.to_string();
+                if !self.values.iter().any(|value| value.contains(&candidate)) {
+                    self.marker = candidate;
+                    return;
+                }
+            }
+        }
+        self.marker = "\u{fffd}".to_string();
     }
 }
 
@@ -225,11 +314,26 @@ impl RedactionContext {
         self.catalog.is_empty()
     }
 
+    pub fn marker(&self) -> &str {
+        self.catalog.marker()
+    }
+
     pub fn scrub_text(&self, text: &str) -> String {
         self.catalog.scrub(text)
     }
 
-    pub fn scrub_value(&self, value: &mut serde_json::Value) {
+    pub fn scrub_key(&self, key: &str) -> String {
+        self.catalog.scrub_key(key)
+    }
+
+    /// The standard strict scrub. A dynamic key that cannot be projected safely
+    /// is refused rather than corrupted.
+    pub fn scrub_value(&self, value: &mut serde_json::Value) -> Result<(), SecretScrubError> {
+        self.catalog.scrub_value(value)
+    }
+
+    /// The lenient scrub for boundaries that cannot fail.
+    pub fn scrub_value_lenient(&self, value: &mut serde_json::Value) {
         self.catalog.scrub_value_lenient(value);
     }
 
@@ -245,6 +349,11 @@ impl RedactionContext {
     /// Refuses a runnable YAML/command value that contains a secret.
     pub fn refuse_runnable(&self, field: &str, text: &str) -> Result<(), RunnableSecretRefusal> {
         redaction::refuse_runnable(&self.catalog, field, text)
+    }
+
+    /// Refuses a confirmation identity that still contains a secret.
+    pub fn refuse_identity(&self, field: &str, text: &str) -> Result<(), RunnableSecretRefusal> {
+        redaction::refuse_identity(&self.catalog, field, text)
     }
 }
 
@@ -307,7 +416,9 @@ pub fn current() -> Option<RedactionContext> {
     CURRENT.with(|current| current.borrow().clone())
 }
 
-/// The context registered for `path`, falling back to [`current`].
+/// The context registered for `path` (or the workspace root), falling back to
+/// [`current`]. This lets a product thread that never installed the scope find
+/// it by the source it was handed.
 pub fn active_for(path: Option<&Path>) -> Option<RedactionContext> {
     if let Some(path) = path {
         let key = scope_key(path);
@@ -374,10 +485,11 @@ pub(crate) mod config_staging {
         });
     }
 
-    pub fn stage(update: impl FnOnce(&mut SecretCatalog)) {
+    /// Merge a whole catalog into staging.
+    pub fn merge(catalog: &SecretCatalog) {
         STAGING.with(|staging| {
-            if let Some(catalog) = staging.borrow_mut().as_mut() {
-                update(catalog);
+            if let Some(staging) = staging.borrow_mut().as_mut() {
+                staging.merge(catalog);
             }
         });
     }

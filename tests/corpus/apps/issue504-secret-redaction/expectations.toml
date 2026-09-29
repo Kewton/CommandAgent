@@ -32,6 +32,12 @@ fixtures/events.jsonl = [
   "\"event\":\"runtime_bash_policy\"",
   "\"original_command\":\"cat <redacted> /Users/<user>/notes.txt\"",
   "\"event\":\"provider_turn_duration\"",
+  "\"event\":\"redaction_fixed_schema\"",
+  "\"schema_version\":\"commandagent.pass/v1\"",
+  "\"verdict\":\"pass\"",
+  "\"message\":\"<redacted>\"",
+  "\"event\":\"redaction_dynamic_key\"",
+  "\"nested\":{\"<redacted>\":1,\"<redacted>#1\":2}",
   "\"event\":\"run_stop\""
 ]
 fixtures/evidence.json = [

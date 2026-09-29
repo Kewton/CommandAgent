@@ -819,18 +819,8 @@ impl Config {
         } else {
             None
         };
-        crate::sensitive_data::config_staging::stage(|catalog| {
-            register_secret_sources(
-                catalog,
-                &workspace_root,
-                [
-                    provider.value.provider(),
-                    planner_provider.value.provider(),
-                    classifier_provider.value.provider(),
-                ],
-                openai_compatible.as_ref(),
-            );
-        });
+        let secret_sources = build_secret_sources(&workspace_root, openai_compatible.as_ref())?;
+        crate::sensitive_data::config_staging::merge(&secret_sources);
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -2142,28 +2132,20 @@ pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
 }
 
-/// Register the config's secret sources into a run catalog: non-empty provider
-/// keys, the compatible `api_key_env`, and the root dotenv values.
+/// Build the run's secret sources: every non-empty built-in provider key, the
+/// compatible `api_key_env`, and the root dotenv values.
 ///
-/// Only the named provider keys, the configured `api_key_env`, and the root
-/// `.env`/`.env.*` sources are read. This never walks the whole process
-/// environment or arbitrary credential files.
-pub(crate) fn register_secret_sources(
-    catalog: &mut crate::sensitive_data::SecretCatalog,
+/// Registration is not limited to the selected roles: an Ollama run still
+/// registers a non-empty `OPENAI_API_KEY`. A bounded dotenv collection failure
+/// (unreadable source, over the file/value caps) is returned so config
+/// resolution refuses honestly instead of silently dropping a secret.
+pub(crate) fn build_secret_sources(
     root: &Path,
-    providers: [Provider; 3],
     compatible: Option<&OpenAiCompatibleConfig>,
-) {
-    for provider in providers {
-        let name = match provider {
-            Provider::Openai => Some("OPENAI_API_KEY"),
-            Provider::Gemini => Some("GEMINI_API_KEY"),
-            Provider::LmStudio => Some("LM_STUDIO_API_TOKEN"),
-            Provider::Ollama => None,
-        };
-        if let Some(name) = name
-            && let Ok(value) = load_api_key(root, name)
-        {
+) -> anyhow::Result<crate::sensitive_data::SecretCatalog> {
+    let mut catalog = crate::sensitive_data::SecretCatalog::new();
+    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+        if let Ok(value) = load_api_key(root, name) {
             catalog.register(&value);
         }
     }
@@ -2172,28 +2154,25 @@ pub(crate) fn register_secret_sources(
     {
         catalog.register(&value);
     }
-    if let Ok(collection) = crate::sensitive_data::collect_scoped_dotenv(root) {
-        for value in collection.catalog.values() {
-            catalog.register(value);
-        }
-    }
+    let collection = crate::sensitive_data::collect_scoped_dotenv(root)?;
+    catalog.merge(&collection.catalog);
+    Ok(catalog)
 }
 
 /// Install a run scope for direct minimal-loop use, keyed by the config's
-/// workspace root and events path. The CLI installs its own scope during config
-/// resolution; this covers callers that build a `Config` directly.
+/// workspace root and events path.
+///
+/// The already-installed CLI/config scope is merged in, so a `${ENV}` value the
+/// CLI registered before the run is not discarded at the minimal-loop entry.
 pub fn install_run_secret_scope(config: &Config) -> crate::sensitive_data::RedactionContext {
-    let mut catalog = crate::sensitive_data::SecretCatalog::new();
-    register_secret_sources(
-        &mut catalog,
-        &config.workspace_root,
-        [
-            config.provider,
-            config.planner_provider,
-            config.classifier_provider,
-        ],
-        config.openai_compatible.as_ref(),
-    );
+    let mut catalog = crate::sensitive_data::current()
+        .map(|context| (*context.catalog_arc()).clone())
+        .unwrap_or_default();
+    if let Ok(sources) =
+        build_secret_sources(&config.workspace_root, config.openai_compatible.as_ref())
+    {
+        catalog.merge(&sources);
+    }
     crate::sensitive_data::install_scope(
         catalog,
         Some(&config.workspace_root),
@@ -3828,5 +3807,71 @@ profile = "generic"
         assert_eq!(config.profile, "generic");
         assert!(config.profile_explicit);
         assert!(config.profile_inference.is_none());
+    }
+
+    #[test]
+    fn config_refuses_dotenv_collection_over_cap_sources() {
+        // An oversized root dotenv source must fail config resolution rather
+        // than silently dropping a secret.
+        let large = tempfile::tempdir().unwrap();
+        std::fs::write(
+            large.path().join(".env"),
+            format!(
+                "PRIVATE_TOKEN=H05_LIMIT_CANARY\n{}",
+                "#".repeat(crate::sensitive_data::MAX_DOTENV_BYTES + 1)
+            ),
+        )
+        .unwrap();
+        let cwd = large.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+
+        let unreadable = tempfile::tempdir().unwrap();
+        std::fs::create_dir(unreadable.path().join(".env")).unwrap();
+        let cwd = unreadable.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn config_registers_nonempty_builtin_provider_keys_outside_the_selected_role() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let inactive = "H05_INACTIVE_PROVIDER_secret_7193";
+        std::fs::write(
+            dir.path().join(".env"),
+            format!("OPENAI_API_KEY={inactive}\n"),
+        )
+        .unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        // Provider stays ollama; the OpenAI key is still a registered source.
+        let _config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--offline",
+        ]))
+        .unwrap();
+
+        let context = crate::sensitive_data::current().expect("config installed a scope");
+        assert!(
+            context.contains(inactive),
+            "OPENAI_API_KEY was not registered"
+        );
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 }

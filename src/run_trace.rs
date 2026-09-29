@@ -114,10 +114,31 @@ fn record_provider_exchange_in(
 }
 
 fn scrub_value(value: &mut Value) {
+    let context = crate::sensitive_data::current();
+    scrub_value_at(value, context.as_ref());
+}
+
+fn scrub_value_at(value: &mut Value, context: Option<&crate::sensitive_data::RedactionContext>) {
     match value {
         Value::String(text) => *text = crate::eval_events::scrub_sensitive_text(text),
-        Value::Array(values) => values.iter_mut().for_each(scrub_value),
-        Value::Object(values) => values.values_mut().for_each(scrub_value),
+        Value::Array(values) => values
+            .iter_mut()
+            .for_each(|item| scrub_value_at(item, context)),
+        Value::Object(values) => {
+            // A tool schema can use a secret as a dynamic key. Rewrite keys too
+            // so the trace never persists a secret as an object key.
+            let entries = std::mem::take(values);
+            let mut cleaned = serde_json::Map::with_capacity(entries.len());
+            for (key, mut item) in entries {
+                scrub_value_at(&mut item, context);
+                let key = match context {
+                    Some(context) => context.scrub_key(&key),
+                    None => key,
+                };
+                cleaned.insert(key, item);
+            }
+            *values = cleaned;
+        }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
