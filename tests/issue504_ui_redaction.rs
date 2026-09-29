@@ -131,10 +131,42 @@ fn stop_events(root: &Path, stop_reason: &str) -> std::path::PathBuf {
     events
 }
 
+/// Run one `#[ignore]`d child test in its own process and return its output.
+///
+/// `Editor::save_history` reaches rustyline 14, which changes the process-wide
+/// umask to 0o177 while saving (`history.rs:689`, `:818-825`). A concurrent
+/// `tempfile::tempdir()` in the same test process can then be created 0o600 and
+/// a later `mkdir` fails with EACCES (PR #551 CI). Running the history saves in
+/// a child process keeps that window away from every other test in this binary.
+fn run_isolated(child: &str) -> std::process::Output {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "--ignored", "--nocapture", child])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "isolated child {child} failed: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
 // Row 18: a new history entry is scrubbed on save while the execution input is
-// kept unchanged.
+// kept unchanged. The body runs in an isolated child process (see
+// `run_isolated`).
 #[test]
 fn r18_new_history_entry_is_scrubbed_and_execution_input_kept() {
+    let output = run_isolated("r18_history_save_child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("<redacted>"), "{stdout}");
+    assert!(!stdout.contains(C1), "{stdout}");
+}
+
+#[test]
+#[ignore]
+fn r18_history_save_child() {
     let dir = tempfile::tempdir().unwrap();
     let config = config(dir.path());
     let _scope = install(&[C1]);
@@ -149,13 +181,24 @@ fn r18_new_history_entry_is_scrubbed_and_execution_input_kept() {
     let saved = read(&path);
     assert!(!saved.contains(C1), "{saved}");
     assert!(saved.contains("<redacted>"), "{saved}");
+    println!("r18 saved={saved:?}");
 }
 
 // Row 19: a legacy history entry read from disk is rewritten scrubbed at the
 // next save. The user decision (2026-09-29) allows this; memory is not rewritten
-// at add time, so the up-arrow recall stays intact until the save.
+// at add time, so the up-arrow recall stays intact until the save. The body runs
+// in an isolated child process (see `run_isolated`).
 #[test]
 fn r19_legacy_history_entries_are_rewritten_at_save() {
+    let output = run_isolated("r19_history_save_child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("<redacted>"), "{stdout}");
+    assert!(!stdout.contains(C1), "{stdout}");
+}
+
+#[test]
+#[ignore]
+fn r19_history_save_child() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history.txt");
     // Produce a genuine rustyline history file with a raw secret entry.
@@ -177,6 +220,7 @@ fn r19_legacy_history_entries_are_rewritten_at_save() {
     let saved = read(&path);
     assert!(!saved.contains(C1), "{saved}");
     assert!(saved.contains("<redacted>"), "{saved}");
+    println!("r19 saved={saved:?}");
 }
 
 // Row 20: a secret split across chunks never appears in the cumulative output,
