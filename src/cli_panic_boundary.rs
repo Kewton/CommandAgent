@@ -694,8 +694,22 @@ mod tests {
 
     #[test]
     fn r20_panic_note_is_scrubbed_on_a_thread_without_a_current_scope() {
-        // The panicking thread never installed the thread-local scope; the note
-        // is still scrubbed because the boundary resolves the workspace scope.
+        // The scope registry is process-global, so run this in a child process:
+        // a concurrent `reset_scopes_for_tests` in a sibling lib test would
+        // otherwise clear this test's registered scope.
+        let exe = std::env::current_exe().unwrap();
+        let status = std::process::Command::new(exe)
+            .args(["--ignored", "--nocapture", "r20_scope_registry_child"])
+            .status()
+            .unwrap();
+        assert!(status.success(), "r20 child exited with {status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn r20_scope_registry_child() {
+        // The panicking thread installs no thread-local scope; the note is still
+        // scrubbed because the boundary resolves the workspace scope by path.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let events = root.join(".commandagent/runs/thread/events.jsonl");
@@ -716,7 +730,6 @@ mod tests {
             assert!(!note.contains(canary), "{note}");
         });
         handle.join().unwrap();
-        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]
@@ -726,7 +739,9 @@ mod tests {
         let canary = "H09_日本語_Canary_秘密値_5521";
         let mut catalog = crate::sensitive_data::SecretCatalog::new();
         catalog.register(canary);
-        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
 
         let mut ctx = context(dir.path(), &events);
         ctx.reproduction_command = format!("commandagent --token {canary}");
@@ -735,7 +750,7 @@ mod tests {
         let note = read_recovery_note(dir.path());
         assert!(!note.contains(canary), "{note}");
         assert!(!note.contains("日本語"), "{note}");
-        crate::sensitive_data::reset_scopes_for_tests();
+        crate::sensitive_data::set_current(None);
     }
 
     #[test]
@@ -745,7 +760,9 @@ mod tests {
         let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
         let mut catalog = crate::sensitive_data::SecretCatalog::new();
         catalog.register(canary);
-        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
 
         let mut ctx = context(dir.path(), &events);
         ctx.reproduction_command = format!("commandagent --ultra-plan-run '{canary}'");
@@ -757,7 +774,7 @@ mod tests {
             note.contains("cannot be re-run as written"),
             "the redacted command must be marked not re-runnable: {note}"
         );
-        crate::sensitive_data::reset_scopes_for_tests();
+        crate::sensitive_data::set_current(None);
     }
 
     #[test]

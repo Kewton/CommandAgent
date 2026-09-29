@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -262,9 +262,12 @@ fn render_run_events_json(
 }
 
 /// Scrub every string value of an event (all depths), keeping every key name.
-/// The canonical `event`/`schema_version`/`verdict`/`kind` identifiers are
-/// preserved so a registered substring of an event or schema name cannot
-/// rename it, while a fixed key that carries free text in an old record
+/// An object key that carries a secret is projected through the shared key
+/// scrub (a fixed identifier key is never renamed) and disambiguated so the
+/// element count is preserved. The canonical
+/// `event`/`schema_version`/`verdict`/`kind` identifiers are preserved so a
+/// registered substring of an event or schema name cannot rename it, while a
+/// fixed key that carries free text in an old record
 /// (`"status":"failed token=..."`) is still scrubbed at display time.
 fn scrub_event_value(
     context: &crate::sensitive_data::RedactionContext,
@@ -277,19 +280,52 @@ fn scrub_event_value(
             .iter_mut()
             .for_each(|item| scrub_event_value(context, item, false)),
         Value::Object(map) => {
-            for (key, item) in map.iter_mut() {
-                let preserved = preserve_identifiers
-                    && matches!(
-                        key.as_str(),
-                        "event" | "schema_version" | "verdict" | "kind"
-                    );
-                if !preserved {
-                    scrub_event_value(context, item, false);
+            let entries = std::mem::take(map);
+            let mut used = BTreeSet::new();
+            for (key, _) in &entries {
+                if (preserve_identifiers && is_event_identifier(key))
+                    || context.scrub_key(key) == *key
+                {
+                    used.insert(key.clone());
                 }
+            }
+            for (key, mut item) in entries {
+                let preserved = preserve_identifiers && is_event_identifier(&key);
+                if !preserved {
+                    scrub_event_value(context, &mut item, false);
+                }
+                let key = if preserved || context.scrub_key(&key) == key {
+                    key
+                } else {
+                    projected_event_key(context, &mut used, &key)
+                };
+                used.insert(key.clone());
+                map.insert(key, item);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
+}
+
+fn is_event_identifier(key: &str) -> bool {
+    matches!(key, "event" | "schema_version" | "verdict" | "kind")
+}
+
+/// Project a secret-bearing object key without renaming an unrelated key or
+/// changing the element count: suffix `#N` until the name is free.
+fn projected_event_key(
+    context: &crate::sensitive_data::RedactionContext,
+    used: &mut BTreeSet<String>,
+    key: &str,
+) -> String {
+    let base = context.scrub_key(key);
+    let mut candidate = base.clone();
+    let mut index = 1usize;
+    while used.contains(&candidate) {
+        candidate = format!("{base}#{index}");
+        index += 1;
+    }
+    candidate
 }
 
 /// Scrub the projected string fields of a run record with the workspace scope

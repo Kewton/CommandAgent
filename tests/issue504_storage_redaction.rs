@@ -29,7 +29,7 @@ use commandagent::providers::{AssistantReply, ChatClient};
 use commandagent::runs::{render_runs_request, render_runs_table};
 use commandagent::sensitive_data::{
     SecretCatalog, active_marker, install_scope, reset_scopes_for_tests,
-    runnable_yaml_contains_secret,
+    runnable_yaml_contains_secret, set_current,
 };
 use commandagent::state::ConversationMessage;
 use commandagent::tools::registry::ToolSpec;
@@ -71,12 +71,13 @@ const C6_EVENT: &str = "run_star";
 const C6_ADJ: &str = "orkflow_adjudicat";
 const C6_SCHEMA: &str = "ommandagent.runs/v";
 const C7: &str = "8675309012345";
+const C9: &str = "H10_SPACE_alpha H10_SPACE_beta";
 const E1: &str = "H09_MODEL_Only_In_ENV_19832";
 const E1_ENV: &str = "ISSUE543_L14_MODEL";
 const DOCTOR_SECRET_ENV: &str = "ISSUE543_L14_DOCTOR";
 
-fn all_values() -> [&'static str; 10] {
-    [C1, C2, C3, C4, C5, C6_EVENT, C6_ADJ, C6_SCHEMA, C7, E1]
+fn all_values() -> [&'static str; 11] {
+    [C1, C2, C3, C4, C5, C6_EVENT, C6_ADJ, C6_SCHEMA, C7, C9, E1]
 }
 
 fn install_all(root: &std::path::Path, events: &std::path::Path) {
@@ -1225,4 +1226,101 @@ fn r34_doctor_hides_env_value_in_a_successful_report_child() {
     assert_absent(&human, "r34 doctor human", &[E1]);
     assert_absent(&json, "r34 doctor json", &[E1]);
     assert!(!report.checks.is_empty(), "the report lost its checks");
+}
+
+// ------------------------------------------------- H-10 blockers (L-15)
+
+#[test]
+fn b543_1_runs_events_json_scrubs_object_keys() {
+    let _scope = begin_scope_test();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    // H-10: a secret in an object key survived the value-only scrub.
+    let events = fake_run(
+        root,
+        "run-b543-1",
+        &format!(
+            "{{\"event\":\"tool_call\",\"arguments\":{{\"{C1}\":\"v1\",\"nested\":{{\"{C1}-inner\":2}}}}}}\n"
+        ),
+    );
+    install_all(root, &events);
+
+    for json_view in [false, true] {
+        let view = render_runs_request(
+            root,
+            &RunsRequest {
+                id: Some("run-b543-1".to_string()),
+                events: true,
+                filter: None,
+                json: json_view,
+            },
+        )
+        .unwrap();
+        assert_absent(&view, "b543-1 events", &[C1]);
+    }
+
+    let json = render_runs_request(
+        root,
+        &RunsRequest {
+            id: Some("run-b543-1".to_string()),
+            events: true,
+            filter: None,
+            json: true,
+        },
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["events"][0]["event"], "tool_call");
+    let arguments = value["events"][0]["arguments"].as_object().unwrap();
+    assert_eq!(arguments.len(), 2, "element count changed: {json}");
+    assert!(arguments.contains_key("nested"), "fixed key lost: {json}");
+    let nested = arguments["nested"].as_object().unwrap();
+    assert_eq!(nested.len(), 1, "nested element count changed: {json}");
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn b543_2_recovery_yaml_scrubs_whitespace_and_newline_values() {
+    let _scope = begin_scope_test();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let events = root.join(".commandagent/runs/b543-2/events.jsonl");
+    install_all(root, &events);
+
+    // H-10: `display_text` split on whitespace before scrubbing, so a value
+    // with a space (C9) or a newline (C4) survived. Verify the scope-less
+    // thread too: it must resolve the workspace catalog by path.
+    let handoff = RecoveryHandoff {
+        original_goal: format!("goal {C1} {C9} {C4}"),
+        failed_phase: Some(format!("phase {C9}")),
+        failed_step: Some(format!("step {C4}")),
+        failure_kind: "compile".to_string(),
+        failure_evidence: vec![format!("evidence {C1} {C9}"), C4.to_string()],
+        missing_paths: vec![format!("src/{C9}.ts")],
+        missing_capabilities: vec![format!("cap {C1}")],
+        changed_paths: vec![format!("out/{C9}")],
+        repair_targets: vec![format!("target {C1}")],
+        profile: "generic".to_string(),
+        verify_commands: vec!["cargo test".to_string()],
+    };
+
+    let path = save_recovery_ultra_plan(root, "b543-2", &handoff).unwrap();
+    let text = read(&path);
+    assert_absent(&text, "b543-2 yaml", &[C1, C4, C9]);
+    assert!(text.contains("recovery_original_goal:"), "{text}");
+    assert!(text.contains("phases:"), "{text}");
+    parse_ultra_plan(&text).unwrap();
+
+    let thread_root = root.to_path_buf();
+    let thread_handoff = handoff.clone();
+    let scrubbed = std::thread::spawn(move || {
+        set_current(None);
+        let path = save_recovery_ultra_plan(&thread_root, "b543-2b", &thread_handoff).unwrap();
+        read(&path)
+    })
+    .join()
+    .unwrap();
+    assert_absent(&scrubbed, "b543-2 scope-less", &[C1, C4, C9]);
+    assert!(scrubbed.contains("recovery_original_goal:"), "{scrubbed}");
+    reset_scopes_for_tests();
 }

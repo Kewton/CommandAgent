@@ -113,54 +113,7 @@ fn build_repair_prompt_stable(
         prompt.push_str("\n\nVerification commands for this step:\n");
         prompt.push_str(&bullet_list(&context.verify_commands));
     }
-    if !report.compile_errors.is_empty() {
-        prompt.push_str("\n\nCompile errors:\n");
-        prompt.push_str(&compile_repair_prompt_section_with_root(
-            context.workspace_root.as_deref(),
-            &report.compile_errors,
-            CompileRepairPromptProtection {
-                reanchored_retry: context.compile_reanchored_retry,
-                narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
-            },
-        ));
-    }
-    prompt.push_str(&compile_context::contract_context(report, context));
-    crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
-    let contract_attribute_guidance = contract_attribute_repair::guidance_section(
-        context.workspace_root.as_deref(),
-        report,
-        context.eval_events_path.as_deref(),
-    );
-    if !contract_attribute_guidance.is_empty() {
-        prompt.push_str("\n\n");
-        prompt.push_str(&contract_attribute_guidance);
-    }
-    append_profile_repair_guidance(&mut prompt, report, context);
-    if let Some(expected) = &context.expected_result {
-        prompt.push_str("\n\nExpected verification result:\n");
-        prompt.push_str(expected);
-    }
-    if !report.missing_paths.is_empty() {
-        prompt.push_str("\n\nMissing expected paths:\n");
-        prompt.push_str(&bullet_list(&report.missing_paths));
-    }
-    if !report.command_failures.is_empty() {
-        prompt.push_str("\n\nCommand failures:\n");
-        let failures = report
-            .command_failures
-            .iter()
-            .map(|failure| format!("{}: {}", failure.command, failure.reason))
-            .collect::<Vec<_>>();
-        prompt.push_str(&bullet_list(&failures));
-    }
-    if !context.changed_files.is_empty() {
-        prompt.push_str("\n\nFiles already changed in this step:\n");
-        prompt.push_str(&bullet_list(&context.changed_files));
-    }
-    if let Some(warning) = &context.progress_warning {
-        prompt.push_str("\n\nProgress warning:\n");
-        prompt.push_str(warning);
-    }
+    append_shared_repair_tail(&mut prompt, report, context);
     prompt
 }
 
@@ -202,6 +155,17 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\nVerification commands for this step:\n");
         prompt.push_str(&bullet_list(&context.verify_commands));
     }
+    append_shared_repair_tail(&mut prompt, report, context);
+    prompt.push_str("\n\n");
+    prompt.push_str(&repair_rules_prefix());
+    prompt
+}
+
+fn append_shared_repair_tail(
+    prompt: &mut String,
+    report: &VerificationReport,
+    context: &RepairContext,
+) {
     if !report.compile_errors.is_empty() {
         prompt.push_str("\n\nCompile errors:\n");
         prompt.push_str(&compile_repair_prompt_section_with_root(
@@ -214,7 +178,7 @@ Make the smallest bounded change, then stop.",
         ));
     }
     prompt.push_str(&compile_context::contract_context(report, context));
-    crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
+    crate::minimal_loop::python_traceback::append_repair_guidance(prompt, report);
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
         report,
@@ -224,7 +188,7 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\n");
         prompt.push_str(&contract_attribute_guidance);
     }
-    append_profile_repair_guidance(&mut prompt, report, context);
+    append_profile_repair_guidance(prompt, report, context);
     if let Some(expected) = &context.expected_result {
         prompt.push_str("\n\nExpected verification result:\n");
         prompt.push_str(expected);
@@ -250,9 +214,6 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\nProgress warning:\n");
         prompt.push_str(warning);
     }
-    prompt.push_str("\n\n");
-    prompt.push_str(&repair_rules_prefix());
-    prompt
 }
 
 fn append_profile_repair_guidance(
@@ -443,14 +404,38 @@ pub(crate) fn build_recovery_ultra_plan_at_root(
     }
 }
 
+/// Scrub a handoff at the value stage (before YAML render/escape or token
+/// split), resolving the scope by workspace path so a scope-less thread still
+/// redacts. Runnable commands are refused separately on the original values.
+fn scrub_recovery_handoff(root: &Path, source: &RecoveryHandoff) -> RecoveryHandoff {
+    let clean = |value: &str| scrub_saved_text(root, value);
+    let list = |values: &[String]| values.iter().map(|value| clean(value)).collect();
+    RecoveryHandoff {
+        profile: clean(&source.profile),
+        original_goal: clean(&source.original_goal),
+        failed_phase: source.failed_phase.as_deref().map(clean),
+        failed_step: source.failed_step.as_deref().map(clean),
+        failure_kind: clean(&source.failure_kind),
+        failure_evidence: list(&source.failure_evidence),
+        missing_paths: list(&source.missing_paths),
+        missing_capabilities: list(&source.missing_capabilities),
+        verify_commands: list(&source.verify_commands),
+        changed_paths: list(&source.changed_paths),
+        repair_targets: list(&source.repair_targets),
+    }
+}
+
 pub fn save_recovery_ultra_plan(
     root: &Path,
     scope: &str,
     handoff: &RecoveryHandoff,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let plan = build_recovery_ultra_plan_at_root(Some(root), handoff);
-    let rendered = render_recovery_ultra_plan(&recovery_paths::handoff(Some(root), handoff), &plan);
-    save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
+    refuse_runnable_commands(root, "plan.verify", &handoff.verify_commands)?;
+    let handoff = scrub_recovery_handoff(root, handoff);
+    let plan = build_recovery_ultra_plan_at_root(Some(root), &handoff);
+    let rendered =
+        render_recovery_ultra_plan(&recovery_paths::handoff(Some(root), &handoff), &plan);
+    save_recovery_ultra_plan_rendered(root, scope, &handoff, &plan, rendered)
 }
 
 fn save_recovery_ultra_plan_rendered(
@@ -460,7 +445,6 @@ fn save_recovery_ultra_plan_rendered(
     plan: &UltraPlan,
     rendered: String,
 ) -> anyhow::Result<std::path::PathBuf> {
-    refuse_runnable_commands(root, "plan.verify", &handoff.verify_commands)?;
     let rendered = if let Some(reason) = recovery_ultra_plan_roundtrip_error(&rendered, plan) {
         render_recovery_ultra_plan_with_review(
             &recovery_paths::handoff(Some(root), handoff),
@@ -573,21 +557,18 @@ pub fn suggested_recovery_ultra_plan_command(path: &Path) -> String {
 }
 
 fn recovery_missing_signals(handoff: &RecoveryHandoff) -> Vec<String> {
-    let mut signals = Vec::new();
-    signals.extend(handoff.missing_capabilities.iter().cloned());
-    signals.extend(
-        handoff
-            .missing_paths
-            .iter()
-            .map(|value| format!("missing artifact: {value}")),
-    );
+    let mut signals = handoff.missing_capabilities.clone();
+    let missing = handoff
+        .missing_paths
+        .iter()
+        .map(|v| format!("missing artifact: {v}"));
+    signals.extend(missing);
     if signals.is_empty() {
-        signals.extend(
-            handoff
-                .repair_targets
-                .iter()
-                .map(|value| format!("repair target: {value}")),
-        );
+        let targets = handoff
+            .repair_targets
+            .iter()
+            .map(|v| format!("repair target: {v}"));
+        signals.extend(targets);
     }
     signals
 }
