@@ -121,7 +121,10 @@ while [ "$SECONDS" -lt "$end" ]; do
     echo READY
     exit 0
   fi
-  if printf '%s' "$tail25" | grep -Eq "$LIMIT"; then
+  # A stalled session is idle; a busy one may just be displaying these words
+  # (this repository's harness document quotes them).
+  if printf '%s' "$tail25" | tail -12 | grep -Eq "$LIMIT" \
+    && ! printf '%s' "$tail25" | grep -Eq "$BUSY"; then
     echo STALLED
     printf '%s\n' "$tail25" | tail -12
     exit 0
