@@ -17,10 +17,10 @@ User ──> PM ──> Development leader ──> Workers (one per Issue worktr
 | --- | --- | --- | --- | --- |
 | User | — | — | — | Which Issues to start, every merge, Issue lifecycle, CommandMate start/stop |
 | PM | `commandagent-develop` / `claude` | Claude Code | `cmate-delegate` | Scoping, briefs, plan review and dispatch approval, progress reports, escalation |
-| Development leader | `commandagent-develop` / `command-code` | Command Code | `cmate-orchestrate` (+ `cmate-delegate` for helpers) | plan → dispatch → merge → uat runs, worker supervision |
-| Helper (investigation) | `commandagent-develop` / `codex-3` (alias `Codex_Sub`) | Codex | receives briefs | Investigating what blocks Command Code: unclear requirements, root causes, unknown behavior, plan review |
+| Development leader | `commandagent-develop` / `claude-3` (alias `Claude_Dev`) | Claude Code (Claude Sonnet 5.5) | `cmate-orchestrate` (+ `cmate-delegate` for helpers) | plan → dispatch → merge → uat runs, worker supervision |
+| Helper (investigation) | `commandagent-develop` / `codex-3` (alias `Codex_Sub`) | Codex | receives briefs | Investigating what blocks the leader or workers: unclear requirements, root causes, unknown behavior, plan review |
 | Helper (easy) | `commandagent-develop` / `antigravity` (alias `Antigravity`) | Antigravity | receives briefs | Clearly specified, mechanical work: running commands, collecting data, tabulating |
-| Worker | each Issue worktree, primary instance | Command Code | `cmate-worker-development` | Implementing exactly one Issue inside its worktree |
+| Worker | each Issue worktree, primary instance | Command Code (DeepSeek V4.1 Flash) | `cmate-worker-development` | Implementing exactly one Issue inside its worktree |
 
 Instance ids are the source of truth; re-check them with
 `commandmate instances commandagent-develop --json` before sending. Never send
@@ -309,7 +309,7 @@ or CommandMate start/stop, and logs every automatic action to the ledger. For
 the leader during dispatch:
 
 ```bash
-scripts/cmate-pm-watch.sh --instance command-code \
+scripts/cmate-pm-watch.sh --instance claude-3 \
   --report workspace/tmp/<MMDD>/<topic>/results/<task>/report.md \
   --done 'DONE: (plan plan-|停止)' --ledger workspace/tmp/<MMDD>/<topic>/ledger.md \
   --rm-root /Volumes/SSD_NX/tmp/<run> --allow 'rm -rf /Volumes/SSD_NX/tmp/<run>/'
@@ -322,15 +322,15 @@ shows.
 
 ## 5. Delegating to helpers
 
-Command Code does the development work: the leader runs the orchestration and
-workers implement. Helpers exist to keep Command Code moving, not to take its
+The leader runs the orchestration and Command Code workers implement.
+Helpers exist to keep them moving, not to take their
 work over. Route by what is needed:
 
-- **Codex_Sub (`codex-3`)**: investigation that unblocks Command Code — an
+- **Codex_Sub (`codex-3`)**: investigation that unblocks the leader or a worker — an
   unclear requirement or acceptance criterion, the root cause of a failing
   verification or a stuck worker, how existing code actually behaves, whether a
   plan's dependencies and scope are right. It returns findings and a
-  recommendation with `file:line` evidence; Command Code applies them.
+  recommendation with `file:line` evidence; the leader or worker applies them.
 - **Antigravity (`antigravity`)**: the steps and the expected output can be
   written down in advance — running a command set, collecting metrics,
   executing prepared cases, summarizing files into a fixed table.
@@ -446,5 +446,6 @@ Do not commit ledgers, results, or run directories.
       allow rules in `.claude/settings.local.json`:
       `Bash(commandmate send commandagent-develop:*)` and
       `Bash(commandmate ask commandagent-develop:*)`.
-- [ ] The `command-code` instance starts in this worktree and has read this
+- [ ] The `claude-3` (`Claude_Dev`) instance starts in this worktree with
+      `--model` for Claude Sonnet 5.5 and has read this
       document (the kickoff brief tells it to).

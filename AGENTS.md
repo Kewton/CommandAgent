@@ -46,15 +46,15 @@ remain available when the user invokes them by name.
 
 - **PM**: the Claude Code session `commandagent-develop` / `claude`
   (see `CLAUDE.md`). It delegates with `cmate-delegate`.
-- **Development leader**: the Command Code session `commandagent-develop` /
-  `command-code`. It runs `cmate-orchestrate` with the `rust-commandagent`
+- **Development leader**: the Claude Code session `commandagent-develop` /
+  `claude-3` (alias `Claude_Dev`, Claude Sonnet 5.5). It runs `cmate-orchestrate` with the `rust-commandagent`
   profile on the PM's briefs, supervises workers, and reports to the PM. It
   may delegate helper tasks with `cmate-delegate`. It runs with auto-yes and a
   stop pattern; prompts that stay open go to the PM, and it does not ask the
   user directly. auto-yes answers tool prompts only and does not grant the
   authority described below.
-- **Helpers**: they keep Command Code moving and do not take its work over.
-  Codex_Sub (`codex-3`) investigates what blocks Command Code: unclear
+- **Helpers**: they keep the leader and workers moving and do not take their
+  work over. Codex_Sub (`codex-3`) investigates what blocks them: unclear
   requirements, root causes, unexpected behavior, and plan review, returning
   findings with `file:line` evidence. Antigravity (`antigravity`) takes clear,
   mechanical tasks. Helpers follow the brief they receive and do not implement
