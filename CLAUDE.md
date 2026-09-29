@@ -15,11 +15,11 @@ workers.
 
 - Delegate with the `cmate-delegate` skill. Do not implement Issue code
   yourself and do not message workers directly.
-- The development leader is the Command Code session in this worktree
-  (instance `command-code`). Send it briefs to run `cmate-orchestrate`
-  (plan → dispatch → merge → uat).
-- Command Code (the leader and the workers) does the development work. Helpers
-  keep it moving: send investigation of unknowns (unclear requirements, root
+- The development leader is the Claude Code session in this worktree
+  (instance `claude-3`, alias `Claude_Dev`, Claude Sonnet 5.5). Send it briefs
+  to run `cmate-orchestrate` (plan → dispatch → merge → uat).
+- Command Code workers do the development work under the leader. Helpers
+  keep them moving: send investigation of unknowns (unclear requirements, root
   causes, unexpected behavior, plan review) to Codex_Sub (`codex-3`), and
   clear, mechanical tasks to Antigravity (`antigravity`).
 - You approve plans and dispatch. You never approve a merge: present each merge
@@ -40,6 +40,21 @@ workers.
   their decision.
 
 Workers are Command Code sessions in each Issue worktree, not Claude Code.
+
+## If you are the development leader (`commandagent-develop` / `claude-3`)
+
+You are the development leader (`Claude_Dev`). The PM (`claude`) sends you
+briefs; follow them and `docs/dev/parallel-dev-harness.md`.
+
+- Run `cmate-orchestrate` with the `rust-commandagent` profile (plan →
+  dispatch → merge → uat) for the Issues the brief approves. Supervise the
+  Command Code workers and watch their `autoYes`.
+- Do not implement Issue code yourself; workers implement. You may delegate
+  helper tasks with `cmate-delegate`.
+- Report to the PM through the result file and the brief's `DONE:` line. Do
+  not ask the user directly; prompts you cannot resolve go to the PM.
+- Run the merge runner only after the PM relays an approval that names the
+  Issues. Compact your conversation at Issue boundaries (harness section 6).
 
 ## Any other Claude Code session
 

@@ -789,8 +789,108 @@ pub fn save_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<PathBuf> {
     let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(&path, crate::planner::plan::render_editable_step_plan(plan))?;
+    let plan = protect_step_plan(root, plan)?;
+    std::fs::write(
+        &path,
+        crate::planner::plan::render_editable_step_plan(&plan),
+    )?;
     Ok(path)
+}
+
+/// Scrub free text with the run scope registered for `root`, or return it
+/// unchanged when no scope is installed. Every custom save boundary that
+/// persists free text (a repair note, a recovery prompt) shares this so the
+/// exact-value catalog is the only substitution algorithm.
+pub(crate) fn scrub_saved_text(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// Refuse to execute a plan file whose runnable content still contains a
+/// registered secret, mirroring the save boundary.
+pub(crate) fn refuse_saved_plan_run(root: &Path, text: &str) -> anyhow::Result<()> {
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.refuse_runnable("plan", text)?;
+    }
+    Ok(())
+}
+
+/// Refuse to persist a runnable plan (UltraPlan, recovery YAML) that contains a
+/// registered secret anywhere. A runnable plan cannot be safely redacted: the
+/// redacted instruction could be executed and falsely pass, so the plan is
+/// rejected honestly instead of saved. A secret-free plan is returned unchanged.
+pub(crate) fn refuse_saved_plan(root: &Path, text: &str) -> anyhow::Result<String> {
+    refuse_saved_plan_run(root, text)?;
+    Ok(text.to_string())
+}
+
+/// Refuse when any of `commands` still contains a registered secret. Used by the
+/// recovery handoff, whose commands are shown to a model and must not be
+/// persisted as a redacted, re-runnable instruction.
+pub(crate) fn refuse_runnable_commands(
+    root: &Path,
+    field: &str,
+    commands: &[String],
+) -> anyhow::Result<()> {
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        for command in commands {
+            context.refuse_runnable(field, command)?;
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a secret-bearing runnable command/path, then scrub the remaining free
+/// text of a StepPlan. The plan is scrubbed field by field before it is
+/// rendered, so a value YAML escapes (`"`, `\n`) is matched as the parsed
+/// scalar rather than as its escaped text form.
+fn protect_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<StepPlan> {
+    let Some(context) = crate::sensitive_data::active_for(Some(root)) else {
+        return Ok(plan.clone());
+    };
+    refuse_plan_commands(&context, plan)?;
+    let mut scrubbed = plan.clone();
+    scrubbed.goal = context.scrub_text(&scrubbed.goal);
+    for step in &mut scrubbed.steps {
+        step.id = context.scrub_text(&step.id);
+        step.kind = context.scrub_text(&step.kind);
+        step.expected_result = context.scrub_text(&step.expected_result);
+        step.instruction = context.scrub_text(&step.instruction);
+        step.verify = step
+            .verify
+            .iter()
+            .map(|value| context.scrub_text(value))
+            .collect();
+        step.expected_paths = step
+            .expected_paths
+            .iter()
+            .map(|value| context.scrub_text(value))
+            .collect();
+    }
+    Ok(scrubbed)
+}
+
+fn refuse_plan_commands(
+    context: &crate::sensitive_data::RedactionContext,
+    plan: &StepPlan,
+) -> anyhow::Result<()> {
+    for step in &plan.steps {
+        for command in &step.verify {
+            context.refuse_runnable("step.verify", command)?;
+        }
+        for path in &step.expected_paths {
+            context.refuse_runnable("step.expected_paths", path)?;
+        }
+    }
+    Ok(())
+}
+
+fn refuse_step_plan_run(root: &Path, plan: &StepPlan) -> anyhow::Result<()> {
+    let Some(context) = crate::sensitive_data::active_for(Some(root)) else {
+        return Ok(());
+    };
+    refuse_plan_commands(&context, plan)
 }
 
 pub fn run_plan_file(
@@ -812,6 +912,7 @@ pub fn run_plan_file_with_ui(
         anyhow::anyhow!("failed to read plan file `{}`: {error}", path.display())
     })?;
     let plan = parse_step_plan(&text)?;
+    refuse_step_plan_run(&config.workspace_root, &plan)?;
     run_step_plan_with_ui(client, &plan, config, ui)
 }
 

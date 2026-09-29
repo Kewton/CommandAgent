@@ -241,7 +241,9 @@ fn save_recovery_note(
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-internal-panic-{}.md", uuid::Uuid::now_v7()));
     let message = crate::eval_events::render_stop_reason_text(&diagnostic.message);
-    let note = format!(
+    let command_is_redacted = scrub_note(&context.workspace_root, &context.reproduction_command)
+        != context.reproduction_command;
+    let mut note = format!(
         "# Internal panic recovery note\n\n\
 Status: failed\n\
 Reason: internal_panic\n\
@@ -250,8 +252,23 @@ Panic location: {}\n\n\
 Reproduction command:\n\n    {}\n",
         diagnostic.location, context.reproduction_command
     );
+    if command_is_redacted {
+        note.push_str(
+            "\nRedaction note: the reproduction command above was redacted and cannot be re-run as written.\n",
+        );
+    }
+    let note = scrub_note(&context.workspace_root, &note);
     std::fs::write(&path, note)?;
     Ok(path)
+}
+
+/// Scrub a persisted panic recovery note with the run scope registered for the
+/// workspace, so the panic message, location, and reproduction command never
+/// write a registered secret value to disk.
+fn scrub_note(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn internal_panic_stop_event(
@@ -618,6 +635,146 @@ mod tests {
             Some("normal_marker")
         );
         assert!(!dir.path().join(".commandagent/repairs").exists());
+    }
+
+    #[test]
+    fn recovery_note_and_terminal_event_scrub_a_registered_secret() {
+        // The panic boundary module is private to the crate, so the note/model
+        // boundary is exercised here rather than from an integration test. Only
+        // the thread-local scope is set, so this never disturbs a sibling lib
+        // test's process-global scope registry.
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/secret/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
+        let mut context = context(dir.path(), &events);
+        context.reproduction_command = format!("commandagent --ultra-plan-run '{canary}'");
+
+        let result = catch_with_context(context, || {
+            panic!("panic carrying {canary}");
+        });
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+
+        let events = read_events(&events);
+        let stop = events.last().unwrap();
+        let relative = stop
+            .get("recovery_note_path")
+            .and_then(Value::as_str)
+            .unwrap();
+        assert!(!relative.is_empty(), "{stop:#}");
+        let note = std::fs::read_to_string(dir.path().join(relative)).unwrap();
+        assert!(!note.contains(canary), "recovery note leaked: {note}");
+        assert!(note.contains("<redacted>"), "{note}");
+        assert!(!note.contains("H01_CANARY"), "{note}");
+        let rendered = format!("{stop:#}");
+        assert!(
+            !rendered.contains(canary),
+            "terminal event leaked: {rendered}"
+        );
+        assert!(
+            !std::fs::read_to_string(dir.path().join(".commandagent/runs/secret/summary.md"))
+                .unwrap_or_default()
+                .contains(canary)
+        );
+        crate::sensitive_data::set_current(None);
+    }
+
+    fn read_recovery_note(root: &Path) -> String {
+        std::fs::read_dir(root.join(".commandagent/repairs"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn r20_panic_note_is_scrubbed_on_a_thread_without_a_current_scope() {
+        // The scope registry is process-global, so run this in a child process:
+        // a concurrent `reset_scopes_for_tests` in a sibling lib test would
+        // otherwise clear this test's registered scope.
+        let exe = std::env::current_exe().unwrap();
+        let status = std::process::Command::new(exe)
+            .args(["--ignored", "--nocapture", "r20_scope_registry_child"])
+            .status()
+            .unwrap();
+        assert!(status.success(), "r20 child exited with {status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn r20_scope_registry_child() {
+        // The panicking thread installs no thread-local scope; the note is still
+        // scrubbed because the boundary resolves the workspace scope by path.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let events = root.join(".commandagent/runs/thread/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(&root), Some(&events));
+
+        let thread_root = root.clone();
+        let thread_events = events.clone();
+        let handle = std::thread::spawn(move || {
+            crate::sensitive_data::set_current(None);
+            let mut ctx = context(&thread_root, &thread_events);
+            ctx.reproduction_command = format!("commandagent --token {canary}");
+            let result = catch_with_context(ctx, || panic!("thread panic {canary}"));
+            assert!(result.unwrap_err().to_string().contains("internal_panic"));
+            let note = read_recovery_note(&thread_root);
+            assert!(!note.contains(canary), "{note}");
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn r21_multibyte_panic_scrub_does_not_double_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/mb/events.jsonl");
+        let canary = "H09_日本語_Canary_秘密値_5521";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
+
+        let mut ctx = context(dir.path(), &events);
+        ctx.reproduction_command = format!("commandagent --token {canary}");
+        let result = catch_with_context(ctx, || panic!("multibyte {canary}"));
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let note = read_recovery_note(dir.path());
+        assert!(!note.contains(canary), "{note}");
+        assert!(!note.contains("日本語"), "{note}");
+        crate::sensitive_data::set_current(None);
+    }
+
+    #[test]
+    fn r22_redacted_reproduction_command_is_marked_not_rerunnable() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/rerun/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
+
+        let mut ctx = context(dir.path(), &events);
+        ctx.reproduction_command = format!("commandagent --ultra-plan-run '{canary}'");
+        let result = catch_with_context(ctx, || panic!("boom"));
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let note = read_recovery_note(dir.path());
+        assert!(!note.contains(canary), "{note}");
+        assert!(
+            note.contains("cannot be re-run as written"),
+            "the redacted command must be marked not re-runnable: {note}"
+        );
+        crate::sensitive_data::set_current(None);
     }
 
     #[test]

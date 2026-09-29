@@ -651,12 +651,15 @@ pub fn browser_readiness_evidence_path(root: &Path) -> PathBuf {
     crate::runtime_paths::evidence_dir(root).join("browser-readiness.json")
 }
 
-fn write_browser_readiness_evidence(root: &Path, observation: &BrowserReadinessObservation) {
+pub fn write_browser_readiness_evidence(root: &Path, observation: &BrowserReadinessObservation) {
     let path = browser_readiness_evidence_path(root);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let value = browser_readiness_evidence_json(observation);
+    let mut value = browser_readiness_evidence_json(observation);
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.scrub_value_free(&mut value);
+    }
     if let Ok(text) = serde_json::to_string_pretty(&value) {
         let _ = std::fs::write(&path, format!("{text}\n"));
     }

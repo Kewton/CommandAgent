@@ -170,7 +170,10 @@ pub fn diagnose_cli_with_provider_options(
         .state_dir
         .clone()
         .unwrap_or_else(crate::config::default_state_dir);
-    let resolution_error = resolved.as_ref().err().map(|error| format!("{error:#}"));
+    let resolution_error = resolved
+        .as_ref()
+        .err()
+        .map(|error| crate::sensitive_data::scrub_everything(&format!("{error:#}")));
     let pack = resolved
         .as_ref()
         .ok()
@@ -244,7 +247,29 @@ fn collect_report(
         "grant the current user write access or select a writable --cwd",
     ));
     checks.push(dotenv_check(root));
+    scrub_checks(&mut checks, root, resolved);
     DoctorReport::from_checks(checks)
+}
+
+/// Scrub every diagnostic message and detail with the run and `${ENV}` staging
+/// scope, so a Config resolution error or a resolved value (e.g. a model from a
+/// preset) never appears in human or JSON output. Non-value diagnostics (field,
+/// source, env name, error kind) are preserved.
+fn scrub_checks(checks: &mut [DoctorCheck], root: &Path, resolved: Option<&Config>) {
+    let context = crate::sensitive_data::active_for(
+        resolved
+            .map(|config| config.workspace_root.as_path())
+            .or(Some(root)),
+    );
+    for check in checks {
+        check.message = crate::sensitive_data::scrub_everything(&check.message);
+        if let Some(remediation) = check.remediation.take() {
+            check.remediation = Some(crate::sensitive_data::scrub_everything(&remediation));
+        }
+        if let Some(context) = &context {
+            context.scrub_value_lenient(&mut check.details);
+        }
+    }
 }
 
 fn extension_profiles_check() -> DoctorCheck {
@@ -513,7 +538,11 @@ fn add_config_file_checks(
     resolution_failed: bool,
 ) {
     let inspection = crate::config::inspect_config_files(root, preset_name);
-    let inspection_errors = inspection.inspection_errors;
+    let inspection_errors = inspection
+        .inspection_errors
+        .into_iter()
+        .map(|error| crate::sensitive_data::scrub_everything(&error))
+        .collect::<Vec<_>>();
     const IDS: [&str; 4] = [
         "config.file.workspace_commandagent",
         "config.file.workspace_anvil",
