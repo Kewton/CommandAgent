@@ -681,7 +681,99 @@ mod gui {
                 .unwrap()
                 .to_string();
             let parsed: Value = serde_json::from_str(&content).unwrap();
-            assert_eq!(parsed["status"], "completed");
+            // The fixed schema key names are preserved (no rename, no
+            // corruption); how a fixed key's *value* is treated is asserted by
+            // `b544_1_evidence_document_scrubs_fixed_key_values`.
+            let map = parsed.as_object().unwrap();
+            assert_eq!(map.len(), 3);
+            assert!(map.contains_key("status"));
+            assert_eq!(parsed["event"], "x");
+        }
+
+        // B-544-1 (H-10): a document body whose root fixed key holds free text
+        // must scrub that value. The catalog is the real GUI one built from the
+        // repository root `.env` (no `install_scope`), and the legacy file is
+        // not rewritten.
+        #[test]
+        fn b544_1_evidence_document_scrubs_fixed_key_values() {
+            set_current(None);
+            let fixture = fixture();
+            std::fs::write(
+                fixture.repository.join(".env"),
+                format!("PRIVATE_TOKEN={C1}\n"),
+            )
+            .unwrap();
+            let run = run_root(&fixture, "run-h10");
+            let acceptance = run.join("acceptance.json");
+            write_at(
+                &acceptance,
+                &json!({
+                    "event": "acceptance",
+                    "status": format!("failed token={C1}"),
+                    "verdict": "fail",
+                    "tool_name": C1,
+                    "note": C1,
+                    "nested": {"status": C1},
+                })
+                .to_string(),
+            );
+            write_at(
+                &run.join("summary.md"),
+                &format!("Status: failed\nReason: {C1}\n"),
+            );
+            let before = sha256(&acceptance);
+
+            let state = app_state(&fixture);
+            let query: api::EvidenceQuery =
+                serde_json::from_value(json!({"path": "acceptance.json"})).unwrap();
+            let document = block_on(api::run_evidence(
+                State(state.clone()),
+                AxumPath("run-h10".to_string()),
+                Query(query),
+            ))
+            .unwrap();
+            let content = serde_json::to_value(&document.0).unwrap()["content"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(!content.contains(C1), "{content}");
+            assert!(!content.contains("H01_CANARY"), "{content}");
+            let parsed: Value = serde_json::from_str(&content).unwrap();
+            let map = parsed.as_object().unwrap();
+            assert_eq!(map.len(), 6, "{content}");
+            for key in ["event", "status", "verdict", "tool_name", "note", "nested"] {
+                assert!(map.contains_key(key), "{content}");
+            }
+            assert_eq!(parsed["event"], "acceptance");
+            assert_eq!(parsed["status"], "failed token=<redacted>");
+            assert_eq!(parsed["tool_name"], "<redacted>");
+            assert_eq!(parsed["nested"]["status"], "<redacted>");
+
+            // The text document and the run index stay clean too.
+            let summary: api::EvidenceQuery =
+                serde_json::from_value(json!({"path": "summary.md"})).unwrap();
+            let summary_document = block_on(api::run_evidence(
+                State(state.clone()),
+                AxumPath("run-h10".to_string()),
+                Query(summary),
+            ))
+            .unwrap();
+            assert!(
+                !serde_json::to_value(&summary_document.0)
+                    .unwrap()
+                    .to_string()
+                    .contains(C1)
+            );
+            let index = block_on(api::runs(State(state))).unwrap();
+            assert!(
+                !serde_json::to_value(index.0)
+                    .unwrap()
+                    .to_string()
+                    .contains(C1)
+            );
+
+            // The legacy record is not rewritten.
+            assert_eq!(sha256(&acceptance), before);
         }
     }
 }

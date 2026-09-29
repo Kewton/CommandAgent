@@ -156,11 +156,14 @@ pub(super) fn redact_text(value: impl Into<String>, root: &Path) -> String {
 }
 
 /// Replace the execution root and remove registered secrets from a stored
-/// document body while keeping its fixed schema intact.
+/// document body while keeping its fixed schema keys intact.
 ///
 /// A JSON object/array keeps its fixed `event`/`schema_version`/`status`/
-/// `verdict`/`type` identifiers; a JSONL body keeps its per-line schema. A
-/// dynamic key that would expose a secret is refused honestly (naming the
+/// `verdict`/`type` *key names*; a JSONL body keeps its per-line schema. Unlike
+/// the schema-preserving scrub, **every string value is scrubbed**, including
+/// the free text that sits in a root fixed key (`"status":"failed token=<secret>"`)
+/// — otherwise a legacy document leaks through that key (#544 B-544-1). A
+/// dynamic key that would expose a secret is still refused honestly (naming the
 /// position, never the value) so a caller that cannot project the body safely
 /// fails instead of emitting a corrupt document.
 pub(super) fn redact_document(content: &str, root: &Path) -> Result<String, SecretScrubError> {
@@ -171,6 +174,7 @@ pub(super) fn redact_document(content: &str, root: &Path) -> Result<String, Secr
     }
     if let Some(mut value) = parse_container(&replaced) {
         context.scrub_value(&mut value)?;
+        scrub_all_strings(&context, &mut value);
         return Ok(serde_json::to_string(&value).unwrap_or(replaced));
     }
     if let Some(lines) = parse_jsonl_containers(&replaced) {
@@ -181,6 +185,7 @@ pub(super) fn redact_document(content: &str, root: &Path) -> Result<String, Secr
                 continue;
             };
             context.scrub_value(&mut value)?;
+            scrub_all_strings(&context, &mut value);
             scrubbed.push(serde_json::to_string(&value).unwrap_or(line.raw));
         }
         return Ok(join_lines(&replaced, scrubbed));
