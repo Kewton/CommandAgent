@@ -25,7 +25,12 @@ User ──> PM ──> Development leader ──> Workers (one per Issue worktr
 Instance ids are the source of truth; re-check them with
 `commandmate instances commandagent-develop --json` before sending. Never send
 to your own instance. Other instances in the roster (`codex`, `codex-2`,
-`claude-2`) are not part of this chain unless the user assigns them.
+`claude-2`) are not part of this chain unless the user assigns them. When
+Codex_Sub is unavailable (see section 6 for hangs), the user may assign
+`claude-2` (alias `Claude_Sub`, Claude Code) as the investigation helper;
+record the substitution in the ledger. A cold `claude-2` can take over 60
+seconds to reach its prompt, so the first send may time out; capture the pane
+and resend once.
 
 Messages flow only along the arrows. The PM does not message workers directly;
 the leader does not ask the user directly (it asks the PM). Either the PM or the
@@ -67,6 +72,17 @@ Approval is always written, never implied: the PM's dispatch brief says
    design choices, and, with the user's approval, adds the decisions and the
    `## 対象ファイル` section to the Issue body.
 
+   For an Issue that protects secrets or otherwise changes a security
+   boundary, the investigation also writes the adversarial checks the
+   pre-merge review would run (step 4a): each boundary, the fake canary value
+   (including short, multibyte, marker-like, and identifier-like values), the
+   input shape (nested, key, split stream, error path), and the expected safe
+   result. With the user's approval these go into the Issue's acceptance
+   criteria, so the worker implements against them and the review re-runs them
+   instead of discovering them. In #504 the worker's own tests passed every
+   gate while reviews found 19 leaks and breakages over three rounds, about
+   eight hours of review and rework after a 1.5-hour implementation.
+
    Issue-writing rules for the planner:
    - It reads backticked paths anywhere in the body as candidates. Outside
      `## 対象ファイル`, write paths in full or without backticks, and do not
@@ -88,7 +104,23 @@ Approval is always written, never implied: the PM's dispatch brief says
      the `pytest-codex-orchestrate` gate fail), run the relevant audits, merge
      the latest `origin/develop` into the branch after the worker PRs merge,
      and open the PR as `#<N> <summary>`. Merge follows the same user approval.
+   - The planner also reads plain paths: any path under a known root (`src/`,
+     `tests/`, `docs/`, `scripts/`, ...) or with a file extension is a
+     candidate even without backticks. Candidates under a heading that
+     contains 根拠, 出典, 参考, 参照, 背景, 関連, References, Context,
+     Background, See also, or Appendix are context only and stay out of
+     scope; put evidence (`file:line` lists) under such headings, for example
+     `## 根拠と方針`. A directory or glob outside a deliverable heading is
+     dropped with a `scope_pattern_dropped` notice, which is correct for
+     do-not-touch paths such as `docs/migration/`.
    - State dependencies as `depends on #N`; plans run with `--no-infer`.
+     Under a heading that contains 依存, 前提, or depend, every `#N` counts as
+     a dependency, and 依存, 前提, needs, or requires next to `#N` anywhere
+     makes one. Describe later Issues under a heading such as
+     `## 後続の Issue` without those words, or the plan reverses the order.
+   - Before handing a rewritten body to the leader, dry-run it offline with
+     `orchestrate.mjs --issue-json <fixture>` and compare `suspected_files`
+     and dependencies with what you intended.
    - Put everything the worker needs in the Issue body before dispatch: the
      decided design and its key evidence, the acceptance procedure (for
      example, how to reproduce load or port contention), and where scratch
@@ -132,7 +164,19 @@ Approval is always written, never implied: the PM's dispatch brief says
    with `gh pr create`, puts the single-run gate results and the reason the
    runner record failed in the PR body, and merges with `gh pr merge --merge`
    only after GitHub CI (CI and acceptance, plus any gate the Issue adds) is
-   green. Record the discrepancy in the ledger. The first dispatch attempt can fail with `prompt not ready`
+   green. Record the discrepancy in the ledger.
+
+   Do not cancel a running verify run. Cancelling it marks the worktree's
+   contract task `cancelled`, and every later `--reverify` then skips the
+   scope gate and records no verdict, so the merge runner refuses the Issue
+   (`no_eligible_issues`) and the merge falls back to the manual path above
+   (#504). If a verify must be stopped, report to the PM first. To judge the
+   gates on such a worktree, run
+   `commandmate verify <wt> --task <contract task id>`; put that run in the PR
+   body. Long runs go to the background: the leader's shell stops foreground
+   commands after 10 minutes.
+
+   The first dispatch attempt can fail with `prompt not ready`
    because freshly started Command Code workers are not ready yet; resume it
    with `--resume`. Dispatch has no `--approve` flag; the PM's written approval is the
    gate. Add `--allow-questions` only for questions the user has resolved, and
@@ -167,6 +211,20 @@ Approval is always written, never implied: the PM's dispatch brief says
    If it was reset, re-pin or send with `--instance command-code`.
    The leader supervises Waves, resumes partial runs with `--resume`, and
    reports each Wave to the PM.
+4a. **Pre-merge review (investigation helper, PM-briefed).** Only Issues
+   that protect secrets or change a security boundary get an independent
+   review; other Issues go to the merge request on the runner verdict and
+   GitHub CI. The limits are fixed (user decision, 2026-09-29):
+   - One full review per Issue, scoped to the Issue's acceptance criteria and
+     the adversarial checks from step 2, with a time limit of 30–60 minutes
+     written in the brief. When the limit passes, the PM tells the helper to
+     stop adding probes and write the report.
+   - A blocker is only a real leak of a registered secret or a broken
+     schema, event, or record. Everything else is a design point for a
+     follow-up Issue and does not hold the merge.
+   - After rework, the helper checks only the fixed points (the diff and the
+     blocker reproductions, 30 minutes at most). There is no second full
+     review.
 5. **Merge request (PM → user).** When Issues pass verification, the PM
    summarizes per Issue: change summary, verification result, CI status, and
    remaining risk, and asks the user to approve the merge.
@@ -238,7 +296,29 @@ Instead, the PM's monitor watches `autoYes` in
 `commandmate instances commandagent-develop --json`; when it turns off, the PM
 reads the open prompt, answers it if it is inside the brief's scope (otherwise
 escalates), and re-enables auto-yes with the same pattern. Record each case in
-the ledger.
+the ledger. auto-yes also switches off before its duration ends without any
+prompt (13 times during #501/#504); the monitor re-enables it only when no
+stop-pattern command is on screen. Otherwise re-enabling would let auto-yes
+answer a command the PM never saw, which once let a remote push and PR
+creation through unreviewed.
+
+Use `scripts/cmate-pm-watch.sh` as the monitor. It answers a prompt only when
+the command matches `--allow` (and every recursive delete targets a path
+under `--rm-root`), never answers force pushes, `--admin`, hard resets, `.env`,
+or CommandMate start/stop, and logs every automatic action to the ledger. For
+the leader during dispatch:
+
+```bash
+scripts/cmate-pm-watch.sh --instance command-code \
+  --report workspace/tmp/<MMDD>/<topic>/results/<task>/report.md \
+  --done 'DONE: (plan plan-|停止)' --ledger workspace/tmp/<MMDD>/<topic>/ledger.md \
+  --rm-root /Volumes/SSD_NX/tmp/<run> --allow 'rm -rf /Volumes/SSD_NX/tmp/<run>/'
+```
+
+During an approved merge, add the approved branch and PR commands to
+`--allow`. Match the DONE line on its filled-in form (for example
+`merge (可|不可)、`), not on the template in the brief, which the pane also
+shows.
 
 ## 5. Delegating to helpers
 
@@ -292,7 +372,23 @@ workers under `cmate-orchestrate`.
   (chain rule, exit 2). Send once without `--reply-to` and monitor instead.
 - `send` can exit 99 with "typed but unsent" even when the message was
   submitted. Capture the pane before resending; never send the same request
-  twice.
+  twice. The reverse also happens: `send` can print "Message sent" while
+  nothing reached the composer. After every send, capture the pane and
+  confirm that the receiver started working (the message is shown or the
+  session is busy) before starting the monitor.
+- A helper can hang. Codex_Sub hung twice: the pane stopped changing, the
+  Codex binary stayed near 100% CPU, and input and Esc did nothing (about 4.5
+  hours lost). The monitor reports `NO_PROGRESS` with the pane's process CPU
+  when the pane has not changed for `--stall-minutes` (default 20). Ask the
+  user to stop the session; the PM does not kill it. Reassign the brief (see
+  the `claude-2` substitution in section 1).
+- The leader can hit its context limit on long runs. The turn then fails with
+  "maximum context length" or `Type "continue"` and the brief silently never
+  starts (about 1 hour lost in #504). The monitor reports `STALLED`. Compact
+  the leader at every Issue boundary: after cleanup, before the next plan
+  brief. Also compact before a long brief mid-Issue. Make each brief
+  self-contained: it points to earlier report files for state. If a compacted
+  leader stalls again, ask the user to restart the session.
 - Antigravity may stop on multi-line command prompts that auto-yes does not
   answer. The requester answers `1` only when the command is inside the brief's
   scope; otherwise report it upward.
