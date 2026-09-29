@@ -65,6 +65,11 @@ export function describeError(reason: unknown): string {
         "この Origin から Trial を実行できません。GUI_TRIAL_ALLOWED_ORIGINS に現在の Origin を追加して GUI サーバーを再起動してください。",
         detail,
       );
+    case "trial_host_not_allowed":
+      return withDetail(
+        "この Host から GUI を操作できません。ブラウザで 127.0.0.1 / localhost / [::1] の正規の URL を開き直してください。",
+        detail,
+      );
     case "trial_workspace_running": {
       const sessionId = reconnectSessionId(reason);
       if (sessionId !== null) {

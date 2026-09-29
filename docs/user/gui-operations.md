@@ -15,12 +15,26 @@ without removing the last successful list.
 
 ## Token and Origin boundaries
 
-`--trial-token-auth` accepts `on` or `off` and defaults to `off`. Off hides the
-token field and removes bearer authentication, but every POST still requires a
-same-host Origin or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. GET-only recovery
-documents are readable without a token when off; their projected-path,
-workspace-confinement, non-symlink, and no-store checks remain enforced. Use off
-only on a trusted local loopback session.
+Every request, on any route and below the configured base path, must also carry
+a `Host` header that is exactly one permitted authority. Permitted values are
+`localhost`, `127.0.0.1`, or `[::1]` followed by the port the server is actually
+listening on, compared case-insensitively for ASCII; plus any authority named in
+`GUI_TRIAL_ALLOWED_ORIGINS`. A `Host` without the listening port, a trailing
+dot, an IPv4-mapped or decimal-encoded address, a prefix/suffix host, or a
+missing/duplicated `Host` is rejected with `403 trial_host_not_allowed`, even
+for read-only evidence routes. One middleware enforces this for the whole
+router, so a DNS-rebinding pair (`Host` and `Origin` both chosen by an attacker)
+cannot read the run index, evidence, or sessions.
+
+`--trial-token-auth` accepts `on` or `off` and defaults to `off`. Off stays the
+default because the `Host` check already closes DNS rebinding, and turning
+authentication on by default would break existing loopback users. Off hides the
+token field and removes bearer authentication, but every POST still requires an
+`Origin` that exactly matches a permitted loopback origin or one listed by
+`GUI_TRIAL_ALLOWED_ORIGINS`. GET-only recovery documents are readable without a
+token when off; their projected-path, workspace-confinement, non-symlink, and
+no-store checks remain enforced. Use off only on a trusted local loopback
+session.
 
 On requires a 32–4096 character non-whitespace `GUI_TRIAL_TOKEN` in the server
 process environment. The browser sends it as
@@ -28,9 +42,10 @@ process environment. The browser sends it as
 `Authorization: Bearer`. Startup fails closed if the token is missing/invalid.
 
 `GUI_TRIAL_ALLOWED_ORIGINS` is a comma-separated exact allowlist for proxy
-origins. A token never substitutes for upstream Cloudflare/tunnel access
-policy. The listener remains loopback-only and does not trust forwarded host
-headers.
+origins. Its authorities are also accepted as a `Host`, so a proxy path such as
+CommandMate's `/proxy/commandagent` keeps working. A token never substitutes for
+upstream Cloudflare/tunnel access policy. The listener remains loopback-only and
+never trusts `X-Forwarded-Host` or other forwarded headers.
 
 ## Trial token lifetime and rotation when authentication is on
 
@@ -109,6 +124,7 @@ The GUI translates the code into a next action without hiding the server detail.
 | Status / code | Recovery |
 | --- | --- |
 | `401 trial_token_invalid` | Re-authenticate upstream and enter the runtime token again. |
+| `403 trial_host_not_allowed` | Open the GUI from `127.0.0.1`, `localhost`, or `[::1]` with the listening port, or add the exact proxy authority to `GUI_TRIAL_ALLOWED_ORIGINS`, then restart. |
 | `403 trial_origin_not_allowed` | Add the exact browser Origin, then restart. |
 | `409 trial_workspace_running` | Use the displayed ID and GET-only reconnect link. |
 | `409 trial_workspace_recovery_required` | Inspect events and use the conservative Trial recovery; never delete `.anvil/` to bypass it. |

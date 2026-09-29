@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use axum::Router;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::http::StatusCode;
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use clap::{Parser, ValueEnum};
 
@@ -184,10 +187,6 @@ async fn main() -> anyhow::Result<()> {
             )
         })?;
     }
-    let trial_access = trial_access::TrialAccess::from_environment(
-        trial_workspace.is_enabled(),
-        arguments.trial_token_auth.is_enabled(),
-    )?;
     let commandagent_bin = resolve_commandagent_bin(&arguments, &repository_root);
     let execution_root_summary = trial_workspace
         .configured_path()
@@ -197,6 +196,16 @@ async fn main() -> anyhow::Result<()> {
         .map_or_else(|| "-".to_string(), |path| path.display().to_string());
     let approved_pack_count = preflight::count_packs(Some(&repository_root));
     let local_pack_count = preflight::count_packs(extension_root.as_deref());
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), arguments.port);
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .with_context(|| format!("bind {address}"))?;
+    let actual = listener.local_addr().context("read bound address")?;
+    let trial_access = trial_access::TrialAccess::from_environment_on_port(
+        trial_workspace.is_enabled(),
+        arguments.trial_token_auth.is_enabled(),
+        actual.port(),
+    )?;
     let state = AppState {
         repository_root,
         static_root: arguments.static_dir,
@@ -217,12 +226,8 @@ async fn main() -> anyhow::Result<()> {
             .route(&format!("{base_path}/"), get(static_files::serve))
             .nest(&base_path, dashboard)
     }
-    .with_state(state);
-    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), arguments.port);
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .with_context(|| format!("bind {address}"))?;
-    let actual = listener.local_addr().context("read bound address")?;
+    .with_state(state.clone())
+    .layer(middleware::from_fn_with_state(state, require_allowed_host));
     println!(
         "gui_server listening on http://{}:{}{}",
         actual.ip(),
@@ -347,6 +352,29 @@ fn resolve_commandagent_bin(arguments: &Arguments, repository_root: &Path) -> Pa
     } else {
         repository_root.join(configured)
     }
+}
+
+/// Reject a request whose `Host` is not exactly a permitted authority before
+/// any route handler runs. This covers read-only evidence routes as well as
+/// mutations, and applies below a configured base path too.
+async fn require_allowed_host(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if state
+        .trial_access
+        .authorize_host(request.headers())
+        .is_err()
+    {
+        return error_response::GuiError::new(
+            StatusCode::FORBIDDEN,
+            "trial_host_not_allowed",
+            "trial request host is not allowed",
+        )
+        .into_response();
+    }
+    next.run(request).await
 }
 
 fn dashboard_router() -> Router<AppState> {

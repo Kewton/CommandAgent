@@ -4615,6 +4615,471 @@ fn trial_session_files_reject_a_symlinked_runtime_root() {
 }
 
 #[cfg(unix)]
+const REBINDING_RUN_ID: &str = "rebinding-run-503";
+#[cfg(unix)]
+const REBINDING_EVIDENCE: &str = "REBINDING-EVIDENCE-BODY-503";
+#[cfg(unix)]
+const REBINDING_ATTACKER: &str = "attacker.example";
+
+#[cfg(unix)]
+fn rebinding_fixture() -> (tempfile::TempDir, tempfile::TempDir) {
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(REBINDING_RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(
+        run_root.join("uat-report.md"),
+        "# Acceptance\n\nStatus: FULL 1/1 (2026-09-30)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        run_root.join("evidence/secret.txt"),
+        format!("{REBINDING_EVIDENCE}\n"),
+    )
+    .unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    (repository, workspace)
+}
+
+#[cfg(unix)]
+fn start_rebinding_server(
+    repository: &std::path::Path,
+    workspace: &std::path::Path,
+    authenticated: bool,
+    base_path: &str,
+    environment: &[(&str, &str)],
+) -> Server {
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+    Server::start_with_repository_root_and_env(
+        Some(workspace),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        authenticated,
+        repository,
+        StaticExport::new(&static_root, base_path).with_provider_hosts(ProviderHosts {
+            ollama: "http://127.0.0.1:9",
+            lm_studio: "http://127.0.0.1:9",
+        }),
+        None,
+        environment,
+    )
+}
+
+#[cfg(unix)]
+fn assert_error_body_has_no_leak(response: &HttpResponse, code: &str, leaked: &[&str]) {
+    assert_eq!(response.status, 403, "{}", response.body);
+    let body = response.json();
+    assert_eq!(body["code"], code, "{}", response.body);
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty()),
+        "{}",
+        response.body
+    );
+    assert_eq!(
+        body.as_object().map(|object| object.len()),
+        Some(2),
+        "unexpected error schema: {}",
+        response.body
+    );
+    for needle in leaked {
+        assert!(
+            !response.body.contains(needle),
+            "response leaked {needle}: {}",
+            response.body
+        );
+    }
+}
+
+#[cfg(unix)]
+fn assert_host_forbidden(response: &HttpResponse, leaked: &[&str]) {
+    assert_error_body_has_no_leak(response, "trial_host_not_allowed", leaked);
+}
+
+#[cfg(unix)]
+fn assert_origin_forbidden(response: &HttpResponse, leaked: &[&str]) {
+    assert_error_body_has_no_leak(response, "trial_origin_not_allowed", leaked);
+}
+
+/// Rows 1-9, 18-22: a DNS-rebinding pair is refused while the sanctioned
+/// loopback authorities keep working with token authentication off.
+#[cfg(unix)]
+#[test]
+fn rebinding_host_and_origin_are_rejected_for_reads_and_mutations_auth_off() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(repository.path(), workspace.path(), false, "/", &[]);
+    let port = server.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_origin = format!("http://127.0.0.1:{port}");
+    let spec = session_spec();
+    let session_id = "018f0e32-7b80-7000-8000-000000000050";
+
+    // Row 1: run index read.
+    let row1 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row1, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Row 2: evidence body read.
+    let row2 = server.request_with_host(
+        "GET",
+        &format!("/api/runs/{REBINDING_RUN_ID}/evidence?path=evidence/secret.txt"),
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row2, &[REBINDING_EVIDENCE]);
+
+    // Row 3: sessions and trial-workspace reads.
+    for path in ["/api/sessions", "/api/trial-workspace"] {
+        let response = server.request_with_host(
+            "GET",
+            path,
+            None,
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    }
+
+    // Row 4: Gate 1 proposal must not return a card hash.
+    let row4 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row4, &["card_hash", REBINDING_EVIDENCE]);
+
+    // Row 5: dispatch without a hash must not reach 428.
+    let row5 = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row5, &["card_hash", REBINDING_EVIDENCE]);
+
+    // Row 6: stop / directives / recovery-runs mutations.
+    for suffix in ["stop", "directives", "recovery-runs"] {
+        let response = server.request_with_host(
+            "POST",
+            &format!("/api/sessions/{session_id}/{suffix}"),
+            Some(&serde_json::json!({})),
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_EVIDENCE]);
+    }
+
+    // Row 7: extension pack and profile mutations share the Host rule.
+    for path in [
+        "/api/extensions/packs",
+        "/api/extensions/packs/example/1.0.0/verify",
+        "/api/extensions/profiles/preview",
+        "/api/extensions/profiles/register",
+    ] {
+        let response = server.request_with_host(
+            "POST",
+            path,
+            Some(&serde_json::json!({})),
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_EVIDENCE]);
+    }
+
+    // Row 8: attacker Host without any Origin still refuses reads.
+    let row8 = server.request_with_host("GET", "/api/runs", None, None, None, &attacker_host, &[]);
+    assert_host_forbidden(&row8, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Row 9: attacker Host with a correct Origin is refused on the Host.
+    let row9 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&loopback_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row9, &["card_hash"]);
+
+    // Row 18: a forwarded host is not trusted.
+    let row18 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[("X-Forwarded-Host", loopback_host.as_str())],
+    );
+    assert_host_forbidden(&row18, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Rows 19-20: correct Host, disallowed Origin on a mutation.
+    let row19 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some("http://127.0.0.1:1"),
+        &loopback_host,
+        &[],
+    );
+    assert_origin_forbidden(&row19, &["card_hash"]);
+    for origin in [format!("https://127.0.0.1:{port}"), "null".to_string()] {
+        let response = server.request_with_host(
+            "POST",
+            "/api/session-proposals",
+            Some(&spec),
+            None,
+            Some(&origin),
+            &loopback_host,
+            &[],
+        );
+        assert_origin_forbidden(&response, &["card_hash"]);
+    }
+
+    // Row 21: a read with an attacker Origin but a legit Host is served, and
+    // no CORS header is emitted (the browser cannot read the response).
+    let row21 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &loopback_host,
+        &[],
+    );
+    assert_eq!(row21.status, 200, "{}", row21.body);
+    assert!(row21.header("access-control-allow-origin").is_none());
+
+    // Rows 10-13, 22: sanctioned Host/Origin pairs keep passing, with no CORS.
+    for (host, origin) in [
+        (
+            format!("127.0.0.1:{port}"),
+            format!("http://127.0.0.1:{port}"),
+        ),
+        (
+            format!("localhost:{port}"),
+            format!("http://localhost:{port}"),
+        ),
+        (format!("[::1]:{port}"), format!("http://[::1]:{port}")),
+        (
+            format!("LOCALHOST:{port}"),
+            format!("http://LOCALHOST:{port}"),
+        ),
+    ] {
+        let read =
+            server.request_with_host("GET", "/api/runs", None, None, Some(&origin), &host, &[]);
+        assert_eq!(read.status, 200, "host {host}: {}", read.body);
+        assert!(read.header("access-control-allow-origin").is_none());
+
+        let mutation = server.request_with_host(
+            "POST",
+            "/api/sessions",
+            Some(&spec),
+            None,
+            Some(&origin),
+            &host,
+            &[],
+        );
+        assert_eq!(
+            mutation.status, 428,
+            "host {host} must reach the route: {}",
+            mutation.body
+        );
+        assert_eq!(mutation.json()["code"], "trial_confirmation_required");
+        assert!(mutation.header("access-control-allow-origin").is_none());
+    }
+
+    server.stop();
+}
+
+/// Rows 26-28: token authentication on never overrides the Host refusal, and
+/// a legitimate token request still passes.
+#[cfg(unix)]
+#[test]
+fn rebinding_is_rejected_before_token_auth_for_reads_and_mutations() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(repository.path(), workspace.path(), true, "/", &[]);
+    let port = server.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_origin = format!("http://127.0.0.1:{port}");
+    let spec = session_spec();
+
+    // Row 26: mutation without a token is refused on the Host, not with 401.
+    let row26 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row26, &["card_hash"]);
+
+    // Row 27: reads are refused on the Host even with token auth on.
+    for path in [
+        "/api/runs".to_string(),
+        format!("/api/runs/{REBINDING_RUN_ID}/evidence?path=evidence/secret.txt"),
+    ] {
+        let response =
+            server.request_with_host("GET", &path, None, None, None, &attacker_host, &[]);
+        assert_host_forbidden(&response, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    }
+
+    // Row 28: a legitimate token request is unaffected.
+    let row28 = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&spec),
+        Some(TEST_TRIAL_TOKEN),
+        Some(&loopback_origin),
+        &loopback_host,
+        &[],
+    );
+    assert_eq!(row28.status, 428, "{}", row28.body);
+    assert_eq!(row28.json()["code"], "trial_confirmation_required");
+
+    server.stop();
+}
+
+/// Rows 23-25: the proxy allowlist authority is the only extra Host, and a
+/// base path is covered by the same middleware.
+#[cfg(unix)]
+#[test]
+fn proxy_allowlist_authority_and_base_path_follow_the_host_rule() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(
+        repository.path(),
+        workspace.path(),
+        false,
+        "/",
+        &[("GUI_TRIAL_ALLOWED_ORIGINS", "https://gui.example.test")],
+    );
+
+    // Row 23: the allowlisted authority is accepted as Host and Origin.
+    let allowed = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some("https://gui.example.test"),
+        "gui.example.test",
+        &[],
+    );
+    assert_eq!(allowed.status, 200, "{}", allowed.body);
+    let allowed_mutation = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&session_spec()),
+        None,
+        Some("https://gui.example.test"),
+        "gui.example.test",
+        &[],
+    );
+    assert_eq!(allowed_mutation.status, 428, "{}", allowed_mutation.body);
+
+    // Row 24: any other proxied name is rejected.
+    let other = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some("https://other.example.test"),
+        "other.example.test",
+        &[],
+    );
+    assert_host_forbidden(&other, &[REBINDING_RUN_ID]);
+    server.stop();
+
+    // Row 25: the base path is covered by the same middleware.
+    let mut base = start_rebinding_server(
+        repository.path(),
+        workspace.path(),
+        false,
+        "/proxy/commandagent",
+        &[],
+    );
+    let base_port = base.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{base_port}");
+    let refused = base.request_with_host(
+        "GET",
+        "/proxy/commandagent/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&refused, &[REBINDING_RUN_ID]);
+    let allowed = base.request_with_host(
+        "GET",
+        "/proxy/commandagent/api/runs",
+        None,
+        None,
+        None,
+        &format!("127.0.0.1:{base_port}"),
+        &[],
+    );
+    assert_eq!(allowed.status, 200, "{}", allowed.body);
+    base.stop();
+}
+
+/// Row 29: an invalid allowlist entry still fails closed at startup.
+#[cfg(unix)]
+#[test]
+fn gui_server_rejects_invalid_allowed_origins_before_serving() {
+    for value in ["http://x/path", "ftp://x", "http://x?y=1"] {
+        let workspace = tempfile::tempdir().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--port", "0", "--base-path", "/"])
+            .arg("--repository-root")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .arg("--execution-root")
+            .arg(workspace.path())
+            .env("GUI_TRIAL_ALLOWED_ORIGINS", value)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {value}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("trial origin"),
+            "stderr for {value}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[cfg(unix)]
 struct Server {
     child: Child,
     port: u16,
@@ -4935,6 +5400,21 @@ impl Server {
         origin: Option<&str>,
         extra_headers: &[(&str, &str)],
     ) -> HttpResponse {
+        let host = format!("127.0.0.1:{}", self.port);
+        self.request_with_host(method, path, body, token, origin, &host, extra_headers)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn request_with_host(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        token: Option<&str>,
+        origin: Option<&str>,
+        host: &str,
+        extra_headers: &[(&str, &str)],
+    ) -> HttpResponse {
         let body = body.map(ToString::to_string).unwrap_or_default();
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
@@ -4949,8 +5429,7 @@ impl Server {
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{authorization}{origin}{extra_headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            self.port,
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\n{authorization}{origin}{extra_headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         )
         .unwrap();

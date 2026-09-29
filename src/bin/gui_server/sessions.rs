@@ -786,6 +786,11 @@ pub(super) fn require_trial(
                 "trial_origin_not_allowed",
                 "trial request origin is not allowed",
             ),
+            AccessError::ForbiddenHost => GuiError::new(
+                StatusCode::FORBIDDEN,
+                "trial_host_not_allowed",
+                "trial request host is not allowed",
+            ),
         })?;
     Ok(workspace)
 }
