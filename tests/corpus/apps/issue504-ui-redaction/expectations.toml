@@ -29,17 +29,21 @@ fixtures/public-projections.json:execution_root_label = "<execution-root>"
 fixtures/public-projections.json:workspaces.alpha.run_detail.state = "pass"
 fixtures/public-projections.json:workspaces.beta.artifacts.size_bytes = "96"
 fixtures/public-projections.json:refusals.run_evidence.status = "422"
+fixtures/public-projections.json:clean_fixtures.r25_markdown_output = "plain answer\n"
+fixtures/public-projections.json:clean_fixtures.r30_request = "create ingest"
 
 [fixture_contains]
 fixtures/public-projections.json = [
   "\"marker\": \"<redacted>\"",
   "\"execution_root_label\": \"<execution-root>\"",
   "\"code\": \"secret_projection_refused\"",
-  "\"code\": \"trial_secret_projection_refused\"",
   "\"state\": \"pass\"",
   "alpha-only-canary-value",
   "beta-only-canary-value",
   "catalogs never merge",
+  "\"display_projection\"",
+  "\"clean_fixtures\"",
+  "\"r25_markdown_output\": \"plain answer",
   "\"catalog_source\": \"repository root dotenv plus built-in provider keys\"",
   "\"catalog_source\": \"execution root dotenv plus built-in provider keys\""
 ]

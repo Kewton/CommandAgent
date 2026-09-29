@@ -65,8 +65,12 @@ pub struct Document {
 }
 
 impl Document {
+    /// Schema-preserving projection that never fails: a JSON body keeps its
+    /// fixed identifiers and a dynamic key is projected to a distinct safe key.
     pub(super) fn redact_execution_root(&mut self, root: &FilePath) {
-        self.content = super::public_projection::redact_text(&self.content, root);
+        self.content = super::public_projection::redact_document_lenient(&self.content, root);
+        self.path = super::public_projection::redact_text(&self.path, root);
+        self.id = super::public_projection::redact_text(&self.id, root);
     }
 
     /// Replace the execution root and scrub registered secrets from the

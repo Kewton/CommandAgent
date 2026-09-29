@@ -40,16 +40,20 @@
     "alpha_only_visible_in_beta": "alpha-only-canary-value",
     "beta_only_visible_in_alpha": "beta-only-canary-value"
   },
+  "display_projection": {
+    "events_tail": "never refuses; a fixed schema key name is kept and a dynamic key that carries a secret is projected to a distinct safe key",
+    "artifact_body": "schema-preserving projection that never fails"
+  },
   "refusals": {
     "run_evidence": {
       "status": 422,
       "code": "secret_projection_refused",
       "reason": "refusing to project a value whose dynamic key would expose a secret at root"
-    },
-    "session_events": {
-      "status": 422,
-      "code": "trial_secret_projection_refused",
-      "reason": "refusing to project a value whose dynamic key would expose a secret at [0]"
     }
+  },
+  "clean_fixtures": {
+    "r25_markdown_input": "plain answer\n",
+    "r25_markdown_output": "plain answer\n",
+    "r30_request": "create ingest"
   }
 }

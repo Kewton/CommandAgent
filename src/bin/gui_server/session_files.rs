@@ -6,7 +6,6 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use commandagent::sensitive_data::SecretScrubError;
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
@@ -81,9 +80,9 @@ pub async fn artifacts(
         let mut value = document(&run_root, &path)
             .await
             .map_err(IntoResponse::into_response)?;
-        value
-            .redact(&session.execution_root)
-            .map_err(projection_refused)?;
+        // An artifact body may be an arbitrary JSON/JSONL document, so use the
+        // schema-preserving projection that never fails on a dynamic key.
+        value.redact_execution_root(&session.execution_root);
         return Ok(Json(value).into_response());
     }
 
@@ -125,8 +124,7 @@ pub async fn events(
             )
         })?
         .map_err(IntoResponse::into_response)?;
-    let content = super::public_projection::redact_document(&content, &session.execution_root)
-        .map_err(projection_refused)?;
+    let content = super::public_projection::redact_display(&content, &session.execution_root);
     Ok(Json(EventDocument {
         id: "events.jsonl",
         path: "events.jsonl",
@@ -298,19 +296,6 @@ fn tail_error(status: StatusCode, message: impl Into<String>) -> TailError {
         status,
         message: message.into(),
     }
-}
-
-/// A session document whose structural projection cannot be emitted without
-/// exposing a secret is refused honestly; the message names the position, never
-/// the value.
-fn projection_refused(error: SecretScrubError) -> SessionFileError {
-    GuiError::new(
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "trial_secret_projection_refused",
-        error.to_string(),
-    )
-    .into_response()
-    .into()
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> SessionFileError {
