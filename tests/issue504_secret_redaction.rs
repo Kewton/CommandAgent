@@ -7,7 +7,7 @@
 //! is fixed here.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use clap::Parser;
 use commandagent::cli::Cli;
@@ -31,6 +31,17 @@ const ENV_MODEL_VALUE: &str = "H05_MODEL_Only_In_ENV_19832";
 const PROVIDER_KEY_ENV: &str = "OPENAI_API_KEY";
 const PROVIDER_KEY_VALUE: &str = "H06_PROVIDER_EXTRA_4821";
 
+/// Issue #548: the registry is process-global, so every test here that installs
+/// or resets a scope takes this one lock. Without it, `reset_scopes_for_tests`
+/// in one test can clear another's scope while it runs.
+static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn registry_guard() -> MutexGuard<'static, ()> {
+    REGISTRY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn scope_with_canary(events: &Path) -> RedactionContext {
     let mut catalog = SecretCatalog::new();
     catalog.register(CANARY);
@@ -47,6 +58,7 @@ fn read(path: &Path) -> String {
 
 #[test]
 fn run_records_never_contain_a_registered_canary_even_nested_or_truncated() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join(".commandagent/runs/run-1/events.jsonl");
@@ -112,6 +124,7 @@ fn run_records_never_contain_a_registered_canary_even_nested_or_truncated() {
 
 #[test]
 fn rejected_bash_prefix_is_empty_in_a_run_and_keeps_schema_hash_and_length() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("events.jsonl");
@@ -195,6 +208,7 @@ impl ChatClient for CapturingClient {
 
 #[test]
 fn provider_sent_conversation_and_tool_schema_are_protected() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_string_lossy().to_string();
@@ -305,6 +319,7 @@ fn rejected_env_base_url_never_echoes_the_expansion_value_child() {
 
 #[test]
 fn shared_api_fixes_scrub_carry_refusal_and_context_separation() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
 
     // Whole-value scrub and dynamic-key refusal.
@@ -377,6 +392,7 @@ fn shared_api_fixes_scrub_carry_refusal_and_context_separation() {
 
 #[test]
 fn summary_writer_scrubs_a_multiline_value_before_splitting_lines() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("run/events.jsonl");
@@ -394,6 +410,7 @@ fn summary_writer_scrubs_a_multiline_value_before_splitting_lines() {
 
 #[test]
 fn provider_and_session_protect_native_tool_call_ids() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_string_lossy().to_string();
@@ -527,6 +544,7 @@ fn config_env_scope_survives_the_minimal_loop_entry_child() {
 
 #[test]
 fn direct_minimal_loop_refuses_a_collection_failure() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_string_lossy().to_string();
@@ -620,6 +638,7 @@ fn combined_source_overflow_refuses_config_child() {
 
 #[test]
 fn install_run_secret_scope_isolates_workspaces() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     // Workspace B registers its own dotenv credential value.
     let b = tempfile::tempdir().unwrap();
@@ -655,6 +674,7 @@ fn install_run_secret_scope_isolates_workspaces() {
 
 #[test]
 fn provider_protocol_names_are_preserved_while_free_fields_are_scrubbed() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_string_lossy().to_string();
@@ -717,6 +737,7 @@ fn provider_protocol_names_are_preserved_while_free_fields_are_scrubbed() {
 
 #[test]
 fn legacy_format_heuristic_uses_the_run_marker() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("run/events.jsonl");
@@ -747,6 +768,7 @@ fn legacy_format_heuristic_uses_the_run_marker() {
 
 #[test]
 fn free_tool_arguments_are_scrubbed_in_the_provider_copy_and_session() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().to_string_lossy().to_string();
@@ -819,6 +841,7 @@ fn free_tool_arguments_are_scrubbed_in_the_provider_copy_and_session() {
 
 #[test]
 fn summary_status_contract_is_preserved() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("run/events.jsonl");
@@ -842,4 +865,231 @@ fn summary_status_contract_is_preserved() {
     );
     assert!(summary.contains("<redacted>"), "{summary}");
     reset_scopes_for_tests();
+}
+
+#[test]
+fn c15_write_and_append_scrub_a_result_free_text_line() {
+    let _guard = registry_guard();
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    let mut catalog = SecretCatalog::new();
+    catalog.register(CANARY);
+    install_scope(catalog, Some(dir.path()), Some(&events));
+
+    commandagent::eval_events::write_run_summary(
+        Some(&events),
+        &format!("Status: completed\nResult: {CANARY}\n"),
+    );
+    commandagent::eval_events::append_run_summary(Some(&events), &format!("Result: {CANARY}\n"));
+
+    let summary = read(&events.parent().unwrap().join("summary.md"));
+    assert!(!summary.contains(CANARY), "{summary}");
+    assert!(summary.contains("<redacted>"), "{summary}");
+    assert!(summary.contains("Status: completed"), "{summary}");
+    reset_scopes_for_tests();
+}
+
+// --- Issue #548 rows 8-11: real Config startup refusals ---------------------
+//
+// Each row runs in an independent child process (the existing #504 shape) so
+// the root `.env` and the process environment it sets cannot leak into the
+// parent test binary.
+
+const FIXED_CREDENTIAL_ENV: &str = "ISSUE548_FIXED_CREDENTIAL";
+const FIXED_PLAIN_ENV: &str = "ISSUE548_FIXED_PLAIN";
+const COMPATIBLE_KEY_ENV: &str = "ISSUE548_COMPATIBLE_KEY";
+const FIXED_VALUE: &str = "run_start";
+const COMPATIBLE_SHORT_VALUE: &str = "日本語";
+
+fn run_child(name: &str, env: &[(&str, &str)]) -> bool {
+    let exe = std::env::current_exe().unwrap();
+    let mut command = std::process::Command::new(exe);
+    command.args(["--exact", "--ignored", "--nocapture", name]);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.status().unwrap().success()
+}
+
+#[test]
+fn c08_root_dotenv_fixed_credential_refuses_startup() {
+    assert!(run_child(
+        "c08_root_dotenv_fixed_credential_refuses_startup_child",
+        &[]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c08_root_dotenv_fixed_credential_refuses_startup_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".env"), "PRIVATE_TOKEN=completed\n").unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let error = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "c548",
+        "--offline",
+    ]))
+    .unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("fixed identifier"), "{rendered}");
+    assert!(!rendered.contains("completed"), "{rendered}");
+}
+
+#[test]
+fn c08_root_dotenv_fixed_plain_value_starts_unregistered() {
+    assert!(run_child(
+        "c08_root_dotenv_fixed_plain_value_starts_unregistered_child",
+        &[]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c08_root_dotenv_fixed_plain_value_starts_unregistered_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".env"), "MODE=completed\n").unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let _config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "c548",
+        "--offline",
+    ]))
+    .unwrap();
+    let context = commandagent::sensitive_data::current().unwrap();
+    assert!(!context.contains("completed"));
+}
+
+#[test]
+fn c09_env_expansion_fixed_credential_refuses_startup() {
+    assert!(run_child(
+        "c09_env_expansion_fixed_credential_refuses_startup_child",
+        &[(FIXED_CREDENTIAL_ENV, FIXED_VALUE)]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c09_env_expansion_fixed_credential_refuses_startup_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        dir.path().join(".commandagent/config.toml"),
+        format!("[preset.bad]\nmodel = \"${{{FIXED_CREDENTIAL_ENV}}}\"\nprovider = \"ollama\"\n"),
+    )
+    .unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let error = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--preset",
+        "bad",
+        "--offline",
+    ]))
+    .unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("fixed identifier"), "{rendered}");
+    assert!(!rendered.contains(FIXED_VALUE), "{rendered}");
+}
+
+#[test]
+fn c09_env_expansion_fixed_plain_value_starts_unregistered() {
+    assert!(run_child(
+        "c09_env_expansion_fixed_plain_value_starts_unregistered_child",
+        &[(FIXED_PLAIN_ENV, FIXED_VALUE)]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c09_env_expansion_fixed_plain_value_starts_unregistered_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        dir.path().join(".commandagent/config.toml"),
+        format!("[preset.good]\nmodel = \"${{{FIXED_PLAIN_ENV}}}\"\nprovider = \"ollama\"\n"),
+    )
+    .unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--preset",
+        "good",
+        "--offline",
+    ]))
+    .unwrap();
+    assert_eq!(config.model, FIXED_VALUE);
+    let context = commandagent::sensitive_data::current().unwrap();
+    assert!(!context.contains(FIXED_VALUE));
+}
+
+#[test]
+fn c10_builtin_provider_key_fixed_value_refuses_startup() {
+    assert!(run_child(
+        "c10_builtin_provider_key_fixed_value_refuses_startup_child",
+        &[(PROVIDER_KEY_ENV, "function")]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c10_builtin_provider_key_fixed_value_refuses_startup_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let error = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "c548",
+        "--offline",
+    ]))
+    .unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("fixed identifier"), "{rendered}");
+    assert!(!rendered.contains("function"), "{rendered}");
+}
+
+#[test]
+fn c11_compatible_api_key_env_short_value_refuses_startup() {
+    assert!(run_child(
+        "c11_compatible_api_key_env_short_value_refuses_startup_child",
+        &[(COMPATIBLE_KEY_ENV, COMPATIBLE_SHORT_VALUE)]
+    ));
+}
+
+#[test]
+#[ignore]
+fn c11_compatible_api_key_env_short_value_refuses_startup_child() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        dir.path().join(".commandagent/config.toml"),
+        format!(
+            "[preset.gateway]\nmodel = \"executor\"\nprovider = \"openai-compatible\"\nbase_url = \"https://gateway.example.test/v1\"\napi_key_env = \"{COMPATIBLE_KEY_ENV}\"\nplanner_model = \"planner\"\nplanner_provider = \"openai-compatible\"\nclassifier_model = \"classifier\"\nclassifier_provider = \"openai-compatible\"\n"
+        ),
+    )
+    .unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let error = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--preset",
+        "gateway",
+    ]))
+    .unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("shorter than"), "{rendered}");
+    assert!(!rendered.contains(COMPATIBLE_SHORT_VALUE), "{rendered}");
 }

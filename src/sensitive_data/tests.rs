@@ -1,9 +1,20 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::json;
 
 use super::*;
+
+/// Serializes the tests that touch the process-global scope registry, so a
+/// `reset_scopes_for_tests` in one cannot clear another's scope (Issue #548:
+/// "テストの分離は、同じファイル内の 1 つの lock で直列化する").
+static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn registry_guard() -> MutexGuard<'static, ()> {
+    REGISTRY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn catalog(values: &[&str]) -> Arc<SecretCatalog> {
     let mut catalog = SecretCatalog::new();
@@ -141,6 +152,7 @@ fn stream_carry_handles_multibyte_and_passes_through_when_empty() {
 
 #[test]
 fn contexts_are_isolated_between_scopes() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let mut first_catalog = SecretCatalog::new();
     first_catalog.register("alpha-secret-value");
@@ -169,6 +181,7 @@ fn contexts_are_isolated_between_scopes() {
 
 #[test]
 fn active_for_falls_back_to_the_current_scope() {
+    let _guard = registry_guard();
     reset_scopes_for_tests();
     let mut catalog = SecretCatalog::new();
     catalog.register("fallback-secret-value");
@@ -570,14 +583,24 @@ fn free_input_scrub_ignores_schema_key_names() {
         "free arguments kept a secret: {free}"
     );
 
-    // The same key names under the schema scrub are fixed identifiers.
+    // The same key names under the schema scrub are fixed identifiers, but a
+    // fixed key no longer protects an arbitrary value: only a value that is
+    // itself a fixed identifier is preserved (Issue #548 hole 2 / design 4).
+    // This replaces the pre-#548 assertion that every value under these keys
+    // passed through unchanged.
     let mut schema =
         json!({"status": canary, "type": canary, "action": canary, "tool_name": canary});
     catalog.scrub_value_lenient(&mut schema);
-    assert_eq!(schema["status"], canary);
-    assert_eq!(schema["type"], canary);
-    assert_eq!(schema["action"], canary);
-    assert_eq!(schema["tool_name"], canary);
+    assert_eq!(schema["status"], "<redacted>");
+    assert_eq!(schema["type"], "<redacted>");
+    assert_eq!(schema["action"], "<redacted>");
+    assert_eq!(schema["tool_name"], "<redacted>");
+
+    // A value that is a fixed identifier is still preserved.
+    let mut fixed = json!({"status": "completed", "event": "run_start"});
+    catalog.scrub_value_lenient(&mut fixed);
+    assert_eq!(fixed["status"], "completed");
+    assert_eq!(fixed["event"], "run_start");
 }
 
 #[test]
@@ -657,4 +680,521 @@ fn envelope_fixed_key_and_kind_are_preserved() {
     assert_eq!(value["evidence_envelope"]["kind"], "tool_parse_failure");
     assert_eq!(value["evidence_envelope"]["family"], "tool_parse");
     assert_eq!(value["evidence_envelope"]["envelope_version"], 1);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #548 focused tests: the 31-row confirmation table.
+//
+// Every test is named `c<row>_...` after the row it covers. Each asserts both
+// the refusal/redaction and what must survive (event name, key, element count,
+// a FIXED value). No registry-touching path is used: the catalog is built
+// directly, and the summary tests install a thread-local context with
+// `set_current`, so these tests never race on the process-global registry.
+// ---------------------------------------------------------------------------
+
+const C1: &str = "H01_CANARY_JwtStyle_NonPrefix_29486";
+const F1: [&str; 5] = [
+    "completed",
+    "incomplete",
+    "build_pass",
+    "run_start",
+    "function",
+];
+const F3: [&str; 2] = ["ool_parse_fail", "evidence_"];
+const M1: [&str; 2] = ["日本語", "秘密の値です"];
+const M2: &str = "日本語の秘密の値です";
+const S1: [&str; 3] = ["true", "8080", "dev"];
+const N1: &str = "8675309012345";
+const E1: &str = "H09_Q\"uo\\te_Canary_7731";
+const K1A: &str = "H10_YAML_A_SECRET_4412";
+const K1B: &str = "H10_YAML_B_SECRET_4412";
+
+fn forced(values: &[&str]) -> Arc<SecretCatalog> {
+    let mut catalog = SecretCatalog::new();
+    for value in values {
+        catalog.register(value);
+    }
+    Arc::new(catalog)
+}
+
+/// Run a body through the public summary writer with `catalog` stalled as the
+/// thread-local run scope, and return the rendered summary document.
+fn summary_document(catalog: SecretCatalog, body: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    set_current(Some(RedactionContext::from_catalog(catalog)));
+    crate::eval_events::write_run_summary(Some(&events), body);
+    let text =
+        std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap_or_default();
+    set_current(None);
+    text
+}
+
+fn append_summary_document(catalog: SecretCatalog, body: &str, appended: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    set_current(Some(RedactionContext::from_catalog(catalog)));
+    crate::eval_events::write_run_summary(Some(&events), body);
+    crate::eval_events::append_run_summary(Some(&events), appended);
+    let text =
+        std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap_or_default();
+    set_current(None);
+    text
+}
+
+#[test]
+fn c01_credential_equal_to_fixed_identifier_is_refused() {
+    for value in F1 {
+        let mut catalog = SecretCatalog::new();
+        let error = catalog
+            .register_credential("OPENAI_API_KEY", value)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            RegistrationRefusal::Reserved {
+                kind: ReservedKind::FixedIdentifier,
+                ..
+            }
+        ));
+        assert!(catalog.is_empty(), "catalog not empty for {value}");
+        assert!(!error.to_string().contains(value), "{error}");
+        assert!(!format!("{error:?}").contains(value), "{error:?}");
+    }
+}
+
+#[test]
+fn c02_credential_substring_of_fixed_identifier_is_refused() {
+    for value in F3 {
+        assert!(collides_with_fixed_identifier(value), "{value} not refused");
+        let mut catalog = SecretCatalog::new();
+        let error = catalog
+            .register_credential("PRIVATE_TOKEN", value)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            RegistrationRefusal::Reserved {
+                kind: ReservedKind::FixedIdentifier,
+                ..
+            }
+        ));
+        assert!(catalog.is_empty());
+        assert!(!error.to_string().contains(value), "{error}");
+    }
+}
+
+#[test]
+fn c03_schema_name_and_prefix_are_refused() {
+    // The second value is an out-of-list schema; it is built without a source
+    // literal so the FIXED completeness scan does not require it to be listed.
+    let out_of_list = concat!("commandagent.", "foo/v9");
+    for value in ["commandagent.headless-summary/v1", out_of_list] {
+        let mut catalog = SecretCatalog::new();
+        let error = catalog.register_credential("API_KEY", value).unwrap_err();
+        assert!(matches!(
+            error,
+            RegistrationRefusal::Reserved {
+                kind: ReservedKind::FixedIdentifier,
+                ..
+            }
+        ));
+        assert!(catalog.is_empty());
+        assert!(!error.to_string().contains(value), "{error}");
+    }
+}
+
+#[test]
+fn c04_multibyte_length_counts_chars() {
+    for value in M1 {
+        assert!(value.len() >= MIN_GENERIC_SECRET_LEN, "not the byte case");
+        assert!(value.chars().count() < MIN_GENERIC_SECRET_LEN);
+        let mut catalog = SecretCatalog::new();
+        let error = catalog
+            .register_credential("GATEWAY_KEY", value)
+            .unwrap_err();
+        assert!(matches!(error, RegistrationRefusal::TooShort { .. }));
+        assert!(catalog.is_empty());
+    }
+}
+
+#[test]
+fn c05_multibyte_eight_chars_is_registered() {
+    assert!(M2.chars().count() >= MIN_GENERIC_SECRET_LEN);
+    let mut catalog = SecretCatalog::new();
+    catalog.register_credential("GATEWAY_KEY", M2).unwrap();
+    assert!(catalog.contains(M2));
+    assert_eq!(catalog.scrub(&format!("x {M2} y")), "x <redacted> y");
+}
+
+#[test]
+fn c06_plain_value_colliding_with_fixed_is_not_registered() {
+    for value in F1.iter().chain(F3.iter()) {
+        let mut catalog = SecretCatalog::new();
+        catalog.register_plain(value).unwrap();
+        assert!(catalog.is_empty(), "{value} registered");
+        assert!(!catalog.contains(value));
+    }
+    assert!(collides_with_fixed_identifier(concat!(
+        "commandagent.",
+        "foo/v9"
+    )));
+}
+
+#[test]
+fn c07_true_is_not_registered() {
+    let mut catalog = SecretCatalog::new();
+    for value in S1.iter().chain(M1.iter()) {
+        catalog.register_plain(value).unwrap();
+    }
+    assert!(catalog.is_empty());
+    for value in S1.iter().chain(M1.iter()) {
+        assert!(!catalog.contains(value), "{value} registered");
+    }
+    assert!(!catalog.contains("true"));
+    // The same ordinary value is a fixed identifier and would be refused as a
+    // credential, but as a plain value it is simply not a secret.
+    catalog.register_plain("completed").unwrap();
+    assert!(catalog.is_empty());
+}
+
+#[test]
+fn c12_gui_catalog_ignores_the_refusal_and_keeps_the_display_status() {
+    // The GUI projection ignores a registration refusal, so a refused value is
+    // not registered and a fixed display value is untouched.
+    let mut catalog = SecretCatalog::new();
+    assert!(
+        catalog
+            .register_credential("PRIVATE_TOKEN", "completed")
+            .is_err()
+    );
+    assert!(catalog.is_empty());
+    let mut display = json!({"status": "completed"});
+    catalog.scrub_value_lenient(&mut display);
+    assert_eq!(display["status"], "completed");
+}
+
+#[test]
+fn c13_summary_fixed_status_is_preserved() {
+    let mut catalog = SecretCatalog::new();
+    catalog.register(C1);
+    let summary = summary_document(catalog, &format!("Status: completed\nResult: {C1}\n"));
+    assert!(summary.contains("Status: completed"), "{summary}");
+    assert!(!summary.contains(C1), "{summary}");
+}
+
+#[test]
+fn c14_result_and_prefixed_status_free_text_are_scrubbed() {
+    let mut catalog = SecretCatalog::new();
+    catalog.register(C1);
+    let body = format!("Result: {C1}\nStatus: completed {C1}\n  Status: {C1}\nStatus: completed\n");
+    let summary = summary_document(catalog, &body);
+    assert!(!summary.contains(C1), "{summary}");
+    assert!(summary.contains("<redacted>"), "{summary}");
+    assert!(summary.contains("Status: completed"), "{summary}");
+}
+
+#[test]
+fn c15_write_and_append_both_scrub_a_result_line() {
+    let mut catalog = SecretCatalog::new();
+    catalog.register(C1);
+    let summary = append_summary_document(
+        catalog,
+        &format!("Result: {C1}\nStatus: completed\n"),
+        &format!("Result: {C1}\n"),
+    );
+    assert!(!summary.contains(C1), "{summary}");
+    assert!(summary.contains("<redacted>"), "{summary}");
+}
+
+#[test]
+fn c16_many_fixed_status_lines_keep_their_values() {
+    // Eleven fixed values reach placeholder index 10, which is the prefix
+    // collision case (`...value1` inside `...value10`); a free line proves an
+    // unmatched value is not protected.
+    let fixed_values: Vec<&str> = FIXED_IDENTIFIERS
+        .iter()
+        .copied()
+        .filter(|value| value.len() >= 8)
+        .take(11)
+        .collect();
+    let mut body = String::new();
+    for value in &fixed_values {
+        body.push_str(&format!("Status: {value}\n"));
+    }
+    body.push_str("Status: s_free_marker\n");
+    let mut catalog = SecretCatalog::new();
+    catalog.register(C1);
+    let summary = summary_document(catalog, &body);
+    for value in &fixed_values {
+        assert!(
+            summary.contains(&format!("Status: {value}")),
+            "fixed value {value} was rewritten: {summary}"
+        );
+    }
+    assert!(!summary.contains("commandagentfixedvalue"), "{summary}");
+    assert!(summary.contains("Status: s_free_marker"), "{summary}");
+}
+
+#[test]
+fn c17_lenient_scrubs_free_text_in_fixed_key() {
+    let catalog = forced(&[C1]);
+    let mut value = json!({"status": format!("failed token={C1}"), "tool_name": C1});
+    catalog.scrub_value_lenient(&mut value);
+    assert_eq!(value["status"], "failed token=<redacted>");
+    assert_eq!(value["tool_name"], "<redacted>");
+    assert!(value.get("status").is_some());
+    assert!(value.get("tool_name").is_some());
+}
+
+#[test]
+fn c18_lenient_preserves_fixed_values_in_fixed_keys() {
+    let catalog = forced(&F3);
+    let mut value = json!({"event": "tool_parse_failure", "status": "completed"});
+    catalog.scrub_value_lenient(&mut value);
+    assert_eq!(value["event"], "tool_parse_failure");
+    assert_eq!(value["status"], "completed");
+}
+
+#[test]
+fn c19_envelope_fixed_key_and_kind_are_preserved() {
+    let catalog = forced(&F3);
+    let mut value = json!({
+        "evidence_envelope": {
+            "envelope_version": 1,
+            "family": "tool_parse",
+            "kind": "tool_parse_failure",
+        },
+    });
+    catalog.scrub_value_lenient(&mut value);
+    assert!(value.get("evidence_envelope").is_some());
+    assert_eq!(value["evidence_envelope"]["kind"], "tool_parse_failure");
+    assert_eq!(value["evidence_envelope"]["family"], "tool_parse");
+}
+
+#[test]
+fn c20_strict_scrubs_free_text_in_fixed_key() {
+    let catalog = forced(&[C1]);
+    let mut value = json!({"status": format!("failed token={C1}"), "tool_name": C1});
+    catalog.scrub_value(&mut value).unwrap();
+    assert_eq!(value["status"], "failed token=<redacted>");
+    assert_eq!(value["tool_name"], "<redacted>");
+
+    // A dynamic key is still refused (not a fixed schema key).
+    let mut keyed = json!({C1: "v"});
+    let error = catalog.scrub_value(&mut keyed).unwrap_err();
+    assert!(!error.to_string().contains(C1), "{error}");
+}
+
+#[test]
+fn c21_numeric_yaml_secret_is_runnable() {
+    let catalog = forced(&[N1]);
+    assert!(runnable_yaml_contains_secret(
+        &catalog,
+        "args:\n  - --token\n  - 8675309012345\n"
+    ));
+    assert!(runnable_yaml_contains_secret(
+        &catalog,
+        "port: 8675309012345\n"
+    ));
+    let refusal = refuse_runnable(&catalog, "recovery.yaml", "port: 8675309012345\n").unwrap_err();
+    assert_eq!(refusal.kind, "runnable_yaml");
+    assert!(!refusal.to_string().contains(N1), "{refusal}");
+
+    // A number that is not a secret is not a runnable refusal.
+    assert!(!runnable_yaml_contains_secret(&catalog, "port: 8080\n"));
+}
+
+#[test]
+fn c22_numeric_yaml_secret_is_scrubbed() {
+    let catalog = forced(&[N1]);
+    let mut secret: serde_yaml::Value = serde_yaml::from_str("port: 8675309012345\n").unwrap();
+    catalog.scrub_yaml(&mut secret);
+    let text = serde_yaml::to_string(&secret).unwrap();
+    assert!(!text.contains(N1), "{text}");
+    assert!(text.contains("<redacted>"), "{text}");
+
+    let mut ordinary: serde_yaml::Value = serde_yaml::from_str("port: 8080\n").unwrap();
+    catalog.scrub_yaml(&mut ordinary);
+    let text = serde_yaml::to_string(&ordinary).unwrap();
+    assert!(text.contains("port: 8080"), "{text}");
+}
+
+#[test]
+fn c23_escaped_identity_is_refused() {
+    let catalog = forced(&[E1]);
+    let encoded = serde_json::to_string(E1).unwrap();
+    assert!(encoded.contains("\\\""), "{encoded}");
+    assert!(!catalog.contains(&encoded), "raw escaped form matched");
+    let refusal = refuse_identity(&catalog, "confirmation", &encoded).unwrap_err();
+    assert_eq!(refusal.kind, "identity");
+    assert!(!refusal.to_string().contains(E1), "{refusal}");
+}
+
+#[test]
+fn c24_unescaped_identity_is_refused_and_clean_passes() {
+    let catalog = forced(&[C1]);
+    assert!(refuse_identity(&catalog, "confirmation", C1).is_err());
+    assert!(refuse_identity(&catalog, "confirmation", "safe-identity").is_ok());
+}
+
+#[test]
+fn c25_public_predicates_match_the_constants() {
+    assert!(is_fixed_schema_key("status"));
+    assert!(!is_fixed_schema_key("not_a_schema_key"));
+    assert_eq!(
+        is_fixed_schema_key("status"),
+        FIXED_SCHEMA_KEYS.contains(&"status")
+    );
+    assert!(is_fixed_identifier("completed"));
+    assert!(!is_fixed_identifier("nope_not_fixed"));
+    assert_eq!(
+        is_fixed_identifier("completed"),
+        FIXED_IDENTIFIERS.contains(&"completed")
+    );
+}
+
+#[test]
+fn c26_yaml_mapping_keys_keep_element_count() {
+    let catalog = forced(&[K1A, K1B]);
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(&format!("? {{a: {K1A}}}\n: 1\n? {{a: {K1B}}}\n: 2\n")).unwrap();
+    catalog.scrub_yaml(&mut value);
+    assert_eq!(value.as_mapping().unwrap().len(), 2);
+    let text = serde_yaml::to_string(&value).unwrap();
+    assert!(!text.contains(K1A), "{text}");
+    assert!(!text.contains(K1B), "{text}");
+}
+
+#[test]
+fn c27_yaml_tagged_keys_keep_element_count() {
+    let catalog = forced(&[K1A, K1B]);
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(&format!("!t {K1A}: 1\n!t {K1B}: 2\n!t '<redacted>': 3\n")).unwrap();
+    catalog.scrub_yaml(&mut value);
+    let mapping = value.as_mapping().unwrap();
+    assert_eq!(mapping.len(), 3);
+    let text = serde_yaml::to_string(&value).unwrap();
+    assert!(!text.contains(K1A), "{text}");
+    assert!(!text.contains(K1B), "{text}");
+    // The unrelated tagged key keeps its value.
+    let untouched = mapping.iter().any(|(key, item)| {
+        matches!(
+            key,
+            serde_yaml::Value::Tagged(tagged)
+                if matches!(&tagged.value, serde_yaml::Value::String(text) if text == "<redacted>")
+        ) && matches!(item, serde_yaml::Value::Number(number) if number.as_i64() == Some(3))
+    });
+    assert!(untouched, "unrelated tagged key changed: {text}");
+}
+
+#[test]
+fn c29_protocol_name_is_refused_and_builtin_tool_names_are_fixed() {
+    let mut catalog = SecretCatalog::new();
+    let error = catalog
+        .register_credential("TOOL_KIND", "function")
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        RegistrationRefusal::Reserved {
+            kind: ReservedKind::FixedIdentifier,
+            ..
+        }
+    ));
+    assert!(catalog.is_empty());
+    for name in [
+        "function", "tool", "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+    ] {
+        assert!(is_fixed_identifier(name), "{name} is not fixed");
+    }
+}
+
+// --- Structural guards -----------------------------------------------------
+
+fn collect_rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_files(&path, out);
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn c28_fixed_identifiers_cover_every_source_literal() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    collect_rust_files(&root, &mut files);
+    assert!(!files.is_empty(), "no source files found");
+
+    let event = regex::Regex::new(r#""event"\s*:\s*"([a-z0-9_]+)""#).unwrap();
+    let schema = regex::Regex::new(r#""(commandagent\.[A-Za-z0-9._-]+/v[0-9]+)""#).unwrap();
+
+    let mut missing = Vec::new();
+    for path in &files {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for capture in event.captures_iter(&text) {
+            let name = &capture[1];
+            if !is_fixed_identifier(name) {
+                missing.push(format!("event {name} in {}", path.display()));
+            }
+        }
+        for capture in schema.captures_iter(&text) {
+            let name = &capture[1];
+            if !is_fixed_identifier(name) {
+                missing.push(format!("schema {name} in {}", path.display()));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "fixed identifiers are missing from FIXED_IDENTIFIERS: {missing:?}"
+    );
+}
+
+#[test]
+fn c28b_forced_registration_is_not_called_from_product_code() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    collect_rust_files(&root, &mut files);
+    let mut offenses = Vec::new();
+    for path in &files {
+        if path.file_name().and_then(|name| name.to_str()) == Some("tests.rs") {
+            continue; // this unit-test module itself
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        // The test-only section of a module starts at its `mod tests {`.
+        let test_start = text.rfind("mod tests").unwrap_or(0);
+        for (offset, _) in text.match_indices(".register(") {
+            let line_start = text[..offset]
+                .rfind('\n')
+                .map(|index| index + 1)
+                .unwrap_or(0);
+            let line = &text[line_start..offset];
+            let receiver_is_catalog = line.ends_with("catalog")
+                || line.contains("catalog.")
+                || line.ends_with("SecretCatalog");
+            if !receiver_is_catalog {
+                continue;
+            }
+            if offset < test_start {
+                offenses.push(format!(
+                    "{}:{}",
+                    path.display(),
+                    text[..offset].matches('\n').count() + 1
+                ));
+            }
+        }
+    }
+    assert!(
+        offenses.is_empty(),
+        "forced SecretCatalog::register is called from product code: {offenses:?}"
+    );
 }

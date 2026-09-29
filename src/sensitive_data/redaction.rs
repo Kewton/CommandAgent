@@ -2,14 +2,16 @@
 //! collection, and the refusal types. #504 owns this leaf.
 //!
 //! Registration/scrub contract (Issue #504 design 3-5, 2026-09-29):
-//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] bytes long are secrets at
-//!   all. A shorter credential value is refused at the source; a shorter
+//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] characters long are secrets
+//!   at all. A shorter credential value is refused at the source; a shorter
 //!   non-credential value is simply not a secret.
 //! - Every registered value is replaced by an exact, case-sensitive match. No
 //!   free field is redacted whole.
-//! - A top-level fixed schema identifier (event/schema/status/verdict/type/...)
-//!   is never rewritten, so a value that happens to collide with one is
-//!   preserved rather than corrupting the schema.
+//! - A fixed schema identifier is preserved only when its value is itself a
+//!   fixed identifier ([`is_fixed_identifier`]); any other value under a fixed
+//!   schema key is scrubbed. A registered value that collides with a fixed
+//!   identifier cannot corrupt the schema because such a credential is refused
+//!   at registration.
 //! - JSON/YAML keep element count, are idempotent, and leave a key unchanged
 //!   unless that key actually contained a secret.
 
@@ -20,49 +22,14 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::fixed_identifiers::{
+    FIXED_SCHEMA_CONTAINERS, is_fixed_container, is_fixed_identifier, is_fixed_schema_key,
+};
 use super::{MAX_DOTENV_BYTES, MAX_DOTENV_FILES, MIN_GENERIC_SECRET_LEN, SecretCatalog};
-
-/// Schema keys whose value is a fixed identifier. Such a value is never
-/// rewritten, so a registered value that collides with it cannot corrupt the
-/// schema. A fixed value is only recognized inside a schema container, never in
-/// arbitrary tool input.
-const FIXED_SCHEMA_KEYS: &[&str] = &[
-    "event",
-    "schema_version",
-    "status",
-    "verdict",
-    "type",
-    "kind",
-    "classification",
-    "level",
-    "ok",
-    "phase",
-    "stage",
-    "family",
-    "envelope_version",
-    "lifecycle_stage",
-    "tool_name",
-    "step_kind",
-    "judgement",
-    "direction",
-    "action",
-];
-
-/// Keys whose direct children are themselves a fixed schema (their schema keys
-/// are fixed at depth two). `evidence_envelope` is the real product case.
-const FIXED_SCHEMA_CONTAINERS: &[&str] = &["evidence_envelope"];
 
 /// Schema keys that are never renamed, even when a registered value matches.
 fn is_protected_key(key: &str) -> bool {
     is_fixed_schema_key(key) || FIXED_SCHEMA_CONTAINERS.contains(&key)
-}
-
-fn is_fixed_schema_key(key: &str) -> bool {
-    FIXED_SCHEMA_KEYS.contains(&key)
-}
-
-fn is_fixed_container(key: &str) -> bool {
-    FIXED_SCHEMA_CONTAINERS.contains(&key)
 }
 
 /// A strict projection refusal. The message names the position, never the
@@ -73,6 +40,28 @@ pub enum SecretScrubError {
     DynamicKey { position: String },
 }
 
+/// Why a [`RegistrationRefusal::Reserved`] value was refused. The value itself
+/// is never carried here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservedKind {
+    /// The value equals one of the reserved redaction markers.
+    Marker,
+    /// The value equals a fixed identifier, is a substring of one, or uses the
+    /// reserved `commandagent.` schema prefix.
+    FixedIdentifier,
+}
+
+impl std::fmt::Display for ReservedKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReservedKind::Marker => formatter.write_str("it equals a reserved marker"),
+            ReservedKind::FixedIdentifier => {
+                formatter.write_str("it collides with a fixed identifier")
+            }
+        }
+    }
+}
+
 /// A refusal to register a value. The value itself is never named.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RegistrationRefusal {
@@ -80,8 +69,8 @@ pub enum RegistrationRefusal {
         "refusing to register the credential value for {name}: it is shorter than {MIN_GENERIC_SECRET_LEN} characters"
     )]
     TooShort { name: String },
-    #[error("refusing to register the credential value for {name}: it equals a reserved marker")]
-    Reserved { name: String },
+    #[error("refusing to register the credential value for {name}: {kind}")]
+    Reserved { name: String, kind: ReservedKind },
     #[error("refusing to register more than {limit} secret values")]
     CatalogFull { limit: usize },
 }
@@ -111,7 +100,9 @@ pub enum CollectionRefusal {
         "refusing to register the credential value for {name}: it is shorter than {limit} characters"
     )]
     CredentialTooShort { name: String, limit: usize },
-    #[error("refusing to register the credential value for {name}: it equals a reserved marker")]
+    #[error(
+        "refusing to register the credential value for {name}: it collides with a reserved marker or a fixed identifier"
+    )]
     ReservedValue { name: String },
 }
 
@@ -199,8 +190,12 @@ pub fn scrub_key(catalog: &SecretCatalog, key: &str) -> String {
     replace_values(catalog, key)
 }
 
+/// Scrub a string that sits under a fixed schema key. Only a value that is
+/// exactly a fixed identifier is preserved; any other value (free text, or a
+/// secret that happens to sit there) is scrubbed. This is the whole of the
+/// "root fixed key" rule from Issue #548 design 4.
 fn scrub_string(catalog: &SecretCatalog, fixed: bool, text: &str) -> String {
-    if fixed {
+    if fixed && is_fixed_identifier(text) {
         text.to_string()
     } else {
         replace_values(catalog, text)
@@ -367,7 +362,15 @@ fn scrub_yaml_at(
         serde_yaml::Value::Tagged(tagged) => {
             scrub_yaml_at(catalog, &mut tagged.value, fixed, fixed_container)
         }
-        serde_yaml::Value::Null | serde_yaml::Value::Bool(_) | serde_yaml::Value::Number(_) => {}
+        serde_yaml::Value::Number(number) => {
+            // A secret can be read as a YAML number (`port: 8675309012345`). It
+            // is replaced by the marker string so the value cannot survive; a
+            // number that is not a secret keeps its type and value.
+            if catalog.contains(&number.to_string()) {
+                *value = serde_yaml::Value::String(catalog.marker().to_string());
+            }
+        }
+        serde_yaml::Value::Null | serde_yaml::Value::Bool(_) => {}
     }
 }
 
@@ -382,16 +385,15 @@ fn yaml_key_identity(key: &serde_yaml::Value) -> String {
     }
 }
 
-fn yaml_string_identity(text: &str) -> String {
-    format!("s:{text}")
-}
-
 fn yaml_key_changes(catalog: &SecretCatalog, key: &serde_yaml::Value) -> bool {
     match key {
         serde_yaml::Value::String(text) => scrub_key(catalog, text) != *text,
         serde_yaml::Value::Sequence(items) => {
             items.iter().any(|item| yaml_value_changes(catalog, item))
         }
+        serde_yaml::Value::Mapping(map) => map
+            .iter()
+            .any(|(key, item)| yaml_key_changes(catalog, key) || yaml_value_changes(catalog, item)),
         serde_yaml::Value::Tagged(tagged) => yaml_value_changes(catalog, &tagged.value),
         _ => false,
     }
@@ -409,7 +411,66 @@ fn yaml_value_changes(catalog: &SecretCatalog, value: &serde_yaml::Value) -> boo
             yaml_value_changes(catalog, key) || yaml_value_changes(catalog, item)
         }),
         serde_yaml::Value::Tagged(tagged) => yaml_value_changes(catalog, &tagged.value),
+        serde_yaml::Value::Number(number) => catalog.contains(&number.to_string()),
         _ => false,
+    }
+}
+
+/// Scrub the contents of a composite key. A string key is scrubbed with the
+/// same exact-value replacement; a protected key keeps its original form.
+fn scrub_yaml_key_contents(
+    catalog: &SecretCatalog,
+    key: serde_yaml::Value,
+    protected: bool,
+) -> serde_yaml::Value {
+    match key {
+        serde_yaml::Value::String(text) => {
+            if protected {
+                serde_yaml::Value::String(text)
+            } else {
+                serde_yaml::Value::String(scrub_key(catalog, &text))
+            }
+        }
+        serde_yaml::Value::Sequence(items) => {
+            let mut value = serde_yaml::Value::Sequence(items);
+            scrub_yaml_at(catalog, &mut value, false, false);
+            value
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let mut value = serde_yaml::Value::Mapping(map);
+            scrub_yaml_at(catalog, &mut value, false, false);
+            value
+        }
+        serde_yaml::Value::Tagged(mut tagged) => {
+            scrub_yaml_at(catalog, &mut tagged.value, false, false);
+            serde_yaml::Value::Tagged(tagged)
+        }
+        other => other,
+    }
+}
+
+/// Append a `#n` sentinel to a key so two keys that scrub to the same value
+/// stay distinct. The element count of the mapping is preserved; no unrelated
+/// key is renamed. `index` is at least one.
+fn yaml_key_extend(key: serde_yaml::Value, index: usize) -> serde_yaml::Value {
+    match key {
+        serde_yaml::Value::String(text) => serde_yaml::Value::String(format!("{text}#{index}")),
+        serde_yaml::Value::Sequence(mut items) => {
+            items.push(serde_yaml::Value::String(format!("#{index}")));
+            serde_yaml::Value::Sequence(items)
+        }
+        serde_yaml::Value::Mapping(mut map) => {
+            map.insert(
+                serde_yaml::Value::String(format!("#{index}")),
+                serde_yaml::Value::from(index as i64),
+            );
+            serde_yaml::Value::Mapping(map)
+        }
+        serde_yaml::Value::Tagged(mut tagged) => {
+            tagged.value = yaml_key_extend(tagged.value, index);
+            serde_yaml::Value::Tagged(tagged)
+        }
+        other => other,
     }
 }
 
@@ -421,56 +482,26 @@ fn scrub_yaml_key(
 ) -> serde_yaml::Value {
     // A protected or unchanged key keeps its original form; only a key that
     // actually contains a secret is projected, and it is disambiguated against
-    // every reserved key so an unrelated key is never renamed.
+    // every reserved key so an unrelated key is never renamed and the element
+    // count cannot shrink.
     let changed = !protected && yaml_key_changes(catalog, &key);
-    match key {
-        serde_yaml::Value::String(text) => {
-            if !changed {
-                used.insert(yaml_string_identity(&text));
-                return serde_yaml::Value::String(text);
-            }
-            let base = scrub_key(catalog, &text);
-            let mut candidate = base.clone();
-            let mut index = 1usize;
-            while used.contains(&yaml_string_identity(&candidate)) {
-                candidate = format!("{base}#{index}");
-                index += 1;
-            }
-            used.insert(yaml_string_identity(&candidate));
-            serde_yaml::Value::String(candidate)
-        }
-        serde_yaml::Value::Sequence(mut items) => {
-            items
-                .iter_mut()
-                .for_each(|item| scrub_yaml_at(catalog, item, false, false));
-            if !changed {
-                let key = serde_yaml::Value::Sequence(items);
-                used.insert(yaml_key_identity(&key));
-                return key;
-            }
-            let base = items;
-            let mut candidate = serde_yaml::Value::Sequence(base.clone());
-            let mut index = 1usize;
-            while used.contains(&yaml_key_identity(&candidate)) {
-                let mut extended = base.clone();
-                extended.push(serde_yaml::Value::String(format!("#{index}")));
-                candidate = serde_yaml::Value::Sequence(extended);
-                index += 1;
-            }
-            used.insert(yaml_key_identity(&candidate));
-            candidate
-        }
-        serde_yaml::Value::Tagged(mut tagged) => {
-            scrub_yaml_at(catalog, &mut tagged.value, false, false);
-            let key = serde_yaml::Value::Tagged(tagged);
-            used.insert(yaml_key_identity(&key));
-            key
-        }
-        other => {
-            used.insert(yaml_key_identity(&other));
-            other
-        }
+    let key = if changed {
+        scrub_yaml_key_contents(catalog, key, protected)
+    } else {
+        key
+    };
+    if !changed {
+        used.insert(yaml_key_identity(&key));
+        return key;
     }
+    let mut candidate = key;
+    let mut index = 1usize;
+    while used.contains(&yaml_key_identity(&candidate)) {
+        candidate = yaml_key_extend(candidate, index);
+        index += 1;
+    }
+    used.insert(yaml_key_identity(&candidate));
+    candidate
 }
 
 /// True when a runnable YAML document contains a registered secret, either as a
@@ -507,6 +538,7 @@ fn yaml_contains(catalog: &SecretCatalog, value: &serde_yaml::Value, found: &mut
             }
         }
         serde_yaml::Value::Tagged(tagged) => yaml_contains(catalog, &tagged.value, found),
+        serde_yaml::Value::Number(number) => *found = catalog.contains(&number.to_string()),
         _ => {}
     }
 }
@@ -532,18 +564,33 @@ pub fn refuse_runnable(
 
 /// Refuse a confirmation identity (a hash source or canonical key) that still
 /// contains a secret. Used before an identity is hashed and stored.
+///
+/// An identity may be a JSON-encoded string: `serde_json::to_string` escapes a
+/// quote or a control character, so the raw text no longer spells the secret.
+/// The decoded value is checked too, so an escaped identity is refused
+/// (Issue #548 hole 3).
 pub fn refuse_identity(
     catalog: &SecretCatalog,
     field: &str,
     text: &str,
 ) -> Result<(), RunnableSecretRefusal> {
-    if catalog.contains(text) {
+    if identity_contains_secret(catalog, text) {
         return Err(RunnableSecretRefusal {
             field: field.to_string(),
             kind: "identity",
         });
     }
     Ok(())
+}
+
+fn identity_contains_secret(catalog: &SecretCatalog, text: &str) -> bool {
+    if catalog.contains(text) {
+        return true;
+    }
+    match serde_json::from_str::<String>(text) {
+        Ok(decoded) => catalog.contains(&decoded),
+        Err(_) => false,
+    }
 }
 
 /// A chunk-boundary-safe scrubber. It holds back enough bytes that no secret is

@@ -83,7 +83,12 @@ fn all_values() -> [&'static str; 11] {
 fn install_all(root: &std::path::Path, events: &std::path::Path) {
     let mut catalog = SecretCatalog::new();
     for value in all_values() {
-        catalog.register_credential("PRIVATE_TOKEN", value).unwrap();
+        // These are scrub-boundary values, including substrings of a fixed
+        // identifier (C6_*). Issue #548 refuses such a value through the checked
+        // credential API, so this self-check seeds the catalog directly with the
+        // forced registration API; the refusal itself is covered by the #548
+        // focused tests.
+        catalog.register(value);
     }
     install_scope(catalog, Some(root), Some(events));
 }
@@ -446,23 +451,20 @@ fn r10_numeric_secret_in_yaml_is_refused_by_the_boundary() {
     let events = root.join(".commandagent/runs/r10/events.jsonl");
     install_all(root, &events);
 
-    // The shared YAML predicate only inspects String scalars, so a numeric-only
-    // secret read as a Number is missed by it (shared-API hole reported to #548).
+    // Issue #548 (hole 1) fixed the shared predicate: a numeric-only secret read
+    // as a Number is now detected, not missed.
+    let catalog = {
+        let mut catalog = SecretCatalog::new();
+        catalog.register(C7);
+        catalog
+    };
     let numeric_yaml = format!("args: [--token, {C7}]");
-    let parsed_as_number = !runnable_yaml_contains_secret(
-        &{
-            let mut catalog = SecretCatalog::new();
-            catalog.register(C7);
-            catalog
-        },
-        &numeric_yaml,
-    );
     assert!(
-        parsed_as_number,
-        "expected the shared predicate to miss a Number scalar"
+        runnable_yaml_contains_secret(&catalog, &numeric_yaml),
+        "the shared predicate still misses a Number scalar"
     );
 
-    // The #543 boundary still refuses it via the whole-value fallback, so no
+    // The #543 boundary refuses it through the same shared predicate, so no
     // numeric secret is persisted by this scope.
     let error = save_step_plan(root, &plan_with_command(C7)).unwrap_err();
     assert_absent(&format!("{error}"), "r10 refusal", &[C7]);
