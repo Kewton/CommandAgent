@@ -295,9 +295,24 @@ where
         "provider":request.provider.as_str(),
     });
     super::node_pins::add_to_event(&mut started, request);
-    fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
+    write_node_event(&request.origin, events, &started)?;
     execute(request)?;
     Ok(())
+}
+
+/// Scrub and persist a workflow node event through the shared save boundary.
+/// Event name/key/type are fixed schema and are preserved; only a free-text
+/// value is protected. No scope installed leaves the value unchanged.
+pub fn write_node_event(
+    origin: &Path,
+    events: &Path,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    let mut value = value.clone();
+    if let Some(context) = crate::sensitive_data::active_for(Some(origin)) {
+        context.scrub_value_lenient(&mut value);
+    }
+    fs::write(events, format!("{}\n", value)).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

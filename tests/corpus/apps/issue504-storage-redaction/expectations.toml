@@ -1,0 +1,50 @@
+case_id = "issue504-storage-redaction"
+source = "Issue #543: the run-scoped exact-value catalog protects the custom save boundaries (build log, browser readiness JSON, interaction JSON/mirror, StepPlan/UltraPlan YAML, repair Markdown/recovery YAML, panic recovery note, workflow node/orchestrator events) and the runs display; a runnable YAML with a secret in a command/path is refused honestly and keeps the original failure reason/status/verdict/source_refs; workflow event name/key/type/order/verdict are preserved"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["<redacted>", "runnable_yaml"]
+acceptance_passed = true
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/storage-cases.json:workflow.verdict = "circle_full"
+fixtures/storage-cases.json:refusal.kind = "runnable_yaml"
+fixtures/storage-cases.json:display.list_preserves_status = "completed"
+
+[fixture_contains]
+fixtures/storage-cases.json = [
+  "\"event\":\"workflow_started\"",
+  "\"event\":\"workflow_adjudicated\"",
+  "\"event\":\"workflow_node_completed\"",
+  "\"verdict\":\"circle_full\"",
+  "\"reason\":\"<redacted>\"",
+  "\"node\":\"<redacted>\"",
+  "\"kind\":\"runnable_yaml\"",
+  "\"panic_note\":\"<redacted>\"",
+  "\"raw_bytes_unchanged\":true",
+  "\"scopes_isolated\":true",
+  "<redacted>"
+]
+
+[fixture_ordered]
+fixtures/storage-cases.json = [
+  "\"event\":\"workflow_started\"",
+  "\"event\":\"workflow_adjudicated\"",
+  "\"event\":\"workflow_node_completed\""
+]

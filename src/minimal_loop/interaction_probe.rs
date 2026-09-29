@@ -2459,8 +2459,12 @@ fn mirror_interaction_observation(
     );
 }
 
-fn write_interaction_value(root: &Path, evidence_path: &Path, value: &Value) {
-    if let Ok(text) = serde_json::to_string_pretty(value) {
+pub fn write_interaction_value(root: &Path, evidence_path: &Path, value: &Value) {
+    let mut value = value.clone();
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.scrub_value_lenient(&mut value);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&value) {
         write_text(evidence_path, &format!("{text}\n"));
         let workspace_path = browser_interaction_evidence_path(root);
         if workspace_path != evidence_path {
