@@ -3201,9 +3201,10 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(body: &str) -> String {
-    // A fixed machine value (`Status:`/`Result:`) is a schema identifier and is
-    // preserved; every other value is scrubbed. The full body is still scrubbed
-    // as one string so a multiline secret cannot survive as two fragments.
+    // A `Status:`/`Result:` value is protected only when it is a fixed machine
+    // identifier; any other value (free text, or a secret) is scrubbed like the
+    // rest of the body. The full body is still scrubbed as one string so a
+    // multiline secret cannot survive as two fragments.
     let (protected, fixed) = protect_fixed_summary_values(body);
     let scrubbed = crate::sensitive_data::scrub_active(&protected);
     let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
@@ -3226,8 +3227,9 @@ fn summary_body(body: &str) -> String {
     restore_fixed_summary_values(&out, &fixed)
 }
 
-/// Replace a fixed summary machine value with a placeholder so the catalog
-/// scrub cannot rewrite it, remembering the original value.
+/// Replace a *fixed* `Status:`/`Result:` machine value with a placeholder so the
+/// catalog scrub cannot rewrite it, remembering the original value. A value that
+/// is not a fixed identifier is left in place so the scrub covers it.
 fn protect_fixed_summary_values(body: &str) -> (String, Vec<(String, String)>) {
     let mut text = String::new();
     let mut fixed = Vec::new();
@@ -3236,14 +3238,19 @@ fn protect_fixed_summary_values(body: &str) -> (String, Vec<(String, String)>) {
             text.push('\n');
         }
         match fixed_summary_value(line) {
-            Some((label, separator, value)) => {
-                let placeholder = format!("commandagentfixturefixedstatus{}", fixed.len());
+            Some((label, separator, value))
+                if crate::sensitive_data::is_fixed_identifier(value) =>
+            {
+                // The trailing sentinel keeps placeholder `1` from matching
+                // inside placeholder `10` (or `101`), so restore cannot corrupt
+                // a fixed value (Issue #548 row 16).
+                let placeholder = format!("\u{1}commandagentfixedvalue{}\u{1}", fixed.len());
                 text.push_str(label);
                 text.push_str(separator);
                 text.push_str(&placeholder);
                 fixed.push((placeholder, value.to_string()));
             }
-            None => text.push_str(line),
+            _ => text.push_str(line),
         }
     }
     (text, fixed)

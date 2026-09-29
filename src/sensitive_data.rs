@@ -12,18 +12,26 @@
 //!   minimal-loop entry resolves its own workspace's scope, never another
 //!   run's thread-local one.
 //! - [`SecretCatalog`] never prints its values through `Debug`.
-//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] bytes long are secrets. A
-//!   shorter credential value is refused at the source; a shorter non-secret is
-//!   simply not registered.
+//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] characters long are
+//!   secrets. A shorter credential value is refused at the source; a shorter
+//!   non-secret is simply not registered.
+//! - A credential value that collides with a fixed identifier is refused at the
+//!   source, and a non-credential value that collides is not registered. See
+//!   [`fixed_identifiers`].
 //! - Every registered value is replaced by an exact match with a marker chosen
 //!   so it contains no registered value; re-applying the scrub is idempotent.
 
+mod fixed_identifiers;
 mod redaction;
 #[cfg(test)]
 mod tests;
 
+pub use fixed_identifiers::{
+    FIXED_IDENTIFIERS, FIXED_SCHEMA_CONTAINERS, FIXED_SCHEMA_KEYS, collides_with_fixed_identifier,
+    is_fixed_container, is_fixed_identifier, is_fixed_schema_key,
+};
 pub use redaction::{
-    CollectionFailure, CollectionRefusal, DotenvCollection, RegistrationRefusal,
+    CollectionFailure, CollectionRefusal, DotenvCollection, RegistrationRefusal, ReservedKind,
     RunnableSecretRefusal, SecretScrubError, StreamScrubber, collect_scoped_dotenv, parse_dotenv,
     refuse_identity, refuse_runnable, runnable_yaml_contains_secret, scrub_yaml_value,
 };
@@ -37,9 +45,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// value collides with it. Use [`SecretCatalog::marker`] for the actual marker.
 pub const REDACTED: &str = "<redacted>";
 
-/// Minimum length for a value to be treated as a secret. A shorter credential
-/// value is refused at the source instead of being registered, so it never
-/// corrupts a fixed identifier.
+/// Minimum length for a value to be treated as a secret, counted in Unicode
+/// scalar values (characters), not UTF-8 bytes. A shorter credential value is
+/// refused at the source instead of being registered, so it never corrupts a
+/// fixed identifier.
 pub const MIN_GENERIC_SECRET_LEN: usize = 8;
 
 /// Bounded root dotenv collection limits (mirrors the corpus contract).
@@ -125,19 +134,21 @@ impl SecretCatalog {
     }
 
     /// Register a value leniently: a value shorter than
-    /// [`MIN_GENERIC_SECRET_LEN`] is not a secret and is not registered. Used by
-    /// tests and by forced registration; the config path uses the checked
-    /// [`Self::register_credential`] / [`Self::register_plain`].
+    /// [`MIN_GENERIC_SECRET_LEN`] characters is not a secret and is not
+    /// registered. Used by tests and by forced registration; the config path
+    /// uses the checked [`Self::register_credential`] / [`Self::register_plain`].
     pub fn register(&mut self, value: &str) {
         let value = value.trim();
-        if value.is_empty() || value.len() < MIN_GENERIC_SECRET_LEN {
+        if value.is_empty() || value.chars().count() < MIN_GENERIC_SECRET_LEN {
             return;
         }
         let _ = self.try_push(value);
     }
 
     /// Register a credential value. A value shorter than
-    /// [`MIN_GENERIC_SECRET_LEN`] or equal to a reserved marker is refused.
+    /// [`MIN_GENERIC_SECRET_LEN`] characters, equal to a reserved marker, or
+    /// colliding with a fixed identifier is refused. The refusal never names
+    /// the value.
     pub fn register_credential(
         &mut self,
         name: &str,
@@ -147,7 +158,7 @@ impl SecretCatalog {
         if value.is_empty() {
             return Ok(());
         }
-        if value.len() < MIN_GENERIC_SECRET_LEN {
+        if value.chars().count() < MIN_GENERIC_SECRET_LEN {
             return Err(RegistrationRefusal::TooShort {
                 name: name.to_string(),
             });
@@ -155,17 +166,29 @@ impl SecretCatalog {
         if is_marker_candidate(value) {
             return Err(RegistrationRefusal::Reserved {
                 name: name.to_string(),
+                kind: ReservedKind::Marker,
+            });
+        }
+        if collides_with_fixed_identifier(value) {
+            return Err(RegistrationRefusal::Reserved {
+                name: name.to_string(),
+                kind: ReservedKind::FixedIdentifier,
             });
         }
         self.try_push(value)
     }
 
     /// Register a non-credential value only when it can be a secret: at least
-    /// [`MIN_GENERIC_SECRET_LEN`] bytes and not a reserved marker. Anything else
-    /// is simply not a secret.
+    /// [`MIN_GENERIC_SECRET_LEN`] characters, not a reserved marker, and not
+    /// colliding with a fixed identifier. Anything else is simply not a secret,
+    /// so startup is never refused for a non-credential value.
     pub fn register_plain(&mut self, value: &str) -> Result<(), RegistrationRefusal> {
         let value = value.trim();
-        if value.is_empty() || value.len() < MIN_GENERIC_SECRET_LEN || is_marker_candidate(value) {
+        if value.is_empty()
+            || value.chars().count() < MIN_GENERIC_SECRET_LEN
+            || is_marker_candidate(value)
+            || collides_with_fixed_identifier(value)
+        {
             return Ok(());
         }
         self.try_push(value)
