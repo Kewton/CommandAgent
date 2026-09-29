@@ -170,7 +170,10 @@ pub fn diagnose_cli_with_provider_options(
         .state_dir
         .clone()
         .unwrap_or_else(crate::config::default_state_dir);
-    let resolution_error = resolved.as_ref().err().map(|error| format!("{error:#}"));
+    let resolution_error = resolved
+        .as_ref()
+        .err()
+        .map(|error| crate::sensitive_data::scrub_everything(&format!("{error:#}")));
     let pack = resolved
         .as_ref()
         .ok()
@@ -513,7 +516,11 @@ fn add_config_file_checks(
     resolution_failed: bool,
 ) {
     let inspection = crate::config::inspect_config_files(root, preset_name);
-    let inspection_errors = inspection.inspection_errors;
+    let inspection_errors = inspection
+        .inspection_errors
+        .into_iter()
+        .map(|error| crate::sensitive_data::scrub_everything(&error))
+        .collect::<Vec<_>>();
     const IDS: [&str; 4] = [
         "config.file.workspace_commandagent",
         "config.file.workspace_anvil",

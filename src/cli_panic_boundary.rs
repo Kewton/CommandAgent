@@ -250,8 +250,18 @@ Panic location: {}\n\n\
 Reproduction command:\n\n    {}\n",
         diagnostic.location, context.reproduction_command
     );
+    let note = scrub_note(&context.workspace_root, &note);
     std::fs::write(&path, note)?;
     Ok(path)
+}
+
+/// Scrub a persisted panic recovery note with the run scope registered for the
+/// workspace, so the panic message, location, and reproduction command never
+/// write a registered secret value to disk.
+fn scrub_note(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn internal_panic_stop_event(
@@ -618,6 +628,52 @@ mod tests {
             Some("normal_marker")
         );
         assert!(!dir.path().join(".commandagent/repairs").exists());
+    }
+
+    #[test]
+    fn recovery_note_and_terminal_event_scrub_a_registered_secret() {
+        // The panic boundary module is private to the crate, so the note/model
+        // boundary is exercised here rather than from an integration test. Only
+        // the thread-local scope is set, so this never disturbs a sibling lib
+        // test's process-global scope registry.
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/secret/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::set_current(Some(
+            crate::sensitive_data::RedactionContext::from_catalog(catalog),
+        ));
+        let mut context = context(dir.path(), &events);
+        context.reproduction_command = format!("commandagent --ultra-plan-run '{canary}'");
+
+        let result = catch_with_context(context, || {
+            panic!("panic carrying {canary}");
+        });
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+
+        let events = read_events(&events);
+        let stop = events.last().unwrap();
+        let relative = stop
+            .get("recovery_note_path")
+            .and_then(Value::as_str)
+            .unwrap();
+        assert!(!relative.is_empty(), "{stop:#}");
+        let note = std::fs::read_to_string(dir.path().join(relative)).unwrap();
+        assert!(!note.contains(canary), "recovery note leaked: {note}");
+        assert!(note.contains("<redacted>"), "{note}");
+        assert!(!note.contains("H01_CANARY"), "{note}");
+        let rendered = format!("{stop:#}");
+        assert!(
+            !rendered.contains(canary),
+            "terminal event leaked: {rendered}"
+        );
+        assert!(
+            !std::fs::read_to_string(dir.path().join(".commandagent/runs/secret/summary.md"))
+                .unwrap_or_default()
+                .contains(canary)
+        );
+        crate::sensitive_data::set_current(None);
     }
 
     #[test]

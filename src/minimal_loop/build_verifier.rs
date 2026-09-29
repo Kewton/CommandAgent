@@ -771,7 +771,7 @@ fn observe_requirement_lifecycle_from_before(
     }
 }
 
-fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Option<PathBuf> {
+pub fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Option<PathBuf> {
     if output.trim().is_empty() {
         return None;
     }
@@ -779,11 +779,23 @@ fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Opti
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
-    let path = dir.join(format!("build-verifier-{}.log", command_slug(command)));
-    if std::fs::write(&path, output).is_err() {
+    let path = dir.join(format!(
+        "build-verifier-{}.log",
+        command_slug(&scrub_log_for_root(root, command))
+    ));
+    if std::fs::write(&path, scrub_log_for_root(root, output)).is_err() {
         return None;
     }
     Some(path)
+}
+
+/// Scrub free text with the run scope registered for `root`, or return it
+/// unchanged when no scope is installed. The raw build log and its
+/// command-derived file name never persist a registered secret value.
+fn scrub_log_for_root(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn command_slug(command: &str) -> String {

@@ -4,10 +4,9 @@ pub fn save_ultra_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<PathBuf>
     let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("ultra-plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(
-        &path,
-        crate::planner::plan::render_editable_ultra_plan(plan),
-    )?;
+    let rendered = crate::planner::plan::render_editable_ultra_plan(plan);
+    let rendered = crate::planner::runner::protect_saved_plan(root, &rendered, &[])?;
+    std::fs::write(&path, rendered)?;
     Ok(path)
 }
 
@@ -31,5 +30,6 @@ pub fn run_ultra_plan_file_with_ui(
     let text = std::fs::read_to_string(path)?;
     let mut plan = parse_ultra_plan(&text)?;
     config.apply_intent_override(&mut plan.intent);
+    crate::planner::runner::refuse_saved_plan_run(&config.workspace_root, &text)?;
     super::run_ultra_plan_with_ui(planner, execution, &plan, config, ui)
 }

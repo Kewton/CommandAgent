@@ -108,7 +108,7 @@ pub fn render_runs_table_with_current(root: &Path, current_events_path: Option<&
             &concise_stop_reason(&run.stop_reason),
         ));
     }
-    lines.join("\n")
+    scrub_run_text(root, &lines.join("\n"))
 }
 
 pub fn render_runs_request(
@@ -129,7 +129,10 @@ pub fn render_runs_request(
         if request.json {
             render_run_events_json(root, &run, request.filter.as_deref(), &events)
         } else {
-            Ok(render_run_events(&run, request.filter.as_deref(), &events))
+            Ok(scrub_run_text(
+                root,
+                &render_run_events(&run, request.filter.as_deref(), &events),
+            ))
         }
     } else if request.json {
         render_run_detail_json(root, &run)
@@ -143,13 +146,14 @@ fn render_runs_list_json(root: &Path) -> anyhow::Result<String> {
         .iter()
         .map(|run| run_json(root, run))
         .collect::<Vec<_>>();
-    serde_json::to_string_pretty(&serde_json::json!({
+    let mut value = serde_json::json!({
         "schema_version": "commandagent.runs/v1",
         "view": "list",
         "total": runs.len(),
         "runs": runs,
-    }))
-    .context("failed to serialize runs JSON")
+    });
+    scrub_run_value(root, &mut value);
+    serde_json::to_string_pretty(&value).context("failed to serialize runs JSON")
 }
 
 fn render_run_detail(root: &Path, run: &RunInventoryItem) -> String {
@@ -175,17 +179,18 @@ fn render_run_detail(root: &Path, run: &RunInventoryItem) -> String {
         lines.push("Summary".to_string());
         lines.push(summary.trim().to_string());
     }
-    lines.join("\n")
+    scrub_run_text(root, &lines.join("\n"))
 }
 
 fn render_run_detail_json(root: &Path, run: &RunInventoryItem) -> anyhow::Result<String> {
-    serde_json::to_string_pretty(&serde_json::json!({
+    let mut value = serde_json::json!({
         "schema_version": "commandagent.runs/v1",
         "view": "detail",
         "run": run_json(root, run),
         "summary": read_run_summary(run),
-    }))
-    .context("failed to serialize run detail JSON")
+    });
+    scrub_run_value(root, &mut value);
+    serde_json::to_string_pretty(&value).context("failed to serialize run detail JSON")
 }
 
 fn render_run_events(run: &RunInventoryItem, filter: Option<&str>, events: &[Value]) -> String {
@@ -229,15 +234,34 @@ fn render_run_events_json(
     filter: Option<&str>,
     events: &[Value],
 ) -> anyhow::Result<String> {
-    serde_json::to_string_pretty(&serde_json::json!({
+    let mut value = serde_json::json!({
         "schema_version": "commandagent.runs/v1",
         "view": "events",
         "run": run_json(root, run),
         "filter": filter,
         "total": events.len(),
         "events": events,
-    }))
-    .context("failed to serialize run events JSON")
+    });
+    scrub_run_value(root, &mut value);
+    serde_json::to_string_pretty(&value).context("failed to serialize run events JSON")
+}
+
+/// Scrub a display string with the run scope registered for `root`, or return
+/// it unchanged when no scope is installed. The stored run record is never
+/// rewritten; only the projected view is protected.
+fn scrub_run_text(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// Scrub a projected JSON view with the run scope registered for `root`. A
+/// fixed schema key (event/status/verdict/...) keeps its value, so the view
+/// shape is preserved while a known value is protected at display time.
+fn scrub_run_value(root: &Path, value: &mut Value) {
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.scrub_value_lenient(value);
+    }
 }
 
 fn run_json(root: &Path, run: &RunInventoryItem) -> Value {

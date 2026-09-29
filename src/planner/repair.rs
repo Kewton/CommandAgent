@@ -12,6 +12,7 @@ use crate::minimal_loop::completion::{
 };
 use crate::minimal_loop::repair_target::classify_repair_target;
 use crate::planner::profiles::data::repair_policy;
+use crate::planner::runner::scrub_saved_text;
 use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
@@ -376,7 +377,8 @@ pub fn save_repair_report_with_context(
     let mut context = context.clone();
     context.workspace_root = Some(root.to_path_buf());
     let rendered = render_repair_report(step_id, report, &context);
-    std::fs::write(&path, recovery_paths::display_text(Some(root), &rendered))?;
+    let text = recovery_paths::display_text(Some(root), &rendered);
+    std::fs::write(&path, scrub_saved_text(root, &text))?;
     Ok(path)
 }
 
@@ -388,10 +390,8 @@ pub fn save_ultra_recovery_prompt(
     let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{scope}-{}.md", uuid::Uuid::now_v7()));
-    std::fs::write(
-        &path,
-        render_ultra_recovery_prompt_at_root(Some(root), handoff),
-    )?;
+    let prompt = render_ultra_recovery_prompt_at_root(Some(root), handoff);
+    std::fs::write(&path, scrub_saved_text(root, &prompt))?;
     Ok(path)
 }
 
@@ -476,7 +476,7 @@ fn save_recovery_ultra_plan_rendered(
         "recovery-ultra-plan-{scope}-{}.yaml",
         uuid::Uuid::now_v7()
     ));
-    std::fs::write(&path, rendered)?;
+    std::fs::write(&path, scrub_saved_text(root, &rendered))?;
     record_handoff_candidate(path.clone(), plan.clone(), handoff);
     Ok(path)
 }
