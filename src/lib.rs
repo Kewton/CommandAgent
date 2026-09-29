@@ -41,6 +41,7 @@ pub mod repl;
 mod run_trace;
 pub mod runs;
 pub mod runtime_paths;
+pub mod sensitive_data;
 pub mod state;
 pub mod time_profile;
 pub mod tools;
@@ -161,7 +162,7 @@ pub(crate) struct CliArgumentError {
 
 fn cli_argument_error(error: anyhow::Error) -> anyhow::Error {
     anyhow::Error::new(CliArgumentError {
-        message: format!("{error:#}"),
+        message: sensitive_data::scrub_everything(&format!("{error:#}")),
     })
 }
 
@@ -552,6 +553,14 @@ impl DirectCommandCompletionGuard {
                 let signal_command = command.clone();
                 let signal_finalized = finalized.clone();
                 signal_thread = Some(std::thread::spawn(move || {
+                    // This product thread may project a headless summary or emit
+                    // a stop event. Resolve the run's scope by events path so a
+                    // non-installed thread still scrubs registered secrets.
+                    if let Some(context) =
+                        sensitive_data::active_for(signal_config.eval_events_path.as_deref())
+                    {
+                        sensitive_data::set_current(Some(context));
+                    }
                     if signals.forever().next().is_some() {
                         if !signal_finalized.swap(true, Ordering::AcqRel) {
                             let result: anyhow::Result<()> =

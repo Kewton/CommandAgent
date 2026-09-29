@@ -142,6 +142,7 @@ pub fn is_eval_events_override() -> bool {
 }
 
 pub fn emit(path: Option<&Path>, mut event: Value) {
+    redact_event(path, &mut event);
     timing::stamp_phase_boundary(&mut event);
     crate::tui::status_bus::publish_eval_projection(&event);
     crate::tui::presentation::project_event(&event);
@@ -158,8 +159,19 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
     }
 }
 
+/// Scrub an event with the run scope's exact-value catalog *before* any UI
+/// publish, buffer, spool, or failsafe write, so the same protected payload is
+/// used everywhere. The catalog scrub never fails; a dynamic key would expose a
+/// secret only by name and is rewritten in place.
+fn redact_event(path: Option<&Path>, event: &mut Value) {
+    if let Some(context) = crate::sensitive_data::active_for(path) {
+        context.scrub_value_lenient(event);
+    }
+}
+
 pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> anyhow::Result<()> {
     let path = path.ok_or_else(|| anyhow::anyhow!("eval events path is unavailable"))?;
+    redact_event(Some(path), &mut event);
     timing::stamp_phase_boundary(&mut event);
     if let Value::Object(ref mut object) = event {
         object
@@ -3115,7 +3127,10 @@ pub fn argument_shape(arguments: &Value) -> Value {
 }
 
 pub fn body_snippet(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    // Scrub the complete value first: newline flattening and whitespace
+    // normalization must not be able to hide a registered value's fragments.
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
@@ -3126,7 +3141,8 @@ pub fn body_snippet(body: &str) -> String {
 /// Reproducer output is injected into a later model prompt, so bounding and the
 /// same secret/home-path redaction used by event snippets are mandatory.
 pub(crate) fn body_tail_snippet(body: &str) -> String {
-    let mut clean = body
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
@@ -3140,7 +3156,8 @@ pub(crate) fn body_tail_snippet(body: &str) -> String {
 }
 
 pub fn body_snippet_whole_tokens(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
@@ -3148,7 +3165,8 @@ pub fn body_snippet_whole_tokens(body: &str) -> String {
 }
 
 pub(crate) fn scrub_sensitive_text(value: &str) -> String {
-    let clean = value
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
@@ -3183,7 +3201,12 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(body: &str) -> String {
-    let clean = body.replace("\r\n", "\n").replace('\r', "\n");
+    // A fixed machine value (`Status:`/`Result:`) is a schema identifier and is
+    // preserved; every other value is scrubbed. The full body is still scrubbed
+    // as one string so a multiline secret cannot survive as two fragments.
+    let (protected, fixed) = protect_fixed_summary_values(body);
+    let scrubbed = crate::sensitive_data::scrub_active(&protected);
+    let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
     let mut out = String::new();
     let mut len = 0usize;
@@ -3200,7 +3223,53 @@ fn summary_body(body: &str) -> String {
         out.push_str(&line);
         len += line_len;
     }
-    out
+    restore_fixed_summary_values(&out, &fixed)
+}
+
+/// Replace a fixed summary machine value with a placeholder so the catalog
+/// scrub cannot rewrite it, remembering the original value.
+fn protect_fixed_summary_values(body: &str) -> (String, Vec<(String, String)>) {
+    let mut text = String::new();
+    let mut fixed = Vec::new();
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        match fixed_summary_value(line) {
+            Some((label, separator, value)) => {
+                let placeholder = format!("commandagentfixturefixedstatus{}", fixed.len());
+                text.push_str(label);
+                text.push_str(separator);
+                text.push_str(&placeholder);
+                fixed.push((placeholder, value.to_string()));
+            }
+            None => text.push_str(line),
+        }
+    }
+    (text, fixed)
+}
+
+fn fixed_summary_value(line: &str) -> Option<(&str, &str, &str)> {
+    let trimmed = line.trim_start();
+    for label in ["Status:", "Result:"] {
+        if let Some(rest) = trimmed.strip_prefix(label) {
+            let (separator, value) = match rest.strip_prefix(' ') {
+                Some(value) => (" ", value),
+                None => ("", rest),
+            };
+            let label_end = line.len() - trimmed.len() + label.len();
+            return Some((&line[..label_end], separator, value));
+        }
+    }
+    None
+}
+
+fn restore_fixed_summary_values(text: &str, fixed: &[(String, String)]) -> String {
+    let mut restored = text.to_string();
+    for (placeholder, value) in fixed {
+        restored = restored.replace(placeholder.as_str(), value);
+    }
+    restored
 }
 
 fn argument_value_summary(key: &str, value: &Value) -> Value {
@@ -3234,13 +3303,17 @@ fn argument_value_summary(key: &str, value: &Value) -> Value {
 }
 
 fn safe_preview(value: &str) -> String {
-    let mut clean = value.replace('\n', "\\n").replace('\r', "\\r");
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let mut clean = scrubbed.replace('\n', "\\n").replace('\r', "\\r");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(120).collect()
 }
 
 fn redact_secret_like(value: &str) -> String {
+    // Use the run's actual marker, so the heuristic never reintroduces a
+    // registered value through a literal marker.
+    let marker = crate::sensitive_data::active_marker();
     value
         .split_whitespace()
         .map(|part| {
@@ -3248,13 +3321,20 @@ fn redact_secret_like(value: &str) -> String {
                 || part.starts_with("AIza")
                 || part.to_ascii_lowercase().contains("api_key")
             {
-                "<redacted>"
+                marker.as_str()
             } else {
                 part
             }
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The legacy format/home heuristics only, without the catalog scrub. Used by
+/// the trace exporter alongside the shared catalog scrub so a fixed identifier
+/// is never rewritten twice.
+pub(crate) fn scrub_legacy_heuristics(value: &str) -> String {
+    redact_home_paths(&redact_secret_like(value))
 }
 
 fn redact_home_paths(value: &str) -> String {
@@ -3326,6 +3406,29 @@ mod tests {
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
         let summary = summary_body(&format!("{}\n{}", "日本語".repeat(1_000), body));
         assert!(summary.chars().count() <= SUMMARY_LIMIT);
+    }
+
+    #[test]
+    fn snippets_scrub_before_newline_and_whitespace_normalization() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let multiline = "H05_NEWLINE_alpha\nH05_NEWLINE_beta";
+        let spaced = "H05_SPACE_alpha  H05_SPACE_beta";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(multiline);
+        catalog.register(spaced);
+        crate::sensitive_data::install_scope(
+            catalog,
+            None,
+            Some(std::path::Path::new("/tmp/h05-eval-events")),
+        );
+
+        assert!(!body_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!body_snippet(spaced).contains("H05_SPACE"));
+        assert!(!body_tail_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!summary_body(multiline).contains("H05_NEWLINE"));
+        let preview = argument_value_summary("command", &json!(multiline)).to_string();
+        assert!(!preview.contains("H05_NEWLINE"), "{preview}");
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]

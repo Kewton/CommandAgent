@@ -123,7 +123,19 @@ struct HeadlessSummary {
 }
 
 pub(crate) fn render(source: &Source) -> String {
-    serde_json::to_string(&project(source)).expect("headless summary serialization is infallible")
+    let mut value =
+        serde_json::to_value(project(source)).expect("headless summary projection is infallible");
+    // Resolve the scope from the source's own events path (or workspace root),
+    // so a product thread that never installed the thread-local scope — the
+    // SIGINT completion thread — still projects a scrubbed summary.
+    let scope = source
+        .events_path
+        .as_deref()
+        .or(source.workspace_root.as_deref());
+    if let Some(context) = crate::sensitive_data::active_for(scope) {
+        context.scrub_value_lenient(&mut value);
+    }
+    serde_json::to_string(&value).expect("headless summary serialization is infallible")
 }
 
 fn project(source: &Source) -> HeadlessSummary {
@@ -498,5 +510,41 @@ mod tests {
         assert_eq!(value["status"], "interrupted");
         assert_eq!(value["exit_code"], 130);
         assert_eq!(value["schema_version"], SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn product_thread_resolves_the_scope_from_the_events_path() {
+        // Regression for the SIGINT completion thread: it never installs the
+        // thread-local scope, so render must resolve the scope by events path.
+        crate::sensitive_data::reset_scopes_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("run/events.jsonl");
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        std::fs::write(&events, "").unwrap();
+        let canary = "H05_HEADLESS_CANARY_7781";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+
+        let source = Source {
+            events_path: Some(events),
+            workspace_root: Some(dir.path().to_path_buf()),
+            terminal_status: None,
+            exit_code: None,
+            model_metadata: Some(ModelMetadata {
+                executor_provider: "openai".to_string(),
+                executor_model: canary.to_string(),
+                planner_provider: "openai".to_string(),
+                planner_model: canary.to_string(),
+                ollama_think: None,
+                ollama_think_request_field_present: false,
+            }),
+            pack: None,
+        };
+
+        assert!(!render(&source).contains(canary));
+        let value = std::thread::spawn(move || render(&source)).join().unwrap();
+        assert!(!value.contains(canary), "{value}");
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 }

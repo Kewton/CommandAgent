@@ -114,10 +114,21 @@ fn record_provider_exchange_in(
 }
 
 fn scrub_value(value: &mut Value) {
+    // The shared catalog scrub keeps element count, preserves the fixed
+    // top-level schema identifier, and projects a secret-bearing key. The
+    // legacy format/home heuristics then run on free strings only, so a fixed
+    // identifier is never rewritten twice.
+    if let Some(context) = crate::sensitive_data::current() {
+        context.scrub_value_lenient(value);
+    }
+    apply_legacy_heuristics(value);
+}
+
+fn apply_legacy_heuristics(value: &mut Value) {
     match value {
-        Value::String(text) => *text = crate::eval_events::scrub_sensitive_text(text),
-        Value::Array(values) => values.iter_mut().for_each(scrub_value),
-        Value::Object(values) => values.values_mut().for_each(scrub_value),
+        Value::String(text) => *text = crate::eval_events::scrub_legacy_heuristics(text),
+        Value::Array(values) => values.iter_mut().for_each(apply_legacy_heuristics),
+        Value::Object(values) => values.values_mut().for_each(apply_legacy_heuristics),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
@@ -175,5 +186,53 @@ mod tests {
         assert!(text.contains("/home/<user>/reply"), "{text}");
         assert!(!text.contains("sk-test-secret"), "{text}");
         assert!(!text.contains("api_key=secret"), "{text}");
+    }
+
+    #[test]
+    fn trace_projects_secret_keys_to_distinct_keys_and_keeps_the_schema() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let root = tempfile::tempdir().unwrap();
+        let events_path = root.path().join("run/events.jsonl");
+        std::fs::create_dir_all(events_path.parent().unwrap()).unwrap();
+        let (a, b) = ("H06_TRACE_A_SECRET_7391", "H06_TRACE_B_SECRET_7391");
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(a);
+        catalog.register(b);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&events_path));
+
+        let tool = ToolSpec {
+            kind: "function".into(),
+            function: crate::tools::registry::FunctionSpec {
+                name: "Read".into(),
+                description: "ordinary".into(),
+                parameters: json!({"properties": {a: {"type": "string"}, b: {"type": "number"}}}),
+            },
+        };
+        let _guard = install(true);
+        let path = record_provider_exchange(
+            Some(&events_path),
+            "h06",
+            "local-mock",
+            "model",
+            &[],
+            &[tool],
+            true,
+            &Ok(AssistantReply::text("ordinary")),
+        )
+        .unwrap()
+        .unwrap();
+        let document: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+
+        let properties = document["request"]["tools"][0]["function"]["parameters"]["properties"]
+            .as_object()
+            .unwrap();
+        assert_eq!(
+            properties.len(),
+            2,
+            "a distinct key was lost: {properties:?}"
+        );
+        assert_eq!(document["schema_version"], "commandagent.run-trace/v1");
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 }

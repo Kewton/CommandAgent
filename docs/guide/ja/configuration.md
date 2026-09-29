@@ -100,6 +100,38 @@ process environment から展開します。文字列／列挙フィールドに
 未設定、非 Unicode、または不正な変数参照は設定解決エラーとなり、`--doctor` では `✗` と表示します。
 変数の値は表示しません。
 
+**秘密情報の登録と伏せ字。** run は 1 個の SecretCatalog（秘密値の集合）を持ち、記録・表示・
+provider 送信の各境界で同じ exact-value scrub を適用します。`sk-` や `AIza` などの形式による
+推定 scrub も併用しますが、形式に合わない資格情報はこの値集合で保護します。登録元は次の範囲に
+限り、process 全体の環境変数や任意の credential ファイルを再帰的に走査することはありません。
+
+- provider key: 選択した role に関係なく、非空の `OPENAI_API_KEY`、`GEMINI_API_KEY`、
+  `LM_STUDIO_API_TOKEN`、および `openai-compatible` の `api_key_env`。
+- workspace root 直下の `.env` と non-template の `.env.*`（`.env.example` 系は対象外）。
+  収集は 64 ファイル・各 1 MiB・catalog 1024 値が上限です。読取失敗、上限超過、symlink の
+  dotenv source は秘密を黙って捨てず、**設定解決を honest に拒否**します。
+- preset の `${ENV}` 展開値。展開は validation 前に登録するため、後続の検証が失敗してもその値は
+  error chain に現れません。`${ENV}` 展開値が URL として不正な場合、エラーは field と検証種別
+  のみを示し、展開値は stderr・error chain・`--doctor` のいずれにも表示しません。
+
+値の登録規則は次のとおりです。**8 文字未満**の資格情報の値（資格情報名 `TOKEN`、`API_KEY`、
+`PASSWORD`、`PASSWD`、`SECRET`、`CREDENTIAL`、`PRIVATE` などを持つ値と provider／`${ENV}` の
+値）、**marker 候補と一致する**資格情報の値、および**合算で 1024 値を超える**登録は、
+**登録せずに起動時に honest に拒否**します（値は表示しません）。資格情報名でない一般の dotenv 値は
+8 文字以上を保守的に登録し、`PORT=3000`、`true`、`dev` のような短い普通の値は秘密にしません。
+登録済みの値はすべて**完全一致の置換**で扱い、自由入力 field を丸ごと伏せる処理は持ちません。
+event 名・schema・status・verdict・type などの固定識別子と tool 名は、登録値と衝突しても
+書き換えません。
+
+伏せ字は session/events/UI feed/spool/failsafe/evidence/trace/summary、provider に送る会話コピー
+と tool schema、表示用 stream callback に及び、切り詰め・escape・chunk 分割の前に完全値へ適用
+します。認証ヘッダー、運用 Config、実行引数、検証元の観測値は元の値を保ち、event 名・schema・
+key・type・順序・verdict・source_refs は変えずに値だけを置換します。置換 marker は登録値と衝突
+しないものを選び（最終候補まで検査）、再適用は冪等です。秘密を含む動的 key は、要素数を保ち
+無関係な key を変えずに安全な key へ投影し、投影できない場合は共有 API が honest に拒否できます。
+登録していない秘密は形式推定で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。
+過去の記録は表示時に保護し、書き戻しません。
+
 ```toml
 [preset.team_base]
 provider = "openai-compatible"

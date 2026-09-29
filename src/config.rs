@@ -645,6 +645,10 @@ impl Config {
         cli: Cli,
         provider_options: ProviderCliOptions,
     ) -> anyhow::Result<Self> {
+        // Begin staging registered secrets before any validation can reject the
+        // config, so a rejected `${ENV}` base_url never echoes its expansion
+        // value through an error chain.
+        crate::sensitive_data::config_staging::begin();
         let workspace_root = cli
             .cwd
             .clone()
@@ -815,6 +819,18 @@ impl Config {
         } else {
             None
         };
+        let secret_sources = build_secret_sources(&workspace_root, openai_compatible.as_ref());
+        match secret_sources {
+            Ok(sources) => {
+                crate::sensitive_data::config_staging::try_merge(&sources)?;
+            }
+            Err(failure) => {
+                // Keep the partial catalog staged so the rejection message is
+                // scrubbed, then refuse the config honestly.
+                let _ = crate::sensitive_data::config_staging::try_merge(&failure.catalog);
+                return Err(anyhow::Error::new(failure));
+            }
+        }
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -954,6 +970,13 @@ impl Config {
             footer: footer.source.clone(),
             stream: stream.source.clone(),
         };
+        // Install the accepted config's scope so every later persistence and
+        // display boundary can resolve the same exact-value catalog.
+        let _ = crate::sensitive_data::install_scope(
+            crate::sensitive_data::config_staging::take(),
+            Some(&workspace_root),
+            eval_events_path.as_deref(),
+        );
         Ok(Self {
             workspace_root,
             state_dir,
@@ -1774,6 +1797,14 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
         }
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
+        // Register the expansion value before any later validation can embed it
+        // in an error, and so it is scrubbed from every persisted record. A
+        // credential value that is too short or reserved is refused honestly.
+        if crate::sensitive_data::is_credential_name(name) {
+            crate::sensitive_data::config_staging::register_credential(name, &resolved)?;
+        } else {
+            crate::sensitive_data::config_staging::register_plain(&resolved)?;
+        }
         output.push_str(&resolved);
         remaining = &reference[end + 1..];
     }
@@ -1807,8 +1838,9 @@ pub(crate) fn normalize_openai_compatible_base_url(value: &str) -> anyhow::Resul
         bail!("--base-url must not be empty");
     }
     let normalized = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
-    let parsed = reqwest::Url::parse(normalized)
-        .with_context(|| format!("invalid --base-url URL `{value}`"))?;
+    // The URL never appears in the message: it may hold a `${ENV}` expansion
+    // value, and the validation error must not echo that value.
+    let parsed = reqwest::Url::parse(normalized).context("invalid --base-url URL")?;
     if !matches!(parsed.scheme(), "http" | "https") {
         bail!("--base-url must use http or https");
     }
@@ -2113,6 +2145,111 @@ fn required_goal(goal: Option<String>, action: &str) -> anyhow::Result<String> {
 
 pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
+}
+
+/// Build the run's secret sources: every non-empty built-in provider key, the
+/// compatible `api_key_env`, and the bounded root dotenv values.
+///
+/// Registration is not limited to the selected roles. A too-short/reserved
+/// credential value, an unreadable source, or a combined overflow past the
+/// catalog cap is returned as a failure that still carries the partial catalog,
+/// so the caller can install it, scrub the refusal, and refuse honestly.
+pub(crate) fn build_secret_sources(
+    root: &Path,
+    compatible: Option<&OpenAiCompatibleConfig>,
+) -> Result<crate::sensitive_data::SecretCatalog, crate::sensitive_data::CollectionFailure> {
+    use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
+    let mut catalog = SecretCatalog::new();
+    let mut refusals: Vec<CollectionRefusal> = Vec::new();
+    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+        if let Ok(value) = load_api_key(root, name)
+            && let Err(refusal) = catalog.register_credential(name, &value)
+        {
+            refusals.push(collection_refusal(name, refusal));
+        }
+    }
+    if let Some(name) = compatible.and_then(|compatible| compatible.api_key_env.as_deref())
+        && let Ok(value) = load_api_key(root, name)
+        && let Err(refusal) = catalog.register_credential(name, &value)
+    {
+        refusals.push(collection_refusal(name, refusal));
+    }
+    match crate::sensitive_data::collect_scoped_dotenv(root) {
+        Ok(collection) => {
+            if let Err(refusal) = catalog.try_merge(&collection.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+        }
+        Err(failure) => {
+            if let Err(refusal) = catalog.try_merge(&failure.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+            refusals.extend(failure.refusals);
+        }
+    }
+    if refusals.is_empty() {
+        Ok(catalog)
+    } else {
+        Err(CollectionFailure { refusals, catalog })
+    }
+}
+
+fn collection_refusal(
+    name: &str,
+    refusal: crate::sensitive_data::RegistrationRefusal,
+) -> crate::sensitive_data::CollectionRefusal {
+    use crate::sensitive_data::{CollectionRefusal, RegistrationRefusal};
+    match refusal {
+        RegistrationRefusal::TooShort { .. } => CollectionRefusal::CredentialTooShort {
+            name: name.to_string(),
+            limit: crate::sensitive_data::MIN_GENERIC_SECRET_LEN,
+        },
+        RegistrationRefusal::Reserved { .. } => CollectionRefusal::ReservedValue {
+            name: name.to_string(),
+        },
+        RegistrationRefusal::CatalogFull { limit } => CollectionRefusal::TooManyValues { limit },
+    }
+}
+
+/// Install a run scope for direct minimal-loop use, keyed by the config's own
+/// workspace root and events path.
+///
+/// The scope that belongs to *this* workspace is reused, never another run's
+/// thread-local scope, so a `${ENV}` value the CLI registered before the run is
+/// kept while a different workspace's values are not imported. A source failure
+/// installs the partial catalog and returns the refusal, so the entry refuses
+/// the run honestly and any later emit is still scrubbed.
+pub fn install_run_secret_scope(
+    config: &Config,
+) -> anyhow::Result<crate::sensitive_data::RedactionContext> {
+    let mut catalog = crate::sensitive_data::registered_for(config.eval_events_path.as_deref())
+        .or_else(|| crate::sensitive_data::registered_for(Some(&config.workspace_root)))
+        .map(|context| (*context.catalog_arc()).clone())
+        .unwrap_or_default();
+    let mut refusal: Option<anyhow::Error> = None;
+    match build_secret_sources(&config.workspace_root, config.openai_compatible.as_ref()) {
+        Ok(sources) => {
+            if let Err(error) = catalog.try_merge(&sources) {
+                refusal = Some(anyhow::Error::new(error));
+            }
+        }
+        Err(failure) => {
+            if let Err(error) = catalog.try_merge(&failure.catalog) {
+                refusal = Some(anyhow::Error::new(error));
+            } else {
+                refusal = Some(anyhow::Error::new(failure));
+            }
+        }
+    }
+    let context = crate::sensitive_data::install_scope(
+        catalog,
+        Some(&config.workspace_root),
+        config.eval_events_path.as_deref(),
+    );
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(context),
+    }
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {
@@ -3742,5 +3879,71 @@ profile = "generic"
         assert_eq!(config.profile, "generic");
         assert!(config.profile_explicit);
         assert!(config.profile_inference.is_none());
+    }
+
+    #[test]
+    fn config_refuses_dotenv_collection_over_cap_sources() {
+        // An oversized root dotenv source must fail config resolution rather
+        // than silently dropping a secret.
+        let large = tempfile::tempdir().unwrap();
+        std::fs::write(
+            large.path().join(".env"),
+            format!(
+                "PRIVATE_TOKEN=H05_LIMIT_CANARY\n{}",
+                "#".repeat(crate::sensitive_data::MAX_DOTENV_BYTES + 1)
+            ),
+        )
+        .unwrap();
+        let cwd = large.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+
+        let unreadable = tempfile::tempdir().unwrap();
+        std::fs::create_dir(unreadable.path().join(".env")).unwrap();
+        let cwd = unreadable.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn config_registers_nonempty_builtin_provider_keys_outside_the_selected_role() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let inactive = "H05_INACTIVE_PROVIDER_secret_7193";
+        std::fs::write(
+            dir.path().join(".env"),
+            format!("OPENAI_API_KEY={inactive}\n"),
+        )
+        .unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        // Provider stays ollama; the OpenAI key is still a registered source.
+        let _config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--offline",
+        ]))
+        .unwrap();
+
+        let context = crate::sensitive_data::current().expect("config installed a scope");
+        assert!(
+            context.contains(inactive),
+            "OPENAI_API_KEY was not registered"
+        );
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 }

@@ -1,0 +1,60 @@
+case_id = "issue504-secret-redaction"
+source = "Issue #504: one run-scoped exact-value secret catalog scrubs session/events/summary/evidence/trace, the provider-sent conversation/tool schema, and the display stream callback; a rejected Bash command persists an empty command_prefix_bytes while keeping schema_version/command_sha256/command_bytes; an invalid ${ENV} base_url never echoes its expansion value"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["<redacted>", "command_prefix_bytes"]
+acceptance_passed = true
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/evidence.json:command_bytes = "64"
+fixtures/evidence.json:prefix_encoding = "omitted; the raw command prefix is never persisted in a run"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"runtime_bash_policy\"",
+  "\"original_command\":\"cat <redacted> /Users/<user>/notes.txt\"",
+  "\"event\":\"provider_turn_duration\"",
+  "\"event\":\"redaction_fixed_schema\"",
+  "\"schema_version\":\"commandagent.pass/v1\"",
+  "\"verdict\":\"pass\"",
+  "\"message\":\"<redacted>\"",
+  "\"event\":\"redaction_dynamic_key\"",
+  "\"nested\":{\"<redacted>\":1,\"<redacted>#1\":2}",
+  "\"event\":\"run_stop\""
+]
+fixtures/evidence.json = [
+  "\"command_prefix_bytes\": []",
+  "\"schema_version\": \"1\"",
+  "<redacted>"
+]
+fixtures/summary.md = [
+  "Status: complete",
+  "command_prefix_bytes",
+  "<redacted>",
+  "refused"
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"runtime_bash_policy\"",
+  "\"event\":\"run_stop\""
+]
