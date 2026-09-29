@@ -1,0 +1,45 @@
+case_id = "issue504-ui-redaction"
+source = "Issue #544: the GUI public projection, run/acceptance/evidence documents and lists, and session events tail/artifacts hide a known canary and the execution root with the shared exact-value scrub; two workspaces keep separate catalogs; fixed schema/key/type/status/verdict are preserved; a response whose dynamic key would expose a secret is refused honestly; legacy record bytes stay unchanged; the TUI scrubs the non-streaming markdown, the direct streaming entry, new history entries, and acceptance/directive sheet copies while keeping the execution input, and refuses a secret confirmation identity before persistence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["<redacted>", "<execution-root>"]
+acceptance_passed = true
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/public-projections.json:schema_version = "commandagent.public-projection/v1"
+fixtures/public-projections.json:marker = "<redacted>"
+fixtures/public-projections.json:execution_root_label = "<execution-root>"
+fixtures/public-projections.json:workspaces.alpha.run_detail.state = "pass"
+fixtures/public-projections.json:workspaces.beta.artifacts.size_bytes = "96"
+fixtures/public-projections.json:refusals.run_evidence.status = "422"
+
+[fixture_contains]
+fixtures/public-projections.json = [
+  "\"marker\": \"<redacted>\"",
+  "\"execution_root_label\": \"<execution-root>\"",
+  "\"code\": \"secret_projection_refused\"",
+  "\"code\": \"trial_secret_projection_refused\"",
+  "\"state\": \"pass\"",
+  "alpha-only-canary-value",
+  "beta-only-canary-value",
+  "catalogs never merge",
+  "\"catalog_source\": \"repository root dotenv plus built-in provider keys\"",
+  "\"catalog_source\": \"execution root dotenv plus built-in provider keys\""
+]

@@ -402,6 +402,7 @@ pub fn persist_confirmation(
     if actual_hash != expected_hash {
         bail!("Gate 1 card changed before confirmation");
     }
+    refuse_secret_identity(identity)?;
     std::fs::create_dir_all(root)
         .with_context(|| format!("create confirmation directory {}", root.display()))?;
     let record_path = root.join(format!(
@@ -440,6 +441,24 @@ pub fn persist_confirmation(
     };
     confirmed.validate()?;
     Ok(confirmed)
+}
+
+/// Refuse to persist a confirmation whose identity still contains a registered
+/// secret. The identity is the hash source, so it is refused rather than
+/// rewritten: replacing the text after hashing would break the card binding and
+/// forge an approval.
+fn refuse_secret_identity(identity: &ConfirmationIdentity) -> anyhow::Result<()> {
+    let Some(context) = crate::sensitive_data::current() else {
+        return Ok(());
+    };
+    if context.is_empty() {
+        return Ok(());
+    }
+    let serialized = serde_json::to_string(identity)?;
+    context
+        .refuse_identity("confirmation identity", &serialized)
+        .map_err(|refusal| anyhow::anyhow!("{refusal}"))?;
+    Ok(())
 }
 
 pub fn load_latest_confirmation(root: &Path) -> anyhow::Result<Option<ConfirmedDispatch>> {

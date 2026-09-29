@@ -84,8 +84,11 @@ impl ReplEditor {
         self.editor.save_history(path)
     }
 
+    /// Store a history copy with registered secrets scrubbed. The caller's
+    /// input string is not changed, so the execution path keeps the original.
     pub fn add_history_entry(&mut self, line: &str) -> Result<bool, ReadlineError> {
-        self.editor.add_history_entry(line)
+        let stored = crate::sensitive_data::scrub_active(line);
+        self.editor.add_history_entry(stored)
     }
 
     pub fn take_interrupt_action(&self) -> PromptInterruptAction {

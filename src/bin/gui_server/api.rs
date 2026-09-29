@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use commandagent::sensitive_data::SecretScrubError;
 use commandagent::tui::boundary_shell::band_catalog::{BAND_VALUES, BandValue};
 use commandagent::tui::boundary_shell::family_catalog::TaskFamilyId;
 use serde::{Deserialize, Serialize};
@@ -64,8 +65,18 @@ pub struct Document {
 }
 
 impl Document {
-    pub(super) fn redact_execution_root(&mut self, execution_root: &FilePath) {
-        self.content = super::public_projection::text(&self.content, execution_root);
+    pub(super) fn redact_execution_root(&mut self, root: &FilePath) {
+        self.content = super::public_projection::redact_text(&self.content, root);
+    }
+
+    /// Replace the execution root and scrub registered secrets from the
+    /// document body, path, and id. A JSON body keeps its fixed schema; a body
+    /// whose dynamic key would expose a secret is refused without leaking.
+    pub(super) fn redact(&mut self, root: &FilePath) -> Result<(), SecretScrubError> {
+        self.content = super::public_projection::redact_document(&self.content, root)?;
+        self.path = super::public_projection::redact_text(&self.path, root);
+        self.id = super::public_projection::redact_text(&self.id, root);
+        Ok(())
     }
 }
 
@@ -95,6 +106,7 @@ pub type ApiError = GuiError;
 
 pub async fn runs(State(state): State<AppState>) -> Result<Json<RunIndex>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
+    let catalog_root = state.repository_root.as_path();
     let mut entries = directory_entries(&root).await?;
     entries.retain(|path| path.is_dir());
     let total = entries.len();
@@ -114,11 +126,13 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<RunIndex>, ApiEr
             }
             None => (None, status_value("not recorded")),
         };
-        let status_text = extracted_status.text;
+        let status_text =
+            super::public_projection::redact_text(extracted_status.text, catalog_root);
         summaries.push(RunSummary {
-            id,
+            id: super::public_projection::redact_text(id, catalog_root),
             modified_epoch_seconds,
-            report_path,
+            report_path: report_path
+                .map(|path| super::public_projection::redact_text(path, catalog_root)),
             status: status_text.clone(),
             status_text,
             state: extracted_status.state,
@@ -142,24 +156,29 @@ pub async fn run_detail(
 ) -> Result<Json<RunDetail>, ApiError> {
     require_component(&id)?;
     let runs_root = state.repository_root.join("workspace/management/runs");
+    let catalog_root = state.repository_root.as_path();
     let run_root = checked_existing_directory(&runs_root, FilePath::new(&id)).await?;
     let documents = collect_documents(&run_root, 4).await?;
     let acceptance_file = choose_acceptance(&documents);
     let (acceptance_path, acceptance) = match acceptance_file {
         Some(path) => (
-            Some(relative_string(&run_root, path)?),
-            read_text(path).await?,
+            Some(super::public_projection::redact_text(
+                relative_string(&run_root, path)?,
+                catalog_root,
+            )),
+            super::public_projection::redact_document(&read_text(path).await?, catalog_root)
+                .map_err(projection_refused)?,
         ),
         None => (None, "No acceptance sheet or report was found.".to_string()),
     };
     let evidence = documents
         .iter()
         .filter(|path| acceptance_file != Some(*path))
-        .filter_map(|path| document_summary(&run_root, path))
+        .filter_map(|path| document_summary(&run_root, catalog_root, path))
         .take(MAX_LIST_ENTRIES)
         .collect();
     Ok(Json(RunDetail {
-        id,
+        id: super::public_projection::redact_text(id, catalog_root),
         acceptance_path,
         acceptance,
         evidence,
@@ -177,12 +196,16 @@ pub async fn run_evidence(
         .join("workspace/management/runs")
         .join(&id);
     let path = checked_existing_path(&run_root, FilePath::new(&query.path)).await?;
-    Ok(Json(document(&run_root, &path).await?))
+    let mut value = document(&run_root, &path).await?;
+    value
+        .redact(state.repository_root.as_path())
+        .map_err(projection_refused)?;
+    Ok(Json(value))
 }
 
 pub async fn bands(State(state): State<AppState>) -> Result<Json<Vec<Document>>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
-    documents_matching(&root, 1, |path| {
+    documents_matching(&state.repository_root, &root, 1, |path| {
         path.file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("band_summary") && name.ends_with(".md"))
@@ -234,6 +257,7 @@ pub async fn band_means(State(state): State<AppState>) -> Result<Json<Vec<BandMe
 
 pub async fn maps(State(state): State<AppState>) -> Result<Json<Vec<DocumentSummary>>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
+    let catalog_root = state.repository_root.as_path();
     let documents = collect_documents(&root, 1).await?;
     Ok(Json(
         documents
@@ -243,7 +267,7 @@ pub async fn maps(State(state): State<AppState>) -> Result<Json<Vec<DocumentSumm
                     .and_then(|name| name.to_str())
                     .is_some_and(|name| name.starts_with("score_time_map."))
             })
-            .filter_map(|path| document_summary(&root, path))
+            .filter_map(|path| document_summary(&root, catalog_root, path))
             .collect(),
     ))
 }
@@ -255,13 +279,16 @@ pub async fn score_time_map(State(state): State<AppState>) -> Result<Response, A
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|error| internal(format!("read {}: {error}", path.display())))?;
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    let body = super::public_projection::redact_document(&body, state.repository_root.as_path())
+        .map_err(projection_refused)?;
     Ok((
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "image/svg+xml; charset=utf-8"),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        Body::from(bytes),
+        Body::from(body),
     )
         .into_response())
 }
@@ -277,7 +304,7 @@ pub async fn packs(
 
 pub async fn contracts(State(state): State<AppState>) -> Result<Json<Vec<Document>>, ApiError> {
     let root = state.repository_root.join("docs");
-    documents_matching(&root, 3, |path| {
+    documents_matching(&state.repository_root, &root, 3, |path| {
         path.file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.contains("contract") && name.ends_with(".md"))
@@ -287,7 +314,7 @@ pub async fn contracts(State(state): State<AppState>) -> Result<Json<Vec<Documen
 
 pub async fn suites(State(state): State<AppState>) -> Result<Json<Vec<Document>>, ApiError> {
     let root = state.repository_root.join("workspace/management/bench");
-    documents_matching(&root, 2, |path| {
+    documents_matching(&state.repository_root, &root, 2, |path| {
         path.extension().and_then(|ext| ext.to_str()) == Some("toml")
     })
     .await
@@ -297,11 +324,12 @@ pub async fn reports(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DocumentSummary>>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
+    let catalog_root = state.repository_root.as_path();
     let documents = collect_documents(&root, 2).await?;
     let mut reports = documents
         .iter()
         .filter(|path| is_measurement_report(path))
-        .filter_map(|path| document_summary(&root, path))
+        .filter_map(|path| document_summary(&root, catalog_root, path))
         .collect::<Vec<_>>();
     reports.sort_by(|left, right| right.path.cmp(&left.path));
     reports.truncate(MAX_LIST_ENTRIES);
@@ -317,10 +345,15 @@ pub async fn report_content(
     if !is_measurement_report(&path) {
         return Err(not_found("requested document is not a measurement report"));
     }
-    Ok(Json(document(&root, &path).await?))
+    let mut value = document(&root, &path).await?;
+    value
+        .redact(state.repository_root.as_path())
+        .map_err(projection_refused)?;
+    Ok(Json(value))
 }
 
 async fn documents_matching(
+    catalog_root: &FilePath,
     root: &FilePath,
     max_depth: usize,
     predicate: impl Fn(&FilePath) -> bool,
@@ -328,7 +361,9 @@ async fn documents_matching(
     let paths = collect_documents(root, max_depth).await?;
     let mut documents = Vec::new();
     for path in paths.into_iter().filter(|path| predicate(path)) {
-        documents.push(document(root, &path).await?);
+        let mut value = document(root, &path).await?;
+        value.redact(catalog_root).map_err(projection_refused)?;
+        documents.push(value);
     }
     documents.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(Json(documents))
@@ -342,11 +377,18 @@ pub(super) async fn document(root: &FilePath, path: &FilePath) -> Result<Documen
     })
 }
 
-pub(super) fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary> {
+pub(super) fn document_summary(
+    root: &FilePath,
+    catalog_root: &FilePath,
+    path: &FilePath,
+) -> Option<DocumentSummary> {
     let size_bytes = path.metadata().ok()?.len();
     Some(DocumentSummary {
-        id: path.file_name()?.to_str()?.to_string(),
-        path: relative_string(root, path).ok()?,
+        id: super::public_projection::redact_text(path.file_name()?.to_str()?, catalog_root),
+        path: super::public_projection::redact_text(
+            relative_string(root, path).ok()?,
+            catalog_root,
+        ),
         size_bytes,
     })
 }
@@ -767,6 +809,16 @@ fn file_name(path: &FilePath) -> Result<String, ApiError> {
 
 fn not_found(message: impl Into<String>) -> ApiError {
     GuiError::new(StatusCode::NOT_FOUND, "resource_not_found", message)
+}
+
+/// A document whose structural projection cannot be emitted without exposing a
+/// secret is refused honestly; the message names the position, never the value.
+fn projection_refused(error: SecretScrubError) -> ApiError {
+    GuiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "secret_projection_refused",
+        error.to_string(),
+    )
 }
 
 fn internal(message: impl Into<String>) -> ApiError {
