@@ -658,7 +658,7 @@ pub fn write_browser_readiness_evidence(root: &Path, observation: &BrowserReadin
     }
     let mut value = browser_readiness_evidence_json(observation);
     if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
-        context.scrub_value_lenient(&mut value);
+        context.scrub_value_free(&mut value);
     }
     if let Ok(text) = serde_json::to_string_pretty(&value) {
         let _ = std::fs::write(&path, format!("{text}\n"));

@@ -247,7 +247,29 @@ fn collect_report(
         "grant the current user write access or select a writable --cwd",
     ));
     checks.push(dotenv_check(root));
+    scrub_checks(&mut checks, root, resolved);
     DoctorReport::from_checks(checks)
+}
+
+/// Scrub every diagnostic message and detail with the run and `${ENV}` staging
+/// scope, so a Config resolution error or a resolved value (e.g. a model from a
+/// preset) never appears in human or JSON output. Non-value diagnostics (field,
+/// source, env name, error kind) are preserved.
+fn scrub_checks(checks: &mut [DoctorCheck], root: &Path, resolved: Option<&Config>) {
+    let context = crate::sensitive_data::active_for(
+        resolved
+            .map(|config| config.workspace_root.as_path())
+            .or(Some(root)),
+    );
+    for check in checks {
+        check.message = crate::sensitive_data::scrub_everything(&check.message);
+        if let Some(remediation) = check.remediation.take() {
+            check.remediation = Some(crate::sensitive_data::scrub_everything(&remediation));
+        }
+        if let Some(context) = &context {
+            context.scrub_value_lenient(&mut check.details);
+        }
+    }
 }
 
 fn extension_profiles_check() -> DoctorCheck {

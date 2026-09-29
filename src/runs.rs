@@ -82,7 +82,7 @@ pub fn render_runs_table(root: &Path) -> String {
 }
 
 pub fn render_runs_table_with_current(root: &Path, current_events_path: Option<&Path>) -> String {
-    let runs = recent_runs(root, 10);
+    let runs = scrub_run_items(root, recent_runs(root, 10));
     if runs.is_empty() {
         return "No runs found for this workspace.".to_string();
     }
@@ -108,7 +108,7 @@ pub fn render_runs_table_with_current(root: &Path, current_events_path: Option<&
             &concise_stop_reason(&run.stop_reason),
         ));
     }
-    scrub_run_text(root, &lines.join("\n"))
+    lines.join("\n")
 }
 
 pub fn render_runs_request(
@@ -125,14 +125,16 @@ pub fn render_runs_request(
     validate_run_selector(id)?;
     let run = find_run(root, id).ok_or_else(|| anyhow::anyhow!("run '{id}' was not found"))?;
     if request.events {
-        let events = filtered_events(&run.events_path, request.filter.as_deref())?;
+        let mut events = filtered_events(&run.events_path, request.filter.as_deref())?;
+        if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+            for event in &mut events {
+                scrub_event_value(&context, event, true);
+            }
+        }
         if request.json {
             render_run_events_json(root, &run, request.filter.as_deref(), &events)
         } else {
-            Ok(scrub_run_text(
-                root,
-                &render_run_events(&run, request.filter.as_deref(), &events),
-            ))
+            Ok(render_run_events(&run, request.filter.as_deref(), &events))
         }
     } else if request.json {
         render_run_detail_json(root, &run)
@@ -157,6 +159,8 @@ fn render_runs_list_json(root: &Path) -> anyhow::Result<String> {
 }
 
 fn render_run_detail(root: &Path, run: &RunInventoryItem) -> String {
+    let run = scrub_run_item_for(root, run);
+    let run = &run;
     let mut lines = vec![
         format!("Run {}", run.id),
         format!("Started: {}", run.started_at),
@@ -180,6 +184,14 @@ fn render_run_detail(root: &Path, run: &RunInventoryItem) -> String {
         lines.push(summary.trim().to_string());
     }
     scrub_run_text(root, &lines.join("\n"))
+}
+
+/// Scrub a display string with the run scope registered for `root`. Used for the
+/// summary body, which is read straight from the record and appended as text.
+fn scrub_run_text(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn render_run_detail_json(root: &Path, run: &RunInventoryItem) -> anyhow::Result<String> {
@@ -234,25 +246,86 @@ fn render_run_events_json(
     filter: Option<&str>,
     events: &[Value],
 ) -> anyhow::Result<String> {
-    let mut value = serde_json::json!({
+    let mut run_value = run_json(root, run);
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        scrub_event_value(&context, &mut run_value, true);
+    }
+    let value = serde_json::json!({
         "schema_version": "commandagent.runs/v1",
         "view": "events",
-        "run": run_json(root, run),
+        "run": run_value,
         "filter": filter,
         "total": events.len(),
         "events": events,
     });
-    scrub_run_value(root, &mut value);
     serde_json::to_string_pretty(&value).context("failed to serialize run events JSON")
 }
 
-/// Scrub a display string with the run scope registered for `root`, or return
-/// it unchanged when no scope is installed. The stored run record is never
-/// rewritten; only the projected view is protected.
-fn scrub_run_text(root: &Path, text: &str) -> String {
-    crate::sensitive_data::active_for(Some(root))
-        .map(|context| context.scrub_text(text))
-        .unwrap_or_else(|| text.to_string())
+/// Scrub every string value of an event (all depths), keeping every key name.
+/// The canonical `event`/`schema_version`/`verdict`/`kind` identifiers are
+/// preserved so a registered substring of an event or schema name cannot
+/// rename it, while a fixed key that carries free text in an old record
+/// (`"status":"failed token=..."`) is still scrubbed at display time.
+fn scrub_event_value(
+    context: &crate::sensitive_data::RedactionContext,
+    value: &mut Value,
+    preserve_identifiers: bool,
+) {
+    match value {
+        Value::String(text) => *text = context.scrub_text(text),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| scrub_event_value(context, item, false)),
+        Value::Object(map) => {
+            for (key, item) in map.iter_mut() {
+                let preserved = preserve_identifiers
+                    && matches!(
+                        key.as_str(),
+                        "event" | "schema_version" | "verdict" | "kind"
+                    );
+                if !preserved {
+                    scrub_event_value(context, item, false);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+/// Scrub the projected string fields of a run record with the workspace scope
+/// before any display truncation (`concise_stop_reason`, `fit_columns`), so a
+/// fragment cannot survive the cut. The stored record bytes are not touched.
+fn scrub_run_item(
+    context: &crate::sensitive_data::RedactionContext,
+    run: &RunInventoryItem,
+) -> RunInventoryItem {
+    let mut run = run.clone();
+    run.id = context.scrub_text(&run.id);
+    run.short_id = context.scrub_text(&run.short_id);
+    run.started_at = context.scrub_text(&run.started_at);
+    run.status = context.scrub_text(&run.status);
+    run.assurance = context.scrub_text(&run.assurance);
+    run.stop_reason = context.scrub_text(&run.stop_reason);
+    run.recovery = context.scrub_text(&run.recovery);
+    run.recovery_ultra_plan_path = context.scrub_text(&run.recovery_ultra_plan_path);
+    run
+}
+
+fn scrub_run_item_for(root: &Path, run: &RunInventoryItem) -> RunInventoryItem {
+    match crate::sensitive_data::active_for(Some(root)) {
+        Some(context) => scrub_run_item(&context, run),
+        None => run.clone(),
+    }
+}
+
+fn scrub_run_items(root: &Path, runs: Vec<RunInventoryItem>) -> Vec<RunInventoryItem> {
+    match crate::sensitive_data::active_for(Some(root)) {
+        Some(context) => runs
+            .iter()
+            .map(|run| scrub_run_item(&context, run))
+            .collect(),
+        None => runs,
+    }
 }
 
 /// Scrub a projected JSON view with the run scope registered for `root`. A

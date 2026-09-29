@@ -5,7 +5,7 @@ pub fn save_ultra_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<PathBuf>
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("ultra-plan-{}.yaml", uuid::Uuid::now_v7()));
     let rendered = crate::planner::plan::render_editable_ultra_plan(plan);
-    let rendered = crate::planner::runner::protect_saved_plan(root, &rendered, &[])?;
+    let rendered = crate::planner::runner::refuse_saved_plan(root, &rendered)?;
     std::fs::write(&path, rendered)?;
     Ok(path)
 }

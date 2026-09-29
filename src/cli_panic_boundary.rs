@@ -241,7 +241,9 @@ fn save_recovery_note(
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-internal-panic-{}.md", uuid::Uuid::now_v7()));
     let message = crate::eval_events::render_stop_reason_text(&diagnostic.message);
-    let note = format!(
+    let command_is_redacted = scrub_note(&context.workspace_root, &context.reproduction_command)
+        != context.reproduction_command;
+    let mut note = format!(
         "# Internal panic recovery note\n\n\
 Status: failed\n\
 Reason: internal_panic\n\
@@ -250,6 +252,11 @@ Panic location: {}\n\n\
 Reproduction command:\n\n    {}\n",
         diagnostic.location, context.reproduction_command
     );
+    if command_is_redacted {
+        note.push_str(
+            "\nRedaction note: the reproduction command above was redacted and cannot be re-run as written.\n",
+        );
+    }
     let note = scrub_note(&context.workspace_root, &note);
     std::fs::write(&path, note)?;
     Ok(path)
@@ -674,6 +681,83 @@ mod tests {
                 .contains(canary)
         );
         crate::sensitive_data::set_current(None);
+    }
+
+    fn read_recovery_note(root: &Path) -> String {
+        std::fs::read_dir(root.join(".commandagent/repairs"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn r20_panic_note_is_scrubbed_on_a_thread_without_a_current_scope() {
+        // The panicking thread never installed the thread-local scope; the note
+        // is still scrubbed because the boundary resolves the workspace scope.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let events = root.join(".commandagent/runs/thread/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(&root), Some(&events));
+
+        let thread_root = root.clone();
+        let thread_events = events.clone();
+        let handle = std::thread::spawn(move || {
+            crate::sensitive_data::set_current(None);
+            let mut ctx = context(&thread_root, &thread_events);
+            ctx.reproduction_command = format!("commandagent --token {canary}");
+            let result = catch_with_context(ctx, || panic!("thread panic {canary}"));
+            assert!(result.unwrap_err().to_string().contains("internal_panic"));
+            let note = read_recovery_note(&thread_root);
+            assert!(!note.contains(canary), "{note}");
+        });
+        handle.join().unwrap();
+        crate::sensitive_data::reset_scopes_for_tests();
+    }
+
+    #[test]
+    fn r21_multibyte_panic_scrub_does_not_double_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/mb/events.jsonl");
+        let canary = "H09_日本語_Canary_秘密値_5521";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+
+        let mut ctx = context(dir.path(), &events);
+        ctx.reproduction_command = format!("commandagent --token {canary}");
+        let result = catch_with_context(ctx, || panic!("multibyte {canary}"));
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let note = read_recovery_note(dir.path());
+        assert!(!note.contains(canary), "{note}");
+        assert!(!note.contains("日本語"), "{note}");
+        crate::sensitive_data::reset_scopes_for_tests();
+    }
+
+    #[test]
+    fn r22_redacted_reproduction_command_is_marked_not_rerunnable() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".commandagent/runs/rerun/events.jsonl");
+        let canary = "H01_CANARY_JwtStyle_NonPrefix_29486";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+
+        let mut ctx = context(dir.path(), &events);
+        ctx.reproduction_command = format!("commandagent --ultra-plan-run '{canary}'");
+        let result = catch_with_context(ctx, || panic!("boom"));
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let note = read_recovery_note(dir.path());
+        assert!(!note.contains(canary), "{note}");
+        assert!(
+            note.contains("cannot be re-run as written"),
+            "the redacted command must be marked not re-runnable: {note}"
+        );
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]

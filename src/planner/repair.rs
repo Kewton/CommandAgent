@@ -12,7 +12,7 @@ use crate::minimal_loop::completion::{
 };
 use crate::minimal_loop::repair_target::classify_repair_target;
 use crate::planner::profiles::data::repair_policy;
-use crate::planner::runner::scrub_saved_text;
+use crate::planner::runner::{refuse_runnable_commands, scrub_saved_text};
 use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
@@ -448,9 +448,8 @@ pub fn save_recovery_ultra_plan(
     scope: &str,
     handoff: &RecoveryHandoff,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let normalized = recovery_paths::handoff(Some(root), handoff);
     let plan = build_recovery_ultra_plan_at_root(Some(root), handoff);
-    let rendered = render_recovery_ultra_plan(&normalized, &plan);
+    let rendered = render_recovery_ultra_plan(&recovery_paths::handoff(Some(root), handoff), &plan);
     save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
 }
 
@@ -461,6 +460,7 @@ fn save_recovery_ultra_plan_rendered(
     plan: &UltraPlan,
     rendered: String,
 ) -> anyhow::Result<std::path::PathBuf> {
+    refuse_runnable_commands(root, "plan.verify", &handoff.verify_commands)?;
     let rendered = if let Some(reason) = recovery_ultra_plan_roundtrip_error(&rendered, plan) {
         render_recovery_ultra_plan_with_review(
             &recovery_paths::handoff(Some(root), handoff),
@@ -476,7 +476,7 @@ fn save_recovery_ultra_plan_rendered(
         "recovery-ultra-plan-{scope}-{}.yaml",
         uuid::Uuid::now_v7()
     ));
-    std::fs::write(&path, scrub_saved_text(root, &rendered))?;
+    std::fs::write(&path, rendered)?;
     record_handoff_candidate(path.clone(), plan.clone(), handoff);
     Ok(path)
 }
