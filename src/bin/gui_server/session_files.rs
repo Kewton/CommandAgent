@@ -80,6 +80,8 @@ pub async fn artifacts(
         let mut value = document(&run_root, &path)
             .await
             .map_err(IntoResponse::into_response)?;
+        // An artifact body may be an arbitrary JSON/JSONL document, so use the
+        // schema-preserving projection that never fails on a dynamic key.
         value.redact_execution_root(&session.execution_root);
         return Ok(Json(value).into_response());
     }
@@ -89,7 +91,7 @@ pub async fn artifacts(
         .map_err(IntoResponse::into_response)?;
     let summaries = documents
         .iter()
-        .filter_map(|path| document_summary(&run_root, path))
+        .filter_map(|path| document_summary(&run_root, &session.execution_root, path))
         .take(MAX_LIST_ENTRIES)
         .collect::<Vec<_>>();
     Ok(Json(summaries).into_response())
@@ -122,7 +124,7 @@ pub async fn events(
             )
         })?
         .map_err(IntoResponse::into_response)?;
-    let content = super::public_projection::text(content, &session.execution_root);
+    let content = super::public_projection::redact_display(&content, &session.execution_root);
     Ok(Json(EventDocument {
         id: "events.jsonl",
         path: "events.jsonl",

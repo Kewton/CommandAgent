@@ -80,12 +80,32 @@ impl ReplEditor {
         self.editor.load_history(path)
     }
 
+    /// Persist the history, rewriting a legacy entry that carries a secret.
+    ///
+    /// A history file read by `load_history` may predate the run scope, so the
+    /// saved copy is scrubbed at save time. The in-memory history is not
+    /// rewritten at `add_history_entry` time: that would corrupt the up-arrow
+    /// recall of the exact text the user typed. History is an input aid, not a
+    /// run record, so rewriting the saved copy is acceptable.
     pub fn save_history(&mut self, path: &Path) -> Result<(), ReadlineError> {
-        self.editor.save_history(path)
+        self.editor.save_history(path)?;
+        if let Some(context) = crate::sensitive_data::current()
+            && !context.is_empty()
+            && let Ok(text) = std::fs::read_to_string(path)
+        {
+            let scrubbed = context.scrub_text(&text);
+            if scrubbed != text {
+                std::fs::write(path, scrubbed).map_err(ReadlineError::Io)?;
+            }
+        }
+        Ok(())
     }
 
+    /// Store a history copy with registered secrets scrubbed. The caller's
+    /// input string is not changed, so the execution path keeps the original.
     pub fn add_history_entry(&mut self, line: &str) -> Result<bool, ReadlineError> {
-        self.editor.add_history_entry(line)
+        let stored = crate::sensitive_data::scrub_active(line);
+        self.editor.add_history_entry(stored)
     }
 
     pub fn take_interrupt_action(&self) -> PromptInterruptAction {
