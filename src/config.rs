@@ -819,8 +819,18 @@ impl Config {
         } else {
             None
         };
-        let secret_sources = build_secret_sources(&workspace_root, openai_compatible.as_ref())?;
-        crate::sensitive_data::config_staging::merge(&secret_sources);
+        let secret_sources = build_secret_sources(&workspace_root, openai_compatible.as_ref());
+        match secret_sources {
+            Ok(sources) => {
+                crate::sensitive_data::config_staging::try_merge(&sources)?;
+            }
+            Err(failure) => {
+                // Keep the partial catalog staged so the rejection message is
+                // scrubbed, then refuse the config honestly.
+                let _ = crate::sensitive_data::config_staging::try_merge(&failure.catalog);
+                return Err(anyhow::Error::new(failure));
+            }
+        }
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -1788,8 +1798,13 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
         // Register the expansion value before any later validation can embed it
-        // in an error, and so it is scrubbed from every persisted record.
-        crate::sensitive_data::config_staging::register(&resolved);
+        // in an error, and so it is scrubbed from every persisted record. A
+        // credential value that is too short or reserved is refused honestly.
+        if crate::sensitive_data::is_credential_name(name) {
+            crate::sensitive_data::config_staging::register_credential(name, &resolved)?;
+        } else {
+            crate::sensitive_data::config_staging::register_plain(&resolved)?;
+        }
         output.push_str(&resolved);
         remaining = &reference[end + 1..];
     }
@@ -2133,51 +2148,108 @@ pub fn default_state_dir() -> PathBuf {
 }
 
 /// Build the run's secret sources: every non-empty built-in provider key, the
-/// compatible `api_key_env`, and the root dotenv values.
+/// compatible `api_key_env`, and the bounded root dotenv values.
 ///
-/// Registration is not limited to the selected roles: an Ollama run still
-/// registers a non-empty `OPENAI_API_KEY`. A bounded dotenv collection failure
-/// (unreadable source, over the file/value caps) is returned so config
-/// resolution refuses honestly instead of silently dropping a secret.
+/// Registration is not limited to the selected roles. A too-short/reserved
+/// credential value, an unreadable source, or a combined overflow past the
+/// catalog cap is returned as a failure that still carries the partial catalog,
+/// so the caller can install it, scrub the refusal, and refuse honestly.
 pub(crate) fn build_secret_sources(
     root: &Path,
     compatible: Option<&OpenAiCompatibleConfig>,
-) -> anyhow::Result<crate::sensitive_data::SecretCatalog> {
-    let mut catalog = crate::sensitive_data::SecretCatalog::new();
+) -> Result<crate::sensitive_data::SecretCatalog, crate::sensitive_data::CollectionFailure> {
+    use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
+    let mut catalog = SecretCatalog::new();
+    let mut refusals: Vec<CollectionRefusal> = Vec::new();
     for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
-        if let Ok(value) = load_api_key(root, name) {
-            catalog.register(&value);
+        if let Ok(value) = load_api_key(root, name)
+            && let Err(refusal) = catalog.register_credential(name, &value)
+        {
+            refusals.push(collection_refusal(name, refusal));
         }
     }
     if let Some(name) = compatible.and_then(|compatible| compatible.api_key_env.as_deref())
         && let Ok(value) = load_api_key(root, name)
+        && let Err(refusal) = catalog.register_credential(name, &value)
     {
-        catalog.register(&value);
+        refusals.push(collection_refusal(name, refusal));
     }
-    let collection = crate::sensitive_data::collect_scoped_dotenv(root)?;
-    catalog.merge(&collection.catalog);
-    Ok(catalog)
+    match crate::sensitive_data::collect_scoped_dotenv(root) {
+        Ok(collection) => {
+            if let Err(refusal) = catalog.try_merge(&collection.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+        }
+        Err(failure) => {
+            if let Err(refusal) = catalog.try_merge(&failure.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+            refusals.extend(failure.refusals);
+        }
+    }
+    if refusals.is_empty() {
+        Ok(catalog)
+    } else {
+        Err(CollectionFailure { refusals, catalog })
+    }
 }
 
-/// Install a run scope for direct minimal-loop use, keyed by the config's
+fn collection_refusal(
+    name: &str,
+    refusal: crate::sensitive_data::RegistrationRefusal,
+) -> crate::sensitive_data::CollectionRefusal {
+    use crate::sensitive_data::{CollectionRefusal, RegistrationRefusal};
+    match refusal {
+        RegistrationRefusal::TooShort { .. } => CollectionRefusal::CredentialTooShort {
+            name: name.to_string(),
+            limit: crate::sensitive_data::MIN_GENERIC_SECRET_LEN,
+        },
+        RegistrationRefusal::Reserved { .. } => CollectionRefusal::ReservedValue {
+            name: name.to_string(),
+        },
+        RegistrationRefusal::CatalogFull { limit } => CollectionRefusal::TooManyValues { limit },
+    }
+}
+
+/// Install a run scope for direct minimal-loop use, keyed by the config's own
 /// workspace root and events path.
 ///
-/// The already-installed CLI/config scope is merged in, so a `${ENV}` value the
-/// CLI registered before the run is not discarded at the minimal-loop entry.
-pub fn install_run_secret_scope(config: &Config) -> crate::sensitive_data::RedactionContext {
-    let mut catalog = crate::sensitive_data::current()
+/// The scope that belongs to *this* workspace is reused, never another run's
+/// thread-local scope, so a `${ENV}` value the CLI registered before the run is
+/// kept while a different workspace's values are not imported. A source failure
+/// installs the partial catalog and returns the refusal, so the entry refuses
+/// the run honestly and any later emit is still scrubbed.
+pub fn install_run_secret_scope(
+    config: &Config,
+) -> anyhow::Result<crate::sensitive_data::RedactionContext> {
+    let mut catalog = crate::sensitive_data::registered_for(config.eval_events_path.as_deref())
+        .or_else(|| crate::sensitive_data::registered_for(Some(&config.workspace_root)))
         .map(|context| (*context.catalog_arc()).clone())
         .unwrap_or_default();
-    if let Ok(sources) =
-        build_secret_sources(&config.workspace_root, config.openai_compatible.as_ref())
-    {
-        catalog.merge(&sources);
+    let mut refusal: Option<anyhow::Error> = None;
+    match build_secret_sources(&config.workspace_root, config.openai_compatible.as_ref()) {
+        Ok(sources) => {
+            if let Err(error) = catalog.try_merge(&sources) {
+                refusal = Some(anyhow::Error::new(error));
+            }
+        }
+        Err(failure) => {
+            if let Err(error) = catalog.try_merge(&failure.catalog) {
+                refusal = Some(anyhow::Error::new(error));
+            } else {
+                refusal = Some(anyhow::Error::new(failure));
+            }
+        }
     }
-    crate::sensitive_data::install_scope(
+    let context = crate::sensitive_data::install_scope(
         catalog,
         Some(&config.workspace_root),
         config.eval_events_path.as_deref(),
-    )
+    );
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(context),
+    }
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {

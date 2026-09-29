@@ -1,5 +1,17 @@
-//! The single exact-value scrub, stream carry, YAML handling, and the
-//! runnable-YAML/identity refusals. #504 owns this leaf.
+//! The single exact-value scrub, stream carry, YAML handling, bounded dotenv
+//! collection, and the refusal types. #504 owns this leaf.
+//!
+//! Registration/scrub contract (Issue #504 design 3-5, 2026-09-29):
+//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] bytes long are secrets at
+//!   all. A shorter credential value is refused at the source; a shorter
+//!   non-credential value is simply not a secret.
+//! - Every registered value is replaced by an exact, case-sensitive match. No
+//!   free field is redacted whole.
+//! - A top-level fixed schema identifier (event/schema/status/verdict/type/...)
+//!   is never rewritten, so a value that happens to collide with one is
+//!   preserved rather than corrupting the schema.
+//! - JSON/YAML keep element count, are idempotent, and leave a key unchanged
+//!   unless that key actually contained a secret.
 
 use std::collections::BTreeSet;
 use std::io::Read as _;
@@ -8,13 +20,11 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{
-    MAX_CATALOG_VALUES, MAX_DOTENV_BYTES, MAX_DOTENV_FILES, MIN_GENERIC_SECRET_LEN, SecretCatalog,
-};
+use super::{MAX_DOTENV_BYTES, MAX_DOTENV_FILES, MIN_GENERIC_SECRET_LEN, SecretCatalog};
 
-/// Keys whose value is a fixed schema identifier (event name, status, verdict,
-/// type, ...). A short secret never redacts one of these values whole; the
-/// identifier is preserved and the coincidence is not a leak.
+/// Top-level keys whose value is a fixed schema identifier. Such a value is
+/// never rewritten, so a registered value that collides with it cannot corrupt
+/// the schema.
 const FIXED_SCHEMA_KEYS: &[&str] = &[
     "event",
     "schema_version",
@@ -30,11 +40,6 @@ const FIXED_SCHEMA_KEYS: &[&str] = &[
     "family",
     "envelope_version",
     "lifecycle_stage",
-    "source_ref",
-    "source_refs",
-    "role",
-    "caller_role",
-    "caller_scope",
     "tool_name",
     "step_kind",
     "judgement",
@@ -54,6 +59,19 @@ pub enum SecretScrubError {
     DynamicKey { position: String },
 }
 
+/// A refusal to register a value. The value itself is never named.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RegistrationRefusal {
+    #[error(
+        "refusing to register the credential value for {name}: it is shorter than {MIN_GENERIC_SECRET_LEN} characters"
+    )]
+    TooShort { name: String },
+    #[error("refusing to register the credential value for {name}: it equals a reserved marker")]
+    Reserved { name: String },
+    #[error("refusing to register more than {limit} secret values")]
+    CatalogFull { limit: usize },
+}
+
 /// A refusal to save a runnable command/YAML or a confirmation identity that
 /// still contains a registered secret.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -63,43 +81,63 @@ pub struct RunnableSecretRefusal {
     pub kind: &'static str,
 }
 
-/// Refusal raised while collecting root dotenv sources.
+/// A refusal raised while collecting a root dotenv source. No message contains
+/// a secret value.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CollectionRefusal {
     #[error("failed to read {path}: {message}")]
     Read { path: String, message: String },
-    #[error("refusing to follow the symlinked dotenv source {path}")]
-    SymlinkNotFollowed { path: String },
     #[error("root dotenv collection exceeded {limit} files")]
     TooManyFiles { limit: usize },
     #[error("root dotenv collection exceeded {limit} values")]
     TooManyValues { limit: usize },
     #[error("dotenv source {path} exceeded the {limit}-byte collection cap")]
     FileTooLarge { path: String, limit: usize },
+    #[error(
+        "refusing to register the credential value for {name}: it is shorter than {limit} characters"
+    )]
+    CredentialTooShort { name: String, limit: usize },
+    #[error("refusing to register the credential value for {name}: it equals a reserved marker")]
+    ReservedValue { name: String },
 }
 
-/// The result of a bounded root dotenv collection.
+/// The bounded dotenv collection result. The catalog is returned even when some
+/// source was refused, so a caller can install it and still scrub what it read.
 #[derive(Debug)]
 pub struct DotenvCollection {
     pub catalog: SecretCatalog,
-    /// Count of matching symlinked entries that were skipped without following.
     pub skipped_symlinks: usize,
 }
 
-/// Replace all long registered values with the marker.
+/// A collection that refused one or more sources, carrying the partial catalog.
+#[derive(Debug)]
+pub struct CollectionFailure {
+    pub refusals: Vec<CollectionRefusal>,
+    pub catalog: SecretCatalog,
+}
+
+impl std::fmt::Display for CollectionFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.refusals.first() {
+            Some(refusal) => write!(formatter, "{refusal}"),
+            None => write!(formatter, "dotenv collection refused"),
+        }
+    }
+}
+
+impl std::error::Error for CollectionFailure {}
+
+/// Replace every registered value with the marker.
 ///
 /// Occurrences are collected as spans and merged, so two overlapping secrets
 /// (or a secret repeated with overlap) are removed as one region and no
 /// fragment of either is emitted.
-fn replace_long(catalog: &SecretCatalog, text: &str) -> String {
-    if text.is_empty() {
-        return String::new();
+fn replace_values(catalog: &SecretCatalog, text: &str) -> String {
+    if text.is_empty() || catalog.is_empty() {
+        return text.to_string();
     }
     let mut spans: Vec<(usize, usize)> = Vec::new();
     for value in catalog.values() {
-        if value.len() < MIN_GENERIC_SECRET_LEN {
-            continue;
-        }
         let mut search = 0usize;
         while let Some(relative) = text[search..].find(value.as_str()) {
             let start = search + relative;
@@ -137,74 +175,63 @@ fn replace_long(catalog: &SecretCatalog, text: &str) -> String {
     out
 }
 
-/// Replace every registered value with the marker. Long values are replaced as
-/// substrings; a short value redacts the whole text, because a short substring
-/// replacement cannot be projected safely.
+/// Exact-value replacement for free text.
 pub fn scrub_text(catalog: &SecretCatalog, text: &str) -> String {
-    if catalog.is_empty() || text.is_empty() {
-        return text.to_string();
-    }
-    let replaced = replace_long(catalog, text);
-    if catalog.has_short() && catalog.contains_short(&replaced) {
-        return catalog.marker().to_string();
-    }
-    replaced
+    replace_values(catalog, text)
 }
 
-/// Replace long values inside an object key. Keys are never redacted whole and
-/// short values never rewrite a key, so fixed identifiers survive.
+/// Exact-value replacement for an object key.
 pub fn scrub_key(catalog: &SecretCatalog, key: &str) -> String {
-    replace_long(catalog, key)
+    replace_values(catalog, key)
 }
 
-fn scrub_string(catalog: &SecretCatalog, key: Option<&str>, text: &str) -> String {
-    let replaced = replace_long(catalog, text);
-    if catalog.has_short()
-        && catalog.contains_short(&replaced)
-        && !key.is_some_and(is_fixed_schema_key)
-    {
-        return catalog.marker().to_string();
+fn scrub_string(catalog: &SecretCatalog, fixed: bool, text: &str) -> String {
+    if fixed {
+        text.to_string()
+    } else {
+        replace_values(catalog, text)
     }
-    replaced
 }
 
-/// Strict recursive scrub. Refuses a dynamic key that contains a long secret.
+/// Strict recursive scrub. Refuses a dynamic key that contains a secret.
 pub fn scrub_value_strict(
     catalog: &SecretCatalog,
     value: &mut Value,
 ) -> Result<(), SecretScrubError> {
     let mut position = vec!["root".to_string()];
-    scrub_value_strict_at(catalog, value, None, &mut position)
+    strict_at(catalog, value, 1, false, &mut position)
 }
 
-fn scrub_value_strict_at(
+fn strict_at(
     catalog: &SecretCatalog,
     value: &mut Value,
-    key: Option<&str>,
+    depth: usize,
+    fixed: bool,
     position: &mut Vec<String>,
 ) -> Result<(), SecretScrubError> {
     match value {
         Value::String(text) => {
-            *text = scrub_string(catalog, key, text);
+            *text = scrub_string(catalog, fixed, text);
             Ok(())
         }
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
                 position.push(format!("[{index}]"));
-                scrub_value_strict_at(catalog, item, None, position)?;
+                strict_at(catalog, item, depth + 1, false, position)?;
                 position.pop();
             }
             Ok(())
         }
         Value::Object(map) => {
-            if map.keys().any(|candidate| catalog.contains_long(candidate)) {
+            if map.keys().any(|key| catalog.contains(key)) {
                 return Err(SecretScrubError::DynamicKey {
                     position: position.join("."),
                 });
             }
-            for (candidate, item) in map.iter_mut() {
+            for (key, item) in map.iter_mut() {
+                let fixed = depth == 1 && is_fixed_schema_key(key);
                 position.push("{}".to_string());
-                scrub_value_strict_at(catalog, item, Some(candidate), position)?;
+                strict_at(catalog, item, depth + 1, fixed, position)?;
                 position.pop();
             }
             Ok(())
@@ -214,25 +241,30 @@ fn scrub_value_strict_at(
 }
 
 /// Lenient recursive scrub for boundaries that must not fail. A dynamic key
-/// that contains a long secret is rewritten to a distinct safe key so no
-/// evidence is lost and no fixed key is corrupted.
+/// that contains a secret is projected to a distinct safe key, so no evidence
+/// is lost and unrelated keys are left unchanged.
 pub fn scrub_value_lenient(catalog: &SecretCatalog, value: &mut Value) {
-    scrub_value_lenient_at(catalog, value, None);
+    lenient_at(catalog, value, 1, false);
 }
 
-fn scrub_value_lenient_at(catalog: &SecretCatalog, value: &mut Value, key: Option<&str>) {
+fn lenient_at(catalog: &SecretCatalog, value: &mut Value, depth: usize, fixed: bool) {
     match value {
-        Value::String(text) => *text = scrub_string(catalog, key, text),
+        Value::String(text) => *text = scrub_string(catalog, fixed, text),
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|item| scrub_value_lenient_at(catalog, item, None)),
+            .for_each(|item| lenient_at(catalog, item, depth + 1, false)),
         Value::Object(map) => {
             let entries = std::mem::take(map);
             let mut cleaned = serde_json::Map::with_capacity(entries.len());
-            for (candidate, mut item) in entries {
-                scrub_value_lenient_at(catalog, &mut item, Some(&candidate));
-                let unique = unique_json_key(catalog, &cleaned, &candidate);
-                cleaned.insert(unique, item);
+            for (key, mut item) in entries {
+                let fixed = depth == 1 && is_fixed_schema_key(&key);
+                lenient_at(catalog, &mut item, depth + 1, fixed);
+                let key = if fixed {
+                    key
+                } else {
+                    unique_json_key(catalog, &cleaned, &key)
+                };
+                cleaned.insert(key, item);
             }
             *map = cleaned;
         }
@@ -259,59 +291,83 @@ fn unique_json_key(
     }
 }
 
-/// Scrub every string scalar and string key of a YAML value.
+/// Scrub every string scalar and string key of a YAML value. Key uniqueness is
+/// tracked per mapping, and a key is only renamed when it actually changed.
 pub fn scrub_yaml_value(catalog: &SecretCatalog, value: &mut serde_yaml::Value) {
-    scrub_yaml_at(catalog, value, &mut BTreeSet::new());
+    scrub_yaml_at(catalog, value, 1, false);
 }
 
 fn scrub_yaml_at(
     catalog: &SecretCatalog,
     value: &mut serde_yaml::Value,
-    used: &mut BTreeSet<String>,
+    depth: usize,
+    fixed: bool,
 ) {
     match value {
-        serde_yaml::Value::String(text) => *text = scrub_string(catalog, None, text),
+        serde_yaml::Value::String(text) => *text = scrub_string(catalog, fixed, text),
         serde_yaml::Value::Sequence(items) => items
             .iter_mut()
-            .for_each(|item| scrub_yaml_at(catalog, item, used)),
+            .for_each(|item| scrub_yaml_at(catalog, item, depth + 1, false)),
         serde_yaml::Value::Mapping(map) => {
             let entries = std::mem::take(map);
             let mut cleaned = serde_yaml::Mapping::new();
+            let mut used: BTreeSet<String> = BTreeSet::new();
             for (key, mut item) in entries {
-                scrub_yaml_at(catalog, &mut item, used);
-                let key = unique_yaml_key(catalog, used, key);
+                let fixed = depth == 1
+                    && matches!(&key, serde_yaml::Value::String(name) if is_fixed_schema_key(name));
+                scrub_yaml_at(catalog, &mut item, depth + 1, fixed);
+                let key = scrub_yaml_key(catalog, key, depth, &mut used);
                 cleaned.insert(key, item);
             }
             *map = cleaned;
         }
-        serde_yaml::Value::Tagged(tagged) => scrub_yaml_at(catalog, &mut tagged.value, used),
+        serde_yaml::Value::Tagged(tagged) => {
+            scrub_yaml_at(catalog, &mut tagged.value, depth, false)
+        }
         serde_yaml::Value::Null | serde_yaml::Value::Bool(_) | serde_yaml::Value::Number(_) => {}
     }
 }
 
-fn unique_yaml_key(
+fn scrub_yaml_key(
     catalog: &SecretCatalog,
-    used: &mut BTreeSet<String>,
     key: serde_yaml::Value,
+    depth: usize,
+    used: &mut BTreeSet<String>,
 ) -> serde_yaml::Value {
-    let serde_yaml::Value::String(text) = &key else {
-        return key;
-    };
-    let mut candidate = scrub_key(catalog, text);
-    if used.contains(&candidate) {
-        let base = candidate.clone();
-        let mut index = 1usize;
-        loop {
-            let next = format!("{base}#{index}");
-            if !used.contains(&next) {
-                candidate = next;
-                break;
+    match key {
+        serde_yaml::Value::String(text) => {
+            if depth == 1 && is_fixed_schema_key(&text) {
+                used.insert(text.clone());
+                return serde_yaml::Value::String(text);
             }
-            index += 1;
+            let replaced = scrub_key(catalog, &text);
+            let candidate = if used.contains(&replaced) {
+                let mut index = 1usize;
+                loop {
+                    let next = format!("{replaced}#{index}");
+                    if !used.contains(&next) {
+                        break next;
+                    }
+                    index += 1;
+                }
+            } else {
+                replaced
+            };
+            used.insert(candidate.clone());
+            serde_yaml::Value::String(candidate)
         }
+        serde_yaml::Value::Sequence(mut items) => {
+            items
+                .iter_mut()
+                .for_each(|item| scrub_yaml_at(catalog, item, depth + 1, false));
+            serde_yaml::Value::Sequence(items)
+        }
+        serde_yaml::Value::Tagged(mut tagged) => {
+            scrub_yaml_at(catalog, &mut tagged.value, depth, false);
+            serde_yaml::Value::Tagged(tagged)
+        }
+        other => other,
     }
-    used.insert(candidate.clone());
-    serde_yaml::Value::String(candidate)
 }
 
 /// True when a runnable YAML document contains a registered secret, either as a
@@ -481,23 +537,32 @@ impl std::fmt::Debug for StreamScrubber {
 ///
 /// The controller reads only the three strict template names as non-secrets;
 /// every other `.env`/`.env.*` regular file at the root is read with a bounded,
-/// no-follow open. A symlinked source is skipped (never followed) and counted;
-/// a read failure, or exceeding the file/value caps, is reported instead of
-/// silently dropping a secret.
-pub fn collect_scoped_dotenv(root: &Path) -> Result<DotenvCollection, CollectionRefusal> {
+/// no-follow open. A read failure, a file/value cap, or a too-short/reserved
+/// credential value is reported instead of silently dropping a secret. The
+/// partial catalog is always returned so an emitted record can still be
+/// scrubbed.
+pub fn collect_scoped_dotenv(
+    root: &Path,
+) -> std::result::Result<DotenvCollection, CollectionFailure> {
+    let mut catalog = SecretCatalog::new();
+    let mut refusals = Vec::new();
+    let mut skipped_symlinks = 0usize;
     let mut names = Vec::new();
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(DotenvCollection {
-                catalog: SecretCatalog::new(),
-                skipped_symlinks: 0,
+                catalog,
+                skipped_symlinks,
             });
         }
         Err(error) => {
-            return Err(CollectionRefusal::Read {
-                path: root.display().to_string(),
-                message: error.to_string(),
+            return Err(CollectionFailure {
+                refusals: vec![CollectionRefusal::Read {
+                    path: root.display().to_string(),
+                    message: error.to_string(),
+                }],
+                catalog,
             });
         }
     };
@@ -510,91 +575,112 @@ pub fn collect_scoped_dotenv(root: &Path) -> Result<DotenvCollection, Collection
     }
     names.sort();
 
-    let mut catalog = SecretCatalog::new();
-    let mut skipped_symlinks = 0usize;
     let mut counted_files = 0usize;
-    let mut counted_values = 0usize;
     for name in names {
         let path = root.join(&name);
         let Ok(metadata) = std::fs::symlink_metadata(&path) else {
             continue;
         };
         if metadata.file_type().is_symlink() {
+            // Never follow a symlinked source.
             skipped_symlinks += 1;
             continue;
         }
         counted_files += 1;
         if counted_files > MAX_DOTENV_FILES {
-            return Err(CollectionRefusal::TooManyFiles {
+            refusals.push(CollectionRefusal::TooManyFiles {
                 limit: MAX_DOTENV_FILES,
             });
+            break;
         }
-        let content = read_bounded_regular(&path)?;
+        let (content, refusal) = read_bounded(&path);
+        if let Some(refusal) = refusal {
+            refusals.push(refusal);
+        }
         for (key, value) in parse_dotenv(&content) {
-            if is_secret_value(&key, &value) {
-                counted_values += 1;
-                if counted_values > MAX_CATALOG_VALUES {
-                    return Err(CollectionRefusal::TooManyValues {
-                        limit: MAX_CATALOG_VALUES,
-                    });
-                }
+            let result = if super::is_credential_name(&key) {
+                catalog.register_credential(&key, &value)
+            } else {
+                catalog.register_plain(&value)
+            };
+            if let Err(refusal) = result {
+                refusals.push(registration_refusal(&key, refusal));
             }
-            catalog.register_named(&key, &value);
         }
     }
-    Ok(DotenvCollection {
-        catalog,
-        skipped_symlinks,
-    })
+    if refusals.is_empty() {
+        Ok(DotenvCollection {
+            catalog,
+            skipped_symlinks,
+        })
+    } else {
+        Err(CollectionFailure { refusals, catalog })
+    }
 }
 
-fn is_secret_value(name: &str, value: &str) -> bool {
-    super::is_credential_name(name) || value.trim().len() >= MIN_GENERIC_SECRET_LEN
+fn registration_refusal(name: &str, refusal: RegistrationRefusal) -> CollectionRefusal {
+    match refusal {
+        RegistrationRefusal::TooShort { .. } => CollectionRefusal::CredentialTooShort {
+            name: name.to_string(),
+            limit: MIN_GENERIC_SECRET_LEN,
+        },
+        RegistrationRefusal::Reserved { .. } => CollectionRefusal::ReservedValue {
+            name: name.to_string(),
+        },
+        RegistrationRefusal::CatalogFull { limit } => CollectionRefusal::TooManyValues { limit },
+    }
 }
 
-fn read_bounded_regular(path: &Path) -> Result<String, CollectionRefusal> {
+/// Read a dotenv source with a bounded, no-follow open.
+///
+/// Over the cap it still returns the readable prefix (cut at a line boundary)
+/// so the secrets at the head of the file are registered, together with the
+/// refusal.
+fn read_bounded(path: &Path) -> (String, Option<CollectionRefusal>) {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // Never follow a symlink that replaced the entry after the metadata
-        // check, and never open a directory as a dotenv source.
         options.custom_flags(libc::O_NOFOLLOW);
     }
-    let file = options
-        .open(path)
-        .map_err(|error| CollectionRefusal::Read {
-            path: path.display().to_string(),
-            message: error.to_string(),
-        })?;
-    let metadata = file.metadata().map_err(|error| CollectionRefusal::Read {
-        path: path.display().to_string(),
-        message: error.to_string(),
-    })?;
-    if metadata.len() as usize > MAX_DOTENV_BYTES {
-        return Err(CollectionRefusal::FileTooLarge {
-            path: path.display().to_string(),
-            limit: MAX_DOTENV_BYTES,
-        });
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_DOTENV_BYTES as u64 + 1)
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            return (
+                String::new(),
+                Some(CollectionRefusal::Read {
+                    path: path.display().to_string(),
+                    message: error.to_string(),
+                }),
+            );
+        }
+    };
+    let (mut bytes, mut refusal) = (Vec::new(), None);
+    if let Err(error) = file
+        .take(MAX_DOTENV_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| CollectionRefusal::Read {
-            path: path.display().to_string(),
-            message: error.to_string(),
-        })?;
+    {
+        return (
+            String::new(),
+            Some(CollectionRefusal::Read {
+                path: path.display().to_string(),
+                message: error.to_string(),
+            }),
+        );
+    }
     if bytes.len() > MAX_DOTENV_BYTES {
-        return Err(CollectionRefusal::FileTooLarge {
+        bytes.truncate(MAX_DOTENV_BYTES);
+        if let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+            bytes.truncate(newline + 1);
+        }
+        refusal = Some(CollectionRefusal::FileTooLarge {
             path: path.display().to_string(),
             limit: MAX_DOTENV_BYTES,
         });
     }
-    String::from_utf8(bytes).map_err(|error| CollectionRefusal::Read {
-        path: path.display().to_string(),
-        message: error.to_string(),
-    })
+    let content = String::from_utf8_lossy(&bytes).into_owned();
+    (content, refusal)
 }
 
 fn is_dotenv_source_name(name: &str) -> bool {

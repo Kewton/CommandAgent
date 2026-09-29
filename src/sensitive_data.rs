@@ -8,22 +8,24 @@
 //! Design invariants:
 //! - Values are registered per run. A process-global singleton never merges
 //!   one workspace's secrets into another's catalog; the registry is keyed by
-//!   the scope (workspace root and events path) that registered it.
+//!   the scope (workspace root and events path) that registered it, and the
+//!   minimal-loop entry resolves its own workspace's scope, never another
+//!   run's thread-local one.
 //! - [`SecretCatalog`] never prints its values through `Debug`.
-//! - The replacement marker is chosen so it contains no registered value, so
-//!   re-applying the scrub is idempotent even when a secret equals a marker.
-//! - Long values (at or above [`MIN_GENERIC_SECRET_LEN`] bytes) are replaced as
-//!   substrings. A short value never rewrites a fixed schema identifier; in a
-//!   free-input field it redacts the whole field instead.
+//! - Only values at least [`MIN_GENERIC_SECRET_LEN`] bytes long are secrets. A
+//!   shorter credential value is refused at the source; a shorter non-secret is
+//!   simply not registered.
+//! - Every registered value is replaced by an exact match with a marker chosen
+//!   so it contains no registered value; re-applying the scrub is idempotent.
 
 mod redaction;
 #[cfg(test)]
 mod tests;
 
 pub use redaction::{
-    CollectionRefusal, DotenvCollection, RunnableSecretRefusal, SecretScrubError, StreamScrubber,
-    collect_scoped_dotenv, parse_dotenv, refuse_identity, refuse_runnable,
-    runnable_yaml_contains_secret, scrub_yaml_value,
+    CollectionFailure, CollectionRefusal, DotenvCollection, RegistrationRefusal,
+    RunnableSecretRefusal, SecretScrubError, StreamScrubber, collect_scoped_dotenv, parse_dotenv,
+    refuse_identity, refuse_runnable, runnable_yaml_contains_secret, scrub_yaml_value,
 };
 
 use std::cell::RefCell;
@@ -35,10 +37,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// value collides with it. Use [`SecretCatalog::marker`] for the actual marker.
 pub const REDACTED: &str = "<redacted>";
 
-/// Conservative minimum length for a generic (non-credential-named) dotenv
-/// value to be treated as a secret automatically. Values below this length are
-/// "short": they never rewrite a fixed schema identifier, and inside a
-/// free-input field they redact the whole field rather than a substring.
+/// Minimum length for a value to be treated as a secret. A shorter credential
+/// value is refused at the source instead of being registered, so it never
+/// corrupts a fixed identifier.
 pub const MIN_GENERIC_SECRET_LEN: usize = 8;
 
 /// Bounded root dotenv collection limits (mirrors the corpus contract).
@@ -50,8 +51,14 @@ pub const MAX_CATALOG_VALUES: usize = 1024;
 /// value wins. The fallback is a single character no registered value contains.
 const MARKER_CANDIDATES: [&str; 4] = ["<redacted>", "[redacted]", "[hidden]", "«hidden»"];
 
+/// True when `value` equals one of the reserved marker candidates. A credential
+/// value equal to one of these is refused at the source.
+pub fn is_marker_candidate(value: &str) -> bool {
+    MARKER_CANDIDATES.contains(&value)
+}
+
 /// Case-insensitive credential-name predicate used to decide that a value is a
-/// secret regardless of length.
+/// credential (a secret) rather than an ordinary dotenv value.
 pub fn is_credential_name(name: &str) -> bool {
     let upper = name.trim().to_ascii_uppercase();
     [
@@ -117,45 +124,75 @@ impl SecretCatalog {
         &self.values
     }
 
-    /// Register a value unconditionally. Used for provider keys and `${ENV}`
-    /// expansion values, which are secrets even when short.
+    /// Register a value leniently: a value shorter than
+    /// [`MIN_GENERIC_SECRET_LEN`] is not a secret and is not registered. Used by
+    /// tests and by forced registration; the config path uses the checked
+    /// [`Self::register_credential`] / [`Self::register_plain`].
     pub fn register(&mut self, value: &str) {
         let value = value.trim();
+        if value.is_empty() || value.len() < MIN_GENERIC_SECRET_LEN {
+            return;
+        }
+        let _ = self.try_push(value);
+    }
+
+    /// Register a credential value. A value shorter than
+    /// [`MIN_GENERIC_SECRET_LEN`] or equal to a reserved marker is refused.
+    pub fn register_credential(
+        &mut self,
+        name: &str,
+        value: &str,
+    ) -> Result<(), RegistrationRefusal> {
+        let value = value.trim();
         if value.is_empty() {
-            return;
+            return Ok(());
         }
-        if self.values.iter().any(|existing| existing == value) {
-            return;
+        if value.len() < MIN_GENERIC_SECRET_LEN {
+            return Err(RegistrationRefusal::TooShort {
+                name: name.to_string(),
+            });
         }
-        if self.values.len() >= MAX_CATALOG_VALUES {
-            return;
+        if is_marker_candidate(value) {
+            return Err(RegistrationRefusal::Reserved {
+                name: name.to_string(),
+            });
         }
-        self.values.push(value.to_string());
-        self.sort_and_refresh_marker();
+        self.try_push(value)
     }
 
-    /// Register a value from a named source. Credential-named sources register
-    /// even short values; other sources must reach [`MIN_GENERIC_SECRET_LEN`].
+    /// Register a non-credential value only when it can be a secret: at least
+    /// [`MIN_GENERIC_SECRET_LEN`] bytes and not a reserved marker. Anything else
+    /// is simply not a secret.
+    pub fn register_plain(&mut self, value: &str) -> Result<(), RegistrationRefusal> {
+        let value = value.trim();
+        if value.is_empty() || value.len() < MIN_GENERIC_SECRET_LEN || is_marker_candidate(value) {
+            return Ok(());
+        }
+        self.try_push(value)
+    }
+
+    /// Register a value from a named source using the credential/non-credential
+    /// policy, ignoring any refusal.
     pub fn register_named(&mut self, name: &str, value: &str) {
-        if is_credential_name(name) || value.trim().len() >= MIN_GENERIC_SECRET_LEN {
-            self.register(value);
+        if is_credential_name(name) {
+            let _ = self.register_credential(name, value);
+        } else {
+            let _ = self.register_plain(value);
         }
     }
 
-    /// Register every `(name, value)` pair using [`register_named`].
-    pub fn register_named_all<'a, I>(&mut self, entries: I)
-    where
-        I: IntoIterator<Item = (&'a str, &'a str)>,
-    {
-        for (name, value) in entries {
-            self.register_named(name, value);
+    /// Merge another catalog's values, refusing on overflow.
+    pub fn try_merge(&mut self, other: &SecretCatalog) -> Result<(), RegistrationRefusal> {
+        for value in &other.values {
+            self.try_push(value)?;
         }
+        Ok(())
     }
 
-    /// Merge another catalog's values into this one.
+    /// Merge another catalog's values, dropping silently on overflow.
     pub fn merge(&mut self, other: &SecretCatalog) {
         for value in &other.values {
-            self.register(value);
+            let _ = self.try_push(value);
         }
     }
 
@@ -166,26 +203,6 @@ impl SecretCatalog {
             .any(|value| text.contains(value.as_str()))
     }
 
-    /// True when any long registered value occurs in `text`.
-    pub fn contains_long(&self, text: &str) -> bool {
-        self.values
-            .iter()
-            .any(|value| value.len() >= MIN_GENERIC_SECRET_LEN && text.contains(value.as_str()))
-    }
-
-    /// True when any short registered value occurs in `text`.
-    pub fn contains_short(&self, text: &str) -> bool {
-        self.values
-            .iter()
-            .any(|value| value.len() < MIN_GENERIC_SECRET_LEN && text.contains(value.as_str()))
-    }
-
-    pub fn has_short(&self) -> bool {
-        self.values
-            .iter()
-            .any(|value| value.len() < MIN_GENERIC_SECRET_LEN)
-    }
-
     /// Byte offset of the first registered value in `text`, without revealing it.
     pub fn first_match(&self, text: &str) -> Option<usize> {
         self.values
@@ -194,22 +211,19 @@ impl SecretCatalog {
             .min()
     }
 
-    /// Replace every registered value with the marker. A short value redacts
-    /// the whole text when it occurs, because a short substring replacement
-    /// cannot be projected safely.
+    /// Replace every registered value with the marker.
     pub fn scrub(&self, text: &str) -> String {
         redaction::scrub_text(self, text)
     }
 
-    /// Replace long values inside an object key. Keys are never redacted whole
-    /// and short values never rewrite a key, so fixed identifiers survive.
+    /// Replace registered values inside an object key.
     pub fn scrub_key(&self, key: &str) -> String {
         redaction::scrub_key(self, key)
     }
 
     /// Strict recursive scrub of a JSON value. Refuses (without leaking) a
-    /// dynamic key that contains a long secret, so callers that cannot project
-    /// the value safely can treat the result as a failure.
+    /// dynamic key that contains a secret, so callers that cannot project the
+    /// value safely can treat the result as a failure.
     pub fn scrub_value(&self, value: &mut serde_json::Value) -> Result<(), SecretScrubError> {
         if self.is_empty() {
             return Ok(());
@@ -218,8 +232,8 @@ impl SecretCatalog {
     }
 
     /// Lenient recursive scrub used at boundaries that cannot fail. A dynamic
-    /// key that contains a long secret is rewritten to a distinct safe key so
-    /// no evidence is lost and no fixed key is corrupted.
+    /// key that contains a secret is projected to a distinct safe key so no
+    /// evidence is lost and unrelated keys are left unchanged.
     pub fn scrub_value_lenient(&self, value: &mut serde_json::Value) {
         if self.is_empty() {
             return;
@@ -242,12 +256,25 @@ impl SecretCatalog {
         }
     }
 
-    fn sort_and_refresh_marker(&mut self) {
+    fn try_push(&mut self, value: &str) -> Result<(), RegistrationRefusal> {
+        if self.values.iter().any(|existing| existing == value) {
+            return Ok(());
+        }
+        if self.values.len() >= MAX_CATALOG_VALUES {
+            return Err(RegistrationRefusal::CatalogFull {
+                limit: MAX_CATALOG_VALUES,
+            });
+        }
+        self.values.push(value.to_string());
         self.values
             .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
         self.refresh_marker();
+        Ok(())
     }
 
+    /// Choose a marker that contains no registered value. The candidates are
+    /// tried in order, then U+FFFD, then any other code point, so the final
+    /// marker is collision-free for any finite catalog.
     fn refresh_marker(&mut self) {
         for candidate in MARKER_CANDIDATES {
             if !self
@@ -259,16 +286,23 @@ impl SecretCatalog {
                 return;
             }
         }
-        for code in 1u32..=0x7f {
-            if let Some(ch) = char::from_u32(code) {
-                let candidate = ch.to_string();
+        if !self.values.iter().any(|value| value.contains('\u{fffd}')) {
+            self.marker = "\u{fffd}".to_string();
+            return;
+        }
+        for code in 1u32..=0x10ffff {
+            if (0xd800..=0xdfff).contains(&code) {
+                continue;
+            }
+            if let Some(character) = char::from_u32(code) {
+                let candidate = character.to_string();
                 if !self.values.iter().any(|value| value.contains(&candidate)) {
                     self.marker = candidate;
                     return;
                 }
             }
         }
-        self.marker = "\u{fffd}".to_string();
+        self.marker = "\u{fffd}\u{fffe}".to_string();
     }
 }
 
@@ -416,22 +450,23 @@ pub fn current() -> Option<RedactionContext> {
     CURRENT.with(|current| current.borrow().clone())
 }
 
+/// The context registered for `path`, without any thread-local fallback. Used
+/// by the run entry to reuse the scope that belongs to its own workspace.
+pub fn registered_for(path: Option<&Path>) -> Option<RedactionContext> {
+    let path = path?;
+    let key = scope_key(path);
+    registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key)
+        .cloned()
+}
+
 /// The context registered for `path` (or the workspace root), falling back to
 /// [`current`]. This lets a product thread that never installed the scope find
 /// it by the source it was handed.
 pub fn active_for(path: Option<&Path>) -> Option<RedactionContext> {
-    if let Some(path) = path {
-        let key = scope_key(path);
-        if let Some(context) = registry()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&key)
-            .cloned()
-        {
-            return Some(context);
-        }
-    }
-    current()
+    registered_for(path).or_else(current)
 }
 
 /// Scrub `text` with the active run scope when one exists.
@@ -439,6 +474,13 @@ pub fn scrub_active(text: &str) -> String {
     current()
         .map(|context| context.scrub_text(text))
         .unwrap_or_else(|| text.to_string())
+}
+
+/// The active run scope's marker, or the default when no scope is installed.
+pub fn active_marker() -> String {
+    current()
+        .map(|context| context.marker().to_string())
+        .unwrap_or_else(|| REDACTED.to_string())
 }
 
 /// Scrub with the staged config catalog and then the active run scope. Used
@@ -464,7 +506,7 @@ pub fn reset_scopes_for_tests() {
 /// invalid `base_url`. Values are moved into an installed scope only when the
 /// config is accepted.
 pub(crate) mod config_staging {
-    use super::SecretCatalog;
+    use super::{RegistrationRefusal, SecretCatalog};
     use std::cell::RefCell;
 
     thread_local! {
@@ -476,22 +518,28 @@ pub(crate) mod config_staging {
         STAGING.with(|staging| *staging.borrow_mut() = Some(SecretCatalog::new()));
     }
 
-    /// Stage one value unconditionally (provider keys, `${ENV}` expansions).
-    pub fn register(value: &str) {
-        STAGING.with(|staging| {
-            if let Some(catalog) = staging.borrow_mut().as_mut() {
-                catalog.register(value);
-            }
-        });
+    /// Stage a credential value; a too-short or reserved value is refused.
+    pub fn register_credential(name: &str, value: &str) -> Result<(), RegistrationRefusal> {
+        STAGING.with(|staging| match staging.borrow_mut().as_mut() {
+            Some(catalog) => catalog.register_credential(name, value),
+            None => Ok(()),
+        })
     }
 
-    /// Merge a whole catalog into staging.
-    pub fn merge(catalog: &SecretCatalog) {
-        STAGING.with(|staging| {
-            if let Some(staging) = staging.borrow_mut().as_mut() {
-                staging.merge(catalog);
-            }
-        });
+    /// Stage a non-credential value under the plain policy.
+    pub fn register_plain(value: &str) -> Result<(), RegistrationRefusal> {
+        STAGING.with(|staging| match staging.borrow_mut().as_mut() {
+            Some(catalog) => catalog.register_plain(value),
+            None => Ok(()),
+        })
+    }
+
+    /// Merge a whole catalog into staging, refusing on overflow.
+    pub fn try_merge(catalog: &SecretCatalog) -> Result<(), RegistrationRefusal> {
+        STAGING.with(|staging| match staging.borrow_mut().as_mut() {
+            Some(staging) => staging.try_merge(catalog),
+            None => Ok(()),
+        })
     }
 
     /// Take the staged catalog out of staging.

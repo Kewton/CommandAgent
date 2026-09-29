@@ -747,32 +747,29 @@ where
 }
 
 /// Scrub the outgoing conversation copy so a registered secret never reaches a
-/// provider request body. The caller's original messages are untouched.
+/// provider request body. The caller's original messages are untouched. A tool
+/// protocol name is a fixed identifier and is preserved; only free fields and
+/// the model-derived ids are scrubbed.
 fn scrub_conversation(
     context: &crate::sensitive_data::RedactionContext,
     messages: &mut [ConversationMessage],
 ) {
     for message in messages {
         message.content = context.scrub_text(&message.content);
-        if let Some(name) = message.name.as_mut() {
-            *name = context.scrub_text(name);
-        }
         if let Some(tool_call_id) = message.tool_call_id.as_mut() {
             *tool_call_id = context.scrub_text(tool_call_id);
         }
         for call in &mut message.tool_calls {
             call.id = context.scrub_text(&call.id);
-            call.name = context.scrub_text(&call.name);
             context.scrub_value_lenient(&mut call.arguments);
         }
     }
 }
 
-/// Scrub the tool schema copy sent with a provider request.
+/// Scrub the tool schema copy sent with a provider request. `kind` and
+/// `function.name` are fixed protocol identifiers and are preserved.
 fn scrub_tool_specs(context: &crate::sensitive_data::RedactionContext, tools: &mut [ToolSpec]) {
     for tool in tools {
-        tool.kind = context.scrub_text(&tool.kind);
-        tool.function.name = context.scrub_text(&tool.function.name);
         tool.function.description = context.scrub_text(&tool.function.description);
         context.scrub_value_lenient(&mut tool.function.parameters);
     }

@@ -3263,6 +3263,9 @@ fn safe_preview(value: &str) -> String {
 }
 
 fn redact_secret_like(value: &str) -> String {
+    // Use the run's actual marker, so the heuristic never reintroduces a
+    // registered value through a literal marker.
+    let marker = crate::sensitive_data::active_marker();
     value
         .split_whitespace()
         .map(|part| {
@@ -3270,13 +3273,20 @@ fn redact_secret_like(value: &str) -> String {
                 || part.starts_with("AIza")
                 || part.to_ascii_lowercase().contains("api_key")
             {
-                "<redacted>"
+                marker.as_str()
             } else {
                 part
             }
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The legacy format/home heuristics only, without the catalog scrub. Used by
+/// the trace exporter alongside the shared catalog scrub so a fixed identifier
+/// is never rewritten twice.
+pub(crate) fn scrub_legacy_heuristics(value: &str) -> String {
+    redact_home_paths(&redact_secret_like(value))
 }
 
 fn redact_home_paths(value: &str) -> String {

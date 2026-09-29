@@ -50,20 +50,31 @@ fn unicode_and_duplicate_values_are_handled() {
 }
 
 #[test]
-fn credential_named_sources_register_short_values_but_generic_short_values_do_not() {
+fn short_credential_values_are_refused_and_plain_short_values_are_not_secrets() {
     let mut catalog = SecretCatalog::new();
-    catalog.register_named("VLLM_API_KEY", "short");
-    catalog.register_named("PORT", "3000");
-    catalog.register_named("DEBUG", "true");
-    catalog.register_named("GENERIC", "abcdefgh");
-
-    assert!(catalog.contains("short"), "credential-named short value");
-    assert!(catalog.contains("abcdefgh"), "generic 8-char value");
+    // A credential value shorter than the minimum is refused.
+    assert!(matches!(
+        catalog.register_credential("VLLM_API_KEY", "short"),
+        Err(RegistrationRefusal::TooShort { .. })
+    ));
+    // A non-credential short value is simply not a secret.
+    assert!(catalog.register_plain("3000").is_ok());
+    assert!(!catalog.contains("3000"));
+    // A non-credential value that reaches the minimum is a secret.
+    assert!(catalog.register_plain("abcdefgh").is_ok());
+    assert!(catalog.contains("abcdefgh"));
+    // A credential value that reaches the minimum is a secret.
     assert!(
-        !catalog.contains("3000"),
-        "ordinary short value is not a secret"
+        catalog
+            .register_credential("OPENAI_API_KEY", "long-credential-value")
+            .is_ok()
     );
-    assert!(!catalog.contains("true"));
+    assert!(catalog.contains("long-credential-value"));
+    // A credential value equal to a reserved marker is refused.
+    assert!(matches!(
+        catalog.register_credential("X", REDACTED),
+        Err(RegistrationRefusal::Reserved { .. })
+    ));
 }
 
 #[test]
@@ -229,8 +240,39 @@ fn dotenv_collection_reports_unreadable_regular_sources() {
     // collector reports the failure instead of silently dropping secrets.
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".env.production")).unwrap();
-    let error = collect_scoped_dotenv(dir.path()).unwrap_err();
-    assert!(matches!(error, CollectionRefusal::Read { .. }), "{error}");
+    let failure = collect_scoped_dotenv(dir.path()).unwrap_err();
+    assert!(
+        failure
+            .refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CollectionRefusal::Read { .. })),
+        "{failure:?}"
+    );
+}
+
+#[test]
+fn dotenv_collection_refusal_never_shows_a_value() {
+    let canary = "H06_REFUSAL_CANARY_4471";
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "PRIVATE_TOKEN={canary}\n{}",
+            "#".repeat(MAX_DOTENV_BYTES + 1)
+        ),
+    )
+    .unwrap();
+
+    let failure = collect_scoped_dotenv(dir.path()).unwrap_err();
+
+    assert!(matches!(
+        failure.refusals.first(),
+        Some(CollectionRefusal::FileTooLarge { .. })
+    ));
+    assert!(!failure.to_string().contains(canary));
+    assert!(!format!("{failure:?}").contains(canary));
+    // The head of the file is still catalogued, so a later emit is scrubbed.
+    assert!(failure.catalog.contains(canary));
 }
 
 #[test]
@@ -278,26 +320,69 @@ fn marker_avoids_registered_values_and_stays_idempotent() {
 }
 
 #[test]
-fn short_secret_preserves_fixed_schema_and_redacts_free_fields() {
-    let catalog = catalog(&["pass"]);
-    let mut value = json!({
+fn a_short_credential_value_is_refused_and_changes_nothing() {
+    let mut catalog = SecretCatalog::new();
+    assert!(matches!(
+        catalog.register_credential("PASSWORD", "pass"),
+        Err(RegistrationRefusal::TooShort { .. })
+    ));
+    assert!(catalog.is_empty());
+    let original = json!({
         "event": "build_pass",
         "verdict": "pass",
         "schema_version": "commandagent.pass/v1",
         "type": "string",
         "message": "prefix pass suffix",
+        "data": {"tool_name": "pass", "pw": 1, "dynamic_pw_key": 2},
+    });
+    let mut value = original.clone();
+    catalog.scrub_value_lenient(&mut value);
+    assert_eq!(value, original, "a refused value must not rewrite anything");
+}
+
+#[test]
+fn a_long_value_that_matches_a_fixed_identifier_preserves_the_schema() {
+    let catalog = catalog(&["build_pass", "commandagent.headless-summary/v1"]);
+    let mut value = json!({
+        "event": "build_pass",
+        "schema_version": "commandagent.headless-summary/v1",
+        "verdict": "pass",
+        "message": "build_pass",
     });
     catalog.scrub_value_lenient(&mut value);
     assert_eq!(value["event"], "build_pass");
+    assert_eq!(value["schema_version"], "commandagent.headless-summary/v1");
     assert_eq!(value["verdict"], "pass");
-    assert_eq!(value["schema_version"], "commandagent.pass/v1");
-    assert_eq!(value["type"], "string");
     assert_eq!(value["message"], "<redacted>");
 }
 
 #[test]
-fn single_char_secret_keeps_fixed_key_names() {
-    let catalog = catalog(&["a"]);
+fn dynamic_keys_and_nested_free_values_are_scrubbed() {
+    let catalog = catalog(&["H06_DYNAMIC_VALUE_2718"]);
+    let mut value = json!({
+        "event": "run_start",
+        "data": {
+            "message": "prefix H06_DYNAMIC_VALUE_2718 suffix",
+            "H06_DYNAMIC_VALUE_2718": 1,
+        },
+    });
+    catalog.scrub_value_lenient(&mut value);
+    assert!(
+        !serde_json::to_string(&value)
+            .unwrap()
+            .contains("H06_DYNAMIC_VALUE_2718")
+    );
+    assert_eq!(value["event"], "run_start");
+}
+
+#[test]
+fn a_single_char_credential_value_is_refused() {
+    let mut catalog = SecretCatalog::new();
+    assert!(matches!(
+        catalog.register_credential("PASSWORD", "a"),
+        Err(RegistrationRefusal::TooShort { .. })
+    ));
+    assert!(catalog.is_empty());
     let mut value = json!({
         "event": "run_start",
         "schema_version": "v1",
@@ -305,10 +390,8 @@ fn single_char_secret_keeps_fixed_key_names() {
         "ok": true,
     });
     catalog.scrub_value_lenient(&mut value);
-    let object = value.as_object().unwrap();
-    assert!(object.contains_key("data"));
-    assert!(object.contains_key("schema_version"));
-    assert_eq!(value["data"]["value"], catalog.marker());
+    assert_eq!(value["data"]["value"], "a");
+    assert!(value.get("schema_version").is_some());
 }
 
 #[test]
@@ -331,6 +414,27 @@ fn public_yaml_dynamic_keys_keep_element_count() {
     catalog.scrub_yaml(&mut value);
     assert_eq!(value.as_mapping().unwrap().len(), 2);
     assert!(!serde_yaml::to_string(&value).unwrap().contains("H05_KEY"));
+}
+
+#[test]
+fn yaml_leaves_unrelated_repeated_keys_and_scrubs_composite_keys() {
+    let catalog = catalog(&["H06_YAML_CANARY_5521"]);
+    let mut value: serde_yaml::Value = serde_yaml::from_str(
+        "first:\n  name: one\n  type: string\nsecond:\n  name: two\n  type: string\n",
+    )
+    .unwrap();
+    let original = value.clone();
+    catalog.scrub_yaml(&mut value);
+    assert_eq!(value, original, "unrelated keys must not be renamed");
+
+    let mut composite: serde_yaml::Value =
+        serde_yaml::from_str("? [H06_YAML_CANARY_5521, ordinary]\n: ordinary\n").unwrap();
+    catalog.scrub_yaml(&mut composite);
+    assert!(
+        !serde_yaml::to_string(&composite)
+            .unwrap()
+            .contains("H06_YAML_CANARY_5521")
+    );
 }
 
 #[test]
@@ -360,10 +464,13 @@ fn dotenv_collection_refuses_over_cap_sources() {
         format!("PRIVATE_TOKEN=x\n{}", "#".repeat(MAX_DOTENV_BYTES + 1)),
     )
     .unwrap();
-    assert!(matches!(
-        collect_scoped_dotenv(large.path()).unwrap_err(),
-        CollectionRefusal::FileTooLarge { .. }
-    ));
+    assert!(
+        collect_scoped_dotenv(large.path())
+            .unwrap_err()
+            .refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CollectionRefusal::FileTooLarge { .. }))
+    );
 
     let many = tempfile::tempdir().unwrap();
     for index in 0..=MAX_DOTENV_FILES {
@@ -373,10 +480,13 @@ fn dotenv_collection_refuses_over_cap_sources() {
         )
         .unwrap();
     }
-    assert!(matches!(
-        collect_scoped_dotenv(many.path()).unwrap_err(),
-        CollectionRefusal::TooManyFiles { .. }
-    ));
+    assert!(
+        collect_scoped_dotenv(many.path())
+            .unwrap_err()
+            .refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CollectionRefusal::TooManyFiles { .. }))
+    );
 
     let values = tempfile::tempdir().unwrap();
     let mut lines = String::new();
@@ -384,8 +494,60 @@ fn dotenv_collection_refuses_over_cap_sources() {
         lines.push_str(&format!("SECRET_{index}=value_{index:04}_long\n"));
     }
     std::fs::write(values.path().join(".env"), lines).unwrap();
+    assert!(
+        collect_scoped_dotenv(values.path())
+            .unwrap_err()
+            .refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CollectionRefusal::TooManyValues { .. }))
+    );
+}
+
+#[test]
+fn combined_merge_refuses_past_the_catalog_cap() {
+    let mut catalog = SecretCatalog::new();
+    for index in 0..MAX_CATALOG_VALUES {
+        catalog.register(&format!("H06_COMBINED_VALUE_{index:04}_only"));
+    }
+    assert_eq!(catalog.len(), MAX_CATALOG_VALUES);
+    let mut extra = SecretCatalog::new();
+    extra.register("H06_PROVIDER_EXTRA_4821");
     assert!(matches!(
-        collect_scoped_dotenv(values.path()).unwrap_err(),
-        CollectionRefusal::TooManyValues { .. }
+        catalog.try_merge(&extra),
+        Err(RegistrationRefusal::CatalogFull { .. })
     ));
+}
+
+#[test]
+fn marker_terminal_fallback_contains_no_registered_value() {
+    let ascii: String = (1u8..=127).map(char::from).collect();
+    let mut fallback = SecretCatalog::new();
+    for value in ["<redacted>", "[redacted]", "[hidden]", "«hidden»", &ascii] {
+        fallback.register(value);
+    }
+    // Every listed candidate contains a registered value, so the terminal
+    // fallback is chosen; it is still collision-free.
+    assert_eq!(fallback.marker(), "\u{fffd}");
+    assert!(!fallback.contains(fallback.marker()));
+
+    // A credential value equal to the fallback marker is a short value and is
+    // refused, so it can never become a collision.
+    let mut refused = SecretCatalog::new();
+    assert!(matches!(
+        refused.register_credential("PASSWORD", "\u{fffd}"),
+        Err(RegistrationRefusal::TooShort { .. })
+    ));
+    assert!(refused.is_empty());
+    assert!(!refused.contains(fallback.marker()));
+
+    // The terminal marker never contains a registered long value either.
+    fallback.register("H06_FFFD_contains_\u{fffd}_marker_value");
+    assert!(!fallback.contains(fallback.marker()));
+
+    let canary = "H06_MARKER_CANARY_9931";
+    fallback.register(canary);
+    assert_eq!(
+        fallback.scrub(&fallback.scrub(canary)),
+        fallback.scrub(canary)
+    );
 }

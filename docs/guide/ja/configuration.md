@@ -114,20 +114,23 @@ provider 送信の各境界で同じ exact-value scrub を適用します。`sk-
   error chain に現れません。`${ENV}` 展開値が URL として不正な場合、エラーは field と検証種別
   のみを示し、展開値は stderr・error chain・`--doctor` のいずれにも表示しません。
 
-短い値は、資格情報名（`TOKEN`、`API_KEY`、`SECRET`、`PASSWORD` など）と provider／`${ENV}` の
-値を短くても登録します。資格情報名でない一般の dotenv 値は 8 文字以上を保守的に登録し、
-`PORT=3000`、`true`、`dev` のような短い普通の値は自動では秘密にしません。8 文字未満の明示的な
-秘密は部分置換せず、それを含む自由入力 field 全体を伏せます。event 名・schema・verdict・type
-などの固定識別子は短い秘密と一致しても書き換えません。
+値の登録規則は次のとおりです。**8 文字未満**の資格情報の値（資格情報名 `TOKEN`、`API_KEY`、
+`PASSWORD`、`PASSWD`、`SECRET`、`CREDENTIAL`、`PRIVATE` などを持つ値と provider／`${ENV}` の
+値）、**marker 候補と一致する**資格情報の値、および**合算で 1024 値を超える**登録は、
+**登録せずに起動時に honest に拒否**します（値は表示しません）。資格情報名でない一般の dotenv 値は
+8 文字以上を保守的に登録し、`PORT=3000`、`true`、`dev` のような短い普通の値は秘密にしません。
+登録済みの値はすべて**完全一致の置換**で扱い、自由入力 field を丸ごと伏せる処理は持ちません。
+event 名・schema・status・verdict・type などの固定識別子と tool 名は、登録値と衝突しても
+書き換えません。
 
 伏せ字は session/events/UI feed/spool/failsafe/evidence/trace/summary、provider に送る会話コピー
 と tool schema、表示用 stream callback に及び、切り詰め・escape・chunk 分割の前に完全値へ適用
 します。認証ヘッダー、運用 Config、実行引数、検証元の観測値は元の値を保ち、event 名・schema・
 key・type・順序・verdict・source_refs は変えずに値だけを置換します。置換 marker は登録値と衝突
-しないものを選び、再適用は冪等です。秘密を含む動的 key は、証拠を失わず schema を壊さない安全な
-key へ投影し、投影できない場合は共有 API が honest に拒否できます。登録していない秘密は形式推定
-で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。過去の記録は表示時に保護し、
-書き戻しません。
+しないものを選び（最終候補まで検査）、再適用は冪等です。秘密を含む動的 key は、要素数を保ち
+無関係な key を変えずに安全な key へ投影し、投影できない場合は共有 API が honest に拒否できます。
+登録していない秘密は形式推定で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。
+過去の記録は表示時に保護し、書き戻しません。
 
 ```toml
 [preset.team_base]

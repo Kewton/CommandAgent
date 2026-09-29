@@ -191,16 +191,14 @@ fn scrubbed_session(session: &SessionSnapshot) -> SessionSnapshot {
     };
     let mut scrubbed = session.clone();
     for message in &mut scrubbed.messages {
+        // A tool protocol name (`message.name`, `call.name`) is a fixed
+        // identifier and is preserved.
         message.content = context.scrub_text(&message.content);
-        if let Some(name) = message.name.as_mut() {
-            *name = context.scrub_text(name);
-        }
         if let Some(tool_call_id) = message.tool_call_id.as_mut() {
             *tool_call_id = context.scrub_text(tool_call_id);
         }
         for call in &mut message.tool_calls {
             call.id = context.scrub_text(&call.id);
-            call.name = context.scrub_text(&call.name);
             context.scrub_value_lenient(&mut call.arguments);
         }
     }

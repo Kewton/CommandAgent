@@ -28,6 +28,8 @@ const BAD_BASE_URL_ENV: &str = "ISSUE504_BAD_BASE_URL";
 const BAD_BASE_URL_VALUE: &str = "http://bad host/\u{1F600}";
 const ENV_MODEL_SECRET: &str = "ISSUE504_MODEL_SECRET";
 const ENV_MODEL_VALUE: &str = "H05_MODEL_Only_In_ENV_19832";
+const PROVIDER_KEY_ENV: &str = "OPENAI_API_KEY";
+const PROVIDER_KEY_VALUE: &str = "H06_PROVIDER_EXTRA_4821";
 
 fn scope_with_canary(events: &Path) -> RedactionContext {
     let mut catalog = SecretCatalog::new();
@@ -320,11 +322,12 @@ fn shared_api_fixes_scrub_carry_refusal_and_context_separation() {
     // Debug never prints a value.
     assert!(!format!("{catalog:?}").contains(CANARY));
 
-    // Short credentials register; ordinary short values do not.
+    // A short credential value is refused at registration; an ordinary short
+    // value is not a secret.
     let mut short = SecretCatalog::new();
-    short.register_named("GATEWAY_TOKEN", "abc");
-    short.register_named("PORT", "3000");
-    assert!(short.contains("abc"));
+    assert!(short.register_credential("GATEWAY_TOKEN", "abc").is_err());
+    assert!(short.register_plain("3000").is_ok());
+    assert!(!short.contains("abc"));
     assert!(!short.contains("3000"));
 
     // Stream carry over a split.
@@ -505,7 +508,7 @@ fn config_env_scope_survives_the_minimal_loop_entry_child() {
         "config resolution did not register the expansion value"
     );
     // Recreating the scope at the minimal-loop entry must reuse, not discard, it.
-    commandagent::config::install_run_secret_scope(&config);
+    commandagent::config::install_run_secret_scope(&config).unwrap();
     assert!(
         commandagent::sensitive_data::current()
             .unwrap()
@@ -520,4 +523,224 @@ fn config_env_scope_survives_the_minimal_loop_entry_child() {
         !read(&events).contains(ENV_MODEL_VALUE),
         "the expansion value leaked after the entry"
     );
+}
+
+#[test]
+fn direct_minimal_loop_refuses_a_collection_failure() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let mut config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "issue504-model",
+    ]))
+    .unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    config.eval_events_path = Some(events.clone());
+    // The oversized root dotenv appears after the config is resolved.
+    std::fs::write(
+        dir.path().join(".env"),
+        format!("PRIVATE_TOKEN={CANARY}\n{}", "#".repeat(1024 * 1024 + 1)),
+    )
+    .unwrap();
+    reset_scopes_for_tests();
+
+    let seen_messages = Arc::new(Mutex::new(Vec::new()));
+    let seen_tools = Arc::new(Mutex::new(Vec::new()));
+    let mut client = CapturingClient {
+        seen_messages,
+        seen_tools,
+    };
+    let mut session = SessionSnapshot::new();
+    let error = commandagent::minimal_loop::run_session(
+        &mut client,
+        &mut session,
+        "Report current state.",
+        &config,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("collection cap"),
+        "the entry did not refuse the collection failure: {error:#}"
+    );
+
+    // The partial catalog is installed, so a later emit is still scrubbed.
+    commandagent::eval_events::emit(
+        Some(&events),
+        json!({"event": "h06_direct_cap", "message": CANARY}),
+    );
+    assert!(!read(&events).contains(CANARY));
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn combined_source_overflow_refuses_config() {
+    let exe = std::env::current_exe().unwrap();
+    let status = std::process::Command::new(exe)
+        .args([
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "combined_source_overflow_refuses_config_child",
+        ])
+        .env(PROVIDER_KEY_ENV, PROVIDER_KEY_VALUE)
+        .status()
+        .unwrap();
+    assert!(status.success(), "child exited with {status}");
+}
+
+#[test]
+#[ignore]
+fn combined_source_overflow_refuses_config_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut lines = String::new();
+    for index in 0..1024 {
+        lines.push_str(&format!(
+            "SECRET_{index:04}=H06_COMBINED_VALUE_{index:04}_only\n"
+        ));
+    }
+    std::fs::write(dir.path().join(".env"), lines).unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let result = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "h06-model",
+        "--offline",
+    ]));
+    assert!(
+        result.is_err(),
+        "a combined provider+dotenv overflow must refuse the config"
+    );
+}
+
+#[test]
+fn install_run_secret_scope_isolates_workspaces() {
+    reset_scopes_for_tests();
+    // Workspace B registers its own dotenv credential value.
+    let b = tempfile::tempdir().unwrap();
+    std::fs::write(b.path().join(".env"), "PRIVATE_TOKEN=H06_B_VALUE_6382\n").unwrap();
+    let b_cwd = b.path().to_string_lossy().to_string();
+    let b_config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &b_cwd,
+        "--model",
+        "h06-model",
+        "--offline",
+    ]))
+    .unwrap();
+
+    // Workspace A installs its own catalog under A's paths.
+    let a = tempfile::tempdir().unwrap();
+    let a_events = a.path().join("run/events.jsonl");
+    let mut a_catalog = SecretCatalog::new();
+    a_catalog.register("H06_ROOT_A_ONLY_7193");
+    install_scope(a_catalog, Some(a.path()), Some(&a_events));
+
+    // The B entry must reuse B's own catalog, never A's.
+    let b_context = commandagent::config::install_run_secret_scope(&b_config).unwrap();
+    assert!(b_context.contains("H06_B_VALUE_6382"));
+    assert!(!b_context.contains("H06_ROOT_A_ONLY_7193"));
+    assert_eq!(
+        b_context.scrub_text("ordinary H06_ROOT_A_ONLY_7193"),
+        "ordinary H06_ROOT_A_ONLY_7193"
+    );
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn provider_protocol_names_are_preserved_while_free_fields_are_scrubbed() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "issue504-model",
+    ]))
+    .unwrap();
+    let events = config.eval_events_path.clone().unwrap();
+    let secret = "inspector_tool";
+    let mut catalog = SecretCatalog::new();
+    catalog.register(secret);
+    install_scope(catalog, Some(dir.path()), Some(&events));
+
+    let tool_name = format!("workspace_{secret}");
+    let tool = ToolSpec {
+        kind: "function".to_string(),
+        function: FunctionSpec {
+            name: tool_name.clone(),
+            description: format!("reads {secret} data"),
+            parameters: json!({"type": "object"}),
+        },
+    };
+    let messages = vec![ConversationMessage::tool_result(
+        tool_name.clone(),
+        None::<String>,
+        "ordinary output",
+    )];
+    let seen_messages = Arc::new(Mutex::new(Vec::new()));
+    let seen_tools = Arc::new(Mutex::new(Vec::new()));
+    let mut client = CapturingClient {
+        seen_messages: Arc::clone(&seen_messages),
+        seen_tools: Arc::clone(&seen_tools),
+    };
+    let outcome = provider_call::chat_with_cancel_and_stream(
+        &mut client,
+        &config,
+        provider_call::ProviderChatRequest {
+            scope: ProviderCallScope::PlannerStep,
+            model: &config.model,
+            messages: &messages,
+            tools: &[tool],
+            native_tools_enabled: true,
+        },
+        || false,
+        &mut |_| Ok(()),
+    );
+    assert!(outcome.result.is_ok());
+
+    let sent_tools = seen_tools.lock().unwrap().clone();
+    assert_eq!(sent_tools[0].function.name, tool_name);
+    assert_eq!(sent_tools[0].function.description, "reads <redacted> data");
+    let sent_messages = seen_messages.lock().unwrap().clone();
+    assert_eq!(sent_messages[0].name.as_deref(), Some(tool_name.as_str()));
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn legacy_format_heuristic_uses_the_run_marker() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    let mut catalog = SecretCatalog::new();
+    catalog.register("redacted");
+    catalog.register(CANARY);
+    install_scope(catalog, Some(dir.path()), Some(&events));
+    let marker = commandagent::sensitive_data::active_marker();
+    assert_ne!(marker, "<redacted>");
+
+    let snippet = commandagent::eval_events::body_snippet("sk-h06-format-only-key");
+    assert_eq!(snippet, marker);
+    assert!(
+        !commandagent::sensitive_data::current()
+            .unwrap()
+            .contains(&snippet)
+    );
+
+    commandagent::eval_events::write_run_summary(Some(&events), "sk-h06-format-only-key");
+    let summary = read(&events.parent().unwrap().join("summary.md"));
+    assert!(
+        !commandagent::sensitive_data::current()
+            .unwrap()
+            .contains(&summary)
+    );
+    reset_scopes_for_tests();
 }
