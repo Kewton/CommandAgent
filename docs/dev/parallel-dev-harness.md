@@ -245,6 +245,22 @@ Approval is always written, never implied: the PM's dispatch brief says
    Issue that touches the GUI server needs its `--features gui` tests: the
    verify gates do not run them, so the dispatch brief asks the worker to run
    them and report the result, and the PR's GUI Dashboard CI job must pass.
+
+   The user runs the merge itself (user decision, 2026-09-30). The leader, a
+   Claude Code session, runs in auto mode: its own classifier can run a remote
+   push without any prompt the stop pattern could catch, and it refuses a PR
+   merge as "merge without review". So:
+   - The merge brief tells the leader to stop and report before every remote
+     push, and to stop once the PR is created and CI is green. It does not
+     run the PR merge or the runner's `--merge-prs`.
+   - The PM checks the PR: every check is green, the state is `CLEAN`, and
+     the head SHA is the verified one. The PM then gives the user the one-line
+     command to type, `! gh pr merge <N> --merge`.
+   - The PM does not run the merge in its own session, and does not add a
+     permission rule for it. The PM and the leader share this worktree's
+     settings, so such a rule would let the PM merge as well.
+   - After the user merges, the leader runs the integration verify on the
+     merge commit, and the PM closes the Issue (step 8).
 7. **UAT (leader, PM-approved).** Run the uat runner; the fix loop stays within
    `--max-attempts`. Failures return to the PM with evidence. The user may
    waive UAT for a run; record the waiver in the ledger.
@@ -283,7 +299,9 @@ git push|gh pr (create|merge)|cargo publish|git reset --hard|git clean -[a-z]*f|
 
 The stop pattern matches terminal output and cannot block a command. Do not put
 these strings literally in briefs; write "remote push" or "PR creation" in
-prose instead, or the brief itself trips the pattern.
+prose instead, or the brief itself trips the pattern. This holds for command
+lines inside briefs too: a brief that quoted the PR merge command switched the
+leader's auto-yes off as soon as it was displayed.
 
 Enable auto-yes on a helper with the first `send`
 (`--auto-yes --duration 8h --stop-pattern '<pattern>'`) or with
