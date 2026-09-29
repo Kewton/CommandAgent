@@ -93,6 +93,11 @@ fn require_access(
                 "profile_origin_not_allowed",
                 "この Origin から profile を登録できません。GUI_TRIAL_ALLOWED_ORIGINS と現在の URL を確認してください。",
             ),
+            AccessError::ForbiddenHost => GuiError::new(
+                StatusCode::FORBIDDEN,
+                "trial_host_not_allowed",
+                "この Host から profile を操作できません。127.0.0.1 / localhost / [::1] の正規の URL からアクセスしてください。",
+            ),
         })
 }
 

@@ -12,7 +12,10 @@ type ValidatedEnvironment = (Option<Arc<str>>, Arc<[String]>);
 pub struct TrialAccess {
     token: Option<Arc<str>>,
     authentication_enabled: bool,
+    /// Normalized, lowercased origins accepted as a mutation `Origin`.
     allowed_origins: Arc<[String]>,
+    /// Lowercased authorities accepted as the request `Host`.
+    allowed_hosts: Arc<[String]>,
 }
 
 impl TrialAccess {
@@ -20,27 +23,86 @@ impl TrialAccess {
         validated_environment(authentication_enabled).map(|_| ())
     }
 
+    /// In-process fixture constructor without a bound listener. It keeps the
+    /// loopback authorities unguessable (port 0) so it is only useful for
+    /// tests that call handlers directly; the served binary uses
+    /// [`Self::from_environment_on_port`].
     pub fn from_environment(
         execution_enabled: bool,
         authentication_enabled: bool,
     ) -> anyhow::Result<Self> {
+        Self::from_environment_on_port(execution_enabled, authentication_enabled, 0)
+    }
+
+    pub fn from_environment_on_port(
+        execution_enabled: bool,
+        authentication_enabled: bool,
+        listening_port: u16,
+    ) -> anyhow::Result<Self> {
         if !execution_enabled {
-            return Ok(Self {
-                token: None,
+            return Ok(Self::assemble(
+                None,
                 authentication_enabled,
-                allowed_origins: Arc::from([]),
-            });
+                Vec::new(),
+                listening_port,
+            ));
         }
         let (token, allowed_origins) = validated_environment(authentication_enabled)?;
-        Ok(Self {
+        Ok(Self::assemble(
             token,
             authentication_enabled,
-            allowed_origins,
-        })
+            allowed_origins.to_vec(),
+            listening_port,
+        ))
+    }
+
+    fn assemble(
+        token: Option<Arc<str>>,
+        authentication_enabled: bool,
+        allowed_origins: Vec<String>,
+        listening_port: u16,
+    ) -> Self {
+        let mut origins = loopback_origins(listening_port).to_vec();
+        let mut hosts = loopback_hosts(listening_port).to_vec();
+        for origin in allowed_origins {
+            if let Some(authority) = origin_authority(&origin) {
+                hosts.push(authority);
+            }
+            origins.push(origin.to_ascii_lowercase());
+        }
+        Self {
+            token,
+            authentication_enabled,
+            allowed_origins: Arc::from(origins),
+            allowed_hosts: Arc::from(hosts),
+        }
     }
 
     pub fn authentication_enabled(&self) -> bool {
         self.authentication_enabled
+    }
+
+    /// Reject any request whose `Host` is not exactly one of the allowed
+    /// authorities (loopback with the listening port, or a configured proxy
+    /// origin authority). A missing or duplicated `Host` is refused rather
+    /// than trusting only the first value.
+    pub fn authorize_host(&self, headers: &HeaderMap) -> Result<(), AccessError> {
+        let mut values = headers.get_all(header::HOST).iter();
+        let (Some(value), None) = (values.next(), values.next()) else {
+            return Err(AccessError::ForbiddenHost);
+        };
+        let Ok(host) = value.to_str() else {
+            return Err(AccessError::ForbiddenHost);
+        };
+        if self
+            .allowed_hosts
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(host))
+        {
+            Ok(())
+        } else {
+            Err(AccessError::ForbiddenHost)
+        }
     }
 
     pub fn authorize(&self, headers: &HeaderMap, require_origin: bool) -> Result<(), AccessError> {
@@ -61,6 +123,10 @@ impl TrialAccess {
         Ok(())
     }
 
+    /// A mutation `Origin` must be an exact allowed origin: a loopback origin
+    /// over `http`, or one listed by `GUI_TRIAL_ALLOWED_ORIGINS`. The old
+    /// "any authority that matches the request Host" rule is gone, so a
+    /// rebinding pair is never accepted just because it is self-consistent.
     fn origin_allowed(&self, headers: &HeaderMap) -> bool {
         let Some(origin) = headers
             .get(header::ORIGIN)
@@ -69,28 +135,35 @@ impl TrialAccess {
         else {
             return false;
         };
-        if self
-            .allowed_origins
+        let origin = origin.to_ascii_lowercase();
+        self.allowed_origins
             .iter()
             .any(|allowed| allowed == &origin)
-        {
-            return true;
-        }
-        let Some(host) = headers
-            .get(header::HOST)
-            .and_then(|value| value.to_str().ok())
-        else {
-            return false;
-        };
-        origin
-            .parse::<Uri>()
-            .ok()
-            .and_then(|uri| {
-                uri.authority()
-                    .map(|authority| authority.as_str().to_string())
-            })
-            .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
     }
+}
+
+fn loopback_hosts(port: u16) -> [String; 3] {
+    [
+        format!("localhost:{port}"),
+        format!("127.0.0.1:{port}"),
+        format!("[::1]:{port}"),
+    ]
+}
+
+fn loopback_origins(port: u16) -> [String; 3] {
+    [
+        format!("http://localhost:{port}"),
+        format!("http://127.0.0.1:{port}"),
+        format!("http://[::1]:{port}"),
+    ]
+}
+
+fn origin_authority(origin: &str) -> Option<String> {
+    origin
+        .parse::<Uri>()
+        .ok()?
+        .authority()
+        .map(|authority| authority.as_str().to_ascii_lowercase())
 }
 
 fn validated_environment(authentication_enabled: bool) -> anyhow::Result<ValidatedEnvironment> {
@@ -125,6 +198,7 @@ fn validated_environment(authentication_enabled: bool) -> anyhow::Result<Validat
 pub enum AccessError {
     Unauthorized,
     ForbiddenOrigin,
+    ForbiddenHost,
 }
 
 fn normalize_origin(value: &str) -> anyhow::Result<String> {
@@ -159,14 +233,30 @@ fn constant_time_equal(expected: &[u8], supplied: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    const PORT: u16 = 4173;
+
+    fn access_for_test(token: Option<&str>, origins: &[&str]) -> TrialAccess {
+        TrialAccess::assemble(
+            token.map(Arc::from),
+            token.is_some(),
+            origins.iter().map(|origin| origin.to_string()).collect(),
+            PORT,
+        )
+    }
+
+    fn headers_with_host(host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, host.parse().unwrap());
+        headers
+    }
+
     #[test]
     fn explicit_proxy_origin_requires_the_runtime_token() {
-        let access = TrialAccess {
-            token: Some(Arc::from("commandagent-gui-test-token-000000000001")),
-            authentication_enabled: true,
-            allowed_origins: Arc::from(["https://admin.example.com".to_string()]),
-        };
-        let mut headers = HeaderMap::new();
+        let access = access_for_test(
+            Some("commandagent-gui-test-token-000000000001"),
+            &["https://admin.example.com"],
+        );
+        let mut headers = headers_with_host("127.0.0.1:4173");
         headers.insert(
             header::AUTHORIZATION,
             "Bearer commandagent-gui-test-token-000000000001"
@@ -174,7 +264,6 @@ mod tests {
                 .unwrap(),
         );
         headers.insert(header::ORIGIN, "https://admin.example.com".parse().unwrap());
-        headers.insert(header::HOST, "127.0.0.1:4173".parse().unwrap());
 
         assert!(access.authorize(&headers, true).is_ok());
         headers.insert(header::ORIGIN, "https://attacker.invalid".parse().unwrap());
@@ -186,12 +275,11 @@ mod tests {
 
     #[test]
     fn proxy_safe_bearer_header_survives_authorization_stripping() {
-        let access = TrialAccess {
-            token: Some(Arc::from("commandagent-gui-test-token-000000000001")),
-            authentication_enabled: true,
-            allowed_origins: Arc::from(["https://admin.example.com".to_string()]),
-        };
-        let mut headers = HeaderMap::new();
+        let access = access_for_test(
+            Some("commandagent-gui-test-token-000000000001"),
+            &["https://admin.example.com"],
+        );
+        let mut headers = headers_with_host("127.0.0.1:4173");
         headers.insert(
             PROXY_SAFE_AUTHORIZATION_HEADER,
             "Bearer commandagent-gui-test-token-000000000001"
@@ -199,7 +287,6 @@ mod tests {
                 .unwrap(),
         );
         headers.insert(header::ORIGIN, "https://admin.example.com".parse().unwrap());
-        headers.insert(header::HOST, "127.0.0.1:4173".parse().unwrap());
 
         assert!(access.authorize(&headers, true).is_ok());
         headers.insert(
@@ -216,14 +303,9 @@ mod tests {
 
     #[test]
     fn disabled_token_auth_still_requires_an_allowed_post_origin() {
-        let access = TrialAccess {
-            token: None,
-            authentication_enabled: false,
-            allowed_origins: Arc::from([]),
-        };
-        let mut headers = HeaderMap::new();
+        let access = access_for_test(None, &[]);
+        let mut headers = headers_with_host("127.0.0.1:4173");
         headers.insert(header::ORIGIN, "http://127.0.0.1:4173".parse().unwrap());
-        headers.insert(header::HOST, "127.0.0.1:4173".parse().unwrap());
 
         assert!(access.authorize(&headers, true).is_ok());
         headers.insert(header::ORIGIN, "https://attacker.invalid".parse().unwrap());
@@ -231,5 +313,111 @@ mod tests {
             access.authorize(&headers, true),
             Err(AccessError::ForbiddenOrigin)
         ));
+    }
+
+    #[test]
+    fn host_must_match_loopback_and_listening_port_exactly() {
+        let access = access_for_test(None, &[]);
+        for host in [
+            "127.0.0.1:4173",
+            "localhost:4173",
+            "[::1]:4173",
+            "LOCALHOST:4173",
+            "127.0.0.1:4173",
+        ] {
+            assert!(
+                access.authorize_host(&headers_with_host(host)).is_ok(),
+                "expected {host} to be allowed"
+            );
+        }
+        for host in [
+            "127.0.0.1:1",
+            "localhost",
+            "localhost:4173.",
+            "127.0.0.1:4173.",
+            "[::ffff:127.0.0.1]:4173",
+            "2130706433:4173",
+            "127.0.0.1.attacker.example:4173",
+            "localhost.attacker.example:4173",
+            "user@127.0.0.1:4173",
+            "attacker.example:4173",
+            "127.0.0.1:4173@attacker.example",
+        ] {
+            assert!(
+                matches!(
+                    access.authorize_host(&headers_with_host(host)),
+                    Err(AccessError::ForbiddenHost)
+                ),
+                "expected {host} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn host_header_must_be_present_exactly_once() {
+        let access = access_for_test(None, &[]);
+        assert!(matches!(
+            access.authorize_host(&HeaderMap::new()),
+            Err(AccessError::ForbiddenHost)
+        ));
+
+        let mut duplicated = HeaderMap::new();
+        duplicated.append(header::HOST, "127.0.0.1:4173".parse().unwrap());
+        duplicated.append(header::HOST, "attacker.example:4173".parse().unwrap());
+        assert!(matches!(
+            access.authorize_host(&duplicated),
+            Err(AccessError::ForbiddenHost)
+        ));
+    }
+
+    #[test]
+    fn allowlist_authority_is_accepted_as_host_and_origin() {
+        let access = access_for_test(None, &["https://gui.example.test"]);
+        assert!(
+            access
+                .authorize_host(&headers_with_host("gui.example.test"))
+                .is_ok()
+        );
+        assert!(matches!(
+            access.authorize_host(&headers_with_host("other.example.test")),
+            Err(AccessError::ForbiddenHost)
+        ));
+
+        let mut headers = headers_with_host("127.0.0.1:4173");
+        headers.insert(header::ORIGIN, "https://gui.example.test".parse().unwrap());
+        assert!(access.authorize(&headers, true).is_ok());
+
+        headers.insert(
+            header::ORIGIN,
+            "https://other.example.test".parse().unwrap(),
+        );
+        assert!(matches!(
+            access.authorize(&headers, true),
+            Err(AccessError::ForbiddenOrigin)
+        ));
+    }
+
+    #[test]
+    fn mutation_origin_scheme_must_match_the_loopback_http_serving() {
+        let access = access_for_test(None, &[]);
+        let mut headers = headers_with_host("127.0.0.1:4173");
+        for origin in [
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",
+            "http://[::1]:4173",
+        ] {
+            headers.insert(header::ORIGIN, origin.parse().unwrap());
+            assert!(access.authorize(&headers, true).is_ok(), "{origin}");
+        }
+        for origin in ["https://127.0.0.1:4173", "http://127.0.0.1:1", "null"] {
+            headers.insert(header::ORIGIN, origin.parse().unwrap());
+            assert!(
+                matches!(
+                    access.authorize(&headers, true),
+                    Err(AccessError::ForbiddenOrigin)
+                ),
+                "expected {origin} to be rejected"
+            );
+        }
     }
 }
