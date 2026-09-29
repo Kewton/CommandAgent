@@ -241,6 +241,16 @@ impl SecretCatalog {
         redaction::scrub_value_lenient(self, value);
     }
 
+    /// Lenient recursive scrub for arbitrary free input (a tool call's
+    /// arguments). No key is treated as a fixed schema identifier, so a
+    /// registered secret is never preserved by name.
+    pub fn scrub_value_free(&self, value: &mut serde_json::Value) {
+        if self.is_empty() {
+            return;
+        }
+        redaction::scrub_value_free(self, value);
+    }
+
     /// Scrub a YAML value in place (all string scalars/keys).
     pub fn scrub_yaml(&self, value: &mut serde_yaml::Value) {
         if self.is_empty() {
@@ -369,6 +379,11 @@ impl RedactionContext {
     /// The lenient scrub for boundaries that cannot fail.
     pub fn scrub_value_lenient(&self, value: &mut serde_json::Value) {
         self.catalog.scrub_value_lenient(value);
+    }
+
+    /// The lenient scrub for arbitrary free input (a tool call's arguments).
+    pub fn scrub_value_free(&self, value: &mut serde_json::Value) {
+        self.catalog.scrub_value_free(value);
     }
 
     pub fn contains(&self, text: &str) -> bool {

@@ -744,3 +744,102 @@ fn legacy_format_heuristic_uses_the_run_marker() {
     );
     reset_scopes_for_tests();
 }
+
+#[test]
+fn free_tool_arguments_are_scrubbed_in_the_provider_copy_and_session() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().to_string_lossy().to_string();
+    let config = Config::from_cli(Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        &cwd,
+        "--model",
+        "issue504-model",
+    ]))
+    .unwrap();
+    let events = config.eval_events_path.clone().unwrap();
+    scope_with_canary(&events);
+
+    let arguments = json!({
+        "path": "ordinary.json",
+        "status": CANARY,
+        "type": CANARY,
+        "action": CANARY,
+        "tool_name": CANARY,
+        "content": CANARY,
+    });
+    let calls = vec![ToolCall {
+        id: "call-1".to_string(),
+        name: "Write".to_string(),
+        arguments: arguments.clone(),
+    }];
+    let messages = vec![ConversationMessage::assistant("note", calls)];
+
+    let seen_messages = Arc::new(Mutex::new(Vec::new()));
+    let seen_tools = Arc::new(Mutex::new(Vec::new()));
+    let mut client = CapturingClient {
+        seen_messages: Arc::clone(&seen_messages),
+        seen_tools: Arc::clone(&seen_tools),
+    };
+    let outcome = provider_call::chat_with_cancel_and_stream(
+        &mut client,
+        &config,
+        provider_call::ProviderChatRequest {
+            scope: ProviderCallScope::PlannerStep,
+            model: &config.model,
+            messages: &messages,
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        || false,
+        &mut |_| Ok(()),
+    );
+    assert!(outcome.result.is_ok());
+    let sent = seen_messages.lock().unwrap().clone();
+    assert!(
+        !serde_json::to_string(&sent).unwrap().contains(CANARY),
+        "provider copy kept a free-argument secret"
+    );
+
+    let mut session = SessionSnapshot::new();
+    session.messages = messages.clone();
+    let stored = SessionStore::new(dir.path().join("state"))
+        .save(&session)
+        .unwrap();
+    assert!(
+        !read(&stored).contains(CANARY),
+        "session kept a free-argument secret"
+    );
+
+    // The caller's execution arguments are unchanged.
+    assert_eq!(messages[0].tool_calls[0].arguments["status"], CANARY);
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn summary_status_contract_is_preserved() {
+    reset_scopes_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("run/events.jsonl");
+    let mut catalog = SecretCatalog::new();
+    catalog.register("completed");
+    install_scope(catalog, Some(dir.path()), Some(&events));
+
+    commandagent::eval_events::write_run_summary(
+        Some(&events),
+        "Status: completed\nStop reason: completed",
+    );
+
+    let summary = read(&events.parent().unwrap().join("summary.md"));
+    assert!(
+        summary.contains("Status: completed"),
+        "fixed status was rewritten: {summary}"
+    );
+    assert!(
+        !summary.contains("Stop reason: completed"),
+        "the free reason was not scrubbed: {summary}"
+    );
+    assert!(summary.contains("<redacted>"), "{summary}");
+    reset_scopes_for_tests();
+}

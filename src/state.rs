@@ -199,7 +199,7 @@ fn scrubbed_session(session: &SessionSnapshot) -> SessionSnapshot {
         }
         for call in &mut message.tool_calls {
             call.id = context.scrub_text(&call.id);
-            context.scrub_value_lenient(&mut call.arguments);
+            context.scrub_value_free(&mut call.arguments);
         }
     }
     scrubbed

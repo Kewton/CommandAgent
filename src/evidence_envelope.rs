@@ -480,4 +480,35 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("workspace-relative"));
     }
+
+    #[test]
+    fn fixed_envelope_key_and_metadata_survive_scrub() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        // Both are registered credential values and both are substrings of the
+        // real fixed key/kind.
+        catalog.register("evidence_");
+        catalog.register("ool_parse_fail");
+        crate::sensitive_data::install_scope(
+            catalog,
+            None,
+            Some(std::path::Path::new("/tmp/h07-envelope")),
+        );
+
+        let bytes = to_vec_pretty(
+            &json!({"capability_id": "tool_parse_failure", "status": "pass"}),
+            EvidenceEnvelopeSpec::new(EvidenceFamily::ToolParse, "tool_parse_failure"),
+        )
+        .unwrap();
+        let document: Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert!(
+            document.get("evidence_envelope").is_some(),
+            "fixed key was renamed: {document}"
+        );
+        assert_eq!(document["evidence_envelope"]["kind"], "tool_parse_failure");
+        assert_eq!(document["evidence_envelope"]["family"], "tool_parse");
+        assert_eq!(document["evidence_envelope"]["envelope_version"], 1);
+        crate::sensitive_data::reset_scopes_for_tests();
+    }
 }

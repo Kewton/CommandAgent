@@ -761,17 +761,18 @@ fn scrub_conversation(
         }
         for call in &mut message.tool_calls {
             call.id = context.scrub_text(&call.id);
-            context.scrub_value_lenient(&mut call.arguments);
+            context.scrub_value_free(&mut call.arguments);
         }
     }
 }
 
 /// Scrub the tool schema copy sent with a provider request. `kind` and
-/// `function.name` are fixed protocol identifiers and are preserved.
+/// `function.name` are fixed protocol identifiers and are preserved; the
+/// parameter schema is arbitrary input, so it is scrubbed as free input.
 fn scrub_tool_specs(context: &crate::sensitive_data::RedactionContext, tools: &mut [ToolSpec]) {
     for tool in tools {
         tool.function.description = context.scrub_text(&tool.function.description);
-        context.scrub_value_lenient(&mut tool.function.parameters);
+        context.scrub_value_free(&mut tool.function.parameters);
     }
 }
 

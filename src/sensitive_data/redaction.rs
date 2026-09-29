@@ -22,9 +22,10 @@ use serde_json::Value;
 
 use super::{MAX_DOTENV_BYTES, MAX_DOTENV_FILES, MIN_GENERIC_SECRET_LEN, SecretCatalog};
 
-/// Top-level keys whose value is a fixed schema identifier. Such a value is
-/// never rewritten, so a registered value that collides with it cannot corrupt
-/// the schema.
+/// Schema keys whose value is a fixed identifier. Such a value is never
+/// rewritten, so a registered value that collides with it cannot corrupt the
+/// schema. A fixed value is only recognized inside a schema container, never in
+/// arbitrary tool input.
 const FIXED_SCHEMA_KEYS: &[&str] = &[
     "event",
     "schema_version",
@@ -47,8 +48,21 @@ const FIXED_SCHEMA_KEYS: &[&str] = &[
     "action",
 ];
 
+/// Keys whose direct children are themselves a fixed schema (their schema keys
+/// are fixed at depth two). `evidence_envelope` is the real product case.
+const FIXED_SCHEMA_CONTAINERS: &[&str] = &["evidence_envelope"];
+
+/// Schema keys that are never renamed, even when a registered value matches.
+fn is_protected_key(key: &str) -> bool {
+    is_fixed_schema_key(key) || FIXED_SCHEMA_CONTAINERS.contains(&key)
+}
+
 fn is_fixed_schema_key(key: &str) -> bool {
     FIXED_SCHEMA_KEYS.contains(&key)
+}
+
+fn is_fixed_container(key: &str) -> bool {
+    FIXED_SCHEMA_CONTAINERS.contains(&key)
 }
 
 /// A strict projection refusal. The message names the position, never the
@@ -193,20 +207,21 @@ fn scrub_string(catalog: &SecretCatalog, fixed: bool, text: &str) -> String {
     }
 }
 
-/// Strict recursive scrub. Refuses a dynamic key that contains a secret.
+/// Strict recursive scrub of a schema value. Refuses a dynamic key that
+/// contains a secret; a protected schema key is never renamed or refused.
 pub fn scrub_value_strict(
     catalog: &SecretCatalog,
     value: &mut Value,
 ) -> Result<(), SecretScrubError> {
     let mut position = vec!["root".to_string()];
-    strict_at(catalog, value, 1, false, &mut position)
+    strict_at(catalog, value, false, true, &mut position)
 }
 
 fn strict_at(
     catalog: &SecretCatalog,
     value: &mut Value,
-    depth: usize,
     fixed: bool,
+    fixed_container: bool,
     position: &mut Vec<String>,
 ) -> Result<(), SecretScrubError> {
     match value {
@@ -217,21 +232,23 @@ fn strict_at(
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
                 position.push(format!("[{index}]"));
-                strict_at(catalog, item, depth + 1, false, position)?;
+                strict_at(catalog, item, false, false, position)?;
                 position.pop();
             }
             Ok(())
         }
         Value::Object(map) => {
-            if map.keys().any(|key| catalog.contains(key)) {
-                return Err(SecretScrubError::DynamicKey {
-                    position: position.join("."),
-                });
-            }
             for (key, item) in map.iter_mut() {
-                let fixed = depth == 1 && is_fixed_schema_key(key);
+                let protected = fixed_container && is_protected_key(key);
+                if !protected && catalog.contains(key) {
+                    return Err(SecretScrubError::DynamicKey {
+                        position: position.join("."),
+                    });
+                }
+                let child_fixed = fixed_container && is_fixed_schema_key(key);
+                let child_container = fixed_container && is_fixed_container(key);
                 position.push("{}".to_string());
-                strict_at(catalog, item, depth + 1, fixed, position)?;
+                strict_at(catalog, item, child_fixed, child_container, position)?;
                 position.pop();
             }
             Ok(())
@@ -240,30 +257,49 @@ fn strict_at(
     }
 }
 
-/// Lenient recursive scrub for boundaries that must not fail. A dynamic key
-/// that contains a secret is projected to a distinct safe key, so no evidence
-/// is lost and unrelated keys are left unchanged.
+/// Lenient recursive scrub for a schema document. A dynamic key that contains a
+/// secret is projected to a distinct safe key without renaming an unrelated
+/// key, and a fixed schema identifier is preserved.
 pub fn scrub_value_lenient(catalog: &SecretCatalog, value: &mut Value) {
-    lenient_at(catalog, value, 1, false);
+    lenient_at(catalog, value, false, true);
 }
 
-fn lenient_at(catalog: &SecretCatalog, value: &mut Value, depth: usize, fixed: bool) {
+/// Lenient recursive scrub for arbitrary free input (a tool call's arguments).
+/// No key is treated as a fixed schema identifier, so a registered secret is
+/// never preserved by name.
+pub fn scrub_value_free(catalog: &SecretCatalog, value: &mut Value) {
+    lenient_at(catalog, value, false, false);
+}
+
+fn lenient_at(catalog: &SecretCatalog, value: &mut Value, fixed: bool, fixed_container: bool) {
     match value {
         Value::String(text) => *text = scrub_string(catalog, fixed, text),
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|item| lenient_at(catalog, item, depth + 1, false)),
+            .for_each(|item| lenient_at(catalog, item, false, false)),
         Value::Object(map) => {
             let entries = std::mem::take(map);
+            // Reserve every key that keeps its original name, so a projected key
+            // can never rename an unrelated existing key.
+            let mut used = BTreeSet::new();
+            for (key, _) in &entries {
+                let protected = fixed_container && is_protected_key(key);
+                if protected || scrub_key(catalog, key) == *key {
+                    used.insert(key.clone());
+                }
+            }
             let mut cleaned = serde_json::Map::with_capacity(entries.len());
             for (key, mut item) in entries {
-                let fixed = depth == 1 && is_fixed_schema_key(&key);
-                lenient_at(catalog, &mut item, depth + 1, fixed);
-                let key = if fixed {
+                let protected = fixed_container && is_protected_key(&key);
+                let child_fixed = fixed_container && is_fixed_schema_key(&key);
+                let child_container = fixed_container && is_fixed_container(&key);
+                lenient_at(catalog, &mut item, child_fixed, child_container);
+                let key = if protected || scrub_key(catalog, &key) == key {
                     key
                 } else {
-                    unique_json_key(catalog, &cleaned, &key)
+                    unique_json_key(catalog, &mut used, &key)
                 };
+                used.insert(key.clone());
                 cleaned.insert(key, item);
             }
             *map = cleaned;
@@ -272,19 +308,15 @@ fn lenient_at(catalog: &SecretCatalog, value: &mut Value, depth: usize, fixed: b
     }
 }
 
-fn unique_json_key(
-    catalog: &SecretCatalog,
-    cleaned: &serde_json::Map<String, Value>,
-    key: &str,
-) -> String {
+fn unique_json_key(catalog: &SecretCatalog, used: &mut BTreeSet<String>, key: &str) -> String {
     let base = scrub_key(catalog, key);
-    if !cleaned.contains_key(&base) {
+    if !used.contains(&base) {
         return base;
     }
     let mut index = 1usize;
     loop {
         let candidate = format!("{base}#{index}");
-        if !cleaned.contains_key(&candidate) {
+        if !used.contains(&candidate) {
             return candidate;
         }
         index += 1;
@@ -292,81 +324,152 @@ fn unique_json_key(
 }
 
 /// Scrub every string scalar and string key of a YAML value. Key uniqueness is
-/// tracked per mapping, and a key is only renamed when it actually changed.
+/// tracked per mapping, an unrelated key is never renamed, and a composite
+/// (sequence) key is disambiguated so the element count is preserved.
 pub fn scrub_yaml_value(catalog: &SecretCatalog, value: &mut serde_yaml::Value) {
-    scrub_yaml_at(catalog, value, 1, false);
+    scrub_yaml_at(catalog, value, false, true);
 }
 
 fn scrub_yaml_at(
     catalog: &SecretCatalog,
     value: &mut serde_yaml::Value,
-    depth: usize,
     fixed: bool,
+    fixed_container: bool,
 ) {
     match value {
         serde_yaml::Value::String(text) => *text = scrub_string(catalog, fixed, text),
         serde_yaml::Value::Sequence(items) => items
             .iter_mut()
-            .for_each(|item| scrub_yaml_at(catalog, item, depth + 1, false)),
+            .for_each(|item| scrub_yaml_at(catalog, item, false, false)),
         serde_yaml::Value::Mapping(map) => {
             let entries = std::mem::take(map);
-            let mut cleaned = serde_yaml::Mapping::new();
+            // Reserve every key that keeps its original form first, so a
+            // projected key can never rename an unrelated existing key.
             let mut used: BTreeSet<String> = BTreeSet::new();
+            for (key, _) in &entries {
+                if yaml_key_protected(key, fixed_container) || !yaml_key_changes(catalog, key) {
+                    used.insert(yaml_key_identity(key));
+                }
+            }
+            let mut cleaned = serde_yaml::Mapping::new();
             for (key, mut item) in entries {
-                let fixed = depth == 1
+                let protected = yaml_key_protected(&key, fixed_container);
+                let child_fixed = fixed_container
                     && matches!(&key, serde_yaml::Value::String(name) if is_fixed_schema_key(name));
-                scrub_yaml_at(catalog, &mut item, depth + 1, fixed);
-                let key = scrub_yaml_key(catalog, key, depth, &mut used);
+                let child_container = fixed_container
+                    && matches!(&key, serde_yaml::Value::String(name) if is_fixed_container(name));
+                scrub_yaml_at(catalog, &mut item, child_fixed, child_container);
+                let key = scrub_yaml_key(catalog, key, protected, &mut used);
                 cleaned.insert(key, item);
             }
             *map = cleaned;
         }
         serde_yaml::Value::Tagged(tagged) => {
-            scrub_yaml_at(catalog, &mut tagged.value, depth, false)
+            scrub_yaml_at(catalog, &mut tagged.value, fixed, fixed_container)
         }
         serde_yaml::Value::Null | serde_yaml::Value::Bool(_) | serde_yaml::Value::Number(_) => {}
+    }
+}
+
+fn yaml_key_protected(key: &serde_yaml::Value, fixed_container: bool) -> bool {
+    fixed_container && matches!(key, serde_yaml::Value::String(name) if is_protected_key(name))
+}
+
+fn yaml_key_identity(key: &serde_yaml::Value) -> String {
+    match key {
+        serde_yaml::Value::String(text) => format!("s:{text}"),
+        other => serde_yaml::to_string(other).unwrap_or_else(|_| format!("{other:?}")),
+    }
+}
+
+fn yaml_string_identity(text: &str) -> String {
+    format!("s:{text}")
+}
+
+fn yaml_key_changes(catalog: &SecretCatalog, key: &serde_yaml::Value) -> bool {
+    match key {
+        serde_yaml::Value::String(text) => scrub_key(catalog, text) != *text,
+        serde_yaml::Value::Sequence(items) => {
+            items.iter().any(|item| yaml_value_changes(catalog, item))
+        }
+        serde_yaml::Value::Tagged(tagged) => yaml_value_changes(catalog, &tagged.value),
+        _ => false,
+    }
+}
+
+fn yaml_value_changes(catalog: &SecretCatalog, value: &serde_yaml::Value) -> bool {
+    match value {
+        serde_yaml::Value::String(text) => {
+            catalog.contains(text) || scrub_key(catalog, text) != *text
+        }
+        serde_yaml::Value::Sequence(items) => {
+            items.iter().any(|item| yaml_value_changes(catalog, item))
+        }
+        serde_yaml::Value::Mapping(map) => map.iter().any(|(key, item)| {
+            yaml_value_changes(catalog, key) || yaml_value_changes(catalog, item)
+        }),
+        serde_yaml::Value::Tagged(tagged) => yaml_value_changes(catalog, &tagged.value),
+        _ => false,
     }
 }
 
 fn scrub_yaml_key(
     catalog: &SecretCatalog,
     key: serde_yaml::Value,
-    depth: usize,
+    protected: bool,
     used: &mut BTreeSet<String>,
 ) -> serde_yaml::Value {
+    // A protected or unchanged key keeps its original form; only a key that
+    // actually contains a secret is projected, and it is disambiguated against
+    // every reserved key so an unrelated key is never renamed.
+    let changed = !protected && yaml_key_changes(catalog, &key);
     match key {
         serde_yaml::Value::String(text) => {
-            if depth == 1 && is_fixed_schema_key(&text) {
-                used.insert(text.clone());
+            if !changed {
+                used.insert(yaml_string_identity(&text));
                 return serde_yaml::Value::String(text);
             }
-            let replaced = scrub_key(catalog, &text);
-            let candidate = if used.contains(&replaced) {
-                let mut index = 1usize;
-                loop {
-                    let next = format!("{replaced}#{index}");
-                    if !used.contains(&next) {
-                        break next;
-                    }
-                    index += 1;
-                }
-            } else {
-                replaced
-            };
-            used.insert(candidate.clone());
+            let base = scrub_key(catalog, &text);
+            let mut candidate = base.clone();
+            let mut index = 1usize;
+            while used.contains(&yaml_string_identity(&candidate)) {
+                candidate = format!("{base}#{index}");
+                index += 1;
+            }
+            used.insert(yaml_string_identity(&candidate));
             serde_yaml::Value::String(candidate)
         }
         serde_yaml::Value::Sequence(mut items) => {
             items
                 .iter_mut()
-                .for_each(|item| scrub_yaml_at(catalog, item, depth + 1, false));
-            serde_yaml::Value::Sequence(items)
+                .for_each(|item| scrub_yaml_at(catalog, item, false, false));
+            if !changed {
+                let key = serde_yaml::Value::Sequence(items);
+                used.insert(yaml_key_identity(&key));
+                return key;
+            }
+            let base = items;
+            let mut candidate = serde_yaml::Value::Sequence(base.clone());
+            let mut index = 1usize;
+            while used.contains(&yaml_key_identity(&candidate)) {
+                let mut extended = base.clone();
+                extended.push(serde_yaml::Value::String(format!("#{index}")));
+                candidate = serde_yaml::Value::Sequence(extended);
+                index += 1;
+            }
+            used.insert(yaml_key_identity(&candidate));
+            candidate
         }
         serde_yaml::Value::Tagged(mut tagged) => {
-            scrub_yaml_at(catalog, &mut tagged.value, depth, false);
-            serde_yaml::Value::Tagged(tagged)
+            scrub_yaml_at(catalog, &mut tagged.value, false, false);
+            let key = serde_yaml::Value::Tagged(tagged);
+            used.insert(yaml_key_identity(&key));
+            key
         }
-        other => other,
+        other => {
+            used.insert(yaml_key_identity(&other));
+            other
+        }
     }
 }
 

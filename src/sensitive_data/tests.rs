@@ -551,3 +551,110 @@ fn marker_terminal_fallback_contains_no_registered_value() {
         fallback.scrub(canary)
     );
 }
+
+#[test]
+fn free_input_scrub_ignores_schema_key_names() {
+    let canary = "H07_FREE_ARG_CANARY_7741";
+    let catalog = catalog(&[canary]);
+    let mut free = json!({
+        "path": "ordinary.json",
+        "status": canary,
+        "type": canary,
+        "action": canary,
+        "tool_name": canary,
+        "content": canary,
+    });
+    catalog.scrub_value_free(&mut free);
+    assert!(
+        !serde_json::to_string(&free).unwrap().contains(canary),
+        "free arguments kept a secret: {free}"
+    );
+
+    // The same key names under the schema scrub are fixed identifiers.
+    let mut schema =
+        json!({"status": canary, "type": canary, "action": canary, "tool_name": canary});
+    catalog.scrub_value_lenient(&mut schema);
+    assert_eq!(schema["status"], canary);
+    assert_eq!(schema["type"], canary);
+    assert_eq!(schema["action"], canary);
+    assert_eq!(schema["tool_name"], canary);
+}
+
+#[test]
+fn composite_yaml_keys_keep_both_elements() {
+    let (a, b) = ("H07_YAML_A_SECRET_4412", "H07_YAML_B_SECRET_4412");
+    let catalog = catalog(&[a, b]);
+    let mut value: serde_yaml::Value = serde_yaml::from_str(&format!(
+        "? [{a}, ordinary]\n: one\n? [{b}, ordinary]\n: two\n"
+    ))
+    .unwrap();
+
+    catalog.scrub_yaml(&mut value);
+
+    assert_eq!(value.as_mapping().unwrap().len(), 2);
+    let text = serde_yaml::to_string(&value).unwrap();
+    assert!(!text.contains(a), "{text}");
+    assert!(!text.contains(b), "{text}");
+}
+
+#[test]
+fn an_unrelated_marker_key_is_not_renamed_by_a_projection() {
+    let secret = "!H07_DYNAMIC_SECRET_9631";
+    let catalog = catalog(&[secret]);
+
+    let mut object = serde_json::Map::new();
+    object.insert(secret.to_string(), json!(1));
+    object.insert("<redacted>".to_string(), json!(2));
+    let mut value = serde_json::Value::Object(object);
+    catalog.scrub_value_lenient(&mut value);
+    let object = value.as_object().unwrap();
+    assert_eq!(object.len(), 2);
+    assert_eq!(object["<redacted>"], 2, "unrelated key changed: {object:?}");
+    assert_eq!(object["<redacted>#1"], 1);
+    assert!(!serde_json::to_string(&value).unwrap().contains(secret));
+
+    let mut mapping = serde_yaml::Mapping::new();
+    mapping.insert(
+        serde_yaml::Value::from(secret),
+        serde_yaml::Value::from(1i64),
+    );
+    mapping.insert(
+        serde_yaml::Value::from("<redacted>"),
+        serde_yaml::Value::from(2i64),
+    );
+    let mut value = serde_yaml::Value::Mapping(mapping);
+    catalog.scrub_yaml(&mut value);
+    let mapping = value.as_mapping().unwrap();
+    assert_eq!(mapping.len(), 2);
+    assert_eq!(
+        mapping
+            .get(serde_yaml::Value::from("<redacted>"))
+            .and_then(serde_yaml::Value::as_i64),
+        Some(2),
+        "unrelated YAML key changed: {mapping:?}"
+    );
+}
+
+#[test]
+fn envelope_fixed_key_and_kind_are_preserved() {
+    let catalog = catalog(&["evidence_", "ool_parse_fail"]);
+    let mut value = json!({
+        "capability_id": "tool_parse_failure",
+        "evidence_envelope": {
+            "envelope_version": 1,
+            "family": "tool_parse",
+            "kind": "tool_parse_failure",
+        },
+    });
+
+    catalog.scrub_value_lenient(&mut value);
+
+    let object = value.as_object().unwrap();
+    assert!(
+        object.contains_key("evidence_envelope"),
+        "fixed key renamed: {object:?}"
+    );
+    assert_eq!(value["evidence_envelope"]["kind"], "tool_parse_failure");
+    assert_eq!(value["evidence_envelope"]["family"], "tool_parse");
+    assert_eq!(value["evidence_envelope"]["envelope_version"], 1);
+}

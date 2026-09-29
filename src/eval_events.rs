@@ -3201,9 +3201,11 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(body: &str) -> String {
-    // Scrub the complete value before line splitting so a multiline registered
-    // value cannot survive as two fragments.
-    let scrubbed = crate::sensitive_data::scrub_active(body);
+    // A fixed machine value (`Status:`/`Result:`) is a schema identifier and is
+    // preserved; every other value is scrubbed. The full body is still scrubbed
+    // as one string so a multiline secret cannot survive as two fragments.
+    let (protected, fixed) = protect_fixed_summary_values(body);
+    let scrubbed = crate::sensitive_data::scrub_active(&protected);
     let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
     let mut out = String::new();
@@ -3221,7 +3223,53 @@ fn summary_body(body: &str) -> String {
         out.push_str(&line);
         len += line_len;
     }
-    out
+    restore_fixed_summary_values(&out, &fixed)
+}
+
+/// Replace a fixed summary machine value with a placeholder so the catalog
+/// scrub cannot rewrite it, remembering the original value.
+fn protect_fixed_summary_values(body: &str) -> (String, Vec<(String, String)>) {
+    let mut text = String::new();
+    let mut fixed = Vec::new();
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        match fixed_summary_value(line) {
+            Some((label, separator, value)) => {
+                let placeholder = format!("commandagentfixturefixedstatus{}", fixed.len());
+                text.push_str(label);
+                text.push_str(separator);
+                text.push_str(&placeholder);
+                fixed.push((placeholder, value.to_string()));
+            }
+            None => text.push_str(line),
+        }
+    }
+    (text, fixed)
+}
+
+fn fixed_summary_value(line: &str) -> Option<(&str, &str, &str)> {
+    let trimmed = line.trim_start();
+    for label in ["Status:", "Result:"] {
+        if let Some(rest) = trimmed.strip_prefix(label) {
+            let (separator, value) = match rest.strip_prefix(' ') {
+                Some(value) => (" ", value),
+                None => ("", rest),
+            };
+            let label_end = line.len() - trimmed.len() + label.len();
+            return Some((&line[..label_end], separator, value));
+        }
+    }
+    None
+}
+
+fn restore_fixed_summary_values(text: &str, fixed: &[(String, String)]) -> String {
+    let mut restored = text.to_string();
+    for (placeholder, value) in fixed {
+        restored = restored.replace(placeholder.as_str(), value);
+    }
+    restored
 }
 
 fn argument_value_summary(key: &str, value: &Value) -> Value {
