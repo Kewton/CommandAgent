@@ -69,9 +69,10 @@ Authority in this chain:
 - The user's instruction naming Issues authorizes planning, worktree creation,
   `commandmate sync` for those worktrees, and dispatch for those Issues. The
   PM approves the plan and dispatch.
-- PR creation and merge require the user's approval every time. The leader
-  runs the merge runner only after the PM relays an approval that names the
-  Issues.
+- PR creation and merge require the user's approval every time. The user has
+  delegated merge approval to the PM (2026-09-30): the PM approves and runs a
+  merge only when every condition in `docs/dev/parallel-dev-harness.md`
+  section 3, step 6 holds, and otherwise asks the user.
 - Issue edits, CommandMate start or stop, and cleanup of worktrees still need
   the user's own authorization.
 

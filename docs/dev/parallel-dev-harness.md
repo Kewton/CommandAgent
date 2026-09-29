@@ -46,7 +46,7 @@ leader may ask a helper.
 | Create worktrees (`--prepare-worktrees`, `cmate-worktree-setup`) and `commandmate sync` for them | Leader, as part of an approved dispatch | |
 | Worker prompts | auto-yes (see section 4) | Anything auto-yes does not answer goes to the leader, then the PM |
 | Leader's own tool prompts | auto-yes (see section 4) | A prompt that auto-yes leaves open (stop pattern hit) goes to the PM; the PM answers within its authority and sends anything else (merge, destructive git, CommandMate start/stop, Issue edits) to the user |
-| Create PRs and merge | **User, every time** | The PM presents the merge request; the leader runs merge only after the PM relays an explicit approval naming the Issues |
+| Create PRs and merge | **User**, delegated to the PM (2026-09-30) | The PM approves and runs a merge only when every condition in section 3, step 6 holds; otherwise it presents the merge request to the user |
 | Run UAT and its bounded fix loop | PM | |
 | Edit, close, or relabel Issues | User | |
 | Start, stop, or restart CommandMate | User | Never done to resolve an ambiguous failure |
@@ -246,20 +246,26 @@ Approval is always written, never implied: the PM's dispatch brief says
    verify gates do not run them, so the dispatch brief asks the worker to run
    them and report the result, and the PR's GUI Dashboard CI job must pass.
 
-   The user runs the merge itself (user decision, 2026-09-30). The leader, a
-   Claude Code session, runs in auto mode: its own classifier can run a remote
-   push without any prompt the stop pattern could catch, and it refuses a PR
-   merge as "merge without review". So:
+   The leader does not merge (user decisions, 2026-09-30). It is a Claude Code
+   session in auto mode: its own classifier can run a remote push without any
+   prompt the stop pattern could catch, and it refuses a PR merge as "merge
+   without review". So:
    - The merge brief tells the leader to stop and report before every remote
      push, and to stop once the PR is created and CI is green. It does not
      run the PR merge or the runner's `--merge-prs`.
-   - The PM checks the PR: every check is green, the state is `CLEAN`, and
-     the head SHA is the verified one. The PM then gives the user the one-line
-     command to type, `! gh pr merge <N> --merge`.
-   - The PM does not run the merge in its own session, and does not add a
-     permission rule for it. The PM and the leader share this worktree's
-     settings, so such a rule would let the PM merge as well.
-   - After the user merges, the leader runs the integration verify on the
+   - The user delegated merge approval to the PM. The PM merges with
+     `gh pr merge <N> --merge` only when all of these hold:
+     - The verify gates pass on the PR's head.
+     - The independent review, when the Issue needs one (step 4a), ends with
+       0 blockers.
+     - Every PR check is completed and green, and the state is `CLEAN`.
+     - The head SHA is the verified one.
+     If any condition fails or is unclear, the PM does not merge. It gives
+     the user the evidence and the one-line command, `! gh pr merge <N> --merge`,
+     for the user to run or decline.
+   - Do not add a permission rule for PR merges. The PM and the leader share
+     this worktree's settings, so such a rule would let the leader merge too.
+   - After the merge, the leader runs the integration verify on the
      merge commit, and the PM closes the Issue (step 8).
 7. **UAT (leader, PM-approved).** Run the uat runner; the fix loop stays within
    `--max-attempts`. Failures return to the PM with evidence. The user may
