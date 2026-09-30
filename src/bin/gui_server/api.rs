@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::Read as _;
 use std::path::{Component, Path as FilePath, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -124,7 +126,9 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<RunIndex>, ApiEr
         let report = preferred_report(&path).await;
         let (report_path, extracted_status) = match report {
             Some(report) => {
-                let content = read_text(&report).await.unwrap_or_default();
+                let content = document(&state.repository_root, &report)
+                    .await
+                    .map_or_else(|_| String::new(), |document| document.content);
                 let relative = relative_string(&state.repository_root, &report)?;
                 (Some(relative), extract_status(&content))
             }
@@ -170,8 +174,11 @@ pub async fn run_detail(
                 relative_string(&run_root, path)?,
                 catalog_root,
             )),
-            super::public_projection::redact_document(&read_text(path).await?, catalog_root)
-                .map_err(projection_refused)?,
+            super::public_projection::redact_document(
+                &document(&run_root, path).await?.content,
+                catalog_root,
+            )
+            .map_err(projection_refused)?,
         ),
         None => (None, "No acceptance sheet or report was found.".to_string()),
     };
@@ -199,8 +206,11 @@ pub async fn run_evidence(
         .repository_root
         .join("workspace/management/runs")
         .join(&id);
-    let path = checked_existing_path(&run_root, FilePath::new(&query.path)).await?;
-    let mut value = document(&run_root, &path).await?;
+    let relative = FilePath::new(&query.path);
+    ensure_readable_document(relative)?;
+    // The traversal check, the type check, and the read share one open handle:
+    // `document` refuses a symlinked component, so a swap cannot redirect it.
+    let mut value = document(&run_root, relative).await?;
     value
         .redact(state.repository_root.as_path())
         .map_err(projection_refused)?;
@@ -345,11 +355,12 @@ pub async fn report_content(
     Query(query): Query<EvidenceQuery>,
 ) -> Result<Json<Document>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
-    let path = checked_existing_path(&root, FilePath::new(&query.path)).await?;
-    if !is_measurement_report(&path) {
+    let relative = FilePath::new(&query.path);
+    ensure_readable_document(relative)?;
+    if !is_measurement_report(relative) {
         return Err(not_found("requested document is not a measurement report"));
     }
-    let mut value = document(&root, &path).await?;
+    let mut value = document(&root, relative).await?;
     value
         .redact(state.repository_root.as_path())
         .map_err(projection_refused)?;
@@ -373,12 +384,109 @@ async fn documents_matching(
     Ok(Json(documents))
 }
 
+/// Read one document below `root` through the fd-relative, no-follow entry.
+///
+/// The returned `Document` carries the identifiers computed from the path
+/// string, but its body comes from the single open handle `open_read_file`
+/// returns: there is no re-resolution of any component between the traversal
+/// check (`ensure_readable_document`) and the read, so a concurrent swap of a
+/// parent directory or the leaf for a symlink is refused rather than followed.
 pub(super) async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let relative = candidate
+        .strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .map_err(|_| {
+            internal(format!(
+                "{} is outside {}",
+                candidate.display(),
+                root.display()
+            ))
+        })?;
+    let id = file_name(&candidate)?;
+    let (display, file) = open_document(root, path).await?;
+    let content = read_open_document(display, file).await?;
     Ok(Document {
-        id: file_name(path)?,
-        path: relative_string(root, path)?,
-        content: read_text(path).await?,
+        id,
+        path: relative,
+        content,
     })
+}
+
+/// Reject a path that is empty, absolute, or carries a non-`Normal` component
+/// before it reaches the fd walk.
+pub(super) fn ensure_readable_relative(relative: &FilePath) -> Result<(), ApiError> {
+    if relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(not_found("invalid relative path"));
+    }
+    Ok(())
+}
+
+/// The relative-path and text-document policy shared by the evidence, artifact,
+/// and report reads. The extension is a pure string check on the same relative
+/// path the fd walk uses, so it cannot diverge from the resolved leaf.
+pub(super) fn ensure_readable_document(relative: &FilePath) -> Result<(), ApiError> {
+    ensure_readable_relative(relative)?;
+    if is_text_document(relative) {
+        Ok(())
+    } else {
+        Err(not_found("document is outside the readable inventory"))
+    }
+}
+
+/// Open the document through the no-follow fd walk. `path` may be absolute below
+/// `root` or `root`-relative; the returned path is the display path used for the
+/// size error message.
+async fn open_document(root: &FilePath, path: &FilePath) -> Result<(PathBuf, File), ApiError> {
+    let root = root.to_path_buf();
+    let path = path.to_path_buf();
+    let display = if path.is_absolute() {
+        path.clone()
+    } else {
+        root.join(&path)
+    };
+    let opened = tokio::task::spawn_blocking(move || {
+        commandagent::tools::dir_fd::open_read_file(&root, &path)
+    })
+    .await
+    .map_err(|error| internal(format!("join document reader: {error}")))?
+    .map_err(|error| not_found(format!("document not found: {error}")))?;
+    Ok((display, opened))
+}
+
+/// Enforce the 1 MiB viewing limit and read the held handle. `fstat` on the
+/// opened file is the size authority, so a leaf swapped for a larger file after
+/// the open cannot bypass the limit either.
+async fn read_open_document(display: PathBuf, file: File) -> Result<String, ApiError> {
+    tokio::task::spawn_blocking(move || {
+        let mut file = file;
+        let length = file
+            .metadata()
+            .map_err(|error| not_found(format!("read {}: {error}", display.display())))?
+            .len();
+        if length > MAX_TEXT_BYTES {
+            return Err(GuiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "resource_too_large",
+                format!("{} exceeds the 1 MiB viewing limit", display.display()),
+            ));
+        }
+        let mut content = String::new();
+        file.read_to_string(&mut content)
+            .map_err(|error| internal(format!("read {}: {error}", display.display())))?;
+        Ok(content)
+    })
+    .await
+    .map_err(|error| internal(format!("join document reader: {error}")))?
 }
 
 pub(super) fn document_summary(

@@ -1,3 +1,4 @@
+use std::io::Read as _;
 use std::path::{Component, Path, PathBuf};
 
 use axum::body::Body;
@@ -11,26 +12,44 @@ pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
     let Some(relative) = request_path(uri.path(), &state.base_path) else {
         return not_found(&state.static_root).await;
     };
-    let candidate = state.static_root.join(&relative);
-    match tokio::fs::read(&candidate).await {
-        Ok(bytes) => response_for(StatusCode::OK, &relative, bytes),
-        Err(_) if !uri.path().ends_with('/') => {
+    match read_static_file(&state.static_root, &relative).await {
+        Some(bytes) => response_for(StatusCode::OK, &relative, bytes),
+        None if !uri.path().ends_with('/') => {
             let index = relative.join("index.html");
-            if tokio::fs::read(state.static_root.join(index)).await.is_ok() {
+            if read_static_file(&state.static_root, &index).await.is_some() {
                 Redirect::permanent(&directory_location(&uri, &state.base_path)).into_response()
             } else {
                 not_found(&state.static_root).await
             }
         }
-        Err(_) => not_found(&state.static_root).await,
+        None => not_found(&state.static_root).await,
     }
+}
+
+/// Read one static file through the no-symlink fd walk: a `static_root` that is
+/// itself a symlink is followed (the root is canonicalized), but any component
+/// below it — including a symlink that points back inside — is refused. The
+/// entry serves the response body, the directory `index.html` probe, and
+/// `404.html` alike, so an absent or refused file is the same 404.
+async fn read_static_file(static_root: &Path, relative: &Path) -> Option<Vec<u8>> {
+    let static_root = static_root.to_path_buf();
+    let relative = relative.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut file = commandagent::tools::dir_fd::open_read_file(&static_root, &relative).ok()?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).ok()?;
+        Some(bytes)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 async fn not_found(static_root: &Path) -> Response {
     let relative = Path::new("404.html");
-    match tokio::fs::read(static_root.join(relative)).await {
-        Ok(bytes) => response_for(StatusCode::NOT_FOUND, relative, bytes),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    match read_static_file(static_root, relative).await {
+        Some(bytes) => response_for(StatusCode::NOT_FOUND, relative, bytes),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
