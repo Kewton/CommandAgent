@@ -1,0 +1,7 @@
+{
+  "schema_version": "1",
+  "command_sha256": "546a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd",
+  "command_bytes": 64,
+  "command_prefix_bytes": [],
+  "prefix_encoding": "omitted; the raw command prefix is never persisted in a run"
+}

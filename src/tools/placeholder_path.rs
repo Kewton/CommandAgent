@@ -13,6 +13,12 @@ use super::bash::BashPathConfinementRejection;
 
 pub(crate) const REASON: &str = "placeholder path detected";
 
+/// The one `prefix_encoding` written for every rejection, with or without a run
+/// scope. Issue #546 removed the scope-dependent branch, so the raw prefix is
+/// never persisted on any path.
+pub(crate) const PREFIX_ENCODING: &str =
+    "omitted; the raw command prefix is never persisted in a run";
+
 pub(crate) fn detected(command: &str) -> bool {
     command.contains("<user>") || command.contains("<redacted>")
 }
@@ -52,9 +58,14 @@ pub(crate) fn add_event_fields(event: &mut Value, command: &str) {
     }
 }
 
-/// Record the original command before any normalization. Raw bytes are never
-/// returned in feedback or added to events. Directory-relative opens prevent
-/// workspace-controlled symlinks from redirecting this private write.
+/// Record the original command before any normalization. The raw prefix is
+/// never persisted: `command_prefix_bytes` is always the same empty array and
+/// the same [`PREFIX_ENCODING`] constant is written whether or not a run scope
+/// is installed, so a scope-less caller (Issue #441's contract) loses only the
+/// first 64 bytes while `command_sha256` and `command_bytes` still identify the
+/// source. Raw bytes are never returned in feedback or added to events.
+/// Directory-relative opens prevent workspace-controlled symlinks from
+/// redirecting this private write.
 pub(crate) fn record_rejection(root: &Path, command: &str) -> std::io::Result<()> {
     let mut directory = File::open(root)?;
     for component in [".commandagent", "evidence", "bash-placeholders"] {
@@ -85,31 +96,18 @@ pub(crate) fn record_rejection(root: &Path, command: &str) -> std::io::Result<()
         &name,
         libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
     )?;
-    let bytes = command.as_bytes();
-    // A run always installs a secret scope (the CLI during config resolution,
-    // direct minimal-loop callers at entry). Inside a run the raw prefix is
-    // never persisted: `command_prefix_bytes` stays the same array type but is
-    // empty and cannot reconstruct the value, while schema_version,
-    // command_sha256, and command_bytes are preserved. A unit-level tool call
-    // with no scope (Issue #441's contract) keeps the existing raw prefix.
-    let (prefix_bytes, prefix_encoding): (Vec<u8>, &str) =
-        if crate::sensitive_data::current().is_some() {
-            (
-                Vec::new(),
-                "omitted; the raw command prefix is never persisted in a run",
-            )
-        } else {
-            (
-                bytes[..bytes.len().min(64)].to_vec(),
-                "raw byte array; at most 64 bytes; not redacted",
-            )
-        };
+    // The raw prefix is never persisted, with or without a run scope. The
+    // `command_prefix_bytes` value keeps the same array type but is always
+    // empty with the one `prefix_encoding` constant, while schema_version,
+    // command_sha256, and command_bytes are preserved. A scope-less caller
+    // (Issue #441's contract) can no longer reconstruct the first 64 bytes, and
+    // no thread-local decision is involved.
     let evidence = json!({
         "schema_version": "1",
         "command_sha256": command_sha256(command),
-        "command_bytes": bytes.len(),
-        "command_prefix_bytes": prefix_bytes,
-        "prefix_encoding": prefix_encoding,
+        "command_bytes": command.len(),
+        "command_prefix_bytes": Vec::<u8>::new(),
+        "prefix_encoding": PREFIX_ENCODING,
     });
     file.write_all(serde_json::to_string(&evidence)?.as_bytes())?;
     file.write_all(b"\n")?;
@@ -125,4 +123,35 @@ fn open_at(directory: &File, name: &CString, flags: i32) -> std::io::Result<File
     }
     // SAFETY: openat returned a fresh valid fd owned by this function.
     Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scope_less_rejection_never_persists_the_raw_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        let command = "echo <user> raw-prefix-must-not-persist";
+        assert!(crate::sensitive_data::current().is_none());
+        record_rejection(root.path(), command).unwrap();
+
+        let directory = root.path().join(".commandagent/evidence/bash-placeholders");
+        let texts: Vec<String> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect();
+        assert_eq!(texts.len(), 1);
+        let value: Value = serde_json::from_str(&texts[0]).unwrap();
+        assert_eq!(value["schema_version"], "1");
+        assert_eq!(value["command_prefix_bytes"], json!([]));
+        assert_eq!(value["prefix_encoding"], PREFIX_ENCODING);
+        assert_eq!(value["command_bytes"], command.len());
+        assert_eq!(value["command_sha256"], command_sha256(command));
+        assert!(
+            !texts[0].contains("raw-prefix-must-not-persist"),
+            "{texts:?}"
+        );
+        assert!(!texts[0].contains("raw byte array"), "{texts:?}");
+    }
 }
