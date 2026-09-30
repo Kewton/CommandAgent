@@ -20,6 +20,14 @@ use super::error_response::GuiError;
 pub(super) const MAX_TEXT_BYTES: u64 = 1_048_576;
 pub(super) const MAX_LIST_ENTRIES: usize = 256;
 
+/// Fixed, root-free wording for an fd-relative read failure. The same text
+/// covers a refused symlink, a missing document, a missing directory component,
+/// and a missing run id, so a response body cannot tell their existence apart.
+const DOCUMENT_NOT_FOUND: &str = "document not found";
+/// Fixed wording for a run directory that is missing, a symlink, or not a
+/// directory. Never carries the server's absolute path.
+const RUN_NOT_FOUND: &str = "run not found";
+
 #[derive(Debug, Serialize)]
 pub struct RunSummary {
     id: String,
@@ -165,21 +173,35 @@ pub async fn run_detail(
     require_component(&id)?;
     let runs_root = state.repository_root.join("workspace/management/runs");
     let catalog_root = state.repository_root.as_path();
+    // `checked_existing_directory` walks every component below the runs root
+    // with no-follow, so a run id that is a symlink (inward or outward) is
+    // refused here rather than resolved.
     let run_root = checked_existing_directory(&runs_root, FilePath::new(&id)).await?;
     let documents = collect_documents(&run_root, 4).await?;
     let acceptance_file = choose_acceptance(&documents);
     let (acceptance_path, acceptance) = match acceptance_file {
-        Some(path) => (
-            Some(super::public_projection::redact_text(
-                relative_string(&run_root, path)?,
-                catalog_root,
-            )),
-            super::public_projection::redact_document(
-                &document(&run_root, path).await?.content,
-                catalog_root,
+        Some(path) => {
+            let relative = relative_string(&run_root, path)?;
+            // Read the acceptance body through the runs root too (both the run
+            // id and the relative path are walked as components below it), so a
+            // swap of the run directory for a symlink between the check above
+            // and this read is refused instead of followed.
+            let content = document_with_roots(
+                &runs_root,
+                &FilePath::new(&id).join(FilePath::new(&relative)),
+                &run_root,
             )
-            .map_err(projection_refused)?,
-        ),
+            .await?
+            .content;
+            (
+                Some(super::public_projection::redact_text(
+                    relative,
+                    catalog_root,
+                )),
+                super::public_projection::redact_document(&content, catalog_root)
+                    .map_err(projection_refused)?,
+            )
+        }
         None => (None, "No acceptance sheet or report was found.".to_string()),
     };
     let evidence = documents
@@ -202,15 +224,17 @@ pub async fn run_evidence(
     Query(query): Query<EvidenceQuery>,
 ) -> Result<Json<Document>, ApiError> {
     require_component(&id)?;
-    let run_root = state
-        .repository_root
-        .join("workspace/management/runs")
-        .join(&id);
+    let runs_root = state.repository_root.join("workspace/management/runs");
+    let run_root = runs_root.join(&id);
     let relative = FilePath::new(&query.path);
     ensure_readable_document(relative)?;
-    // The traversal check, the type check, and the read share one open handle:
-    // `document` refuses a symlinked component, so a swap cannot redirect it.
-    let mut value = document(&run_root, relative).await?;
+    // The run id and the query path are both walked as components below the
+    // runs root, so a symlinked run id (or a symlinked component) is refused
+    // rather than followed. The identifiers stay relative to the run directory
+    // (`id` = the file name, `path` = the query path), so the response shape is
+    // unchanged from reading below the run directory directly.
+    let mut value =
+        document_with_roots(&runs_root, &FilePath::new(&id).join(relative), &run_root).await?;
     value
         .redact(state.repository_root.as_path())
         .map_err(projection_refused)?;
@@ -242,8 +266,8 @@ pub async fn band_means(State(state): State<AppState>) -> Result<Json<Vec<BandMe
                     .await?;
                     Some(read_text(&path).await?)
                 }
-                Err(error) => {
-                    return Err(internal(format!("read {}: {error}", path.display())));
+                Err(_) => {
+                    return Err(internal("document read failed"));
                 }
             };
             sources.insert(band.source, text);
@@ -292,7 +316,7 @@ pub async fn score_time_map(State(state): State<AppState>) -> Result<Response, A
         .join("workspace/management/runs/score_time_map.svg");
     let bytes = tokio::fs::read(&path)
         .await
-        .map_err(|error| internal(format!("read {}: {error}", path.display())))?;
+        .map_err(|_| internal("document read failed"))?;
     let body = String::from_utf8_lossy(&bytes).into_owned();
     let body = super::public_projection::redact_document(&body, state.repository_root.as_path())
         .map_err(projection_refused)?;
@@ -392,24 +416,33 @@ async fn documents_matching(
 /// check (`ensure_readable_document`) and the read, so a concurrent swap of a
 /// parent directory or the leaf for a symlink is refused rather than followed.
 pub(super) async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
+    document_with_roots(root, path, root).await
+}
+
+/// Read one document through the fd-relative, no-follow entry below
+/// `open_root`, reporting the identifiers relative to `display_root`.
+///
+/// `open_root` and `display_root` differ only for a run document: the walk
+/// starts at the runs root so the run id is a component below it (a symlinked
+/// run id is refused, not followed), while `id` and `path` still describe the
+/// document below its own run directory, keeping the response shape unchanged.
+pub(super) async fn document_with_roots(
+    open_root: &FilePath,
+    path: &FilePath,
+    display_root: &FilePath,
+) -> Result<Document, ApiError> {
     let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        root.join(path)
+        open_root.join(path)
     };
     let relative = candidate
-        .strip_prefix(root)
+        .strip_prefix(display_root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-        .map_err(|_| {
-            internal(format!(
-                "{} is outside {}",
-                candidate.display(),
-                root.display()
-            ))
-        })?;
+        .map_err(|_| internal("document is outside the readable root"))?;
     let id = file_name(&candidate)?;
-    let (display, file) = open_document(root, path).await?;
-    let content = read_open_document(display, file).await?;
+    let file = open_document(open_root, path).await?;
+    let content = read_open_document(file).await?;
     Ok(Document {
         id,
         path: relative,
@@ -444,45 +477,40 @@ pub(super) fn ensure_readable_document(relative: &FilePath) -> Result<(), ApiErr
 }
 
 /// Open the document through the no-follow fd walk. `path` may be absolute below
-/// `root` or `root`-relative; the returned path is the display path used for the
-/// size error message.
-async fn open_document(root: &FilePath, path: &FilePath) -> Result<(PathBuf, File), ApiError> {
+/// `root` or `root`-relative. A refused symlink, a missing document, and a
+/// missing directory component all fail with the same root-free wording.
+async fn open_document(root: &FilePath, path: &FilePath) -> Result<File, ApiError> {
     let root = root.to_path_buf();
     let path = path.to_path_buf();
-    let display = if path.is_absolute() {
-        path.clone()
-    } else {
-        root.join(&path)
-    };
     let opened = tokio::task::spawn_blocking(move || {
         commandagent::tools::dir_fd::open_read_file(&root, &path)
     })
     .await
     .map_err(|error| internal(format!("join document reader: {error}")))?
-    .map_err(|error| not_found(format!("document not found: {error}")))?;
-    Ok((display, opened))
+    .map_err(|_| not_found(DOCUMENT_NOT_FOUND))?;
+    Ok(opened)
 }
 
 /// Enforce the 1 MiB viewing limit and read the held handle. `fstat` on the
 /// opened file is the size authority, so a leaf swapped for a larger file after
 /// the open cannot bypass the limit either.
-async fn read_open_document(display: PathBuf, file: File) -> Result<String, ApiError> {
+async fn read_open_document(file: File) -> Result<String, ApiError> {
     tokio::task::spawn_blocking(move || {
         let mut file = file;
         let length = file
             .metadata()
-            .map_err(|error| not_found(format!("read {}: {error}", display.display())))?
+            .map_err(|_| not_found(DOCUMENT_NOT_FOUND))?
             .len();
         if length > MAX_TEXT_BYTES {
             return Err(GuiError::new(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "resource_too_large",
-                format!("{} exceeds the 1 MiB viewing limit", display.display()),
+                "document exceeds the 1 MiB viewing limit",
             ));
         }
         let mut content = String::new();
         file.read_to_string(&mut content)
-            .map_err(|error| internal(format!("read {}: {error}", display.display())))?;
+            .map_err(|_| internal("document read failed"))?;
         Ok(content)
     })
     .await
@@ -516,18 +544,18 @@ pub(super) async fn collect_documents(
         let mut entries = match tokio::fs::read_dir(&directory).await {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(internal(format!("read {}: {error}", directory.display()))),
+            Err(_) => return Err(internal("directory read failed")),
         };
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|error| internal(format!("read {}: {error}", directory.display())))?
+            .map_err(|_| internal("directory entry read failed"))?
         {
             let path = entry.path();
             let file_type = entry
                 .file_type()
                 .await
-                .map_err(|error| internal(format!("inspect {}: {error}", path.display())))?;
+                .map_err(|_| internal("directory entry inspect failed"))?;
             if file_type.is_symlink() {
                 continue;
             }
@@ -554,17 +582,17 @@ pub(super) async fn collect_documents(
 async fn directory_entries(root: &FilePath) -> Result<Vec<PathBuf>, ApiError> {
     let mut entries = tokio::fs::read_dir(root)
         .await
-        .map_err(|error| internal(format!("read {}: {error}", root.display())))?;
+        .map_err(|_| internal("directory read failed"))?;
     let mut paths = Vec::new();
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|error| internal(format!("read {}: {error}", root.display())))?
+        .map_err(|_| internal("directory entry read failed"))?
     {
         if !entry
             .file_type()
             .await
-            .map_err(|error| internal(format!("inspect {}: {error}", entry.path().display())))?
+            .map_err(|_| internal("directory entry inspect failed"))?
             .is_symlink()
         {
             paths.push(entry.path());
@@ -794,17 +822,17 @@ fn is_text_document(path: &FilePath) -> bool {
 async fn read_text(path: &FilePath) -> Result<String, ApiError> {
     let metadata = tokio::fs::metadata(path)
         .await
-        .map_err(|error| not_found(format!("read {}: {error}", path.display())))?;
+        .map_err(|_| not_found(DOCUMENT_NOT_FOUND))?;
     if metadata.len() > MAX_TEXT_BYTES {
         return Err(GuiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
             "resource_too_large",
-            format!("{} exceeds the 1 MiB viewing limit", path.display()),
+            "document exceeds the 1 MiB viewing limit",
         ));
     }
     tokio::fs::read_to_string(path)
         .await
-        .map_err(|error| internal(format!("read {}: {error}", path.display())))
+        .map_err(|_| internal("document read failed"))
 }
 
 async fn checked_existing_path(root: &FilePath, relative: &FilePath) -> Result<PathBuf, ApiError> {
@@ -818,11 +846,11 @@ async fn checked_existing_path(root: &FilePath, relative: &FilePath) -> Result<P
     }
     let canonical_root = tokio::fs::canonicalize(root)
         .await
-        .map_err(|error| not_found(format!("read {}: {error}", root.display())))?;
+        .map_err(|_| not_found("root is not accessible"))?;
     let candidate = root.join(relative);
     let canonical_candidate = tokio::fs::canonicalize(&candidate)
         .await
-        .map_err(|error| not_found(format!("document not found: {error}")))?;
+        .map_err(|_| not_found(DOCUMENT_NOT_FOUND))?;
     if !canonical_candidate.starts_with(&canonical_root)
         || !canonical_candidate.is_file()
         || !is_text_document(&canonical_candidate)
@@ -852,7 +880,7 @@ pub(super) async fn checked_existing_path_without_symlinks(
         current.push(component);
         let metadata = tokio::fs::symlink_metadata(&current)
             .await
-            .map_err(|error| not_found(format!("document not found: {error}")))?;
+            .map_err(|_| not_found(DOCUMENT_NOT_FOUND))?;
         if metadata.file_type().is_symlink() {
             return Err(not_found("document symlinks are not readable"));
         }
@@ -872,14 +900,28 @@ pub(super) async fn checked_existing_directory(
     {
         return Err(not_found("invalid relative path"));
     }
+    // Walk every component below the root with no-follow, so a run directory
+    // that is a symlink (inward or outward) is refused rather than resolved.
+    let mut candidate = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(not_found("invalid relative path"));
+        };
+        candidate.push(component);
+        let metadata = tokio::fs::symlink_metadata(&candidate)
+            .await
+            .map_err(|_| not_found(RUN_NOT_FOUND))?;
+        if metadata.file_type().is_symlink() {
+            return Err(not_found(RUN_NOT_FOUND));
+        }
+    }
     let canonical_root = tokio::fs::canonicalize(root)
         .await
-        .map_err(|error| not_found(format!("read {}: {error}", root.display())))?;
-    let candidate = root.join(relative);
+        .map_err(|_| not_found(RUN_NOT_FOUND))?;
     let canonical_candidate = tokio::fs::canonicalize(&candidate)
         .await
-        .map_err(|error| not_found(format!("run not found: {error}")))?;
-    if !canonical_candidate.starts_with(canonical_root) || !canonical_candidate.is_dir() {
+        .map_err(|_| not_found(RUN_NOT_FOUND))?;
+    if !canonical_candidate.starts_with(&canonical_root) || !canonical_candidate.is_dir() {
         return Err(not_found("run is outside the readable inventory"));
     }
     Ok(candidate)
@@ -909,14 +951,14 @@ fn require_component(value: &str) -> Result<(), ApiError> {
 fn relative_string(root: &FilePath, path: &FilePath) -> Result<String, ApiError> {
     path.strip_prefix(root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-        .map_err(|_| internal(format!("{} is outside {}", path.display(), root.display())))
+        .map_err(|_| internal("document is outside the readable root"))
 }
 
 fn file_name(path: &FilePath) -> Result<String, ApiError> {
     path.file_name()
         .and_then(|name| name.to_str())
         .map(str::to_string)
-        .ok_or_else(|| internal(format!("{} has no UTF-8 file name", path.display())))
+        .ok_or_else(|| internal("document name is not UTF-8"))
 }
 
 fn not_found(message: impl Into<String>) -> ApiError {
