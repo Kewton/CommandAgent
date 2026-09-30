@@ -480,4 +480,174 @@ mod tests {
             "a new workspace symlink must not point outside the workspace"
         );
     }
+
+    fn write_target_pairs(command: &str) -> Vec<(String, String)> {
+        write_targets(command)
+            .into_iter()
+            .map(|target| (target.path, target.operation))
+            .collect()
+    }
+
+    fn expected_targets(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(path, operation)| ((*path).to_string(), (*operation).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn extracts_write_targets_for_the_supported_command_table() {
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("printf x > out.txt", &[("out.txt", "output redirection")]),
+            ("printf x >> out.txt", &[("out.txt", "output redirection")]),
+            ("printf x 2> err", &[("err", "output redirection")]),
+            (
+                "printf x 2>&1 > out.txt",
+                &[("out.txt", "output redirection")],
+            ),
+            ("cat < in > out", &[("out", "output redirection")]),
+            ("cat << EOF > out", &[("out", "output redirection")]),
+            ("echo a>out", &[("out", "output redirection")]),
+            ("echo 2>out", &[("out", "output redirection")]),
+            ("tee a>out", &[("out", "output redirection"), ("a", "tee")]),
+            ("tee a b", &[("a", "tee"), ("b", "tee")]),
+            ("tee -a a", &[("a", "tee")]),
+            ("FOO=1 tee f", &[("f", "tee")]),
+            ("FOO_BAR=1 tee f", &[("f", "tee")]),
+            ("A-B=1 tee f", &[]),
+            ("=x tee f", &[]),
+            ("tee 'a b'", &[("a b", "tee")]),
+            ("tee \"a b\"", &[("a b", "tee")]),
+            ("tee a\\ b", &[("a b", "tee")]),
+            ("tee \"a\\\"b\"", &[("a\"b", "tee")]),
+            ("tee 'it''s'", &[("its", "tee")]),
+            ("tee 'unterminated", &[]),
+            ("cp a b", &[("b", "cp")]),
+            ("cp -t dir a", &[("dir", "cp")]),
+            ("cp -tdir a", &[("dir", "cp")]),
+            ("cp --target-directory=dir a", &[("dir", "cp")]),
+            ("cp --target-directory dir a", &[("dir", "cp")]),
+            ("cp a -t dir", &[("dir", "cp")]),
+            ("cp -d src dst", &[("dst", "cp")]),
+            ("install -d d1 d2", &[("d1", "install"), ("d2", "install")]),
+            ("ln -s src dst", &[("dst", "ln"), ("src", "symlink target")]),
+            (
+                "ln --symbolic src dst",
+                &[("dst", "ln"), ("src", "symlink target")],
+            ),
+            ("ln -f src dst", &[("dst", "ln")]),
+            ("chmod 600 f", &[("f", "chmod")]),
+            ("chown u:g f", &[("f", "chown")]),
+            ("true && tee a", &[("a", "tee")]),
+            ("false || tee a", &[("a", "tee")]),
+            ("(tee a)", &[("a", "tee")]),
+            ("tee a; tee b", &[("a", "tee"), ("b", "tee")]),
+            ("tee a;tee b", &[("a", "tee"), ("b", "tee")]),
+            ("cd src", &[("src", "working directory")]),
+            (
+                "cd src && touch a",
+                &[("src", "working directory"), ("a", "touch")],
+            ),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                write_target_pairs(command),
+                expected_targets(expected),
+                "command: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_tokens_collapses_separators_and_recognizes_redirection() {
+        assert_eq!(
+            shell_tokens("a && b"),
+            Some(vec![
+                ShellToken::Word("a".to_string()),
+                ShellToken::SegmentEnd,
+                ShellToken::Word("b".to_string()),
+            ])
+        );
+        assert_eq!(
+            shell_tokens("a ;; b"),
+            Some(vec![
+                ShellToken::Word("a".to_string()),
+                ShellToken::SegmentEnd,
+                ShellToken::Word("b".to_string()),
+            ])
+        );
+        assert_eq!(
+            shell_tokens("cat < in"),
+            Some(vec![
+                ShellToken::Word("cat".to_string()),
+                ShellToken::InputRedirect,
+                ShellToken::Word("in".to_string()),
+            ])
+        );
+        assert_eq!(
+            shell_tokens("cat << EOF"),
+            Some(vec![
+                ShellToken::Word("cat".to_string()),
+                ShellToken::InputRedirect,
+                ShellToken::Word("EOF".to_string()),
+            ])
+        );
+        assert_eq!(shell_tokens("tee 'unterminated"), None);
+    }
+
+    #[test]
+    fn has_recognized_mutation_ignores_working_directory_targets() {
+        assert!(!has_recognized_mutation("cd src"));
+        assert!(has_recognized_mutation("touch a"));
+    }
+
+    #[test]
+    fn protected_path_mutation_matches_relative_absolute_and_prefix_targets() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        let other = fixture.path().join("elsewhere");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let protected = vec!["tests/spec.ts".to_string()];
+
+        for command in ["rm tests/spec.ts", "rm tests/spec.ts/extra", "rm -rf tests"] {
+            assert_eq!(
+                protected_path_mutation(command, &root, &protected),
+                Some("tests/spec.ts".to_string()),
+                "command: {command}"
+            );
+        }
+
+        assert_eq!(
+            protected_path_mutation(
+                &format!("rm {}/tests/spec.ts", root.display()),
+                &root,
+                &protected,
+            ),
+            Some("tests/spec.ts".to_string())
+        );
+        assert_eq!(
+            protected_path_mutation(
+                &format!("rm {}/tests/spec.ts", other.display()),
+                &root,
+                &protected,
+            ),
+            Some("tests/spec.ts".to_string())
+        );
+
+        assert!(protected_path_mutation("rm src/a.ts", &root, &protected).is_none());
+        assert!(protected_path_mutation("cd tests", &root, &protected).is_none());
+    }
+
+    #[test]
+    fn confinement_rejection_skips_dev_null_and_rejects_dash_working_directory() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+
+        assert!(confinement_rejection("printf x > /dev/null", &root).is_none());
+        assert!(confinement_rejection("tee /dev/null", &root).is_none());
+        assert!(confinement_rejection("cd src", &root).is_none());
+        assert!(confinement_rejection("cd -", &root).is_some());
+    }
 }
