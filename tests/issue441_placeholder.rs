@@ -2,6 +2,7 @@
 
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
+use std::sync::Mutex;
 
 use commandagent::mode::ExecutionMode;
 use commandagent::planner::repair::{
@@ -9,6 +10,7 @@ use commandagent::planner::repair::{
     save_ultra_recovery_prompt,
 };
 use commandagent::planner::verify::VerificationReport;
+use commandagent::sensitive_data::{SecretCatalog, current, install_scope, reset_scopes_for_tests};
 use commandagent::tools::bash::{self, BashOutcomeKind};
 use commandagent::tools::registry::{ToolContext, ToolRegistry, tool_error_kind};
 use commandagent::tools::workspace_policy::WorkspacePolicy;
@@ -17,6 +19,26 @@ use sha2::{Digest, Sha256};
 
 const EVENTS: &str =
     include_str!("corpus/apps/issue441-placeholder/fixtures/i2-events-196-213.jsonl");
+
+/// Mirrors `tools::placeholder_path::PREFIX_ENCODING`, which is crate-private.
+const PREFIX_ENCODING: &str = "omitted; the raw command prefix is never persisted in a run";
+
+/// The fake canary. Scope-less rejections must never persist it.
+const C1: &str = "H01_546_FAKE_canary_zz";
+
+/// The fake credential value. It is registered in a scope, so another thread's
+/// scope-less rejection must not persist it either.
+const C2: &str = "H01_546_FAKE_registered_key_77";
+
+/// The scope registry is process-global, so tests that install or reset a scope
+/// share one lock.
+static SCOPE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn scope_guard() -> std::sync::MutexGuard<'static, ()> {
+    SCOPE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn context(root: &Path, events: &Path) -> ToolContext {
     ToolContext {
@@ -55,6 +77,44 @@ fn private_records(root: &Path) -> Vec<Value> {
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
         })
         .collect()
+}
+
+fn private_record_texts(root: &Path) -> Vec<String> {
+    let dir = root.join(".commandagent/evidence/bash-placeholders");
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect()
+}
+
+/// The raw text must not contain the fake value as a string, nor its 10-decimal
+/// byte array.
+fn assert_no_fake_value(text: &str, value: &str) {
+    assert!(
+        !text.contains(value),
+        "raw evidence kept the fake value string: {text}"
+    );
+    let decimal = value
+        .bytes()
+        .map(|byte| byte.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(
+        !text.contains(&decimal),
+        "raw evidence kept the fake value's decimal byte array: {text}"
+    );
+}
+
+/// The four fields retained per the #546 contract: an empty prefix, the one
+/// constant encoding, the original byte length, and the full-command hash.
+fn assert_omitted_prefix(record: &Value, command: &str) {
+    assert_eq!(record["command_prefix_bytes"], json!([]));
+    assert_eq!(record["prefix_encoding"], PREFIX_ENCODING);
+    assert_eq!(record["command_bytes"], command.len());
+    assert_eq!(
+        record["command_sha256"],
+        format!("{:x}", Sha256::digest(command.as_bytes()))
+    );
 }
 
 #[test]
@@ -103,10 +163,7 @@ fn literal_placeholders_are_rejected_before_normalization_or_shell_execution() {
             .iter()
             .find(|record| record["command_sha256"] == event["command_sha256"])
             .unwrap();
-        assert_eq!(
-            record["command_prefix_bytes"],
-            json!(&command.as_bytes()[..command.len().min(64)])
-        );
+        assert_omitted_prefix(record, command);
         assert!(event.get("command_prefix_bytes").is_none());
     }
 }
@@ -126,6 +183,13 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
             .unwrap()
             .contains("outcome: Success")
     );
+    // A command that is not rejected never creates the evidence directory.
+    assert!(
+        !root
+            .path()
+            .join(".commandagent/evidence/bash-placeholders")
+            .exists()
+    );
     let command = format!("cd '{}' && printf '<user> 日本語'", root.path().display());
     assert!(bash::strip_workspace_root_cd_prefix(&command, root.path()).is_none());
     let result = bash::run_structured(
@@ -138,15 +202,9 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
     .unwrap();
     assert_eq!(result.kind, BashOutcomeKind::Blocked);
     let records = private_records(root.path());
-    assert_eq!(
-        records[0]["command_sha256"],
-        format!("{:x}", Sha256::digest(&command))
-    );
-    assert_eq!(
-        records[0]["command_prefix_bytes"],
-        json!(&command.as_bytes()[..command.len().min(64)])
-    );
-    assert_eq!(records[0]["command_bytes"], command.len());
+    assert_omitted_prefix(&records[0], &command);
+    assert_eq!(records[0]["schema_version"], "1");
+    assert_eq!(records[0].as_object().unwrap().len(), 5);
 
     let command = format!("echo {}<redacted>", "日".repeat(24));
     bash::run(&command, root.path(), true).unwrap_err();
@@ -155,10 +213,8 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
         .iter()
         .find(|record| record["command_sha256"] == format!("{:x}", Sha256::digest(&command)))
         .unwrap();
-    assert_eq!(
-        record["command_prefix_bytes"],
-        json!(&command.as_bytes()[..64])
-    );
+    assert_omitted_prefix(record, &command);
+    assert_eq!(record["command_bytes"], 87);
     assert!(std::str::from_utf8(&command.as_bytes()[..64]).is_err());
 }
 
@@ -180,22 +236,19 @@ fn evidence_prefix_boundaries_preserve_full_command_hashes() {
         let evidence = private_records(root.path());
         assert_eq!(evidence.len(), 1);
         let record = &evidence[0];
+        assert_eq!(record["schema_version"], "1");
         assert_eq!(record["command_bytes"], expected_bytes);
         assert_eq!(
             record["command_sha256"],
             format!("{:x}", Sha256::digest(command.as_bytes()))
         );
-        assert_eq!(
-            record["command_prefix_bytes"],
-            json!(&command.as_bytes()[..expected_bytes.min(64)])
-        );
-        assert_eq!(
-            record["command_prefix_bytes"].as_array().unwrap().len(),
-            expected_bytes.min(64)
-        );
+        assert_eq!(record["command_prefix_bytes"], json!([]));
+        assert_eq!(record["prefix_encoding"], PREFIX_ENCODING);
+        assert_eq!(record["command_prefix_bytes"].as_array().unwrap().len(), 0);
         records.push(record.clone());
     }
     for record in &records[2..] {
+        assert_eq!(record["command_prefix_bytes"], json!([]));
         assert_eq!(
             record["command_prefix_bytes"],
             records[1]["command_prefix_bytes"]
@@ -203,6 +256,160 @@ fn evidence_prefix_boundaries_preserve_full_command_hashes() {
         assert_ne!(record["command_sha256"], records[1]["command_sha256"]);
     }
     assert_ne!(records[2]["command_sha256"], records[3]["command_sha256"]);
+    // 66A and 66B share the empty prefix and differ only by their full hash.
+    assert_eq!(records[2]["command_prefix_bytes"], json!([]));
+    assert_eq!(records[3]["command_prefix_bytes"], json!([]));
+    assert_eq!(records[2]["command_bytes"], 66);
+    assert_eq!(records[3]["command_bytes"], 66);
+}
+
+#[test]
+fn unscoped_bash_api_omits_the_raw_prefix_and_the_fake_value() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    assert!(current().is_none());
+
+    let commands = [
+        format!("echo {C1} /Users/<user>/x"),
+        format!("echo 秘密の偽値です_{C1} <user>"),
+        format!("echo <user> {} {C1}", "x".repeat(70)),
+    ];
+    for command in commands {
+        let root = tempfile::tempdir().unwrap();
+        let error = bash::run(&command, root.path(), true).unwrap_err();
+        assert!(
+            error.to_string().contains("placeholder path detected"),
+            "{error}"
+        );
+        // The rejection message never echoes the fake value.
+        assert!(!error.to_string().contains(C1), "{error}");
+        let records = private_records(root.path());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["schema_version"], "1");
+        assert_eq!(records[0].as_object().unwrap().len(), 5);
+        assert_omitted_prefix(&records[0], &command);
+        for text in private_record_texts(root.path()) {
+            assert_no_fake_value(&text, C1);
+        }
+    }
+}
+
+#[test]
+fn unscoped_run_checked_and_cancel_and_force_share_the_empty_prefix() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    let command = format!("echo <redacted> {C1}");
+
+    let root = tempfile::tempdir().unwrap();
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    assert!(
+        error.to_string().contains("placeholder path detected"),
+        "{error}"
+    );
+    let records = private_records(root.path());
+    assert_eq!(records.len(), 1);
+    assert_omitted_prefix(&records[0], &command);
+
+    let root = tempfile::tempdir().unwrap();
+    let error = bash::run_with_cancel_and_force(&command, root.path(), true, || false, || false)
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("placeholder path detected"),
+        "{error}"
+    );
+    let records = private_records(root.path());
+    assert_eq!(records.len(), 1);
+    assert_omitted_prefix(&records[0], &command);
+}
+
+#[test]
+fn a_scope_registered_on_another_thread_still_omits_the_raw_prefix() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+
+    // An empty scope is registered for the root, but the call runs on a fresh
+    // thread that never installed the thread-local scope.
+    let root = tempfile::tempdir().unwrap();
+    install_scope(SecretCatalog::new(), Some(root.path()), None);
+    let command = format!("echo {C1} /Users/<user>/x");
+    let message = std::thread::spawn({
+        let root = root.path().to_path_buf();
+        let command = command.clone();
+        move || bash::run(&command, &root, true).unwrap_err().to_string()
+    })
+    .join()
+    .unwrap();
+    assert!(message.contains("placeholder path detected"), "{message}");
+    let records = private_records(root.path());
+    assert_eq!(records.len(), 1);
+    assert_omitted_prefix(&records[0], &command);
+    for text in private_record_texts(root.path()) {
+        assert_no_fake_value(&text, C1);
+    }
+    reset_scopes_for_tests();
+
+    // A registered credential can no longer leak from another thread either.
+    let root = tempfile::tempdir().unwrap();
+    let mut catalog = SecretCatalog::new();
+    catalog.register_credential("FAKE_TOKEN", C2).unwrap();
+    install_scope(catalog, Some(root.path()), None);
+    let command = format!("echo {C2} /Users/<user>/x");
+    let message = std::thread::spawn({
+        let root = root.path().to_path_buf();
+        let command = command.clone();
+        move || bash::run(&command, &root, true).unwrap_err().to_string()
+    })
+    .join()
+    .unwrap();
+    assert!(message.contains("placeholder path detected"), "{message}");
+    assert!(!message.contains(C2), "{message}");
+    let records = private_records(root.path());
+    assert_eq!(records.len(), 1);
+    assert_omitted_prefix(&records[0], &command);
+    for text in private_record_texts(root.path()) {
+        assert_no_fake_value(&text, C2);
+    }
+    reset_scopes_for_tests();
+}
+
+#[test]
+fn the_record_shape_and_prefix_constant_do_not_depend_on_a_scope() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    let command = format!("echo {C1} /Users/<user>/x");
+
+    // Without a scope.
+    let root = tempfile::tempdir().unwrap();
+    bash::run(&command, root.path(), true).unwrap_err();
+    let unscoped = private_records(root.path()).remove(0);
+
+    // With a run scope installed on the same thread.
+    let root = tempfile::tempdir().unwrap();
+    install_scope(SecretCatalog::new(), Some(root.path()), None);
+    bash::run(&command, root.path(), true).unwrap_err();
+    let scoped = private_records(root.path()).remove(0);
+    reset_scopes_for_tests();
+
+    for record in [&unscoped, &scoped] {
+        let object = record.as_object().unwrap();
+        assert_eq!(object.len(), 5);
+        for key in [
+            "schema_version",
+            "command_sha256",
+            "command_bytes",
+            "command_prefix_bytes",
+            "prefix_encoding",
+        ] {
+            assert!(object.contains_key(key), "missing key {key}: {record}");
+        }
+        assert_eq!(record["schema_version"], "1");
+        assert!(record["command_prefix_bytes"].is_array());
+        assert_eq!(record["command_prefix_bytes"], json!([]));
+        assert_eq!(record["prefix_encoding"], PREFIX_ENCODING);
+        // The old scope-less encoding string appears nowhere.
+        assert!(!record.to_string().contains("raw byte array"), "{record}");
+    }
+    assert_eq!(unscoped, scoped);
 }
 
 #[test]
@@ -455,6 +662,11 @@ fn assert_runtime_correction(command_count: usize) {
     );
     let private = private_records(root.path());
     assert_eq!(private.len(), command_count);
+    for record in &private {
+        assert_eq!(record["command_prefix_bytes"], json!([]));
+        assert_eq!(record["prefix_encoding"], PREFIX_ENCODING);
+        assert_eq!(record["schema_version"], "1");
+    }
     for event in blocked {
         assert!(
             private

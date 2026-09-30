@@ -1,9 +1,22 @@
 case_id = "issue441-placeholder"
-source = "I2 campaign events 196-213; projected historical diagnostic fixture"
+source = "I2 campaign events 196-213; projected historical diagnostic fixture. Issue #546: a scope-less Bash rejection keeps the 5-key record shape with an empty command_prefix_bytes and the one prefix_encoding constant."
 
 [compile]
 expect = "not_checked"
 
+[json_fields]
+fixtures/evidence-unscoped.json:schema_version = "1"
+fixtures/evidence-unscoped.json:command_bytes = "64"
+fixtures/evidence-unscoped.json:command_sha256 = "546a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd"
+fixtures/evidence-unscoped.json:prefix_encoding = "omitted; the raw command prefix is never persisted in a run"
+
 [fixture_contains]
 fixtures/i2-events-196-213.jsonl = ["/Users/<user>/", "recoverable_tool_error_repeated"]
 fixtures/recovery-suffixes.json = ["reported-single-quoted-space", "escaped-space", "concatenated-quotes", "safe-single-quoted-space", "safe-escaped-space"]
+fixtures/evidence-unscoped.json = [
+  "\"command_prefix_bytes\": []",
+  "\"schema_version\": \"1\"",
+  "\"command_bytes\": 64",
+  "\"command_sha256\": \"546a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd\"",
+  "omitted; the raw command prefix is never persisted in a run"
+]
