@@ -3,6 +3,7 @@ pub(crate) mod approval;
 pub mod args_recovery;
 pub mod bash;
 pub(crate) mod bash_write_guard;
+pub mod dir_fd;
 pub mod edit;
 pub mod extension;
 pub mod git_state;

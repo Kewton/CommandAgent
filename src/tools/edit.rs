@@ -10,7 +10,31 @@ pub fn run(
     replace_all: bool,
 ) -> anyhow::Result<String> {
     crate::tools::write::ensure_mutation_allowed(root, path)?;
-    let content = std::fs::read_to_string(path)?;
+    #[cfg(unix)]
+    {
+        // One parent fd for the whole read-modify-write, so a parent swapped for
+        // a symlink after the pre-checks and after the read cannot redirect the
+        // write. The path-based checks above keep their wording and class.
+        super::dir_fd::fire_seam(path);
+        let parent = super::dir_fd::open_parent(root, path, false)?;
+        run_with_parent(&parent, path, old, new, replace_all)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (root, path, old, new, replace_all);
+        bail!("edit refused: fd-relative writes are unavailable on this platform");
+    }
+}
+
+#[cfg(unix)]
+fn run_with_parent(
+    parent: &super::dir_fd::ParentDir,
+    path: &Path,
+    old: &str,
+    new: &str,
+    replace_all: bool,
+) -> anyhow::Result<String> {
+    let content = parent.read_leaf_to_string()?;
     if old == new {
         bail!("edit_noop: old_string and new_string are identical");
     }
@@ -25,7 +49,7 @@ pub fn run(
     }
     if !content.contains(old) {
         if let Some(salvage) = normalized_anchor_salvage(&content, old, new) {
-            crate::tools::write::write_checked(root, path, &salvage.edited)?;
+            parent.write_leaf(&salvage.edited)?;
             return Ok(format!(
                 "edited {} via edit_anchor_salvaged at line {}",
                 path.display(),
@@ -53,7 +77,7 @@ pub fn run(
     } else {
         content.replacen(old, new, 1)
     };
-    crate::tools::write::write_checked(root, path, &edited)?;
+    parent.write_leaf(&edited)?;
     Ok(format!("edited {}", path.display()))
 }
 
@@ -270,5 +294,75 @@ mod tests {
             .to_string();
         assert!(err.contains("edit_anchor_not_found"));
         assert!(err.contains("Re-anchor mandate"));
+    }
+
+    const OUTSIDE_CANARY: &str = "OUTSIDE_CANARY_505";
+
+    fn install_swap(root: &Path, name: &str) -> crate::tools::dir_fd::test_hook::Reset {
+        let swapped = root.join(name);
+        let outside = root.parent().unwrap().join("outside_edit_505");
+        std::fs::create_dir_all(&outside).unwrap();
+        let name = name.to_string();
+        crate::tools::dir_fd::test_hook::install(move |component: &Path| {
+            if component.file_name().and_then(|part| part.to_str()) == Some(name.as_str()) {
+                let _ = std::fs::remove_dir_all(&swapped);
+                std::os::unix::fs::symlink(&outside, &swapped).unwrap();
+            }
+        })
+    }
+
+    #[test]
+    fn edit_parent_swap_between_check_and_read_does_not_touch_outside() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        std::fs::create_dir_all(root.join("d")).unwrap();
+        std::fs::write(root.join("d/f.txt"), "anchor_505\n").unwrap();
+        let outside = root.parent().unwrap().join("outside_edit_505");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("f.txt"), "outside-unchanged").unwrap();
+        let _guard = install_swap(&root, "d");
+
+        let err = run(
+            &root,
+            &root.join("d/f.txt"),
+            "anchor_505",
+            "replaced",
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(outside.join("f.txt")).unwrap(),
+            "outside-unchanged"
+        );
+    }
+
+    #[test]
+    fn edit_parent_swap_never_leaks_outside_canary_in_error() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        std::fs::create_dir_all(root.join("d")).unwrap();
+        std::fs::write(root.join("d/f.txt"), "inside anchor\n").unwrap();
+        let outside = root.parent().unwrap().join("outside_edit_505");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("f.txt"), format!("{OUTSIDE_CANARY}\n")).unwrap();
+
+        // The same simil-shaped anchor does mismatch the inside content, so the
+        // refusal below is the fs guard, not an anchor-only shortcut.
+        let mismatch = run(&root, &root.join("d/f.txt"), "similar anchor", "x", false).unwrap_err();
+        assert!(
+            mismatch.to_string().contains("edit_anchor_not_found"),
+            "{mismatch}"
+        );
+
+        let _guard = install_swap(&root, "d");
+        let err = run(&root, &root.join("d/f.txt"), "similar anchor", "x", false).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+        assert!(!err.to_string().contains(OUTSIDE_CANARY), "{err}");
+        assert!(!format!("{err:?}").contains(OUTSIDE_CANARY), "{err:?}");
+        assert_eq!(
+            std::fs::read_to_string(outside.join("f.txt")).unwrap(),
+            format!("{OUTSIDE_CANARY}\n")
+        );
     }
 }

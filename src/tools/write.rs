@@ -1,5 +1,5 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write as _};
+use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, bail};
@@ -11,17 +11,20 @@ pub fn run(root: &Path, path: &Path, content: &str) -> anyhow::Result<String> {
 
 pub fn write_checked(root: &Path, path: &Path, content: &str) -> anyhow::Result<()> {
     ensure_mutation_allowed(root, path)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create parent directory {}", parent.display()))?;
+    #[cfg(unix)]
+    {
+        // The path-based pre-checks above keep their wording and classification;
+        // the fd walk below is the authority, so a parent swapped for a symlink
+        // after those checks is still refused instead of followed.
+        super::dir_fd::fire_seam(path);
+        let parent = super::dir_fd::open_parent(root, path, true)?;
+        parent.write_leaf(content)?;
     }
-    verify_existing_components_inside(root, path)?;
-    reject_target_symlink(path)?;
-    let mut file = open_for_truncate_no_follow(path)?;
-    file.write_all(content.as_bytes())
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    file.flush()
-        .with_context(|| format!("failed to flush {}", path.display()))?;
+    #[cfg(not(unix))]
+    {
+        let _ = (root, path, content);
+        bail!("symlink_write_blocked: fd-relative writes are unavailable on this platform");
+    }
     Ok(())
 }
 
@@ -94,15 +97,108 @@ fn verify_existing_components_inside(root: &Path, path: &Path) -> anyhow::Result
     Ok(())
 }
 
-fn open_for_truncate_no_follow(path: &Path) -> anyhow::Result<fs::File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+#[cfg(test)]
+mod tests {
+    //! Deterministic parent-swap regression for Write (Issue #505). The hook in
+    //! `dir_fd` replaces the inspected parent with a symlink to an "outside"
+    //! directory after the pre-checks and before the fd walk. Synthetic values
+    //! only.
+
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use super::write_checked;
+    use crate::tools::dir_fd::test_hook::{Reset, install};
+
+    const PAYLOAD: &str = "PAYLOAD_505";
+    const OUTSIDE_CANARY: &str = "OUTSIDE_CANARY_505";
+
+    fn outside_of(root: &Path) -> PathBuf {
+        let outside = root.parent().unwrap().join("outside_write_505");
+        fs::create_dir_all(&outside).unwrap();
+        outside
     }
-    options
-        .open(path)
-        .with_context(|| format!("failed to open {} for writing", path.display()))
+
+    fn install_swap(hold: &Path, name: &str) -> Reset {
+        let swapped = hold.join(name);
+        let outside = hold.parent().unwrap().join("outside_write_505");
+        fs::create_dir_all(&outside).unwrap();
+        let name = name.to_string();
+        install(move |component: &Path| {
+            if component.file_name().and_then(|part| part.to_str()) == Some(name.as_str()) {
+                let _ = fs::remove_dir_all(&swapped);
+                std::os::unix::fs::symlink(&outside, &swapped).unwrap();
+            }
+        })
+    }
+
+    fn outside_entries(outside: &Path) -> Vec<std::ffi::OsString> {
+        match fs::read_dir(outside) {
+            Ok(entries) => entries.map(|entry| entry.unwrap().file_name()).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn new_file_parent_swap_creates_nothing_outside() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d")).unwrap();
+        let _guard = install_swap(&root, "d");
+
+        let err = write_checked(&root, &root.join("d/f.txt"), PAYLOAD).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+        let outside = outside_of(&root);
+        assert!(!outside.join("f.txt").exists());
+        assert!(outside_entries(&outside).is_empty());
+    }
+
+    #[test]
+    fn existing_file_parent_swap_does_not_truncate_outside() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d")).unwrap();
+        fs::write(root.join("d/f.txt"), "inside").unwrap();
+        let outside = outside_of(&root);
+        fs::write(outside.join("f.txt"), OUTSIDE_CANARY).unwrap();
+        let _guard = install_swap(&root, "d");
+
+        let err = write_checked(&root, &root.join("d/f.txt"), PAYLOAD).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+        assert_eq!(
+            fs::read_to_string(outside.join("f.txt")).unwrap(),
+            OUTSIDE_CANARY
+        );
+    }
+
+    #[test]
+    fn nested_parent_swap_creates_nothing_outside() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d")).unwrap();
+        let _guard = install_swap(&root, "d");
+
+        let err = write_checked(&root, &root.join("d/sub/f.txt"), PAYLOAD).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+        let outside = outside_of(&root);
+        assert!(!outside.join("sub").exists());
+        assert!(outside_entries(&outside).is_empty());
+    }
+
+    #[test]
+    fn ordinary_replace_keeps_the_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d")).unwrap();
+        fs::write(root.join("d/f.txt"), "before").unwrap();
+        let before = fs::metadata(root.join("d/f.txt")).unwrap().ino();
+
+        write_checked(&root, &root.join("d/f.txt"), "after").unwrap();
+
+        let after = fs::metadata(root.join("d/f.txt")).unwrap();
+        assert_eq!(before, after.ino(), "in-place truncate must keep the inode");
+        assert_eq!(fs::read_to_string(root.join("d/f.txt")).unwrap(), "after");
+    }
 }
