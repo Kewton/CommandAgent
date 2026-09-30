@@ -587,8 +587,11 @@ def test_commandmate_respond_command_targets_codex_instance() -> None:
     ]
 
 
-def test_dispatch_commandmate_sends_only_worker_task() -> None:
+def test_dispatch_commandmate_sends_only_worker_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    monkeypatch.setattr(module, "REPO_ROOT", Path("/tmp/CommandAgent-develop"))
     issue = module.Issue(
         number=1,
         title="Add worker task",
@@ -801,8 +804,11 @@ def test_commandmate_ls_command_omits_empty_branch_prefix() -> None:
     ]
 
 
-def test_commandmate_worktree_id_uses_commandmate_worktree_format() -> None:
+def test_commandmate_worktree_id_uses_commandmate_worktree_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    monkeypatch.setattr(module, "REPO_ROOT", Path("/tmp/CommandAgent-develop"))
 
     assert (
         module.commandmate_worktree_id("feature/issue-2-p0-m1-define-v1-sidecar-schema")
