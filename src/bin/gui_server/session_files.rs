@@ -113,7 +113,7 @@ pub async fn events(
             format!("tail must be in 1..={MAX_EVENT_TAIL_LINES}"),
         ));
     }
-    let display = checked_existing_path_without_symlinks(&run_root, FilePath::new("events.jsonl"))
+    checked_existing_path_without_symlinks(&run_root, FilePath::new("events.jsonl"))
         .await
         .map_err(IntoResponse::into_response)?;
     let root = run_root;
@@ -130,14 +130,9 @@ pub async fn events(
             format!("join event reader: {error}"),
         )
     })?
-    .map_err(|error| {
-        json_error(
-            StatusCode::NOT_FOUND,
-            format!("read {}: {error}", display.display()),
-        )
-    })?;
+    .map_err(|_| json_error(StatusCode::NOT_FOUND, "event tail not found"))?;
     let tail = query.tail;
-    let content = tokio::task::spawn_blocking(move || read_event_tail(file, &display, tail))
+    let content = tokio::task::spawn_blocking(move || read_event_tail(file, tail))
         .await
         .map_err(|error| {
             json_error(
@@ -221,14 +216,14 @@ async fn session_run_root(
     })
 }
 
-fn read_event_tail(file: File, path: &FilePath, line_limit: usize) -> Result<String, TailError> {
+fn read_event_tail(file: File, line_limit: usize) -> Result<String, TailError> {
     let mut file = file;
     let length = file
         .metadata()
-        .map_err(|error| {
+        .map_err(|_| {
             tail_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("inspect {}: {error}", path.display()),
+                "inspect event tail failed",
             )
         })?
         .len();
@@ -245,19 +240,11 @@ fn read_event_tail(file: File, path: &FilePath, line_limit: usize) -> Result<Str
         let chunk_length = usize::try_from(position.min(TAIL_READ_CHUNK_BYTES as u64))
             .expect("tail chunk length fits usize");
         position -= chunk_length as u64;
-        file.seek(SeekFrom::Start(position)).map_err(|error| {
-            tail_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("seek {}: {error}", path.display()),
-            )
-        })?;
+        file.seek(SeekFrom::Start(position))
+            .map_err(|_| tail_error(StatusCode::INTERNAL_SERVER_ERROR, "seek event tail failed"))?;
         let mut chunk = vec![0; chunk_length];
-        file.read_exact(&mut chunk).map_err(|error| {
-            tail_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("read {}: {error}", path.display()),
-            )
-        })?;
+        file.read_exact(&mut chunk)
+            .map_err(|_| tail_error(StatusCode::INTERNAL_SERVER_ERROR, "read event tail failed"))?;
         if chunks.is_empty() {
             trailing_newline = chunk.last() == Some(&b'\n');
         }

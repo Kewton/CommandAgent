@@ -6332,3 +6332,453 @@ fn session_events_never_leak_during_a_leaf_swap() {
     worker.join().unwrap();
     server.stop();
 }
+
+// Issue #562 — a run id that is a symlink (inward or outward) must not let a
+// read escape the runs root, and an error body must never carry the server's
+// absolute path. Every fixture uses synthetic values inside a tempdir; the
+// "outside" directory is a sibling of the served repository, never a real host
+// path. The marker `H01_562_FAKE_outside_*` must never appear in a body.
+#[cfg(unix)]
+const SECURITY_CANARY_562: &str = "H01_562_FAKE_outside_secret";
+
+#[cfg(unix)]
+struct RunSymlinkFixture {
+    repository: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+fn run_symlink_fixture() -> RunSymlinkFixture {
+    use std::os::unix::fs::symlink;
+
+    let repository = tempfile::tempdir().unwrap();
+    let runs_root = repository.path().join("workspace/management/runs");
+    let run1 = runs_root.join("run1");
+    std::fs::create_dir_all(run1.join("evidence")).unwrap();
+    std::fs::write(run1.join("evidence/doc.md"), "inside-evidence\n").unwrap();
+    std::fs::write(
+        run1.join("acceptance-sheet.md"),
+        "# Acceptance\n\nStatus: FULL 1/1\n",
+    )
+    .unwrap();
+    std::fs::write(run1.join("measurement-report.md"), "# report\n").unwrap();
+    std::fs::write(run1.join("big.md"), vec![b'x'; 1_048_577]).unwrap();
+
+    let outside = repository.path().join("outside");
+    let run_ext = outside.join("run-ext");
+    std::fs::create_dir_all(run_ext.join("evidence")).unwrap();
+    for relative in [
+        "doc.md",
+        "evidence/doc.md",
+        "report.md",
+        "acceptance-sheet.md",
+        "measurement-report.md",
+    ] {
+        std::fs::write(run_ext.join(relative), format!("{SECURITY_CANARY_562}\n")).unwrap();
+    }
+    std::fs::write(
+        outside.join("secret.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+
+    symlink(&run_ext, runs_root.join("linkrun")).unwrap();
+    symlink(&run1, runs_root.join("linkrun-in")).unwrap();
+    symlink(outside.join("secret.md"), run1.join("linkout.md")).unwrap();
+    symlink(run1.join("evidence/doc.md"), run1.join("linkin.md")).unwrap();
+
+    RunSymlinkFixture { repository }
+}
+
+#[cfg(unix)]
+fn assert_response_has_no_leak_562(
+    response: &HttpResponse,
+    fixture: &RunSymlinkFixture,
+    status: u16,
+    code: &str,
+) {
+    assert_eq!(response.status, status, "{}", response.body);
+    assert!(
+        !response.body.contains(SECURITY_CANARY_562),
+        "body leaked the outside canary: {}",
+        response.body
+    );
+    for needle in [
+        fixture.repository.path().to_string_lossy().to_string(),
+        fixture
+            .repository
+            .path()
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .to_string(),
+    ] {
+        assert!(
+            !response.body.contains(&needle),
+            "body leaked the absolute path {needle}: {}",
+            response.body
+        );
+    }
+    assert_eq!(response.json()["code"], code, "{}", response.body);
+}
+
+/// Rows 1, 2, 5, 6, 9: a symlinked run id is a 404 for both the evidence and the
+/// detail endpoints, inward and outward, while the real run keeps its shape.
+#[cfg(unix)]
+#[test]
+fn run_documents_refuse_a_symlinked_run_id() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 1: an outward run-id symlink is refused for every evidence path.
+    for path in ["doc.md", "evidence/doc.md", "report.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/linkrun/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 2: an inward run-id symlink is refused too (the #506 rule).
+    let inward = server.request_without_access(
+        "GET",
+        "/api/runs/linkrun-in/evidence?path=evidence/doc.md",
+        None,
+    );
+    assert_response_has_no_leak_562(&inward, &fixture, 404, "resource_not_found");
+
+    // Rows 5 (D) and 6 (K): run_detail refuses both symlinked run ids.
+    for id in ["linkrun", "linkrun-in"] {
+        let response = server.request_without_access("GET", &format!("/api/runs/{id}"), None);
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 9 (K): the normal evidence response keeps its identifiers and body.
+    let normal =
+        server.request_without_access("GET", "/api/runs/run1/evidence?path=evidence/doc.md", None);
+    assert_eq!(normal.status, 200, "{}", normal.body);
+    let body = normal.json();
+    assert_eq!(body["id"], "doc.md");
+    assert_eq!(body["path"], "evidence/doc.md");
+    assert_eq!(body["content"], "inside-evidence\n");
+
+    // The real detail also keeps its acceptance body.
+    let detail = server.request_without_access("GET", "/api/runs/run1", None);
+    assert_eq!(detail.status, 200, "{}", detail.body);
+    assert_eq!(detail.json()["id"], "run1");
+    assert!(
+        detail.json()["acceptance"]
+            .as_str()
+            .is_some_and(|text| text.contains("FULL 1/1")),
+        "{}",
+        detail.body
+    );
+    server.stop();
+}
+
+/// Rows 10-15: refusal and read failures return root-free bodies while keeping
+/// their status and machine-readable code.
+#[cfg(unix)]
+#[test]
+fn run_document_errors_have_no_absolute_path() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 10: a symlink inside the run is refused with a root-free body.
+    for path in ["linkout.md", "linkin.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/run1/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Rows 11-12: a missing document and a missing directory component.
+    for path in ["nope.md", "nodir/nope.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/run1/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 13: a missing run id.
+    let missing_run =
+        server.request_without_access("GET", "/api/runs/nope/evidence?path=doc.md", None);
+    assert_response_has_no_leak_562(&missing_run, &fixture, 404, "resource_not_found");
+
+    // Row 14: a report read whose run id escapes the runs root.
+    let escape =
+        server.request_without_access("GET", "/api/reports/view?path=linkrun/report.md", None);
+    assert_response_has_no_leak_562(&escape, &fixture, 404, "resource_not_found");
+
+    // Row 15 (D): an oversized document stays a 413 and drops the path.
+    let oversized =
+        server.request_without_access("GET", "/api/runs/run1/evidence?path=big.md", None);
+    assert_response_has_no_leak_562(&oversized, &fixture, 413, "resource_too_large");
+
+    server.stop();
+}
+
+/// Rows 7 and 8 (K): the reports view and the run/report/band indexes keep their
+/// existing symlinked-run-id boundary.
+#[cfg(unix)]
+#[test]
+fn run_lists_and_reports_keep_the_symlink_boundary() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 7 (K): reports below a symlinked run id are 404; the real one is 200.
+    for path in ["linkrun/report.md", "linkrun-in/measurement-report.md"] {
+        let response =
+            server.request_without_access("GET", &format!("/api/reports/view?path={path}"), None);
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+    let real = server.request_without_access(
+        "GET",
+        "/api/reports/view?path=run1/measurement-report.md",
+        None,
+    );
+    assert_eq!(real.status, 200, "{}", real.body);
+    assert_eq!(real.json()["path"], "run1/measurement-report.md");
+
+    // Row 8 (K): the indexes list only the real run, never a symlinked id.
+    let index = server.request_without_access("GET", "/api/runs", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    let index = index.json();
+    let ids: Vec<&str> = index["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|run| run["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"run1"), "{ids:?}");
+    assert!(!ids.contains(&"linkrun"), "{ids:?}");
+    assert!(!ids.contains(&"linkrun-in"), "{ids:?}");
+
+    let reports = server.request_without_access("GET", "/api/reports", None);
+    assert_eq!(reports.status, 200, "{}", reports.body);
+    let reports = reports.json();
+    let paths: Vec<&str> = reports
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|report| report["path"].as_str())
+        .collect();
+    assert!(paths.contains(&"run1/measurement-report.md"), "{paths:?}");
+    assert!(
+        !paths.iter().any(|path| path.contains("linkrun")),
+        "{paths:?}"
+    );
+
+    let bands = server.request_without_access("GET", "/api/bands", None);
+    assert_eq!(bands.status, 200, "{}", bands.body);
+    server.stop();
+}
+
+/// Rows 3 and 4: while the run id is repeatedly swapped between a real
+/// directory and an outward symlink, a detail or evidence read never returns the
+/// outside acceptance body.
+#[cfg(unix)]
+#[test]
+fn run_id_swap_never_leaks_outside_content() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const RUN_ID: &str = "run1";
+    let repository = tempfile::tempdir().unwrap();
+    let runs_root = repository.path().join("workspace/management/runs");
+    let run_root = runs_root.join(RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(run_root.join("evidence/doc.md"), "inside-evidence\n").unwrap();
+    std::fs::write(
+        run_root.join("acceptance-sheet.md"),
+        "# Acceptance\n\nStatus: PASS\n",
+    )
+    .unwrap();
+
+    let outside = repository.path().join("outside");
+    let run_ext = outside.join("run-ext");
+    std::fs::create_dir_all(run_ext.join("evidence")).unwrap();
+    std::fs::write(
+        run_ext.join("evidence/doc.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        run_ext.join("acceptance-sheet.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let run_root = run_root.clone();
+        let run_ext = run_ext.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = run_root
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&run_root);
+                    let _ = std::fs::create_dir_all(run_root.join("evidence"));
+                    let _ = std::fs::write(run_root.join("evidence/doc.md"), "inside-evidence\n");
+                    let _ = std::fs::write(
+                        run_root.join("acceptance-sheet.md"),
+                        "# Acceptance\n\nStatus: PASS\n",
+                    );
+                } else {
+                    let _ = std::fs::remove_dir_all(&run_root);
+                    let _ = symlink(&run_ext, &run_root);
+                }
+            }
+        })
+    };
+    let detail_endpoint = format!("/api/runs/{RUN_ID}");
+    let evidence_endpoint = format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md");
+    for _ in 0..300 {
+        let detail = server.request_without_access("GET", &detail_endpoint, None);
+        assert!(
+            !detail.body.contains(SECURITY_CANARY_562),
+            "detail leaked the outside canary: {}",
+            detail.body
+        );
+        let evidence = server.request_without_access("GET", &evidence_endpoint, None);
+        assert!(
+            !evidence.body.contains(SECURITY_CANARY_562),
+            "evidence leaked the outside canary: {}",
+            evidence.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+/// Row 16 (D): the events tail 404 keeps its status and code without exposing
+/// the server's absolute path.
+#[cfg(unix)]
+#[test]
+fn session_event_tail_404_has_no_absolute_path() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000092";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    std::fs::write(run_root.join("summary.md"), "inside summary\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_562}\"}}\n"),
+    )
+    .unwrap();
+    symlink(outside.join("events.jsonl"), run_root.join("events.jsonl")).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/events?tail=5"),
+        None,
+    );
+    assert_eq!(response.status, 404, "{}", response.body);
+    assert_eq!(response.json()["code"], "resource_not_found");
+    assert!(
+        !response.body.contains(SECURITY_CANARY_562),
+        "{}",
+        response.body
+    );
+    for needle in [
+        temp.path().to_string_lossy().to_string(),
+        temp.path().parent().unwrap().to_string_lossy().to_string(),
+    ] {
+        assert!(
+            !response.body.contains(&needle),
+            "body leaked the absolute path {needle}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+/// Row 16 (D): while the events leaf is swapped for a symlink, the read failure
+/// that only the fd open sees must not put the server's absolute path in the
+/// body either.
+#[cfg(unix)]
+#[test]
+fn session_event_tail_swap_has_no_absolute_path() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000093";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    let real = run_root.join("events.jsonl");
+    std::fs::write(&real, "{\"event\":\"inside\"}\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_562}\"}}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::write(&real, "{\"event\":\"inside\"}\n");
+                } else {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = symlink(outside.join("events.jsonl"), &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/sessions/{SESSION_ID}/events?tail=1");
+    let absolute = temp.path().to_string_lossy().to_string();
+    for _ in 0..300 {
+        let response = server.request("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_562),
+            "leaked the outside canary: {}",
+            response.body
+        );
+        assert!(
+            !response.body.contains(&absolute),
+            "body leaked the absolute path {absolute}: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
