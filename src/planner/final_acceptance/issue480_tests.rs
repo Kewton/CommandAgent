@@ -226,9 +226,23 @@ fn issue480_display_excerpt_is_distinct_and_redacted_location_loss_is_generic() 
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "src/app/page.tsx", "<main />");
     let command = command();
-    let output = crate::tools::bash::run_checked(&command, root.path(), false)
-        .unwrap_err()
-        .to_string();
+    // Issue #557 removed the command from `run_checked`'s error text. This test
+    // is about display-excerpt vs. bounded-diagnostic separation, and it reads
+    // a text that includes the (long) command, so build that text here from the
+    // structured outcome. The assertions below are unchanged.
+    let outcome = crate::tools::bash::run_structured(
+        &command,
+        root.path(),
+        false,
+        std::time::Duration::from_secs(180),
+        || false,
+    )
+    .unwrap();
+    assert!(!outcome.is_success());
+    let output = format!(
+        "command failed: {command}\n{}",
+        crate::tools::bash::format_outcome(&outcome)
+    );
     let full = FullCommandOutput::from_test_text(&output);
     assert!(!full.excerpt().as_str().contains("Error: missing primary"));
     assert!(
