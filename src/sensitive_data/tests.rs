@@ -1036,6 +1036,112 @@ fn c24_unescaped_identity_is_refused_and_clean_passes() {
     assert!(refuse_identity(&catalog, "confirmation", "safe-identity").is_ok());
 }
 
+// Issue #554 rows 17-21: an identity that serializes an object or an array must
+// be refused when any key or string value still carries an escaped registered
+// secret, and a secret-free serialized identity must pass. The refusal must not
+// expose the secret through Display or Debug.
+const S17_QUOTE: &str = "H01q\"uote_FAKE_secret_554";
+const S17_BACKSLASH: &str = "H01_554_back\\slash_FAKE";
+const S17_NEWLINE: &str = "H01_554_new\nline_FAKE";
+const S17_PLAIN: &str = "H01_554_plain_FAKE_secret";
+
+fn identity_catalog() -> Arc<SecretCatalog> {
+    let mut catalog = SecretCatalog::new();
+    for value in [S17_QUOTE, S17_BACKSLASH, S17_NEWLINE, S17_PLAIN] {
+        catalog.register_credential("FAKE_KEY", value).unwrap();
+    }
+    Arc::new(catalog)
+}
+
+fn assert_identity_refused_without_leak(catalog: &SecretCatalog, encoded: &str) {
+    let refusal = refuse_identity(catalog, "confirmation", encoded).unwrap_err();
+    assert_eq!(refusal.kind, "identity");
+    let display = refusal.to_string();
+    let debug = format!("{refusal:?}");
+    for secret in [S17_QUOTE, S17_BACKSLASH, S17_NEWLINE, S17_PLAIN] {
+        assert!(
+            !display.contains(secret),
+            "display leaked {secret:?}: {display}"
+        );
+        assert!(!debug.contains(secret), "debug leaked {secret:?}: {debug}");
+    }
+}
+
+#[test]
+fn c30_serialized_object_and_array_identity_secrets_are_refused() {
+    let catalog = identity_catalog();
+    let cases = [
+        serde_json::to_string(&json!({"token": S17_QUOTE})).unwrap(),
+        serde_json::to_string(&json!(["a", S17_QUOTE])).unwrap(),
+        serde_json::to_string(&json!({"a": {"b": [S17_BACKSLASH]}})).unwrap(),
+    ];
+    for encoded in &cases {
+        assert!(
+            !catalog.contains(encoded),
+            "raw escaped form matched: {encoded}"
+        );
+        assert_identity_refused_without_leak(&catalog, encoded);
+    }
+}
+
+#[test]
+fn c31_serialized_control_char_and_pretty_identity_secrets_are_refused() {
+    let catalog = identity_catalog();
+    let control = serde_json::to_string(&json!({"k": S17_NEWLINE})).unwrap();
+    assert!(
+        !catalog.contains(&control),
+        "raw control form matched: {control}"
+    );
+    assert_identity_refused_without_leak(&catalog, &control);
+
+    let pretty = serde_json::to_string_pretty(&json!({"t": S17_QUOTE})).unwrap();
+    assert_identity_refused_without_leak(&catalog, &pretty);
+}
+
+#[test]
+fn c32_serialized_object_key_identity_secret_is_refused() {
+    let catalog = identity_catalog();
+    let mut map = serde_json::Map::new();
+    map.insert(S17_QUOTE.to_string(), json!("v"));
+    let encoded = serde_json::to_string(&serde_json::Value::Object(map)).unwrap();
+    assert!(!catalog.contains(&encoded), "raw form matched: {encoded}");
+    assert_identity_refused_without_leak(&catalog, &encoded);
+}
+
+#[test]
+fn c33_unicode_escape_and_double_encoded_identity_secrets_are_refused() {
+    let catalog = identity_catalog();
+    let unicode_escaped = format!(r#"{{"t":"\u0048{}"}}"#, &S17_PLAIN[1..]);
+    assert!(
+        !catalog.contains(&unicode_escaped),
+        "raw form matched: {unicode_escaped}"
+    );
+    assert_identity_refused_without_leak(&catalog, &unicode_escaped);
+
+    let inner = serde_json::to_string(&json!({"t": S17_QUOTE})).unwrap();
+    let double = serde_json::to_string(&inner).unwrap();
+    assert!(
+        !catalog.contains(&double),
+        "raw double form matched: {double}"
+    );
+    assert_identity_refused_without_leak(&catalog, &double);
+}
+
+#[test]
+fn c34_serialized_identity_without_a_secret_is_ok() {
+    let catalog = identity_catalog();
+    for text in [
+        serde_json::to_string(&json!({"goal": "safe", "n": 1})).unwrap(),
+        "safe-identity".to_string(),
+        r#"{"a":1,"b":true,"c":null}"#.to_string(),
+    ] {
+        assert!(
+            refuse_identity(&catalog, "confirmation", &text).is_ok(),
+            "unexpected refusal for {text}"
+        );
+    }
+}
+
 #[test]
 fn c25_public_predicates_match_the_constants() {
     assert!(is_fixed_schema_key("status"));

@@ -43,9 +43,15 @@ process environment. The browser sends it as
 
 `GUI_TRIAL_ALLOWED_ORIGINS` is a comma-separated exact allowlist for proxy
 origins. Its authorities are also accepted as a `Host`, so a proxy path such as
-CommandMate's `/proxy/commandagent` keeps working. A token never substitutes for
-upstream Cloudflare/tunnel access policy. The listener remains loopback-only and
-never trusts `X-Forwarded-Host` or other forwarded headers.
+CommandMate's `/proxy/commandagent` keeps working. Both this allowlist and
+`GUI_TRIAL_TOKEN` (when authentication is on) are read and validated at startup
+whether or not `--execution-root` is configured: a dashboard-only server still
+accepts an allowlisted authority as `Host` and as a mutation `Origin`, and an
+invalid origin or a missing token still fails the process closed before it
+serves. A missing execution root only disables the Trial mutation routes
+(`503 trial_execution_disabled`). A token never substitutes for upstream
+Cloudflare/tunnel access policy. The listener remains loopback-only and never
+trusts `X-Forwarded-Host` or other forwarded headers.
 
 ## Trial token lifetime and rotation when authentication is on
 

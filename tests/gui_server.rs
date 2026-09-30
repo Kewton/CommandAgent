@@ -5079,6 +5079,220 @@ fn gui_server_rejects_invalid_allowed_origins_before_serving() {
     }
 }
 
+// Issue #554 A: without an execution root the allowlist must still be read, so
+// an allowlisted proxy authority is a valid `Host`/`Origin` while every other
+// authority, rebinding pair, and forwarded header stays refused, and the
+// mutation routes keep reporting the disabled execution root.
+
+#[cfg(unix)]
+const DASHBOARD_ALLOWLIST: &str = "https://gw.example";
+#[cfg(unix)]
+const DASHBOARD_HOST: &str = "gw.example";
+
+/// Start a dashboard-only server (no `--execution-root`) with the given extra
+/// environment. `authenticated` toggles `--trial-token-auth on` with the test
+/// token, mirroring `Server::start_with_repository_root_and_env`.
+#[cfg(unix)]
+fn dashboard_only_with_env(
+    repository_root: &std::path::Path,
+    authenticated: bool,
+    environment: &[(&str, &str)],
+) -> Server {
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+    Server::start_with_repository_root_and_env(
+        None,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        authenticated,
+        repository_root,
+        StaticExport::new(&static_root, "/").with_provider_hosts(ProviderHosts {
+            ollama: "http://127.0.0.1:9",
+            lm_studio: "http://127.0.0.1:9",
+        }),
+        None,
+        environment,
+    )
+}
+
+/// Rows 1-8: a dashboard-only server accepts the allowlisted authority as
+/// `Host` (case-insensitively, for reads and the static index) while an
+/// unlisted authority, a rebinding pair, and a forwarded header are refused,
+/// and the mutation routes stay disabled.
+#[cfg(unix)]
+#[test]
+fn execution_root_less_allowlist_host_and_origin_are_enforced() {
+    let (repository, _workspace) = rebinding_fixture();
+    let allowlist = [("GUI_TRIAL_ALLOWED_ORIGINS", DASHBOARD_ALLOWLIST)];
+    let mut server = dashboard_only_with_env(repository.path(), false, &allowlist);
+    let port = server.port;
+
+    // Rows 1-3: the allowlisted Host passes on reads and the static index, and
+    // the comparison is ASCII case-insensitive.
+    for (method, path, host) in [
+        ("GET", "/api/runs", DASHBOARD_HOST),
+        ("GET", "/api/runtime-status", DASHBOARD_HOST),
+        ("GET", "/", DASHBOARD_HOST),
+        ("GET", "/api/runs", "GW.EXAMPLE"),
+    ] {
+        let response = server.request_with_host(method, path, None, None, None, host, &[]);
+        assert_eq!(
+            response.status, 200,
+            "{path} host {host}: {}",
+            response.body
+        );
+    }
+
+    // Row 4: any authority outside the allowlist and the loopback set is
+    // refused with the two-key coded body that never echoes the Host.
+    for host in [
+        format!("{REBINDING_ATTACKER}:{port}"),
+        "evil.gw.example".to_string(),
+        "gw.example:443".to_string(),
+        "gw.example.".to_string(),
+    ] {
+        let response = server.request_with_host("GET", "/api/runs", None, None, None, &host, &[]);
+        assert_host_forbidden(&response, &[host.as_str(), REBINDING_RUN_ID]);
+    }
+
+    // Row 5: a rebinding pair is refused on reads and mutations.
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let read = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&read, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    let mutation = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&session_spec()),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&mutation, &["card_hash"]);
+
+    // Row 6: a forwarded host header is never trusted.
+    let forwarded = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[("X-Forwarded-Host", DASHBOARD_HOST)],
+    );
+    assert_host_forbidden(&forwarded, &[REBINDING_RUN_ID]);
+
+    // Row 7: with an allowlisted Host and Origin the mutation routes still
+    // report the disabled execution root before any Origin or token check.
+    for path in ["/api/session-proposals", "/api/sessions"] {
+        let response = server.request_with_host(
+            "POST",
+            path,
+            Some(&session_spec()),
+            None,
+            Some(DASHBOARD_ALLOWLIST),
+            DASHBOARD_HOST,
+            &[],
+        );
+        assert_eq!(response.status, 503, "{path}: {}", response.body);
+        assert_error(
+            &response,
+            "trial_execution_disabled",
+            "trial execution is disabled; configure --execution-root",
+        );
+    }
+
+    server.stop();
+
+    // Row 8: without an allowlist only loopback is accepted.
+    let mut bare = dashboard_only_with_env(repository.path(), false, &[]);
+    let refused = bare.request_with_host("GET", "/api/runs", None, None, None, DASHBOARD_HOST, &[]);
+    assert_host_forbidden(&refused, &[REBINDING_RUN_ID]);
+    bare.stop();
+}
+
+/// Rows 10 and 12: a dashboard-only server fails closed on an invalid allowlist
+/// and on `--trial-token-auth on` with no token, without printing the token.
+#[test]
+fn execution_root_less_startup_fails_closed_on_invalid_configuration() {
+    for value in ["https://gw.example/path", "ftp://x", "http://x?y=1"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--port", "0", "--base-path", "/"])
+            .arg("--repository-root")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .env("GUI_TRIAL_ALLOWED_ORIGINS", value)
+            .env_remove("GUI_TRIAL_TOKEN")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {value}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("trial origin"),
+            "stderr for {value}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--port", "0", "--base-path", "/"])
+        .arg("--repository-root")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .args(["--trial-token-auth", "on"])
+        .env_remove("GUI_TRIAL_TOKEN")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("GUI_TRIAL_TOKEN"), "{stderr}");
+    assert!(stderr.contains("--trial-token-auth"), "{stderr}");
+}
+
+/// Rows 13 and 15: a dashboard-only server still enforces the profile
+/// authentication and Origin rules, with an allowlisted Host.
+#[cfg(unix)]
+#[test]
+fn execution_root_less_profile_mutations_enforce_token_and_origin() {
+    let (repository, _workspace) = rebinding_fixture();
+    let body = serde_json::json!({"path": "profiles/x.toml", "content": "id = \"x\""});
+    let allowlist = [("GUI_TRIAL_ALLOWED_ORIGINS", DASHBOARD_ALLOWLIST)];
+
+    // Row 13: token auth on requires the token even without an execution root.
+    let mut authenticated = dashboard_only_with_env(repository.path(), true, &allowlist);
+    let missing_token = authenticated.request_with_host(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&body),
+        None,
+        Some(DASHBOARD_ALLOWLIST),
+        DASHBOARD_HOST,
+        &[],
+    );
+    assert_eq!(missing_token.status, 401, "{}", missing_token.body);
+    assert_eq!(missing_token.json()["code"], "profile_auth_failed");
+    authenticated.stop();
+
+    // Row 15: an allowlisted Host with a disallowed Origin is refused.
+    let mut server = dashboard_only_with_env(repository.path(), false, &allowlist);
+    let bad_origin = server.request_with_host(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&body),
+        None,
+        Some("https://attacker.example"),
+        DASHBOARD_HOST,
+        &[],
+    );
+    assert_eq!(bad_origin.status, 403, "{}", bad_origin.body);
+    assert_eq!(bad_origin.json()["code"], "profile_origin_not_allowed");
+    server.stop();
+}
+
 #[cfg(unix)]
 struct Server {
     child: Child,

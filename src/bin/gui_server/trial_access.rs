@@ -34,19 +34,19 @@ impl TrialAccess {
         Self::from_environment_on_port(execution_enabled, authentication_enabled, 0)
     }
 
+    /// Build the access policy from the process environment.
+    ///
+    /// The token and `GUI_TRIAL_ALLOWED_ORIGINS` rules are the same whether or
+    /// not an execution root is configured, so a dashboard-only server still
+    /// accepts an allowlisted proxy authority as `Host`, still admits its
+    /// Origin, and still fails closed on an invalid origin or a missing token
+    /// (Issue #554). `execution_enabled` no longer changes what is read; it is
+    /// retained so existing call sites keep one constructor.
     pub fn from_environment_on_port(
-        execution_enabled: bool,
+        _execution_enabled: bool,
         authentication_enabled: bool,
         listening_port: u16,
     ) -> anyhow::Result<Self> {
-        if !execution_enabled {
-            return Ok(Self::assemble(
-                None,
-                authentication_enabled,
-                Vec::new(),
-                listening_port,
-            ));
-        }
         let (token, allowed_origins) = validated_environment(authentication_enabled)?;
         Ok(Self::assemble(
             token,

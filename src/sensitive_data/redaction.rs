@@ -565,10 +565,16 @@ pub fn refuse_runnable(
 /// Refuse a confirmation identity (a hash source or canonical key) that still
 /// contains a secret. Used before an identity is hashed and stored.
 ///
-/// An identity may be a JSON-encoded string: `serde_json::to_string` escapes a
-/// quote or a control character, so the raw text no longer spells the secret.
-/// The decoded value is checked too, so an escaped identity is refused
-/// (Issue #548 hole 3).
+/// An identity may itself be JSON: `serde_json::to_string` escapes a quote, a
+/// backslash, or a control character, so the raw text no longer spells the
+/// secret. The raw text is matched first, then, when it parses as a JSON value,
+/// every object key, object value, and array element is walked recursively; a
+/// string that is itself JSON is parsed again (Issue #548 hole 3 and #554).
+///
+/// Non-goals (no refusal is claimed): an escape inside unterminated JSON, a
+/// secret split across two fields, and nesting deeper than 128 levels. An
+/// unparseable identity falls back to a whole-text match, so the refusal
+/// direction never weakens.
 pub fn refuse_identity(
     catalog: &SecretCatalog,
     field: &str,
@@ -583,13 +589,41 @@ pub fn refuse_identity(
     Ok(())
 }
 
+/// Maximum JSON nesting depth walked when a string identity is decoded. Deeper
+/// nesting is a declared non-goal and is left to the whole-text fallback.
+const MAX_IDENTITY_DEPTH: usize = 128;
+
 fn identity_contains_secret(catalog: &SecretCatalog, text: &str) -> bool {
+    if catalog.is_empty() {
+        return false;
+    }
+    text_contains_secret(catalog, text, 0)
+}
+
+/// True when `text`, or a JSON value decoded from it, contains a secret.
+fn text_contains_secret(catalog: &SecretCatalog, text: &str, depth: usize) -> bool {
     if catalog.contains(text) {
         return true;
     }
-    match serde_json::from_str::<String>(text) {
-        Ok(decoded) => catalog.contains(&decoded),
+    if depth >= MAX_IDENTITY_DEPTH {
+        return false;
+    }
+    match serde_json::from_str::<Value>(text) {
+        Ok(value) => json_contains_secret(catalog, &value, depth + 1),
         Err(_) => false,
+    }
+}
+
+fn json_contains_secret(catalog: &SecretCatalog, value: &Value, depth: usize) -> bool {
+    match value {
+        Value::String(text) => text_contains_secret(catalog, text, depth),
+        Value::Array(items) => items
+            .iter()
+            .any(|item| json_contains_secret(catalog, item, depth + 1)),
+        Value::Object(map) => map.iter().any(|(key, item)| {
+            catalog.contains(key) || json_contains_secret(catalog, item, depth + 1)
+        }),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
     }
 }
 
