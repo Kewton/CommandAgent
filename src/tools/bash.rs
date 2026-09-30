@@ -10,6 +10,14 @@ mod path_tokens;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_STREAM_BYTES: usize = 24_000;
+/// The fixed text that replaces the caller's command in an error message.
+/// Issue #557 keeps the error kind and prefix but never echoes the command.
+const OMITTED_COMMAND: &str = "command text omitted";
+/// `build_summary` emits this summary when no diagnostic line was extracted.
+/// It is the only summary that carries the command, so the prefix check below
+/// is enough to tell it apart from an extracted error line.
+const COMMAND_DID_NOT_SUCCEED_PREFIX: &str = "command did not succeed: ";
+const COMMAND_DID_NOT_SUCCEED: &str = "command did not succeed";
 const OUTSIDE_WORKSPACE_MARKER: &str = "[outside workspace root — do not reference]";
 const INSPECT_MAX_DEPTH: usize = 3;
 const INSPECT_MAX_RESULTS: usize = 200;
@@ -104,18 +112,39 @@ fn run_with_timeout(
         bail!("{}", outcome.summary);
     }
     if outcome.kind == BashOutcomeKind::Timeout {
-        bail!("command_timeout: {command}\n{}", format_outcome(&outcome));
+        bail!(
+            "command_timeout: {OMITTED_COMMAND}\n{}",
+            format_outcome_without_command(&outcome)
+        );
     }
     Ok(format_outcome(&outcome))
 }
 
 pub fn run_checked(command: &str, root: &Path, offline: bool) -> anyhow::Result<String> {
-    let outcome = run_structured(command, root, offline, DEFAULT_TIMEOUT, || false)?;
-    let formatted = format_outcome(&outcome);
-    if !outcome.is_success() {
-        bail!("command failed: {command}\n{formatted}");
+    run_checked_with_timeout(command, root, offline, DEFAULT_TIMEOUT)
+}
+
+/// `run_checked` with an explicit timeout. The timeout case is exercised from
+/// the test module with a short budget; production always uses
+/// [`DEFAULT_TIMEOUT`].
+fn run_checked_with_timeout(
+    command: &str,
+    root: &Path,
+    offline: bool,
+    timeout: Duration,
+) -> anyhow::Result<String> {
+    let outcome = run_structured(command, root, offline, timeout, || false)?;
+    if outcome.kind == BashOutcomeKind::Blocked {
+        // Issue #557: a refusal returns only the summary, matching `run`.
+        bail!("{}", outcome.summary);
     }
-    Ok(formatted)
+    if !outcome.is_success() {
+        bail!(
+            "command failed: {OMITTED_COMMAND}\n{}",
+            format_outcome_without_command(&outcome)
+        );
+    }
+    Ok(format_outcome(&outcome))
 }
 
 pub fn run_structured<F>(
@@ -205,7 +234,7 @@ where
         is_cancelled,
         is_force_cancelled,
     )
-    .with_context(|| format!("failed to spawn command: {command}"))?;
+    .context("failed to spawn command")?;
 
     let stdout = redact_engine_private_output(&String::from_utf8_lossy(&output.stdout), root);
     let stderr = redact_engine_private_output(&String::from_utf8_lossy(&output.stderr), root);
@@ -260,12 +289,30 @@ where
 }
 
 pub fn format_outcome(outcome: &BashOutcome) -> String {
+    format_outcome_with_summary(outcome, &outcome.summary)
+}
+
+/// The formatted outcome with the command removed from its summary. Only the
+/// `command did not succeed: <command>` summary carries the command (a failure
+/// whose output had no diagnostic line); an extracted error line is returned
+/// unchanged. Used at the two error-construction points in this module
+/// (`run_checked` and the `run` timeout), never in an `Ok` body.
+fn format_outcome_without_command(outcome: &BashOutcome) -> String {
+    let summary = if outcome.summary.starts_with(COMMAND_DID_NOT_SUCCEED_PREFIX) {
+        COMMAND_DID_NOT_SUCCEED
+    } else {
+        outcome.summary.as_str()
+    };
+    format_outcome_with_summary(outcome, summary)
+}
+
+fn format_outcome_with_summary(outcome: &BashOutcome, summary: &str) -> String {
     format!(
         "outcome: {:?}\nstatus: {}\nelapsed_ms: {}\nsummary: {}\nstdout:\n{}\nstderr:\n{}",
         outcome.kind,
         outcome.status.as_deref().unwrap_or("none"),
         outcome.elapsed_ms,
-        outcome.summary,
+        summary,
         outcome.stdout,
         outcome.stderr
     )
@@ -1032,6 +1079,59 @@ mod tests {
         let err = run_with_timeout("sleep 2", dir.path(), false, Duration::from_millis(50))
             .expect_err("timeout should return a tool error");
         assert!(err.to_string().contains("command_timeout"), "{err}");
+    }
+
+    /// Issue #557 fake values: `C` is the scope-less canary, `R` is registered
+    /// as a credential before a run scope is installed.
+    const C: &str = "H01_557_FAKE_canary_qq";
+    const R: &str = "H01_557_FAKE_registered_key_88";
+
+    #[test]
+    fn bash_run_timeout_error_omits_the_command_without_a_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = format!("sleep 5 # {C}");
+        let error = run_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+            .expect_err("timeout should return a tool error");
+        let message = error.to_string();
+        assert!(message.starts_with("command_timeout: "), "{message}");
+        assert_eq!(
+            crate::tools::registry::tool_error_kind(&error),
+            "command_timeout"
+        );
+        assert!(!message.contains(C), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+    }
+
+    #[test]
+    fn bash_run_timeout_error_omits_the_command_with_a_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("FAKE_KEY", R).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), None);
+        let command = format!("sleep 5 # {R}");
+        let error = run_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+            .expect_err("timeout should return a tool error");
+        let message = error.to_string();
+        assert!(message.starts_with("command_timeout: "), "{message}");
+        assert_eq!(
+            crate::tools::registry::tool_error_kind(&error),
+            "command_timeout"
+        );
+        assert!(!message.contains(R), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+    }
+
+    #[test]
+    fn bash_run_checked_timeout_error_omits_the_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = format!("sleep 5 # {C}");
+        let error =
+            run_checked_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+                .expect_err("timeout should be reported as a failure");
+        let message = error.to_string();
+        assert!(message.contains("command failed"), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+        assert!(!message.contains(C), "{message}");
     }
 
     #[test]

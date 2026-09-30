@@ -30,6 +30,11 @@ const C1: &str = "H01_546_FAKE_canary_zz";
 /// scope-less rejection must not persist it either.
 const C2: &str = "H01_546_FAKE_registered_key_77";
 
+/// Issue #557 fake values. `C` is used without a scope; `R` is registered as a
+/// credential before a run scope is installed.
+const C: &str = "H01_557_FAKE_canary_qq";
+const R: &str = "H01_557_FAKE_registered_key_88";
+
 /// The scope registry is process-global, so tests that install or reset a scope
 /// share one lock.
 static SCOPE_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -115,6 +120,21 @@ fn assert_omitted_prefix(record: &Value, command: &str) {
         record["command_sha256"],
         format!("{:x}", Sha256::digest(command.as_bytes()))
     );
+}
+
+/// Issue #557: the error's Display, Debug, and alternate (`{:#}`) forms must
+/// none of them contain the fake value that was embedded in the command.
+fn assert_error_omits(error: &anyhow::Error, value: &str) {
+    for rendered in [
+        error.to_string(),
+        format!("{error:?}"),
+        format!("{error:#}"),
+    ] {
+        assert!(
+            !rendered.contains(value),
+            "the error kept the fake value `{value}`: {rendered}"
+        );
+    }
 }
 
 #[test]
@@ -320,6 +340,175 @@ fn unscoped_run_checked_and_cancel_and_force_share_the_empty_prefix() {
     let records = private_records(root.path());
     assert_eq!(records.len(), 1);
     assert_omitted_prefix(&records[0], &command);
+}
+
+/// Issue #557 rows 1-2: `run_checked` refuses a placeholder command and returns
+/// only the summary, whose prefix identifies the refusal. The command — and so
+/// the fake value — never appears, with or without a scope.
+#[test]
+fn run_checked_placeholder_rejection_error_omits_the_command() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("echo <redacted> {C}");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .starts_with("bash_path_confinement_error: placeholder path detected;"),
+        "{error}"
+    );
+    assert_error_omits(&error, C);
+    let records = private_records(root.path());
+    assert_eq!(records.len(), 1);
+    assert_omitted_prefix(&records[0], &command);
+
+    let root = tempfile::tempdir().unwrap();
+    let mut catalog = SecretCatalog::new();
+    catalog.register_credential("FAKE_KEY", R).unwrap();
+    install_scope(catalog, Some(root.path()), None);
+    let command = format!("echo <redacted> {R}");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .starts_with("bash_path_confinement_error: placeholder path detected;"),
+        "{error}"
+    );
+    assert_error_omits(&error, R);
+    reset_scopes_for_tests();
+}
+
+/// Issue #557 rows 3-4: a failure with no diagnostic line reports the fixed
+/// `command did not succeed` summary (no command), keeping `command failed`,
+/// the outcome kind, and the status line. Scope-less and scoped alike.
+#[test]
+fn run_checked_failure_error_omits_the_command() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("test -n {C} && false");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("command failed"), "{message}");
+    assert!(message.contains("outcome: CommandFailed"), "{message}");
+    assert!(
+        message.contains("\nsummary: command did not succeed\n"),
+        "{message}"
+    );
+    assert_error_omits(&error, C);
+
+    let root = tempfile::tempdir().unwrap();
+    let mut catalog = SecretCatalog::new();
+    catalog.register_credential("FAKE_KEY", R).unwrap();
+    install_scope(catalog, Some(root.path()), None);
+    let command = format!("test -n {R} && false");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("command failed"), "{message}");
+    assert!(message.contains("outcome: CommandFailed"), "{message}");
+    assert_error_omits(&error, R);
+    reset_scopes_for_tests();
+}
+
+/// Issue #557 row 5: a failure with an extracted error line keeps that line and
+/// the status, and still omits the command.
+#[test]
+fn run_checked_failure_with_error_line_omits_the_command() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("test -n {C} && echo build error >&2 && exit 3");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("build error"), "{message}");
+    assert!(message.contains("status: exit status: 3"), "{message}");
+    assert_error_omits(&error, C);
+}
+
+/// Issue #557 rows 7-8: a structural or credential refusal returns the summary
+/// only, and the summary never contains the command.
+#[test]
+fn run_checked_refusal_error_is_the_summary_only() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("sudo echo {C}");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    assert_eq!(error.to_string(), "dangerous command blocked");
+    assert_error_omits(&error, C);
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("cat .env # {C}");
+    let error = bash::run_checked(&command, root.path(), true).unwrap_err();
+    assert!(
+        error.to_string().starts_with("workspace_policy_blocked:"),
+        "{error}"
+    );
+    assert_error_omits(&error, C);
+}
+
+/// Issue #557 row 9 (K): a successful `run_checked` returns the unchanged body.
+#[test]
+fn run_checked_success_body_is_unchanged() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("echo ok {C}");
+    let body = bash::run_checked(&command, root.path(), true).unwrap();
+    assert!(body.contains("outcome: Success"), "{body}");
+    assert!(body.contains(&format!("ok {C}")), "{body}");
+}
+
+/// Issue #557 rows 12-13 (K): `run` refusals stay summary-only.
+#[test]
+fn run_refusal_errors_are_the_summary_only() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("echo <redacted> {C}");
+    let error = bash::run(&command, root.path(), true).unwrap_err();
+    assert!(
+        error.to_string().contains("placeholder path detected"),
+        "{error}"
+    );
+    assert_error_omits(&error, C);
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("sudo echo {C}");
+    let error = bash::run(&command, root.path(), true).unwrap_err();
+    assert_eq!(error.to_string(), "dangerous command blocked");
+    assert_error_omits(&error, C);
+
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("cat .env # {C}");
+    let error = bash::run(&command, root.path(), true).unwrap_err();
+    assert!(
+        error.to_string().starts_with("workspace_policy_blocked:"),
+        "{error}"
+    );
+    assert_error_omits(&error, C);
+}
+
+/// Issue #557 row 14 (K): `run` returns a failure as `Ok`, and that body is the
+/// model tool-result shape, so the `command did not succeed: <command>` summary
+/// is preserved.
+#[test]
+fn run_failure_ok_body_keeps_the_command() {
+    let _guard = scope_guard();
+    reset_scopes_for_tests();
+    let root = tempfile::tempdir().unwrap();
+    let command = format!("test -n {C} && false");
+    let body = bash::run(&command, root.path(), true).unwrap();
+    assert!(body.contains("outcome: CommandFailed"), "{body}");
+    assert!(
+        body.contains(&format!("summary: command did not succeed: {command}")),
+        "{body}"
+    );
 }
 
 #[test]
