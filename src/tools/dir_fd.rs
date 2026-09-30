@@ -181,6 +181,86 @@ mod unix_impl {
         ))
     }
 
+    /// Open the leaf below `root` through a no-follow fd walk for reading.
+    ///
+    /// Issue #506: the GUI read paths used to `canonicalize`/`lstat` a path and
+    /// then read it again by path, so a concurrent swap of a parent directory
+    /// (or the leaf) for a symlink could redirect the read outside the root.
+    /// Every component below the (canonicalized) root is opened with
+    /// `O_NOFOLLOW | O_DIRECTORY` and the leaf with
+    /// `O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`, and the returned handle
+    /// is the only reference to the leaf: callers read from it directly, so no
+    /// component is ever re-resolved by path between a check and the read. The
+    /// leaf is `fstat`ed and only an ordinary file is returned, so a directory,
+    /// FIFO, socket, or device is refused without blocking the open. A parent or
+    /// leaf that is a symlink is refused even when it points back inside `root`.
+    pub fn open_read_file(root: &Path, path: &Path) -> anyhow::Result<File> {
+        let raw_root = root.to_path_buf();
+        let root = root
+            .canonicalize()
+            .with_context(|| format!("root is not accessible: {}", raw_root.display()))?;
+        let candidate = if path.is_absolute() && path.starts_with(&raw_root) {
+            root.join(
+                path.strip_prefix(&raw_root)
+                    .with_context(|| format!("path escapes root: {}", path.display()))?,
+            )
+        } else if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        };
+        let relative = candidate
+            .strip_prefix(&root)
+            .with_context(|| format!("path escapes root: {}", candidate.display()))?;
+
+        let mut names: Vec<OsString> = Vec::new();
+        for component in relative.components() {
+            let Component::Normal(part) = component else {
+                bail!("path escapes root: {}", candidate.display());
+            };
+            names.push(part.to_os_string());
+        }
+        let Some(leaf) = names.pop() else {
+            bail!("path escapes root: {}", candidate.display());
+        };
+        let name = CString::new(leaf.as_bytes())
+            .with_context(|| format!("path is not valid UTF-8: {}", candidate.display()))?;
+
+        let mut dir = File::open(&root)
+            .with_context(|| format!("root is not accessible: {}", raw_root.display()))?;
+        let mut current = root.clone();
+        for part in &names {
+            current.push(part);
+            fire_seam(&current);
+            dir = open_component(dir, part, &current, false)?;
+        }
+        fire_seam(&candidate);
+        let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+        let file =
+            openat_file(&dir, &name, flags, 0).map_err(|err| leaf_read_error(err, &candidate))?;
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("inspect {}", candidate.display()))?;
+        if !metadata.is_file() {
+            bail!("not a regular file: {}", candidate.display());
+        }
+        Ok(file)
+    }
+
+    fn leaf_read_error(err: io::Error, display: &Path) -> anyhow::Error {
+        // As in `component_error`, Linux reports `ELOOP` and macOS reports
+        // `ENOTDIR` for a trailing symlink opened with `O_NOFOLLOW`; `lstat`
+        // distinguishes a symlink from a plain non-file so the message stays
+        // exact on both.
+        let is_symlink = std::fs::symlink_metadata(display)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        if err.raw_os_error() == Some(libc::ELOOP) || is_symlink {
+            return anyhow::anyhow!("refusing to read through symlink {}", display.display());
+        }
+        anyhow::Error::new(err).context(format!("failed to open {} for reading", display.display()))
+    }
+
     fn openat_file(dir: &File, name: &CString, flags: i32, mode: libc::c_uint) -> io::Result<File> {
         // SAFETY: dir owns its fd; name is NUL-terminated. The returned fd is
         // checked and transferred to exactly one File owner.
@@ -195,6 +275,38 @@ mod unix_impl {
 
 #[cfg(unix)]
 pub(crate) use unix_impl::{ParentDir, open_parent};
+
+/// fd-relative, no-follow read entry (Issue #506). Unix uses the `openat` walk;
+/// other platforms fall back to a path-based read with a canonical-containment
+/// check, matching the pre-#506 behavior the GUI keeps off Unix.
+#[cfg(unix)]
+pub use unix_impl::open_read_file;
+
+#[cfg(not(unix))]
+pub fn open_read_file(root: &Path, path: &Path) -> anyhow::Result<std::fs::File> {
+    use anyhow::{Context, bail};
+
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("root is not accessible: {}", root.display()))?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let canonical = candidate
+        .canonicalize()
+        .with_context(|| format!("path is not accessible: {}", candidate.display()))?;
+    if !canonical.starts_with(&root) {
+        bail!("path escapes root: {}", candidate.display());
+    }
+    let file = std::fs::File::open(&canonical)
+        .with_context(|| format!("failed to open {} for reading", canonical.display()))?;
+    if !file.metadata()?.is_file() {
+        bail!("not a regular file: {}", canonical.display());
+    }
+    Ok(file)
+}
 
 /// Fires the test-only race seam at a traversal decision point. A no-op in
 /// production builds; the [`test_hook`] module is compiled only under
@@ -262,13 +374,16 @@ mod tests {
     //! directory is a sibling of the workspace, never a real host path.
 
     use std::fs;
+    use std::io::Read as _;
     use std::path::{Path, PathBuf};
 
     use super::open_parent;
+    use super::open_read_file;
     use super::test_hook::install;
 
     const PAYLOAD: &str = "PAYLOAD_505";
     const OUTSIDE_CANARY: &str = "OUTSIDE_CANARY_505";
+    const READ_CANARY: &str = "H01_506_FAKE_outside_secret";
 
     fn outside_of(root: &Path) -> PathBuf {
         let parent = root.parent().expect("workspace has a parent");
@@ -368,5 +483,117 @@ mod tests {
             fs::read_to_string(outside.join("f.txt")).unwrap(),
             OUTSIDE_CANARY
         );
+    }
+
+    fn read_to_string(root: &Path, path: &Path) -> anyhow::Result<String> {
+        let mut file = open_read_file(root, path)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        Ok(content)
+    }
+
+    #[test]
+    fn read_file_returns_the_leaf_content_from_the_held_fd() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d/e")).unwrap();
+        fs::write(root.join("d/e/f.txt"), READ_CANARY).unwrap();
+
+        assert_eq!(
+            read_to_string(&root, Path::new("d/e/f.txt")).unwrap(),
+            READ_CANARY
+        );
+    }
+
+    #[test]
+    fn read_file_parent_swap_to_outside_symlink_is_refused() {
+        // Issue #506, deterministic (a): swap the parent after the walk begins,
+        // and prove the read never reaches the outside sibling.
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d/e")).unwrap();
+        fs::write(root.join("d/e/f.txt"), "inside").unwrap();
+        let outside = outside_of(&root);
+        fs::write(outside.join("f.txt"), READ_CANARY).unwrap();
+
+        let swapped = root.join("d/e");
+        let outside_target = outside.clone();
+        let _reset = install(move |component: &Path| {
+            if component.file_name().and_then(|name| name.to_str()) == Some("e") {
+                let _ = fs::remove_dir_all(&swapped);
+                std::os::unix::fs::symlink(&outside_target, &swapped).unwrap();
+            }
+        });
+
+        let err = read_to_string(&root, Path::new("d/e/f.txt")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("path escapes workspace through existing component"),
+            "{err}"
+        );
+        assert_eq!(
+            fs::read_to_string(outside.join("f.txt")).unwrap(),
+            READ_CANARY,
+            "the outside canary must be untouched"
+        );
+    }
+
+    #[test]
+    fn read_file_refuses_inner_symlink_parent_even_when_target_is_inside() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/f.txt"), READ_CANARY).unwrap();
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+
+        let err = read_to_string(&root, Path::new("link/f.txt")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("path escapes workspace through existing component"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn read_file_refuses_symlink_leaf_without_following_it() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(&root).unwrap();
+        let outside = outside_of(&root);
+        fs::write(outside.join("secret.txt"), READ_CANARY).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("leak.txt")).unwrap();
+
+        let err = read_to_string(&root, Path::new("leak.txt")).unwrap_err();
+        assert!(
+            err.to_string().contains("refusing to read through symlink"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn read_file_refuses_a_directory_leaf() {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(root.join("d.md")).unwrap();
+
+        let err = open_read_file(&root, Path::new("d.md")).unwrap_err();
+        assert!(err.to_string().contains("not a regular file"), "{err}");
+    }
+
+    #[test]
+    fn read_file_refuses_a_fifo_leaf_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("W");
+        fs::create_dir_all(&root).unwrap();
+        let fifo = root.join("pipe.md");
+        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: the path is a valid NUL-terminated C string inside the tempdir.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+        let err = open_read_file(&root, Path::new("pipe.md")).unwrap_err();
+        assert!(err.to_string().contains("not a regular file"), "{err}");
     }
 }

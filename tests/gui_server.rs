@@ -5921,3 +5921,414 @@ esac
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();
 }
+
+// Issue #506 — symlink and race coverage for the fd-relative no-follow reads.
+// Every fixture uses synthetic values inside a tempdir; the "outside" directory
+// is a sibling of the served root, never a real host path. The marker
+// `H01_506_FAKE_outside_*` must never appear in a response body.
+#[cfg(unix)]
+const SECURITY_CANARY_506: &str = "H01_506_FAKE_outside_secret";
+
+#[cfg(unix)]
+fn write_static_root(root: &std::path::Path) {
+    std::fs::create_dir_all(root).unwrap();
+    std::fs::write(root.join("index.html"), "<!doctype html><title>GUI</title>").unwrap();
+    std::fs::write(
+        root.join("404.html"),
+        "<!doctype html><title>Not found</title>",
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_refuses_symlinks_below_the_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(outside.join("dir")).unwrap();
+    std::fs::write(outside.join("secret.txt"), SECURITY_CANARY_506).unwrap();
+    std::fs::write(
+        outside.join("dir/page.js"),
+        format!("{SECURITY_CANARY_506}\n"),
+    )
+    .unwrap();
+
+    symlink(outside.join("secret.txt"), static_root.join("leak.txt")).unwrap();
+    symlink(outside.join("dir"), static_root.join("assets")).unwrap();
+    symlink(
+        static_root.join("index.html"),
+        static_root.join("alias.html"),
+    )
+    .unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+
+    for path in ["/leak.txt", "/assets/page.js", "/alias.html"] {
+        let response = server.request_without_access("GET", path, None);
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "{path} leaked the outside canary: {}",
+            response.body
+        );
+    }
+
+    let index = server.request_without_access("GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert!(index.body.contains("<title>GUI</title>"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_follows_a_symlinked_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let real = temp.path().join("real-out");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(
+        real.join("index.html"),
+        "<!doctype html><title>Root alias</title>",
+    )
+    .unwrap();
+    let alias = temp.path().join("out-alias");
+    symlink(&real, &alias).unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&alias);
+    let index = server.request_without_access("GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert!(index.body.contains("<title>Root alias</title>"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_returns_a_bodyless_404_without_the_page() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    std::fs::create_dir_all(&static_root).unwrap();
+    std::fs::write(static_root.join("index.html"), "GUI").unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    let missing = server.request_without_access("GET", "/missing", None);
+    assert_eq!(missing.status, 404, "{}", missing.body);
+    assert!(missing.body.is_empty(), "{}", missing.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_rejects_url_traversal() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    std::fs::write(temp.path().join("outside.txt"), "outside-body").unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    for path in [
+        "/../outside.txt",
+        "/%2e%2e/outside.txt",
+        "/..%2foutside.txt",
+    ] {
+        let response = server.request_without_access("GET", path, None);
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains("outside-body"),
+            "{path}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_never_leaks_during_a_parent_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    let real = static_root.join("d");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("f.txt"), "inside-body").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("f.txt"), SECURITY_CANARY_506).unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::create_dir_all(&real);
+                    let _ = std::fs::write(real.join("f.txt"), "inside-body");
+                } else {
+                    let _ = std::fs::remove_dir_all(&real);
+                    let _ = symlink(&outside, &real);
+                }
+            }
+        })
+    };
+    for _ in 0..200 {
+        let response = server.request_without_access("GET", "/d/f.txt", None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn management_documents_refuse_symlinks_and_non_files_below_the_run() {
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::symlink;
+
+    const RUN_ID: &str = "run-506";
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(run_root.join("evidence/doc.md"), "inside evidence\n").unwrap();
+    let outside = repository.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+
+    symlink(outside.join("doc.md"), run_root.join("linkout.md")).unwrap();
+    symlink(run_root.join("evidence/doc.md"), run_root.join("linkin.md")).unwrap();
+    std::fs::create_dir(run_root.join("dir.md")).unwrap();
+    let fifo = run_root.join("fifo.md");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+
+    let inside = server.request_without_access(
+        "GET",
+        &format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md"),
+        None,
+    );
+    assert_eq!(inside.status, 200, "{}", inside.body);
+    assert!(
+        inside.json()["content"]
+            .as_str()
+            .unwrap()
+            .contains("inside evidence")
+    );
+
+    for path in ["linkout.md", "linkin.md", "dir.md", "fifo.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/{RUN_ID}/evidence?path={path}"),
+            None,
+        );
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "{path} leaked the outside canary: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn run_evidence_never_leaks_during_a_parent_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const RUN_ID: &str = "run-506";
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(RUN_ID);
+    let real = run_root.join("evidence");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("doc.md"), "inside-evidence-body").unwrap();
+    let outside = repository.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::create_dir_all(&real);
+                    let _ = std::fs::write(real.join("doc.md"), "inside-evidence-body");
+                } else {
+                    let _ = std::fs::remove_dir_all(&real);
+                    let _ = symlink(&outside, &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md");
+    for _ in 0..200 {
+        let response = server.request_without_access("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_documents_refuse_symlinked_artifacts_and_events() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000090";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    std::fs::write(run_root.join("summary.md"), "inside summary\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_506}\"}}\n"),
+    )
+    .unwrap();
+    symlink(outside.join("doc.md"), run_root.join("link.md")).unwrap();
+    symlink(outside.join("events.jsonl"), run_root.join("events.jsonl")).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let artifacts = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/artifacts?path=link.md"),
+        None,
+    );
+    assert_eq!(artifacts.status, 404, "{}", artifacts.body);
+    assert!(
+        !artifacts.body.contains(SECURITY_CANARY_506),
+        "{}",
+        artifacts.body
+    );
+
+    let events = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/events?tail=5"),
+        None,
+    );
+    assert_eq!(events.status, 404, "{}", events.body);
+    assert!(
+        !events.body.contains(SECURITY_CANARY_506),
+        "{}",
+        events.body
+    );
+
+    let inside = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/artifacts?path=summary.md"),
+        None,
+    );
+    assert_eq!(inside.status, 200, "{}", inside.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_events_never_leak_during_a_leaf_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000091";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    let real = run_root.join("events.jsonl");
+    std::fs::write(&real, "{\"event\":\"inside\"}\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_506}\"}}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::write(&real, "{\"event\":\"inside\"}\n");
+                } else {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = symlink(outside.join("events.jsonl"), &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/sessions/{SESSION_ID}/events?tail=1");
+    for _ in 0..200 {
+        let response = server.request("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
