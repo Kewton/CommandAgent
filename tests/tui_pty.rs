@@ -329,71 +329,115 @@ fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
         return;
     }
     let bin = env!("CARGO_BIN_EXE_commandagent");
-    for (command, started, completed, response_count) in [
-        ("/plan-steps test", "planning steps", "step plan ready", 1),
-        (
-            "/ultra-plan-run test",
-            "planning the overall plan",
-            "overall plan ready",
-            3,
-        ),
-    ] {
-        let tmp = tempfile::tempdir().unwrap();
-        let state_dir = tmp.path().join("state");
-        let StreamingOllama {
-            host,
-            started: _started,
-            completed: response_completed,
-            disconnected: _disconnected,
-            saw_stream,
-            stop,
-            server,
-        } = start_streaming_ollama(response_count);
-        let output = run_stream_script(
-            bin,
-            tmp.path(),
-            &state_dir,
-            &host,
-            response_completed,
-            command,
-            false,
-        )
-        .expect("script(1) PTY helper and streaming fake Ollama must be available");
-        stop.store(true, Ordering::SeqCst);
-        server.join().unwrap();
 
-        let text = String::from_utf8_lossy(&output.stdout).to_string()
-            + &String::from_utf8_lossy(&output.stderr);
-        assert!(
-            output.status.success(),
-            "PTY command failed for {command}. output={text:?}"
-        );
-        assert!(
-            saw_stream.load(Ordering::SeqCst),
-            "request did not enable stream for {command}"
-        );
-        assert!(
-            !text.contains(r#"{"goal":"test","#),
-            "planner stream JSON reached the terminal for {command}. output={text:?}"
-        );
-        assert!(
-            !text.contains(r#""expected_result":"pass"}]}"#),
-            "planner stream tail reached the terminal for {command}. output={text:?}"
-        );
-        assert!(
-            text.contains(started) && text.contains(completed),
-            "planner breadcrumbs were not preserved for {command}. output={text:?}"
-        );
-        assert!(
-            text.contains("\r\x1b[2K"),
-            "spinner was not cleared after {command}. output={text:?}"
-        );
-        assert!(
-            text.contains("\x1b[r") && text.contains("commandagent>"),
-            "footer/raw terminal cleanup did not restore the prompt after {command}. output={text:?}"
-        );
-        assert!(!text.contains("stream ended before"), "output={text:?}");
-    }
+    // `/plan-steps` is a step planner and is not gated by D-3c, so it is sent
+    // directly and exercises the `planner_step` command path.
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join("state");
+    let StreamingOllama {
+        host,
+        started: _started,
+        completed: response_completed,
+        disconnected: _disconnected,
+        saw_stream,
+        stop,
+        server,
+    } = start_streaming_ollama(1);
+    let output = run_stream_script(
+        bin,
+        tmp.path(),
+        &state_dir,
+        &host,
+        response_completed,
+        "/plan-steps test",
+        false,
+    )
+    .expect("script(1) PTY helper and streaming fake Ollama must be available");
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    assert_suppressed_planner_stream(
+        &output,
+        "/plan-steps test",
+        "planning steps",
+        "step plan ready",
+    );
+    assert!(
+        saw_stream.load(Ordering::SeqCst),
+        "request did not enable stream for /plan-steps test"
+    );
+
+    // `/ultra-plan-run` is gated by D-3c, so it is driven through Gate 1 with a
+    // plain-text request and `/confirm <hash>`, exactly like the Gate 4 test.
+    // `--style compact` is carried into the confirmed request and keeps the
+    // nextjs profile preset from short-circuiting the overall-plan planner, so
+    // the `planner_ultra` stream path is still exercised.
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join("state");
+    let StreamingOllama {
+        host,
+        started: _started,
+        completed: response_completed,
+        disconnected: _disconnected,
+        saw_stream,
+        stop,
+        server,
+    } = start_streaming_ollama(3);
+    let output = run_stream_script_gate_one(
+        bin,
+        tmp.path(),
+        &state_dir,
+        &host,
+        response_completed,
+        "--style compact スペースインベーダーゲームを作って",
+    )
+    .expect("script(1) PTY helper and streaming fake Ollama must be available");
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    assert_suppressed_planner_stream(
+        &output,
+        "the confirmed plain-text request",
+        "planning the overall plan",
+        "overall plan ready",
+    );
+    assert!(
+        saw_stream.load(Ordering::SeqCst),
+        "confirmed request did not enable stream for the overall plan"
+    );
+}
+
+fn assert_suppressed_planner_stream(
+    output: &std::process::Output,
+    label: &str,
+    started: &str,
+    completed: &str,
+) {
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "PTY command failed for {label}. output={text:?}"
+    );
+    assert!(
+        !text.contains(r#"{"goal":"test","#),
+        "planner stream JSON reached the terminal for {label}. output={text:?}"
+    );
+    assert!(
+        !text.contains(r#""expected_result":"pass"}]}"#),
+        "planner stream tail reached the terminal for {label}. output={text:?}"
+    );
+    assert!(
+        text.contains(started) && text.contains(completed),
+        "planner breadcrumbs were not preserved for {label}. output={text:?}"
+    );
+    assert!(
+        text.contains("\r\x1b[2K"),
+        "spinner was not cleared after {label}. output={text:?}"
+    );
+    assert!(
+        text.contains("\x1b[r") && text.contains("commandagent>"),
+        "footer/raw terminal cleanup did not restore the prompt after {label}. output={text:?}"
+    );
+    assert!(!text.contains("stream ended before"), "output={text:?}");
 }
 
 #[test]
@@ -569,19 +613,18 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
         for expected in [
             "Unknown command: /hepl",
             "Did you mean /help?",
-            "Input was not run: 日本語の自由文",
-            "Use /ultra-plan-run <goal> or /plan-run <goal>.",
             "Accepted command",
             "- Command: /ultra-plan-run",
             "- Profile: nextjs (explicit)",
-            "- Style: compact (explicit)",
-            "- Prompt layout: stable (explicit)",
+            "- Style: default (effective)",
+            "- Prompt layout: legacy (effective)",
             "- Requested port: 3011 (goal)",
             "Active command: /ultra-plan-run",
-            "── Phase 1/2: game-engine ──",
+            "── Phase 1/4: project-setup ──",
             "Current phase:",
-            "TASK FAILED",
-            "Primary stop reason:",
+            "Gate 4 — Failure and next action",
+            "5. Stop reason",
+            "phase scaffold failed",
         ] {
             assert!(
                 visible.contains(expected),
@@ -594,7 +637,7 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
             "typo guidance was duplicated (footer={footer}, no_color={no_color}). visible={visible:?}"
         );
         assert_eq!(
-            visible.matches("TASK FAILED").count(),
+            visible.matches("Gate 4 — Failure and next action").count(),
             1,
             "real failure was duplicated (footer={footer}, no_color={no_color}). visible={visible:?}"
         );
@@ -612,7 +655,7 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
             "footer scroll region mode mismatch. output={text:?}"
         );
         assert!(
-            text.contains("\x1b]2;CommandAgent — Phase 1/2: game-engine\x07"),
+            text.contains("\x1b]2;CommandAgent — Phase 1/4: project-setup\x07"),
             "phase title OSC 2 was missing (footer={footer}). output={text:?}"
         );
         assert!(
@@ -633,12 +676,19 @@ fn run_receipt_screen_script(
     cwd: &std::path::Path,
     state_dir: &std::path::Path,
     host: &str,
-    completed: mpsc::Receiver<()>,
+    _completed: mpsc::Receiver<()>,
     footer: bool,
     no_color: bool,
 ) -> std::io::Result<std::process::Output> {
     let mut args = queue_cli_args(cwd, state_dir, host);
-    args.extend(["--stream".to_string(), "off".to_string()]);
+    args.extend([
+        "--stream".to_string(),
+        "off".to_string(),
+        "--profile".to_string(),
+        "nextjs".to_string(),
+        "--intent".to_string(),
+        "create".to_string(),
+    ]);
     if !footer {
         args.push("--no-footer".to_string());
     }
@@ -679,19 +729,32 @@ fn run_receipt_screen_script(
     let stdout_reader = thread::spawn(move || read_all(stdout));
     let stderr_reader = thread::spawn(move || read_all(stderr));
     let mut stdin = child.stdin.take().unwrap();
+    let transcript = state_dir.join("boundary-transcript.md");
     thread::sleep(Duration::from_secs(2));
     stdin.write_all(b"/hepl\r")?;
     stdin.flush()?;
     thread::sleep(Duration::from_millis(250));
-    stdin.write_all("日本語の自由文\r".as_bytes())?;
-    stdin.flush()?;
-    thread::sleep(Duration::from_millis(250));
+    // The long CJK request is submitted as plain text; Gate 1 then owns the
+    // dispatch, and the receipt records the resulting profile instead of the
+    // old direct `/ultra-plan-run` command line.
     stdin.write_all(
-        "/ultra-plan-run --profile nextjs --style compact --prompt-layout stable \"あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\"\n"
+        "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\r"
             .as_bytes(),
     )?;
     stdin.flush()?;
-    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
+    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
+        Ok(card_hash) => card_hash,
+        Err(error) => {
+            let _ = child.kill();
+            drop(stdin);
+            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
+            return Err(error);
+        }
+    };
+    thread::sleep(Duration::from_millis(500));
+    stdin.write_all(format!("/confirm {card_hash}\r").as_bytes())?;
+    stdin.flush()?;
+    if wait_for_transcript_text(&transcript, "## Gate 4", Duration::from_secs(60)).is_err() {
         let _ = child.kill();
     } else {
         thread::sleep(Duration::from_secs(1));
@@ -702,7 +765,7 @@ fn run_receipt_screen_script(
         stdin.flush()?;
     }
     drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(60))
 }
 
 fn start_ultra_plan_ollama() -> (
@@ -1039,6 +1102,69 @@ fn run_stream_script(
     finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
 }
 
+fn run_stream_script_gate_one(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    completed: mpsc::Receiver<()>,
+    request: &str,
+) -> std::io::Result<std::process::Output> {
+    let command_line = queue_command_line(bin, cwd, state_dir, host);
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    stdin.write_all(format!("{request}\r").as_bytes())?;
+    stdin.flush()?;
+
+    let transcript = state_dir.join("boundary-transcript.md");
+    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
+        Ok(card_hash) => card_hash,
+        Err(error) => {
+            let _ = child.kill();
+            drop(stdin);
+            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
+            return Err(error);
+        }
+    };
+    thread::sleep(Duration::from_millis(500));
+    stdin.write_all(format!("/confirm {card_hash}\r").as_bytes())?;
+    stdin.flush()?;
+    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+    } else {
+        thread::sleep(Duration::from_millis(500));
+        stdin.write_all(b"/exit\r")?;
+        stdin.flush()?;
+    }
+    drop(stdin);
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+}
+
 fn run_gate_four_interrupt_script(
     bin: &str,
     cwd: &std::path::Path,
@@ -1220,7 +1346,9 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
                         continue;
                     }
                     chat_count += 1;
-                    thread_saw_stream.store(request.contains(r#""stream":true"#), Ordering::SeqCst);
+                    if request.contains(r#""stream":true"#) {
+                        thread_saw_stream.store(true, Ordering::SeqCst);
+                    }
                     let first = serde_json::json!({
                         "message": {"role": "assistant", "content": "{\"goal\":\"test\","},
                         "done": false
@@ -1295,26 +1423,46 @@ fn read_http_request(stream: &mut impl Read) -> String {
     let mut request = Vec::new();
     let mut buffer = [0_u8; 1024];
     let mut expected = None;
-    while let Ok(read) = stream.read(&mut buffer) {
-        if read == 0 {
-            break;
-        }
-        request.extend_from_slice(&buffer[..read]);
-        if expected.is_none()
-            && let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
-        {
-            let headers = String::from_utf8_lossy(&request[..header_end]);
-            let content_length = headers.lines().find_map(|line| {
-                line.split_once(':').and_then(|(name, value)| {
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse::<usize>().ok())
-                        .flatten()
-                })
-            });
-            expected = Some(header_end + 4 + content_length.unwrap_or_default());
-        }
+    // The accepted socket can be non-blocking, so the first read may observe
+    // `WouldBlock`/`TimedOut` before any bytes arrive. Retry until the declared
+    // body length is buffered (or a deadline passes) instead of returning an
+    // empty request that would hide the real `stream` flag.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
         if expected.is_some_and(|expected| request.len() >= expected) {
             break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                request.extend_from_slice(&buffer[..read]);
+                if expected.is_none()
+                    && let Some(header_end) =
+                        request.windows(4).position(|part| part == b"\r\n\r\n")
+                {
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let content_length = headers.lines().find_map(|line| {
+                        line.split_once(':').and_then(|(name, value)| {
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                    });
+                    expected = Some(header_end + 4 + content_length.unwrap_or_default());
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(_) => break,
         }
     }
     String::from_utf8_lossy(&request).into_owned()
