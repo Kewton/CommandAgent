@@ -6,6 +6,7 @@
 //! the write outside the workspace root.
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use commandagent::mode::ExecutionMode;
 use commandagent::tools::bash::path_confinement_rejection;
@@ -31,6 +32,10 @@ fn escaping_fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join(".hidden-out")).unwrap();
     std::os::unix::fs::symlink(root.join("sub"), root.join("sub/loop")).unwrap();
+    // Literal-brace and POSIX-class spellings the shell and globset disagree on.
+    std::os::unix::fs::symlink(&outside, root.join("{x}out")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/esc")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("01")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -208,5 +213,130 @@ fn escaping_glob_and_brace_targets_are_rejected_before_execution() {
             || std::fs::read_to_string(fixture.root.join("linked-outside/secret")).unwrap()
                 == "outside-secret",
         "the escaping target must not have been overwritten"
+    );
+}
+
+#[test]
+fn rejects_posix_bracket_expression_targets() {
+    let fixture = escaping_fixture();
+    let root = &fixture.root;
+    for command in [
+        "cp a.txt [[:alpha:]]inked-outside/",
+        "tee [[:lower:]]*/secret",
+        "tee [[=x=]]inked-outside/secret",
+        "tee [[.ch.]]inked-outside/secret",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
+}
+
+#[test]
+fn rejects_literal_brace_glob_through_symlink() {
+    // `{x}` is a literal in the shell but an alternation in globset, so the
+    // guard must escape it to keep matching the same names.
+    let fixture = escaping_fixture();
+    assert!(
+        path_confinement_rejection("tee {x}*/secret", &fixture.root).is_some(),
+        "a literal-brace glob must still reach the escaping symlink"
+    );
+}
+
+#[test]
+fn rejects_glob_with_escaping_symlink_component() {
+    let fixture = escaping_fixture();
+    assert!(
+        path_confinement_rejection("tee s*/esc/secret", &fixture.root).is_some(),
+        "a glob component that expands to an escaping symlink must be rejected"
+    );
+}
+
+#[test]
+fn rejects_nested_brace_escape() {
+    let fixture = escaping_fixture();
+    for command in [
+        "tee {{linked-outside,q},y}/secret",
+        "tee {x,{y,linked-outside}}/secret",
+    ] {
+        assert!(
+            path_confinement_rejection(command, &fixture.root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
+}
+
+#[test]
+fn rejects_zero_padded_range_escape() {
+    // A range is checked both zero-padded (`01`, bash 4+) and stripped (`1`),
+    // including when only one endpoint carries the leading zero.
+    let fixture = escaping_fixture();
+    for command in [
+        "tee {01..02}/secret",
+        "tee {01..2}/secret",
+        "tee {1..02}/secret",
+    ] {
+        assert!(
+            path_confinement_rejection(command, &fixture.root).is_some(),
+            "a zero-padded range must still reach the escaping symlink: {command}"
+        );
+    }
+}
+
+#[test]
+fn allows_exactly_the_expansion_limits() {
+    let fixture = inside_fixture();
+    let root = &fixture.root;
+
+    let crowded = root.join("crowded");
+    std::fs::create_dir_all(&crowded).unwrap();
+    for index in 0..4096 {
+        std::fs::write(crowded.join(format!("n{index}")), "x").unwrap();
+    }
+    assert!(
+        path_confinement_rejection("tee crowded/*", root).is_none(),
+        "exactly the glob match limit must be allowed"
+    );
+    std::fs::write(crowded.join("overflow"), "x").unwrap();
+    assert!(
+        path_confinement_rejection("tee crowded/*", root).is_some(),
+        "one match over the glob limit must be rejected"
+    );
+
+    let brace_word = "{a,b}".repeat(8);
+    assert!(
+        path_confinement_rejection(&format!("tee {brace_word}"), root).is_none(),
+        "exactly the brace expansion limit must be allowed"
+    );
+}
+
+#[test]
+fn over_limit_brace_targets_fail_fast_without_panicking() {
+    let fixture = inside_fixture();
+    let root = &fixture.root;
+    let start = Instant::now();
+
+    for command in [
+        "tee {1..100000000}/f".to_string(),
+        format!("tee {}", "{a,b}".repeat(30)),
+    ] {
+        assert!(
+            path_confinement_rejection(&command, root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
+
+    // A two-value range at the i64 boundary is decidable quickly and must not
+    // panic; an overflow-sized span is rejected, not panicked.
+    let _ = path_confinement_rejection("tee {9223372036854775806..9223372036854775807}/f", root);
+    assert!(
+        path_confinement_rejection("tee {-9223372036854775808..9223372036854775807}/f", root)
+            .is_some(),
+        "an overflowing range must be rejected"
+    );
+    assert!(
+        start.elapsed().as_secs() < 10,
+        "over-limit brace targets must fail fast"
     );
 }
