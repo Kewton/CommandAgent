@@ -36,6 +36,8 @@ fn escaping_fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join("{x}out")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/esc")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("01")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("2")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("3")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -280,6 +282,26 @@ fn rejects_zero_padded_range_escape() {
         assert!(
             path_confinement_rejection(command, &fixture.root).is_some(),
             "a zero-padded range must still reach the escaping symlink: {command}"
+        );
+    }
+}
+
+#[test]
+fn rejects_numeric_range_escapes() {
+    // Each word reaches outside only through the range expansion: `{k..m}` to
+    // `linked-outside`, `{1..3}` to the `2` symlink, `{1..5..2}` to the `3`
+    // symlink. Were a range expanded to nothing these words would be allowed,
+    // so this pins the expansion itself (`{k..m}` is also in the table above).
+    let fixture = escaping_fixture();
+    let root = &fixture.root;
+    for command in [
+        "tee {k..m}inked-outside/f",
+        "tee {1..3}/secret",
+        "tee {1..5..2}/secret",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "a numeric range must expand before the proof: {command}"
         );
     }
 }

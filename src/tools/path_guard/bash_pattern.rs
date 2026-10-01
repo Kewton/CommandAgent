@@ -611,6 +611,71 @@ mod tests {
         );
     }
 
+    fn range(start: i64, end: i64, step: i64, width: usize, is_char: bool) -> RangeSpec {
+        RangeSpec {
+            start,
+            end,
+            step,
+            width,
+            is_char,
+        }
+    }
+
+    #[test]
+    fn range_values_enumerate_order_endpoints_step_and_padding() {
+        // Ascending and descending, endpoints included.
+        assert_eq!(range(1, 3, 1, 0, false).values(), ["1", "2", "3"]);
+        assert_eq!(range(3, 1, 1, 0, false).values(), ["3", "2", "1"]);
+        // Step, ascending and descending, still ending on the endpoint.
+        assert_eq!(range(1, 10, 3, 0, false).values(), ["1", "4", "7", "10"]);
+        assert_eq!(range(10, 1, 3, 0, false).values(), ["10", "7", "4", "1"]);
+        // A single value.
+        assert_eq!(range(5, 5, 1, 0, false).values(), ["5"]);
+        // Zero-padding proves both the padded and the stripped form.
+        assert_eq!(
+            range(1, 3, 1, 2, false).values(),
+            ["01", "1", "02", "2", "03", "3"]
+        );
+        // Character ranges, ascending and descending.
+        assert_eq!(
+            range(i64::from(b'a'), i64::from(b'e'), 1, 0, true).values(),
+            ["a", "b", "c", "d", "e"]
+        );
+        assert_eq!(
+            range(i64::from(b'e'), i64::from(b'a'), 1, 0, true).values(),
+            ["e", "d", "c", "b", "a"]
+        );
+    }
+
+    #[test]
+    fn range_bounded_count_sizes_before_expanding() {
+        const LIMIT: usize = MAX_BRACE_EXPANSIONS;
+        assert_eq!(range(1, 3, 1, 0, false).bounded_count(LIMIT), Some(3));
+        assert_eq!(range(3, 1, 1, 0, false).bounded_count(LIMIT), Some(3));
+        assert_eq!(range(1, 10, 3, 0, false).bounded_count(LIMIT), Some(4));
+        assert_eq!(range(10, 1, 3, 0, false).bounded_count(LIMIT), Some(4));
+        assert_eq!(range(5, 5, 1, 0, false).bounded_count(LIMIT), Some(1));
+        assert_eq!(
+            range(i64::from(b'a'), i64::from(b'e'), 1, 0, true).bounded_count(LIMIT),
+            Some(5)
+        );
+        // A width no step divides exactly still counts whole values.
+        assert_eq!(range(1, 8, 3, 0, false).bounded_count(LIMIT), Some(3));
+        // Zero-padding proves both forms, so the count doubles.
+        assert_eq!(range(1, 3, 1, 2, false).bounded_count(LIMIT), Some(6));
+        // A zero step is invalid.
+        assert_eq!(range(1, 3, 0, 0, false).bounded_count(LIMIT), None);
+        // The cap sits just above the limit: exactly the limit passes through,
+        // limit + 1 and beyond collapse to limit + 1.
+        assert_eq!(range(1, 4, 1, 0, false).bounded_count(4), Some(4));
+        assert_eq!(range(1, 5, 1, 0, false).bounded_count(4), Some(5));
+        assert_eq!(range(1, 6, 1, 0, false).bounded_count(4), Some(5));
+        assert_eq!(
+            range(1, MAX_BRACE_EXPANSIONS as i64, 1, 0, false).bounded_count(LIMIT),
+            Some(MAX_BRACE_EXPANSIONS)
+        );
+    }
+
     #[cfg(unix)]
     fn fixture() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
