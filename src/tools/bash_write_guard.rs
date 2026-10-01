@@ -190,9 +190,25 @@ fn redirect_targets(tokens: &[ShellToken]) -> Vec<WriteTarget> {
                 path: path.clone(),
                 operation: "output redirection".to_string(),
             }),
+            [ShellToken::DescriptorRedirect, ShellToken::Word(path)]
+                if !is_descriptor_word(path) =>
+            {
+                Some(WriteTarget {
+                    path: path.clone(),
+                    operation: "output redirection".to_string(),
+                })
+            }
             _ => None,
         })
         .collect()
+}
+
+fn is_descriptor_word(word: &str) -> bool {
+    if word == "-" {
+        return true;
+    }
+    let digits = word.strip_suffix('-').unwrap_or(word);
+    !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
 }
 
 fn command_words(tokens: &[ShellToken]) -> Vec<&str> {
@@ -329,6 +345,9 @@ fn shell_tokens(command: &str) -> Option<Vec<ShellToken>> {
                     chars.next();
                     tokens.push(ShellToken::DescriptorRedirect);
                 } else {
+                    if chars.peek() == Some(&'|') {
+                        chars.next();
+                    }
                     tokens.push(ShellToken::OutputRedirect);
                 }
             }
@@ -649,5 +668,111 @@ mod tests {
         assert!(confinement_rejection("tee /dev/null", &root).is_none());
         assert!(confinement_rejection("cd src", &root).is_none());
         assert!(confinement_rejection("cd -", &root).is_some());
+    }
+
+    #[test]
+    fn extracts_redirect_targets_for_noclobber_and_descriptor_duplication_forms() {
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("printf x >| out", &[("out", "output redirection")]),
+            ("printf x >|out", &[("out", "output redirection")]),
+            ("printf x >>| out", &[("out", "output redirection")]),
+            ("printf x >& out", &[("out", "output redirection")]),
+            ("printf x >&out", &[("out", "output redirection")]),
+            ("printf x 1>&out", &[("out", "output redirection")]),
+            ("printf x 2>&out", &[("out", "output redirection")]),
+            ("printf x >>& out", &[("out", "output redirection")]),
+            ("printf x >&$fd", &[("$fd", "output redirection")]),
+            ("printf x >& out 2>&1", &[("out", "output redirection")]),
+            ("printf x 2>&1", &[]),
+            ("printf x >&2", &[]),
+            ("printf x 1>&2", &[]),
+            ("printf x >&-", &[]),
+            ("printf x 2>&-", &[]),
+            ("printf x >&1-", &[]),
+            ("printf x >&'2'", &[]),
+            ("exec 3>&-", &[]),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                write_target_pairs(command),
+                expected_targets(expected),
+                "command: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_tokens_consumes_noclobber_bar_after_redirect() {
+        assert_eq!(
+            shell_tokens("a >| b"),
+            Some(vec![
+                ShellToken::Word("a".to_string()),
+                ShellToken::OutputRedirect,
+                ShellToken::Word("b".to_string()),
+            ])
+        );
+        assert_eq!(
+            shell_tokens("a >>| b"),
+            Some(vec![
+                ShellToken::Word("a".to_string()),
+                ShellToken::OutputRedirect,
+                ShellToken::Word("b".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn has_recognized_mutation_recognizes_noclobber_and_descriptor_write_forms() {
+        assert!(!has_recognized_mutation("cd src"));
+        assert!(has_recognized_mutation("touch a"));
+        assert!(has_recognized_mutation("printf x >| out"));
+        assert!(has_recognized_mutation("printf x >& out"));
+        assert!(!has_recognized_mutation("cargo test 2>&1"));
+    }
+
+    #[test]
+    fn confinement_rejection_covers_noclobber_and_descriptor_write_forms() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        let outside = fixture.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let temp_outside = outside.join("file").display().to_string();
+        let tmp_unique = format!("/tmp/commandagent-issue-565-{}.txt", std::process::id());
+        for template in [
+            "printf x >| {}",
+            "printf x >>| {}",
+            "printf x >& {}",
+            "printf x >&{}",
+            "printf x 1>&{}",
+        ] {
+            for outside_path in [temp_outside.as_str(), tmp_unique.as_str()] {
+                let command = template.replace("{}", outside_path);
+                assert!(
+                    confinement_rejection(&command, &root).is_some(),
+                    "command must be rejected: {command}"
+                );
+            }
+        }
+
+        assert!(
+            confinement_rejection("printf x >&$fd", &root).is_some(),
+            "a dynamic descriptor-duplication word must be rejected"
+        );
+
+        for command in [
+            "printf x >| out.txt",
+            "printf x >& out.txt",
+            "printf x >& /dev/null",
+            "printf x 2>&1",
+            "printf x >&2",
+            "printf x >&-",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_none(),
+                "command must stay allowed: {command}"
+            );
+        }
     }
 }
