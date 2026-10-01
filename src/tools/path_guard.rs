@@ -2,6 +2,8 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, bail};
 
+mod bash_pattern;
+
 const EXPECTED_PATH_FORM: &str = "use workspace-relative paths";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +212,17 @@ pub(super) fn ensure_bash_write_target(root: &Path, raw: &str) -> anyhow::Result
     if raw.contains(['$', '`']) {
         bail!("dynamic Bash write target cannot be proven to remain in the workspace");
     }
+    ensure_single_target(root, raw)?;
+    // A glob or brace target spells a name that does not exist yet, so the
+    // literal proof above stops at the workspace root. Expand the word the way
+    // the shell would and prove every result too.
+    if bash_pattern::contains_expansion(raw) {
+        bash_pattern::ensure_expanded_write_target(root, raw)?;
+    }
+    Ok(())
+}
+
+fn ensure_single_target(root: &Path, raw: &str) -> anyhow::Result<()> {
     let path = Path::new(raw);
     if !path.is_absolute() {
         validate_workspace_relative(raw)?;
@@ -968,5 +981,42 @@ mod tests {
         let result = ensure_bash_write_target(&root, "locked/f.txt");
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_bash_write_target_expansion_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("ws");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/f"), "x").unwrap();
+        std::fs::create_dir_all(dir.path().join("outside")).unwrap();
+        std::fs::write(dir.path().join("outside/secret"), "x").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), root.join("linked-outside"))
+            .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), root.join(".hidden-out")).unwrap();
+        let root = root.canonicalize().unwrap();
+
+        for raw in [
+            "lin*/secret",
+            "linked-outsid?/secret",
+            "linked-outsid[e]/secret",
+            "*/secret",
+            "**/secret",
+            ".hid*/f",
+            ".*/f",
+            ".?/f",
+            "{.,}./f",
+            "{.,.}./f",
+            "{linked-outside,x}/f",
+            "{k..m}inked-outside/f",
+            "{linked-outside/f,x}",
+        ] {
+            assert!(ensure_bash_write_target(&root, raw).is_err(), "{raw}");
+        }
+
+        for raw in ["sub/f", "nomatch*/f", "src/new.rs", "sub/{a,b}.txt"] {
+            assert!(ensure_bash_write_target(&root, raw).is_ok(), "{raw}");
+        }
     }
 }
