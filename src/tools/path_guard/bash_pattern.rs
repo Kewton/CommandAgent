@@ -26,7 +26,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, bail};
-use globset::{Glob, GlobMatcher};
+use globset::Glob;
 
 /// Upper bound on the number of strings a single brace word may expand into.
 pub(super) const MAX_BRACE_EXPANSIONS: usize = 256;
@@ -282,7 +282,7 @@ fn range_spec(content: &str) -> Option<RangeSpec> {
     let parts: Vec<&str> = content.split("..").collect();
     let (from, to, step) = match parts.as_slice() {
         [from, to] => (*from, *to, 1i64),
-        [from, to, step] => (*from, *to, step.parse::<i64>().ok()?.abs()),
+        [from, to, step] => (*from, *to, step.parse::<i64>().ok()?.checked_abs()?),
         _ => return None,
     };
     if step == 0 {
@@ -401,7 +401,16 @@ fn enumerate_component(
             "Bash write target glob uses a POSIX bracket expression (`[:`/`[=`/`[.`) that cannot be proven to remain in the workspace"
         );
     }
-    let Some(matcher) = compile_component_matcher(name) else {
+    let Some(pattern) = globset_pattern(name) else {
+        // Rewriting a brace, comma or backslash into a class literal inside an
+        // existing bracket would nest brackets (`[,l]` -> `[[,]l]`) and globset
+        // would read a different set than the shell. Refuse rather than fall
+        // back to the literal spelling and allow a word the shell expands.
+        bail!(
+            "Bash write target glob mixes `[` with `{{`, `}}`, `,`, or `\\`, which cannot be proven to remain in the workspace"
+        );
+    };
+    let Some(matcher) = Glob::new(&pattern).ok().map(|glob| glob.compile_matcher()) else {
         // The component is not a valid glob; the shell treats it literally.
         let next = current.iter().map(|base| base.join(name)).collect();
         return Ok((next, matched_total, true));
@@ -477,11 +486,6 @@ fn enumerate_component(
     Ok((next, matched_total, matched))
 }
 
-fn compile_component_matcher(name: &str) -> Option<GlobMatcher> {
-    let pattern = globset_pattern(name);
-    Glob::new(&pattern).ok().map(|glob| glob.compile_matcher())
-}
-
 /// Translate one path component into globset's syntax.
 ///
 /// The shell reads a leftover `{`, `}`, `,`, or `\` as an ordinary character,
@@ -489,11 +493,18 @@ fn compile_component_matcher(name: &str) -> Option<GlobMatcher> {
 /// Rewrite them into character-class literals (`[{]`, `[}]`, `[,]`, `[\\]`) so
 /// both engines match the same names, and collapse `*` runs because `**` inside
 /// one component behaves like `*` in the shell and globset rejects it there.
-fn globset_pattern(name: &str) -> String {
+///
+/// Returns `None` when the component also contains `[`: rewriting a brace,
+/// comma or backslash into a class literal would nest the brackets
+/// (`[,l]` -> `[[,]l]`) and globset would read a different set than the shell,
+/// so the word must be refused instead of allowed through the literal fallback.
+fn globset_pattern(name: &str) -> Option<String> {
+    let has_bracket = name.contains('[');
     let mut out = String::with_capacity(name.len());
     let mut previous_star = false;
     for ch in name.chars() {
         match ch {
+            '{' | '}' | ',' | '\\' if has_bracket => return None,
             '*' => {
                 if previous_star {
                     continue;
@@ -523,7 +534,7 @@ fn globset_pattern(name: &str) -> String {
             }
         }
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -542,12 +553,20 @@ mod tests {
 
     #[test]
     fn globset_pattern_renders_shell_literals() {
-        assert_eq!(globset_pattern("plain"), "plain");
-        assert_eq!(globset_pattern("a**b"), "a*b");
-        assert_eq!(globset_pattern("**"), "*");
-        assert_eq!(globset_pattern("{x}*"), "[{]x[}]*");
-        assert_eq!(globset_pattern("{a,b}"), "[{]a[,]b[}]");
-        assert_eq!(globset_pattern("a\\b"), "a[\\\\]b");
+        assert_eq!(globset_pattern("plain").unwrap(), "plain");
+        assert_eq!(globset_pattern("a**b").unwrap(), "a*b");
+        assert_eq!(globset_pattern("**").unwrap(), "*");
+        assert_eq!(globset_pattern("{x}*").unwrap(), "[{]x[}]*");
+        assert_eq!(globset_pattern("{a,b}").unwrap(), "[{]a[,]b[}]");
+        assert_eq!(globset_pattern("a\\b").unwrap(), "a[\\\\]b");
+        // A bracket without `{ } , \` passes through unchanged.
+        assert_eq!(globset_pattern("[id]").unwrap(), "[id]");
+        // A bracket mixed with `{ } , \` cannot be rewritten without nesting.
+        assert_eq!(globset_pattern("[,l]inked-outside"), None);
+        assert_eq!(globset_pattern("[{l]inked-outside"), None);
+        assert_eq!(globset_pattern("[l}]inked-outside"), None);
+        assert_eq!(globset_pattern("[!{]inked-outside"), None);
+        assert_eq!(globset_pattern("a[,\\b"), None);
     }
 
     #[test]
@@ -578,6 +597,12 @@ mod tests {
         assert_eq!(expand_braces("{a").unwrap(), ["{a"]);
         assert_eq!(expand_braces("{ab..d}").unwrap(), ["{ab..d}"]);
         assert_eq!(expand_braces("{a..}").unwrap(), ["{a..}"]);
+        // A step whose magnitude overflows i64 is literal, never a panic.
+        assert_eq!(
+            expand_braces("{1..5..-9223372036854775808}").unwrap(),
+            ["{1..5..-9223372036854775808}"]
+        );
+        assert_eq!(expand_braces("{1..5..0}").unwrap(), ["{1..5..0}"]);
     }
 
     #[test]

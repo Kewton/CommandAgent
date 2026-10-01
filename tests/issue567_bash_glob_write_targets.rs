@@ -155,6 +155,10 @@ fn keeps_normal_workspace_write_targets() {
         "printf x > 'src/[id]/route.ts'",
         "printf x > \"src/{a,b}.txt\"",
         "printf x > /dev/null",
+        // A bracket without `{ } , \`, and braces without a bracket, stay usable.
+        "tee src/*.rs",
+        r#"cp a.txt "src/[id]/x""#,
+        "printf x > 'src/[id]/page.tsx'",
     ];
     for command in cases {
         assert!(
@@ -253,6 +257,31 @@ fn rejects_glob_with_escaping_symlink_component() {
         path_confinement_rejection("tee s*/esc/secret", &fixture.root).is_some(),
         "a glob component that expands to an escaping symlink must be rejected"
     );
+}
+
+#[test]
+fn rejects_bracket_mixed_with_brace_comma_or_backslash() {
+    // Rewriting `{ } , \` into class literals would nest the brackets and let
+    // globset read a different set, silently matching nothing and falling back
+    // to the literal spelling. These words are refused instead.
+    let fixture = escaping_fixture();
+    let root = &fixture.root;
+    for command in [
+        "cp a.txt [,l]inked-outside/",
+        "tee [{l]inked-outside/secret",
+        "tee [!,]inked-outside/secret",
+        "tee [l}]inked-outside/secret",
+        "tee [^{]inked-outside/secret",
+        "tee [!{]*/secret",
+        "tee [k-m,]inked-outside/secret",
+        "rm -rf [,l]inked-outside/secret",
+        "chmod 777 [,l]inked-outside/secret",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
 }
 
 #[test]
