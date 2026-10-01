@@ -1,5 +1,7 @@
 use std::path::Path;
 
+mod command_prefix;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BashWriteConfinementRejection {
     pub path: String,
@@ -27,6 +29,16 @@ pub(super) fn confinement_rejection(
     root: &Path,
 ) -> Option<BashWriteConfinementRejection> {
     for target in write_targets(command) {
+        if target.operation == command_prefix::UNRESOLVED_OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: format!(
+                    "Bash command prefix `{}` cannot be resolved, so the write targets it launches cannot be proven to remain in the Gate 1 workspace boundary",
+                    target.path
+                ),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.path == "/dev/null"
             && matches!(target.operation.as_str(), "output redirection" | "tee")
         {
@@ -100,86 +112,120 @@ fn write_targets(command: &str) -> Vec<WriteTarget> {
     let mut targets = redirect_targets(&tokens);
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
         let words = command_words(segment);
-        let Some((program, arguments)) = words.split_first() else {
+        if words.is_empty() {
             continue;
-        };
-        let program = Path::new(program)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(program);
-        let operands = positional_operands(arguments);
-        match program {
-            "ln" => {
-                if let Some(target_directory) = target_directory(arguments) {
-                    targets.push(WriteTarget {
-                        path: target_directory,
-                        operation: program.to_string(),
-                    });
-                    if symbolic_link_requested(arguments) {
-                        targets.extend(operands.iter().map(|path| WriteTarget {
-                            path: (*path).to_string(),
-                            operation: "symlink target".to_string(),
-                        }));
-                    }
-                } else if let Some(destination) = operands.get(1..).and_then(|items| items.last()) {
-                    targets.push(WriteTarget {
-                        path: (*destination).to_string(),
-                        operation: program.to_string(),
-                    });
-                    if symbolic_link_requested(arguments) {
-                        targets.extend(operands[..operands.len() - 1].iter().map(|path| {
-                            WriteTarget {
+        }
+        match command_prefix::resolve(&words) {
+            command_prefix::Resolution::Program {
+                program,
+                arguments,
+                writes,
+            } => {
+                push_prefix_writes(&mut targets, writes);
+                let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+                collect_program_targets(&program, &arguments, &mut targets);
+            }
+            command_prefix::Resolution::NoExecution { writes } => {
+                push_prefix_writes(&mut targets, writes);
+            }
+            command_prefix::Resolution::Undecidable { prefix } => {
+                targets.push(WriteTarget {
+                    path: prefix,
+                    operation: command_prefix::UNRESOLVED_OPERATION.to_string(),
+                });
+            }
+        }
+    }
+    targets
+}
+
+fn push_prefix_writes(targets: &mut Vec<WriteTarget>, writes: Vec<command_prefix::PrefixWrite>) {
+    targets.extend(writes.into_iter().map(|write| WriteTarget {
+        path: write.path,
+        operation: write.operation,
+    }));
+}
+
+fn collect_program_targets(program: &str, arguments: &[&str], targets: &mut Vec<WriteTarget>) {
+    let operands = positional_operands(arguments);
+    match program {
+        "ln" => {
+            if let Some(target_directory) = target_directory(arguments) {
+                targets.push(WriteTarget {
+                    path: target_directory,
+                    operation: program.to_string(),
+                });
+                if symbolic_link_requested(arguments) {
+                    targets.extend(operands.iter().map(|path| WriteTarget {
+                        path: (*path).to_string(),
+                        operation: "symlink target".to_string(),
+                    }));
+                }
+            } else if let Some(destination) = operands.get(1..).and_then(|items| items.last()) {
+                targets.push(WriteTarget {
+                    path: (*destination).to_string(),
+                    operation: program.to_string(),
+                });
+                if symbolic_link_requested(arguments) {
+                    targets.extend(
+                        operands[..operands.len() - 1]
+                            .iter()
+                            .map(|path| WriteTarget {
                                 path: (*path).to_string(),
                                 operation: "symlink target".to_string(),
-                            }
-                        }));
-                    }
+                            }),
+                    );
                 }
             }
-            "cp" | "mv" | "install" => {
-                if let Some(target_directory) = target_directory(arguments) {
-                    targets.push(WriteTarget {
-                        path: target_directory,
-                        operation: program.to_string(),
-                    });
-                } else if program == "install"
-                    && arguments
-                        .iter()
-                        .any(|argument| matches!(*argument, "-d" | "--directory"))
-                {
-                    targets.extend(operands.into_iter().map(|path| WriteTarget {
-                        path: path.to_string(),
-                        operation: program.to_string(),
-                    }));
-                } else if let Some(destination) = operands.last() {
-                    targets.push(WriteTarget {
-                        path: (*destination).to_string(),
-                        operation: program.to_string(),
-                    });
-                }
-            }
-            "tee" | "mkdir" | "rm" | "touch" | "truncate" => {
+        }
+        "cp" | "mv" | "install" => {
+            if let Some(target_directory) = target_directory(arguments) {
+                targets.push(WriteTarget {
+                    path: target_directory,
+                    operation: program.to_string(),
+                });
+            } else if program == "install"
+                && arguments
+                    .iter()
+                    .any(|argument| matches!(*argument, "-d" | "--directory"))
+            {
                 targets.extend(operands.into_iter().map(|path| WriteTarget {
                     path: path.to_string(),
                     operation: program.to_string(),
                 }));
-            }
-            "chmod" | "chown" => {
-                targets.extend(operands.into_iter().skip(1).map(|path| WriteTarget {
-                    path: path.to_string(),
-                    operation: program.to_string(),
-                }));
-            }
-            "cd" => {
+            } else if let Some(destination) = operands.last() {
                 targets.push(WriteTarget {
-                    path: operands.first().copied().unwrap_or("~").to_string(),
-                    operation: "working directory".to_string(),
+                    path: (*destination).to_string(),
+                    operation: program.to_string(),
                 });
             }
-            _ => {}
         }
+        "tee" | "mkdir" | "rm" | "touch" | "truncate" => {
+            targets.extend(operands.into_iter().map(|path| WriteTarget {
+                path: path.to_string(),
+                operation: program.to_string(),
+            }));
+        }
+        "chmod" | "chown" => {
+            targets.extend(operands.into_iter().skip(1).map(|path| WriteTarget {
+                path: path.to_string(),
+                operation: program.to_string(),
+            }));
+        }
+        "cd" => {
+            targets.push(WriteTarget {
+                path: operands.first().copied().unwrap_or("~").to_string(),
+                operation: "working directory".to_string(),
+            });
+        }
+        "sudoedit" => {
+            targets.extend(operands.into_iter().map(|path| WriteTarget {
+                path: path.to_string(),
+                operation: program.to_string(),
+            }));
+        }
+        _ => {}
     }
-    targets
 }
 
 fn redirect_targets(tokens: &[ShellToken]) -> Vec<WriteTarget> {
@@ -774,5 +820,152 @@ mod tests {
                 "command must stay allowed: {command}"
             );
         }
+    }
+
+    #[test]
+    fn command_prefix_write_targets_table() {
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("env tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("env FOO=1 cp a.txt /tmp/f", &[("/tmp/f", "cp")]),
+            ("sudo cp a.txt /tmp/f", &[("/tmp/f", "cp")]),
+            ("command cp a.txt /tmp/f", &[("/tmp/f", "cp")]),
+            ("nohup tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("timeout 5 cp a.txt /tmp/f", &[("/tmp/f", "cp")]),
+            ("{ tee /tmp/f; }", &[("/tmp/f", "tee")]),
+            ("! tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("if true; then tee /tmp/f; fi", &[("/tmp/f", "tee")]),
+            ("while tee /tmp/f; do :; done", &[("/tmp/f", "tee")]),
+            ("env -i tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("env -u HOME tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("env -u HOME FOO=1 tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("env -- tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("/usr/bin/env tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("command -p tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("exec tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("exec -a x tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("sudo -u root tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("sudo -E tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("sudo -- tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("doas -u root tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("timeout -s KILL 5 tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("timeout -k 1 5 tee /tmp/f", &[("/tmp/f", "tee")]),
+            (
+                "timeout --preserve-status 5s tee /tmp/f",
+                &[("/tmp/f", "tee")],
+            ),
+            ("nice -n 5 tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("nice -5 tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("ionice -c 3 tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("stdbuf -oL tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("time -p tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("/usr/bin/time -o /tmp/f true", &[("/tmp/f", "time")]),
+            ("sudo -e /tmp/f", &[("/tmp/f", "sudo")]),
+            ("for x in a; do tee /tmp/f; done", &[("/tmp/f", "tee")]),
+            ("true && { tee /tmp/f; }", &[("/tmp/f", "tee")]),
+            ("f() { tee /tmp/f; }", &[("/tmp/f", "tee")]),
+            ("coproc tee /tmp/f", &[("/tmp/f", "tee")]),
+            ("env sudo timeout 5 tee /tmp/f", &[("/tmp/f", "tee")]),
+            (
+                "sudo -X u tee /tmp/f",
+                &[("sudo", command_prefix::UNRESOLVED_OPERATION)],
+            ),
+            (
+                "sudo -s tee /tmp/f",
+                &[("sudo", command_prefix::UNRESOLVED_OPERATION)],
+            ),
+            (
+                "env -S \"tee /tmp/f\"",
+                &[("env", command_prefix::UNRESOLVED_OPERATION)],
+            ),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                write_target_pairs(command),
+                expected_targets(expected),
+                "command: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_prefix_confinement_rejection_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+
+        for command in [
+            "env tee /tmp/f",
+            "sudo cp a.txt /tmp/f",
+            "command cp a.txt /tmp/f",
+            "nohup tee /tmp/f",
+            "timeout 5 cp a.txt /tmp/f",
+            "{ tee /tmp/f; }",
+            "! tee /tmp/f",
+            "if true; then tee /tmp/f; fi",
+            "env -S \"tee /tmp/f\"",
+            "sudo -s tee /tmp/f",
+            "sudo -X u tee /tmp/f",
+            "sudo -e /tmp/f",
+            "doas -u root tee /tmp/f",
+            "nice -5 tee /tmp/f",
+            "time -p tee /tmp/f",
+            "/usr/bin/time -o /tmp/f true",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_some(),
+                "command must be rejected: {command}"
+            );
+        }
+
+        for command in [
+            "env FOO=1 tee out.txt",
+            "printf x | env tee out.txt",
+            "timeout 5 cp a.txt b.txt",
+            "env tee /dev/null",
+            "env FOO=1 cargo test",
+            "timeout 600 cargo test",
+            "timeout --foreground 600 cargo test",
+            "timeout --unknown 600 cargo test",
+            "nice cargo build",
+            "nohup cargo build",
+            "time cargo test",
+            "{ cargo test; }",
+            "command -v cargo",
+            "command -v tee /tmp/f",
+            "sudo -l tee /tmp/f",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_none(),
+                "command must stay allowed: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_prefix_has_recognized_mutation_table() {
+        assert!(has_recognized_mutation("env tee out.txt"));
+        assert!(has_recognized_mutation("timeout 5 tee out.txt"));
+        assert!(!has_recognized_mutation("timeout 600 cargo test"));
+        assert!(!has_recognized_mutation("env FOO=1 cargo test"));
+        assert!(!has_recognized_mutation("command -v tee /tmp/f"));
+        assert!(has_recognized_mutation("sudo -X u tee /tmp/f"));
+    }
+
+    #[test]
+    fn command_prefix_protected_path_mutation_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["build/spec.ts".to_string()];
+
+        assert_eq!(
+            protected_path_mutation("env FOO=1 tee build/spec.ts", &root, &protected),
+            Some("build/spec.ts".to_string())
+        );
+        assert_eq!(
+            protected_path_mutation("sudo -u root rm build/spec.ts", &root, &protected),
+            Some("build/spec.ts".to_string())
+        );
+        assert!(protected_path_mutation("env FOO=1 cargo test", &root, &protected).is_none());
     }
 }
