@@ -114,6 +114,20 @@ fn command_prefix_rejects_writes_through_every_prefix() {
         "sudo -i tee /tmp/f",
         "sudo -R sub tee /tmp/f",
         "timeout -f 5 tee /tmp/f",
+        // R2: a quoted, backslashed, or expanded -S value is unverifiable.
+        "env -S'\"tee\" /tmp/f'",
+        "env -S\"'tee' /tmp/f\"",
+        "env -S'te\"\"e /tmp/f'",
+        "env -S'tee\\_/tmp/f'",
+        "env -S'cp\\_a.txt\\_/tmp/f'",
+        "X=tee env -S'${X} /tmp/f'",
+        "env -S'\"cd\" linked-outside'",
+        // R1: the env -S value is extracted in the unresolved scan too.
+        "env -uX -S'tee /tmp/f'",
+        "env -iuX -S'cp a.txt /tmp/f'",
+        "env -C sub -S'tee /tmp/f'",
+        "env --chdir=sub -S'tee link/f'",
+        "env --unknown -S'tee /tmp/f'",
         // The same writes through the escaping `sub/link` symlink.
         "env tee sub/link/f",
         "timeout 5 cp a.txt sub/link/",
@@ -169,6 +183,8 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
         "command - tee /tmp/f",
         // B1: an env -S string with no write program stays allowed.
         "env -S'cargo test'",
+        "env -S",
+        "env --split-string",
         // B4: `sudo -k` without a command, and the terminal timestamp options.
         "sudo -k",
         "sudo -K",
