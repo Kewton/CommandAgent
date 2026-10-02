@@ -1295,4 +1295,150 @@ mod tests {
             assert_eq!(resolve(words), *expected, "words: {words:?}");
         }
     }
+
+    fn command_prefix_inside_fixture() -> tempfile::TempDir {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(fixture.path().join("ws")).unwrap();
+        fixture
+    }
+
+    /// An inside write must stay allowed *and* stay recognized. A cursor that
+    /// drops the write program (or picks an option value as the program) makes
+    /// either the mutation flag or the protected-path lookup disappear, so the
+    /// three assertions below pin the offset arithmetic.
+    fn assert_command_prefix_inside_write(command: &str, target: &str) {
+        let fixture = command_prefix_inside_fixture();
+        let root = fixture.path().join("ws");
+        assert!(
+            super::super::confinement_rejection(command, &root).is_none(),
+            "must stay allowed: {command}"
+        );
+        assert!(
+            super::super::has_recognized_mutation(command),
+            "must stay a recognized mutation: {command}"
+        );
+        assert_eq!(
+            super::super::protected_path_mutation(command, &root, &[target.to_string()]),
+            Some(target.to_string()),
+            "must protect the path: {command}"
+        );
+    }
+
+    fn assert_command_prefix_no_write(command: &str) {
+        let fixture = command_prefix_inside_fixture();
+        let root = fixture.path().join("ws");
+        assert!(
+            super::super::confinement_rejection(command, &root).is_none(),
+            "must stay allowed: {command}"
+        );
+        assert!(
+            !super::super::has_recognized_mutation(command),
+            "must not be a recognized mutation: {command}"
+        );
+        assert_eq!(
+            super::super::protected_path_mutation(command, &root, &["out.txt".to_string()]),
+            None,
+            "must not protect a path: {command}"
+        );
+    }
+
+    fn assert_command_prefix_rejected(command: &str) {
+        let fixture = command_prefix_inside_fixture();
+        let root = fixture.path().join("ws");
+        assert!(
+            super::super::confinement_rejection(command, &root).is_some(),
+            "must be rejected: {command}"
+        );
+    }
+
+    #[test]
+    fn command_prefix_option_values_keep_inside_writes_detected() {
+        let cases: &[(&str, &str)] = &[
+            ("env -S x tee out.txt", "out.txt"),
+            ("env -S 'x' tee out.txt", "out.txt"),
+            ("env --split-string x tee out.txt", "out.txt"),
+            ("env --split-string=x tee out.txt", "out.txt"),
+            ("env -i -- tee out.txt", "out.txt"),
+            ("env -u V tee out.txt", "out.txt"),
+            ("env - tee out.txt", "out.txt"),
+            ("command -p tee out.txt", "out.txt"),
+            ("exec -a n tee out.txt", "out.txt"),
+            ("exec -c tee out.txt", "out.txt"),
+            ("exec -l tee out.txt", "out.txt"),
+            ("exec -- tee out.txt", "out.txt"),
+            ("exec -c -- tee out.txt", "out.txt"),
+            ("sudo -u root tee out.txt", "out.txt"),
+            ("sudo -g g tee out.txt", "out.txt"),
+            ("sudo -n tee out.txt", "out.txt"),
+            ("sudo -- tee out.txt", "out.txt"),
+            ("timeout 5 tee out.txt", "out.txt"),
+            ("timeout -s TERM 5 tee out.txt", "out.txt"),
+            ("timeout -k 1 5 tee out.txt", "out.txt"),
+            ("timeout --signal=TERM 5 tee out.txt", "out.txt"),
+            ("timeout - tee out.txt", "out.txt"),
+            ("nice -n 5 tee out.txt", "out.txt"),
+            ("nice -5 tee out.txt", "out.txt"),
+            ("nice --adjustment=5 tee out.txt", "out.txt"),
+            ("nice -n -5 tee out.txt", "out.txt"),
+            ("nice -n 5 -- tee out.txt", "out.txt"),
+            ("stdbuf -o L tee out.txt", "out.txt"),
+            ("stdbuf -oL tee out.txt", "out.txt"),
+            ("stdbuf -i0 -o0 tee out.txt", "out.txt"),
+            ("stdbuf --output=L tee out.txt", "out.txt"),
+            ("time -p tee out.txt", "out.txt"),
+            ("/usr/bin/time -f F tee out.txt", "out.txt"),
+            ("/usr/bin/time -o log tee out.txt", "out.txt"),
+            ("/usr/bin/time -v tee out.txt", "out.txt"),
+            ("/usr/bin/time -a -o log tee out.txt", "out.txt"),
+            ("/usr/bin/time --output=log tee out.txt", "out.txt"),
+            ("/usr/bin/time -fF tee out.txt", "out.txt"),
+            ("/usr/bin/time -olog tee out.txt", "out.txt"),
+        ];
+        for (command, target) in cases {
+            assert_command_prefix_inside_write(command, target);
+        }
+    }
+
+    #[test]
+    fn command_prefix_unknown_options_and_bare_dash_boundaries() {
+        for command in [
+            "command - tee out.txt",
+            "command -v tee out.txt",
+            "exec - tee out.txt",
+            "nice - tee out.txt",
+            "stdbuf - tee out.txt",
+            "/usr/bin/time - tee out.txt",
+        ] {
+            assert_command_prefix_no_write(command);
+        }
+        for command in [
+            "command -X tee /tmp/f",
+            "exec -X tee /tmp/f",
+            "nice -X tee /tmp/f",
+            "stdbuf -X tee /tmp/f",
+            "/usr/bin/time -X tee /tmp/f",
+            "sudo -i tee /tmp/f",
+            "sudo -s tee /tmp/f",
+            "sudo -D sub tee /tmp/f",
+            "sudo -R sub tee /tmp/f",
+        ] {
+            assert_command_prefix_rejected(command);
+        }
+    }
+
+    #[test]
+    fn command_prefix_short_cluster_split_string_table() {
+        assert_eq!(short_cluster_split_string("-S"), Some(""));
+        assert_eq!(short_cluster_split_string("-iS"), Some(""));
+        assert_eq!(short_cluster_split_string("-iSx"), Some("x"));
+        assert_eq!(short_cluster_split_string("-Sx"), Some("x"));
+        assert_eq!(short_cluster_split_string("-i"), None);
+        assert_eq!(short_cluster_split_string("-ab"), None);
+        assert_eq!(short_cluster_split_string("-x"), None);
+        assert_eq!(short_cluster_split_string("-"), None);
+        assert_eq!(short_cluster_split_string("--Sfoo"), None);
+        assert_eq!(short_cluster_split_string("-uSx"), None);
+        assert_eq!(short_cluster_split_string("-PSx"), None);
+        assert_eq!(short_cluster_split_string(""), None);
+    }
 }
