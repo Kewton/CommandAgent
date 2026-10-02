@@ -135,6 +135,26 @@ fn command_prefix_rejects_writes_through_every_prefix() {
         "X=tee env --unknown --split-string '${X} /tmp/f'",
         "env -C sub -S '${X} /tmp/f'",
         "env --unknown -S 'a\\_b'",
+        // env -S / --split-string is refused in every spelling, even without a
+        // write word and even with no value at all.
+        "env -S'cargo test'",
+        "env -S",
+        "env --split-string",
+        "env -S x tee out.txt",
+        "env --split-string x tee out.txt",
+        "env --split-string=x tee out.txt",
+        "env -iS '\"tee\" /tmp/f'",
+        "env -vS 'tee\\_/tmp/f'",
+        "env -0S '${X} /tmp/f'",
+        "env -S'-Stee /tmp/f'",
+        "env -S'--split-string=tee /tmp/f'",
+        "env --split='tee /tmp/f'",
+        "env --s='tee /tmp/f'",
+        "env --split-str='cp a.txt /tmp/f'",
+        "env -iuXS 'x'",
+        "env -uX --unknown -S 'cargo test'",
+        "sudo env -S'x y'",
+        "timeout 5 env -S'x y'",
         // The same writes through the escaping `sub/link` symlink.
         "env tee sub/link/f",
         "timeout 5 cp a.txt sub/link/",
@@ -176,6 +196,10 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
         "env tee /dev/null",
         "env FOO=1 cargo test",
         "env RUST_LOG=debug cargo test",
+        "env -i PATH=/usr/bin cargo test",
+        "env -u HOME cargo test",
+        "env -uSOMETHING cargo test",
+        "env -u S cargo test",
         "timeout 600 cargo test",
         "timeout --foreground 600 cargo test",
         "timeout --unknown 600 cargo test",
@@ -188,20 +212,12 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
         "sudo -l tee /tmp/f",
         // `command -` runs nothing in sh, so `-` is not a program.
         "command - tee /tmp/f",
-        // B1: an env -S string with no write program stays allowed.
-        "env -S'cargo test'",
-        "env -S",
-        "env --split-string",
-        "env --unknown -S",
         // B4: `sudo -k` without a command, and the terminal timestamp options.
         "sudo -k",
         "sudo -K",
         "sudo -v tee /tmp/f",
         // A program reached after an option value must still be seen; the
         // write is inside the workspace, so confinement stays allowed.
-        "env -S x tee out.txt",
-        "env --split-string x tee out.txt",
-        "env --split-string=x tee out.txt",
         "env -i -- tee out.txt",
         "env -u V tee out.txt",
         "env - tee out.txt",

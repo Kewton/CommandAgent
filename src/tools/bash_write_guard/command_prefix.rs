@@ -25,6 +25,10 @@ const MAX_DEPTH: usize = 16;
 /// while a write program or another prefix remained in the words.
 pub(super) const UNRESOLVED_OPERATION: &str = "unresolved command prefix";
 
+/// Operation recorded for a segment whose `env` option selects `-S` /
+/// `--split-string`, whose command string cannot be verified.
+pub(super) const UNVERIFIABLE_SPLIT_STRING_OPERATION: &str = "env -S / --split-string";
+
 /// A write destination named by a prefix itself rather than by the program it
 /// launches, e.g. `time -o FILE` or `sudo -e FILE`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +52,9 @@ pub(super) enum Resolution {
     /// The chain is unresolvable and the remaining words name a write program
     /// or another prefix, so the caller must reject the segment.
     Undecidable { prefix: String },
+    /// The segment carries an `env` `-S` / `--split-string` spelling, whose
+    /// command string cannot be verified, so the caller must reject it.
+    UnverifiableSplitString { word: String },
 }
 
 /// Peels the command prefixes of one segment and decides what runs.
@@ -80,11 +87,7 @@ pub(super) fn resolve(words: &[&str]) -> Resolution {
             }
             Step::Stop => return Resolution::NoExecution { writes },
             Step::Undecidable => return unresolvable(words, cursor, writes),
-            Step::Reject => {
-                return Resolution::Undecidable {
-                    prefix: words[cursor].to_string(),
-                };
-            }
+            Step::Reject { word } => return Resolution::UnverifiableSplitString { word },
         }
     }
 }
@@ -162,8 +165,9 @@ enum Step {
     Stop,
     /// The prefix cannot be peeled without ambiguity.
     Undecidable,
-    /// The prefix is proven to carry a write program or another prefix.
-    Reject,
+    /// The prefix carries an `env` `-S` / `--split-string` spelling, which
+    /// cannot be verified. Carries the offending option word.
+    Reject { word: String },
 }
 
 fn step(prefix: Prefix, index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step {
@@ -302,6 +306,14 @@ fn step_env(index: usize, args: &[&str]) -> Step {
                 cursor: index + 1 + offset + 1,
             };
         }
+        // `env -S` / `--split-string` builds the command from a string operand
+        // that cannot be re-split the way the shell would, so every spelling is
+        // refused before its value is looked at.
+        if env_requests_split_string(word) {
+            return Step::Reject {
+                word: word.to_string(),
+            };
+        }
         if matches!(
             word,
             "-i" | "-" | "-0" | "-v" | "--ignore-environment" | "--null" | "--debug"
@@ -311,28 +323,6 @@ fn step_env(index: usize, args: &[&str]) -> Step {
         }
         if matches!(word, "-C" | "--chdir") || word.starts_with("--chdir=") {
             return Step::Undecidable;
-        }
-        if word == "-S" || word == "--split-string" {
-            let Some(value) = args.get(offset + 1) else {
-                return Step::Undecidable;
-            };
-            if env_split_string_unsafe(value) {
-                return Step::Reject;
-            }
-            offset += 2;
-            continue;
-        }
-        if let Some(value) = word.strip_prefix("--split-string=") {
-            if env_split_string_unsafe(value) {
-                return Step::Reject;
-            }
-            offset += 1;
-            continue;
-        }
-        if let Some(value) = short_cluster_split_string(word)
-            && env_split_string_unsafe(value)
-        {
-            return Step::Reject;
         }
         if matches!(word, "-u" | "--unset" | "-P" | "--path") {
             if args.get(offset + 1).is_none() {
@@ -708,9 +698,9 @@ fn step_time(index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step
     Step::Stop
 }
 
-/// Fails closed for an unresolvable chain: if any remaining word (or the
-/// string operand of an `env -S` in it) names a write program or another
-/// prefix, the chain is reported unresolvable.
+/// Fails closed for an unresolvable chain: if any remaining word selects
+/// `env -S` / `--split-string`, or names a write program or another prefix,
+/// the chain is reported unresolvable.
 fn unresolvable(words: &[&str], stuck: usize, writes: Vec<PrefixWrite>) -> Resolution {
     if unresolvable_scan_rejects(&words[stuck + 1..]) {
         return Resolution::Undecidable {
@@ -720,33 +710,13 @@ fn unresolvable(words: &[&str], stuck: usize, writes: Vec<PrefixWrite>) -> Resol
     Resolution::NoExecution { writes }
 }
 
-/// Scans the words after an unresolvable prefix. An `env -S` string operand is
-/// extracted exactly as `step_env` does, so an attached (`-Stee`), clustered
-/// (`-iStee`), `=`-joined (`--split-string=tee`), or following-word
-/// (`-S tee`) operand is inspected instead of being split as an option word.
+/// Scans the words after an unresolvable prefix with the same per-word rules:
+/// an `env` `-S` / `--split-string` option is refused in any spelling, and a
+/// write program or another prefix is refused.
 fn unresolvable_scan_rejects(words: &[&str]) -> bool {
-    let mut index = 0;
-    while let Some(&word) = words.get(index) {
-        if let Some(value) = word.strip_prefix("--split-string=") {
-            if env_split_string_unsafe(value) {
-                return true;
-            }
-        } else if word == "-S" || word == "--split-string" {
-            if let Some(value) = words.get(index + 1)
-                && env_split_string_unsafe(value)
-            {
-                return true;
-            }
-        } else if let Some(value) = short_cluster_split_string(word) {
-            if env_split_string_unsafe(value) {
-                return true;
-            }
-        } else if contains_write_or_prefix(word) {
-            return true;
-        }
-        index += 1;
-    }
-    false
+    words
+        .iter()
+        .any(|word| env_requests_split_string(word) || contains_write_or_prefix(word))
 }
 
 /// Whether a text names a write program or another prefix when split the way a
@@ -758,29 +728,26 @@ fn contains_write_or_prefix(text: &str) -> bool {
     })
 }
 
-/// Whether an `env -S` string operand must be refused. Quotes, escapes, and
-/// expansions are not re-split the way the shell would, so the operand is not
-/// verifiable; otherwise it is refused when it names a write program or prefix.
-fn env_split_string_unsafe(value: &str) -> bool {
-    let unverifiable = value
-        .chars()
-        .any(|ch| matches!(ch, '"' | '\'' | '\\' | '$'));
-    unverifiable || contains_write_or_prefix(value)
-}
-
-/// The `env -S`/`-iS` short form: returns the string operand attached after the
-/// `S` letter of a single-dash option cluster. A value-taking option (`-u`,
-/// `-P`) before the `S` means the remainder belongs to that option instead.
-fn short_cluster_split_string(word: &str) -> Option<&str> {
-    let rest = word.strip_prefix('-')?;
-    if rest.is_empty() || rest.starts_with('-') {
-        return None;
+/// Whether an `env` option word selects `-S` / `--split-string`, in any
+/// spelling, so its command string cannot be verified.
+///
+/// Long form: any non-empty prefix of `--split-string` (`--s` … `--split-string`),
+/// with or without an attached `=`. Short form: a single-dash option cluster
+/// that contains an `S` anywhere, unless its first letter is a value-taking
+/// option (`-u`, `-C`, `-P`), whose remainder is that option's value.
+fn env_requests_split_string(word: &str) -> bool {
+    if let Some(rest) = word.strip_prefix("--") {
+        let name = rest.split_once('=').map_or(rest, |(name, _)| name);
+        let name = format!("--{name}");
+        return name.len() > 2 && "--split-string".starts_with(&name);
     }
-    let index = rest.find('S')?;
-    if rest[..index].chars().any(|ch| ch == 'u' || ch == 'P') {
-        return None;
+    let Some(rest) = word.strip_prefix('-') else {
+        return false;
+    };
+    if rest.is_empty() || matches!(rest.chars().next(), Some('u' | 'C' | 'P')) {
+        return false;
     }
-    rest.get(index + 1..)
+    rest.contains('S')
 }
 
 fn is_write_program(name: &str) -> bool {
@@ -927,8 +894,8 @@ mod tests {
         );
         assert_eq!(
             resolve(&["env", "-S", "tee /tmp/f"]),
-            Resolution::Undecidable {
-                prefix: "env".to_string(),
+            Resolution::UnverifiableSplitString {
+                word: "-S".to_string(),
             }
         );
         assert_eq!(
@@ -1050,6 +1017,9 @@ mod tests {
     fn command_prefix_resolution_table() {
         let undecidable = |prefix: &str| Resolution::Undecidable {
             prefix: prefix.to_string(),
+        };
+        let split_string = |word: &str| Resolution::UnverifiableSplitString {
+            word: word.to_string(),
         };
         let cases: &[(&[&str], Resolution)] = &[
             // env flags, value options, assignments and `--`.
@@ -1276,27 +1246,38 @@ mod tests {
                 &["env", "arch", "-arm64", "tee", "f"],
                 program("tee", &["f"]),
             ),
-            // B1: env -S / --split-string string operands are scanned.
-            (&["env", "-Stee /tmp/f"], undecidable("env")),
-            (&["env", "-iStee /tmp/f"], undecidable("env")),
-            (&["env", "--split-string=tee /tmp/f"], undecidable("env")),
-            (&["env", "-Scp a.txt /tmp/f"], undecidable("env")),
-            (&["env", "-S", "tee /tmp/f"], undecidable("env")),
-            (&["env", "-Scargo test"], no_execution()),
-            // R1: the env -S operand is extracted in the unresolved scan too.
+            // env -S / --split-string is refused in every spelling.
+            (&["env", "-Stee /tmp/f"], split_string("-Stee /tmp/f")),
+            (&["env", "-iStee /tmp/f"], split_string("-iStee /tmp/f")),
+            (
+                &["env", "--split-string=tee /tmp/f"],
+                split_string("--split-string=tee /tmp/f"),
+            ),
+            (
+                &["env", "-Scp a.txt /tmp/f"],
+                split_string("-Scp a.txt /tmp/f"),
+            ),
+            (&["env", "-S", "tee /tmp/f"], split_string("-S")),
+            (&["env", "-Scargo test"], split_string("-Scargo test")),
+            (&["env", "-S"], split_string("-S")),
+            (&["env", "--split-string"], split_string("--split-string")),
+            (
+                &["env", "-S\"tee\" /tmp/f"],
+                split_string("-S\"tee\" /tmp/f"),
+            ),
+            (&["env", "-S'tee' /tmp/f"], split_string("-S'tee' /tmp/f")),
+            (
+                &["env", "-Ste\"\"e /tmp/f"],
+                split_string("-Ste\"\"e /tmp/f"),
+            ),
+            (&["env", "-Stee\\_/tmp/f"], split_string("-Stee\\_/tmp/f")),
+            (&["env", "-S${X} /tmp/f"], split_string("-S${X} /tmp/f")),
+            // Behind an undecidable option the scan applies the same refusal.
             (&["env", "-uX", "-Stee /tmp/f"], undecidable("env")),
             (&["env", "-iuX", "-Scp a.txt /tmp/f"], undecidable("env")),
             (&["env", "-C", "sub", "-Stee /tmp/f"], undecidable("env")),
             (&["env", "--chdir=sub", "-Stee link/f"], undecidable("env")),
             (&["env", "--unknown", "-Stee /tmp/f"], undecidable("env")),
-            (&["env", "-S"], no_execution()),
-            (&["env", "--split-string"], no_execution()),
-            // R2: a quoted, escaped, or expanded -S operand is unverifiable.
-            (&["env", "-S\"tee\" /tmp/f"], undecidable("env")),
-            (&["env", "-S'tee' /tmp/f"], undecidable("env")),
-            (&["env", "-Ste\"\"e /tmp/f"], undecidable("env")),
-            (&["env", "-Stee\\_/tmp/f"], undecidable("env")),
-            (&["env", "-S${X} /tmp/f"], undecidable("env")),
             // B2/B3: nohup and builtin skip a leading `--`.
             (&["nohup", "--", "tee", "f"], program("tee", &["f"])),
             (&["builtin", "--", "cd", "x"], program("cd", &["x"])),
@@ -1331,7 +1312,7 @@ mod tests {
             // unresolvable forms, including nested prefixes.
             (&["env", "-C", "sub", "tee", "f"], undecidable("env")),
             (&["env", "--chdir=sub", "tee", "f"], undecidable("env")),
-            (&["env", "-S", "tee f"], undecidable("env")),
+            (&["env", "-S", "tee f"], split_string("-S")),
             (&["env", "-X", "tee", "f"], undecidable("env")),
             (&["sudo", "-i", "tee", "f"], undecidable("sudo")),
             (&["sudo", "-s", "tee", "f"], undecidable("sudo")),
@@ -1404,10 +1385,6 @@ mod tests {
     #[test]
     fn command_prefix_option_values_keep_inside_writes_detected() {
         let cases: &[(&str, &str)] = &[
-            ("env -S x tee out.txt", "out.txt"),
-            ("env -S 'x' tee out.txt", "out.txt"),
-            ("env --split-string x tee out.txt", "out.txt"),
-            ("env --split-string=x tee out.txt", "out.txt"),
             ("env -i -- tee out.txt", "out.txt"),
             ("env -u V tee out.txt", "out.txt"),
             ("env - tee out.txt", "out.txt"),
@@ -1477,18 +1454,74 @@ mod tests {
     }
 
     #[test]
-    fn command_prefix_short_cluster_split_string_table() {
-        assert_eq!(short_cluster_split_string("-S"), Some(""));
-        assert_eq!(short_cluster_split_string("-iS"), Some(""));
-        assert_eq!(short_cluster_split_string("-iSx"), Some("x"));
-        assert_eq!(short_cluster_split_string("-Sx"), Some("x"));
-        assert_eq!(short_cluster_split_string("-i"), None);
-        assert_eq!(short_cluster_split_string("-ab"), None);
-        assert_eq!(short_cluster_split_string("-x"), None);
-        assert_eq!(short_cluster_split_string("-"), None);
-        assert_eq!(short_cluster_split_string("--Sfoo"), None);
-        assert_eq!(short_cluster_split_string("-uSx"), None);
-        assert_eq!(short_cluster_split_string("-PSx"), None);
-        assert_eq!(short_cluster_split_string(""), None);
+    fn command_prefix_env_requests_split_string_table() {
+        // Short clusters with an S anywhere are refused.
+        for word in [
+            "-S",
+            "-Sx",
+            "-iS",
+            "-vS",
+            "-0S",
+            "-iuXS",
+            "-SCARGO",
+            "-iStee /tmp/f",
+        ] {
+            assert!(
+                env_requests_split_string(word),
+                "must request split-string: {word}"
+            );
+        }
+        // A value-taking option first owns the rest of the word.
+        for word in [
+            "-u",
+            "-uroot",
+            "-uSOMETHING",
+            "-P/usr/bin",
+            "-PS",
+            "-Csub",
+            "-CS",
+            "-i",
+            "-",
+            "-0",
+            "-x",
+            "-X",
+            "S",
+            "tee",
+            "",
+        ] {
+            assert!(
+                !env_requests_split_string(word),
+                "must not request split-string: {word}"
+            );
+        }
+        // Every prefix of --split-string, with or without `=`.
+        for word in [
+            "--s",
+            "--sp",
+            "--split",
+            "--split-str",
+            "--split-string",
+            "--split-string=tee /tmp/f",
+            "--s='tee /tmp/f'",
+        ] {
+            assert!(
+                env_requests_split_string(word),
+                "must request split-string: {word}"
+            );
+        }
+        for word in [
+            "--",
+            "--ignore-environment",
+            "--null",
+            "--debug",
+            "--chdir",
+            "--unset=x",
+            "--split-stringx",
+        ] {
+            assert!(
+                !env_requests_split_string(word),
+                "must not request split-string: {word}"
+            );
+        }
     }
 }

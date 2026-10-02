@@ -29,6 +29,16 @@ pub(super) fn confinement_rejection(
     root: &Path,
 ) -> Option<BashWriteConfinementRejection> {
     for target in write_targets(command) {
+        if target.operation == command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: format!(
+                    "Bash command `{}` selects env -S / --split-string, whose command cannot be verified to remain in the Gate 1 workspace boundary",
+                    target.path
+                ),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.operation == command_prefix::UNRESOLVED_OPERATION {
             return Some(BashWriteConfinementRejection {
                 reason: format!(
@@ -132,6 +142,12 @@ fn write_targets(command: &str) -> Vec<WriteTarget> {
                 targets.push(WriteTarget {
                     path: prefix,
                     operation: command_prefix::UNRESOLVED_OPERATION.to_string(),
+                });
+            }
+            command_prefix::Resolution::UnverifiableSplitString { word } => {
+                targets.push(WriteTarget {
+                    path: word,
+                    operation: command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION.to_string(),
                 });
             }
         }
@@ -875,7 +891,7 @@ mod tests {
             ),
             (
                 "env -S \"tee /tmp/f\"",
-                &[("env", command_prefix::UNRESOLVED_OPERATION)],
+                &[("-S", command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION)],
             ),
         ];
         for (command, expected) in cases {
