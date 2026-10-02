@@ -26,6 +26,7 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), "outside-secret").unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -83,6 +84,28 @@ fn command_prefix_rejects_writes_through_every_prefix() {
         "env sudo timeout 5 tee /tmp/f",
         // undecidable option.
         "sudo -X u tee /tmp/f",
+        // Review round-1 holes: cwd-changing and end-of-options prefixes.
+        "env -C sub tee link/f",
+        "env --chdir=sub tee link/f",
+        "sudo -D sub tee link/f",
+        "env -i -- tee /tmp/f",
+        "exec -- tee /tmp/f",
+        "exec -X tee /tmp/f",
+        // B1: the env -S string operand is scanned.
+        "env -S'tee /tmp/f'",
+        "env -iS'tee /tmp/f'",
+        "env --split-string='tee /tmp/f'",
+        "env -S\"cp a.txt /tmp/f\"",
+        // B2/B3: nohup and builtin skip a leading `--`.
+        "nohup -- tee /tmp/f",
+        "builtin -- cd linked-outside && tee f",
+        // B4: sudo -k still runs the command.
+        "sudo -k tee /tmp/f",
+        "sudo -k -u root cp a.txt /tmp/f",
+        "sudo -n -k tee /tmp/f",
+        // sudoedit is a write program for the unresolved scan.
+        "env -C sub sudoedit link/f",
+        "sudo -X u sudoedit /tmp/f",
         // The same writes through the escaping `sub/link` symlink.
         "env tee sub/link/f",
         "timeout 5 cp a.txt sub/link/",
@@ -134,6 +157,14 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
         "command -v cargo",
         "command -v tee /tmp/f",
         "sudo -l tee /tmp/f",
+        // `command -` runs nothing in sh, so `-` is not a program.
+        "command - tee /tmp/f",
+        // B1: an env -S string with no write program stays allowed.
+        "env -S'cargo test'",
+        // B4: `sudo -k` without a command, and the terminal timestamp options.
+        "sudo -k",
+        "sudo -K",
+        "sudo -v tee /tmp/f",
     ];
     for command in cases {
         assert!(
@@ -141,6 +172,30 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
             "expected allow: {command}"
         );
     }
+}
+
+#[test]
+fn command_prefix_depth_limit_boundary() {
+    let fixture = fixture();
+    let root = &fixture.root;
+
+    let past_limit_write = format!("{}tee /tmp/f", "env ".repeat(17));
+    assert!(
+        path_confinement_rejection(&past_limit_write, root).is_some(),
+        "17 nested prefixes before a write must still reject"
+    );
+
+    let past_limit_cargo = format!("{}cargo test", "env ".repeat(17));
+    assert!(
+        path_confinement_rejection(&past_limit_cargo, root).is_none(),
+        "17 nested prefixes before a verification command must stay allowed"
+    );
+
+    let within_limit_write = format!("{}tee out.txt", "env ".repeat(16));
+    assert!(
+        path_confinement_rejection(&within_limit_write, root).is_none(),
+        "16 nested prefixes still peel to the write program"
+    );
 }
 
 #[test]

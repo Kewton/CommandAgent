@@ -80,6 +80,11 @@ pub(super) fn resolve(words: &[&str]) -> Resolution {
             }
             Step::Stop => return Resolution::NoExecution { writes },
             Step::Undecidable => return unresolvable(words, cursor, writes),
+            Step::Reject => {
+                return Resolution::Undecidable {
+                    prefix: words[cursor].to_string(),
+                };
+            }
         }
     }
 }
@@ -157,6 +162,8 @@ enum Step {
     Stop,
     /// The prefix cannot be peeled without ambiguity.
     Undecidable,
+    /// The prefix is proven to carry a write program or another prefix.
+    Reject,
 }
 
 fn step(prefix: Prefix, index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step {
@@ -198,9 +205,8 @@ fn step(prefix: Prefix, index: usize, args: &[&str], writes: &mut Vec<PrefixWrit
             &["-arch"],
             &["-h"],
         ),
-        Prefix::Builtin
-        | Prefix::Nohup
-        | Prefix::Bang
+        Prefix::Builtin | Prefix::Nohup => step_bare_end_of_options(index, args),
+        Prefix::Bang
         | Prefix::BraceOpen
         | Prefix::BraceClose
         | Prefix::If
@@ -221,6 +227,16 @@ fn step_bare(index: usize, args: &[&str]) -> Step {
         Step::Stop
     } else {
         Step::Continue { cursor: index + 1 }
+    }
+}
+
+/// Like [`step_bare`], but skips a `--` end-of-options marker so the program
+/// that follows it is still resolved (`nohup --`, `builtin --`).
+fn step_bare_end_of_options(index: usize, args: &[&str]) -> Step {
+    match args.first() {
+        None => Step::Stop,
+        Some(&"--") => Step::Continue { cursor: index + 2 },
+        Some(_) => Step::Continue { cursor: index + 1 },
     }
 }
 
@@ -293,11 +309,30 @@ fn step_env(index: usize, args: &[&str]) -> Step {
             offset += 1;
             continue;
         }
-        if matches!(word, "-S" | "--split-string" | "-C" | "--chdir")
-            || word.starts_with("--split-string=")
-            || word.starts_with("--chdir=")
-        {
+        if matches!(word, "-C" | "--chdir") || word.starts_with("--chdir=") {
             return Step::Undecidable;
+        }
+        if word == "-S" || word == "--split-string" {
+            let Some(value) = args.get(offset + 1) else {
+                return Step::Undecidable;
+            };
+            if contains_write_or_prefix(value) {
+                return Step::Reject;
+            }
+            offset += 2;
+            continue;
+        }
+        if let Some(value) = word.strip_prefix("--split-string=") {
+            if contains_write_or_prefix(value) {
+                return Step::Reject;
+            }
+            offset += 1;
+            continue;
+        }
+        if let Some(value) = short_cluster_split_string(word)
+            && contains_write_or_prefix(value)
+        {
+            return Step::Reject;
         }
         if matches!(word, "-u" | "--unset" | "-P" | "--path") {
             if args.get(offset + 1).is_none() {
@@ -389,6 +424,8 @@ fn step_sudo(index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step
         "--preserve-groups",
         "-S",
         "--stdin",
+        "-k",
+        "--reset-timestamp",
     ];
     const VALUE_OPTIONS: &[&str] = &[
         "-u",
@@ -413,8 +450,6 @@ fn step_sudo(index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step
         "--list",
         "-v",
         "--validate",
-        "-k",
-        "--reset-timestamp",
         "-K",
         "--remove-timestamp",
         "-V",
@@ -677,17 +712,39 @@ fn step_time(index: usize, args: &[&str], writes: &mut Vec<PrefixWrite>) -> Step
 /// whitespace-separated fragment of a quoted word, as `env -S 'CMD'` produces)
 /// is a write program or another prefix, the chain is reported unresolvable.
 fn unresolvable(words: &[&str], stuck: usize, writes: Vec<PrefixWrite>) -> Resolution {
-    for word in &words[stuck + 1..] {
-        for piece in word.split_whitespace() {
-            let name = basename(piece);
-            if is_write_program(name) || prefix_for(name).is_some() {
-                return Resolution::Undecidable {
-                    prefix: words[stuck].to_string(),
-                };
-            }
-        }
+    if words[stuck + 1..]
+        .iter()
+        .any(|word| contains_write_or_prefix(word))
+    {
+        return Resolution::Undecidable {
+            prefix: words[stuck].to_string(),
+        };
     }
     Resolution::NoExecution { writes }
+}
+
+/// Whether a text names a write program or another prefix when split the way a
+/// shell splits `env -S`'s string operand.
+fn contains_write_or_prefix(text: &str) -> bool {
+    text.split_whitespace().any(|piece| {
+        let name = basename(piece);
+        is_write_program(name) || prefix_for(name).is_some()
+    })
+}
+
+/// The `env -S`/`-iS` short form: returns the string operand attached after the
+/// `S` letter of a single-dash option cluster. A value-taking option (`-u`,
+/// `-P`) before the `S` means the remainder belongs to that option instead.
+fn short_cluster_split_string(word: &str) -> Option<&str> {
+    let rest = word.strip_prefix('-')?;
+    if rest.is_empty() || rest.starts_with('-') {
+        return None;
+    }
+    let index = rest.find('S')?;
+    if rest[..index].chars().any(|ch| ch == 'u' || ch == 'P') {
+        return None;
+    }
+    rest.get(index + 1..)
 }
 
 fn is_write_program(name: &str) -> bool {
@@ -705,6 +762,7 @@ fn is_write_program(name: &str) -> bool {
             | "chmod"
             | "chown"
             | "cd"
+            | "sudoedit"
     )
 }
 
@@ -880,6 +938,22 @@ mod tests {
                 prefix: "env".to_string(),
             },
             "one prefix past the depth limit fails closed"
+        );
+
+        // The same boundary with a non-writing program: the scan finds nothing
+        // to reject, so the chain stays allowed.
+        let mut cargo_words: Vec<&str> = std::iter::repeat_n("env", MAX_DEPTH).collect();
+        cargo_words.extend(["cargo", "test"]);
+        assert_eq!(
+            resolve(&cargo_words),
+            program("cargo", &["test"]),
+            "exactly the depth limit still resolves a verification command"
+        );
+        cargo_words.insert(0, "env");
+        assert_eq!(
+            resolve(&cargo_words),
+            no_execution(),
+            "past the depth limit a verification command stays allowed"
         );
     }
 
@@ -1166,6 +1240,26 @@ mod tests {
                 &["env", "arch", "-arm64", "tee", "f"],
                 program("tee", &["f"]),
             ),
+            // B1: env -S / --split-string string operands are scanned.
+            (&["env", "-Stee /tmp/f"], undecidable("env")),
+            (&["env", "-iStee /tmp/f"], undecidable("env")),
+            (&["env", "--split-string=tee /tmp/f"], undecidable("env")),
+            (&["env", "-Scp a.txt /tmp/f"], undecidable("env")),
+            (&["env", "-S", "tee /tmp/f"], undecidable("env")),
+            (&["env", "-Scargo test"], no_execution()),
+            // B2/B3: nohup and builtin skip a leading `--`.
+            (&["nohup", "--", "tee", "f"], program("tee", &["f"])),
+            (&["builtin", "--", "cd", "x"], program("cd", &["x"])),
+            // B4: sudo -k still runs the command.
+            (&["sudo", "-k", "tee", "f"], program("tee", &["f"])),
+            (&["sudo", "-n", "-k", "tee", "f"], program("tee", &["f"])),
+            (&["sudo", "-k"], no_execution()),
+            (&["sudo", "-K", "tee", "f"], no_execution()),
+            // sudoedit is a write program for the unresolvable scan.
+            (&["env", "-C", "sub", "sudoedit", "f"], undecidable("env")),
+            (&["sudo", "-X", "u", "sudoedit", "f"], undecidable("sudo")),
+            // `command -` runs nothing in sh, so `-` is not treated as the program.
+            (&["command", "-", "tee", "f"], program("-", &["tee", "f"])),
             // shell prefixes and reserved words.
             (&["!", "tee", "f"], program("tee", &["f"])),
             (&["{", "tee", "f"], program("tee", &["f"])),
