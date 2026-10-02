@@ -128,6 +128,13 @@ fn command_prefix_rejects_writes_through_every_prefix() {
         "env -C sub -S'tee /tmp/f'",
         "env --chdir=sub -S'tee link/f'",
         "env --unknown -S'tee /tmp/f'",
+        // An `-S`/`--split-string` written as its own word after an unresolved
+        // prefix: only the following-word extraction reaches the unverifiable
+        // operand, which carries no write word of its own.
+        "X=tee env --unknown -S '${X} /tmp/f'",
+        "X=tee env --unknown --split-string '${X} /tmp/f'",
+        "env -C sub -S '${X} /tmp/f'",
+        "env --unknown -S 'a\\_b'",
         // The same writes through the escaping `sub/link` symlink.
         "env tee sub/link/f",
         "timeout 5 cp a.txt sub/link/",
@@ -185,6 +192,7 @@ fn command_prefix_keeps_inside_and_verification_writes_allowed() {
         "env -S'cargo test'",
         "env -S",
         "env --split-string",
+        "env --unknown -S",
         // B4: `sudo -k` without a command, and the terminal timestamp options.
         "sudo -k",
         "sudo -K",
