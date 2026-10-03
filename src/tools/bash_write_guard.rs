@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use super::shell_lexical;
+
 mod ansi_c_quoting;
 mod command_prefix;
 mod working_directory;
@@ -73,6 +75,13 @@ pub(super) fn confinement_rejection(
                 operation: target.operation,
             });
         }
+        if target.operation == shell_lexical::UNREADABLE_OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: "Bash command text cannot be read by the lexical guard (an unterminated quote, or a `<<` that cannot be told from an arithmetic shift), so its write targets cannot be proven to remain in the Gate 1 workspace boundary; rewrite it with balanced quotes and a literal command or heredoc delimiter".to_string(),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.path == "/dev/null"
             && matches!(target.operation.as_str(), "output redirection" | "tee")
         {
@@ -124,6 +133,7 @@ fn working_directory_rejection(
             | ansi_c_quoting::OPERATION
             | command_prefix::UNRESOLVED_OPERATION
             | command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION
+            | shell_lexical::UNREADABLE_OPERATION
     ) {
         return None;
     }
@@ -217,15 +227,34 @@ fn path_matches(candidate: &Path, protected: &Path) -> bool {
     candidate == protected || candidate.starts_with(protected) || protected.starts_with(candidate)
 }
 
+/// A fail-closed target for a command whose text the lexical guard cannot read.
+/// The sentinel path never matches a protected path.
+fn unreadable_target() -> WriteTarget {
+    WriteTarget {
+        path: "<shell text>".to_string(),
+        operation: shell_lexical::UNREADABLE_OPERATION.to_string(),
+    }
+}
+
 fn write_targets(command: &str) -> Vec<WriteTarget> {
-    if let Some(kind) = ansi_c_quoting::outside_quotes(command) {
+    let elided = shell_lexical::strip_comments_and_heredocs(command);
+    // #575: the ANSI-C / locale introducer is refused on the raw text and on the
+    // elided text. Reading only one of them either changes the refusal reason or
+    // misses a `# it's\n$'tee' #'`, where the raw scan is inside a comment's
+    // quote and the elided scan is not.
+    if let Some(kind) = ansi_c_quoting::outside_quotes(command)
+        .or_else(|| elided.as_deref().and_then(ansi_c_quoting::outside_quotes))
+    {
         return vec![WriteTarget {
             path: kind.introducer().to_string(),
             operation: ansi_c_quoting::OPERATION.to_string(),
         }];
     }
-    let Some(tokens) = shell_tokens(command) else {
-        return Vec::new();
+    let Some(text) = elided.as_deref() else {
+        return vec![unreadable_target()];
+    };
+    let Some(tokens) = shell_tokens(text) else {
+        return vec![unreadable_target()];
     };
     let mut targets = redirect_targets(&tokens);
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
@@ -721,7 +750,6 @@ mod tests {
             ("tee a\\ b", &[("a b", "tee")]),
             ("tee \"a\\\"b\"", &[("a\"b", "tee")]),
             ("tee 'it''s'", &[("its", "tee")]),
-            ("tee 'unterminated", &[]),
             ("cp a b", &[("b", "cp")]),
             ("cp -t dir a", &[("dir", "cp")]),
             ("cp -tdir a", &[("dir", "cp")]),
@@ -756,6 +784,20 @@ mod tests {
                 "command: {command}"
             );
         }
+    }
+
+    #[test]
+    fn unterminated_quote_is_rejected_as_unreadable_shell_text() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+
+        assert_eq!(
+            write_target_pairs("tee 'unterminated"),
+            expected_targets(&[("<shell text>", shell_lexical::UNREADABLE_OPERATION)])
+        );
+        let rejection = confinement_rejection("tee 'unterminated", &root).expect("rejected");
+        assert_eq!(rejection.operation, shell_lexical::UNREADABLE_OPERATION);
     }
 
     #[test]
