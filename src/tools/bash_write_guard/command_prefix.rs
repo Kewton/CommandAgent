@@ -765,6 +765,8 @@ fn is_write_program(name: &str) -> bool {
             | "chmod"
             | "chown"
             | "cd"
+            | "pushd"
+            | "popd"
             | "sudoedit"
     )
 }
