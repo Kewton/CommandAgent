@@ -14,31 +14,98 @@
 //! at their entry points instead of each rewriting the quote state machine.
 //!
 //! Every skip is chosen so the elided text is never longer than what the shell
-//! runs, and elision that could hide an executing body is refused: a heredoc
-//! whose body the shell executes (`sh <<EOF`, or an unquoted body containing
-//! `$(` or a backtick) is kept as commands. When a `<<` cannot be told from an
-//! arithmetic shift (`((` is present too), the whole command is reported
-//! unreadable (`None`) rather than guessed at.
+//! runs. A heredoc body is dropped only when the command the heredoc is attached
+//! to reads its stdin purely as data (see [`DATA_READER_PROGRAMS`]); every other
+//! body is kept verbatim, so a shell, an interpreter, or a function that executes
+//! it is still inspected. Text that cannot be read statically is reported as
+//! `None` rather than guessed at, and the callers fail closed (Merge-review
+//! blockers B1-B3, H-02 §1).
 
 /// Operation recorded for a command whose text the lexical guard cannot read
-/// (an unterminated quote, or a `<<` that cannot be told from a shift). The
-/// caller fails closed on it.
+/// (an unterminated quote, an ambiguous arithmetic shift, or a heredoc whose
+/// delimiter or body cannot be read). The caller fails closed on it.
 pub(crate) const UNREADABLE_OPERATION: &str = "unreadable shell text";
 
+/// Programs that read a heredoc body only as data, never as commands.
+///
+/// Dropping the body of a heredoc attached to one of these is the "shorter than
+/// the shell" direction: the program cannot execute its stdin text. The list is
+/// deliberately short and conservative (H-02 §4 B2). A command whose name word
+/// carries a quote, `\`, `$`, or backtick is never treated as one of these,
+/// because its name cannot be read literally. Every other command keeps its
+/// body, so `sh`, `bash`, `python3`, `node`, `xargs`, `{ ...; }`, `exec N<<`,
+/// and a function call are all inspected.
+const DATA_READER_PROGRAMS: &[&str] = &[
+    "cat",
+    "tee",
+    "git",
+    "gh",
+    "wc",
+    "head",
+    "tail",
+    "sort",
+    "uniq",
+    "cut",
+    "tr",
+    "comm",
+    "cmp",
+    "diff",
+    "fold",
+    "nl",
+    "rev",
+    "tac",
+    "base64",
+    "jq",
+    "sha256sum",
+    "md5sum",
+    "shasum",
+    "openssl",
+];
+
 /// A heredoc whose delimiter was seen but whose body has not been consumed yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Heredoc {
     delimiter: Vec<u8>,
     quoted: bool,
     dash: bool,
 }
 
-/// Returns the command text with comments and heredoc bodies removed, or `None`
-/// when the text cannot be read statically.
+/// How a heredoc body is treated once its extent is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyMode {
+    /// Drop a data reader's body; keep every other body verbatim. Used by the
+    /// write inspector, the working-directory candidates, and the second-stage
+    /// path candidates.
+    DropDataBodies,
+    /// Keep every body verbatim, only eliding comments. Used by the credential
+    /// scan, which must still see a `.env` named inside a heredoc body (H-02 §1
+    /// B2補, §2).
+    KeepAllBodies,
+}
+
+/// Returns the command text with comments and data-reader heredoc bodies
+/// removed, or `None` when the text cannot be read statically.
 ///
 /// The result is byte-identical to the input when the input has no comment,
 /// heredoc, or line continuation, so callers can detect "the shell rewrites this
 /// text" by an equality check against the original.
 pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
+    scan(command, BodyMode::DropDataBodies)
+}
+
+/// Returns the command text with comments removed and every heredoc body kept
+/// verbatim, or `None` when the text cannot be read statically.
+pub(crate) fn strip_comments_keeping_heredocs(command: &str) -> Option<String> {
+    scan(command, BodyMode::KeepAllBodies)
+}
+
+/// Whether the elided text is byte-identical to the input, i.e. the command has
+/// no comment, heredoc, or line continuation that the shell rewrites.
+pub(crate) fn text_is_unchanged(command: &str) -> bool {
+    strip_comments_and_heredocs(command).as_deref() == Some(command)
+}
+
+fn scan(command: &str, mode: BodyMode) -> Option<String> {
     // An arithmetic shift and a heredoc both start with `<<`. When the command
     // also contains `((`, the two cannot be told apart portably, so fail closed.
     if command.contains("((") && command.contains("<<") {
@@ -67,8 +134,9 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
         if double {
             if ch == b'\\' {
                 if index + 1 < bytes.len() && bytes[index + 1] == b'\n' {
+                    // A line continuation carries the word-start state across
+                    // it (B5).
                     index += 2;
-                    at_word_start = false;
                     continue;
                 }
                 out.push(ch);
@@ -128,16 +196,19 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
             }
             b'\\' => {
                 if index + 1 < bytes.len() && bytes[index + 1] == b'\n' {
+                    // A line continuation carries the word-start state across
+                    // it, so `echo \<newline># x` still sees a comment (B5).
                     index += 2;
                 } else if index + 1 < bytes.len() {
                     out.push(ch);
                     out.push(bytes[index + 1]);
                     index += 2;
+                    at_word_start = false;
                 } else {
                     out.push(ch);
                     index += 1;
+                    at_word_start = false;
                 }
-                at_word_start = false;
             }
             b'#' if at_word_start => {
                 while index < bytes.len() && bytes[index] != b'\n' {
@@ -158,15 +229,19 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
                 && bytes[index + 1] == b'<'
                 && bytes[index + 2] != b'<' =>
             {
-                if let Some((heredoc, next)) = parse_heredoc(bytes, index + 2) {
-                    out.extend_from_slice(&bytes[index..next]);
-                    pending.push(heredoc);
-                    index = next;
-                    at_word_start = false;
-                } else {
-                    out.push(ch);
-                    at_word_start = true;
-                    index += 1;
+                match parse_heredoc(bytes, index + 2) {
+                    Parsed::Heredoc(heredoc, next) => {
+                        out.extend_from_slice(&bytes[index..next]);
+                        pending.push(heredoc);
+                        index = next;
+                        at_word_start = false;
+                    }
+                    Parsed::NotHeredoc => {
+                        out.push(ch);
+                        at_word_start = true;
+                        index += 1;
+                    }
+                    Parsed::Unreadable => return None,
                 }
             }
             b'\n' => {
@@ -174,11 +249,10 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
                 index += 1;
                 if !pending.is_empty() {
                     let line = &bytes[line_start..index - 1];
-                    let (keep, next) = process_heredocs(bytes, index, &pending, line);
+                    let (next, kept) = resolve_heredocs(bytes, index, &pending, line, mode)?;
+                    out.extend_from_slice(&kept);
+                    index = next;
                     pending.clear();
-                    if !keep {
-                        index = next;
-                    }
                 }
                 line_start = index;
                 at_word_start = true;
@@ -188,7 +262,9 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
                 at_word_start = true;
                 index += 1;
             }
-            ch if ch.is_ascii_whitespace() => {
+            b' ' | b'\t' => {
+                // Bash's only blank characters are the space and the tab. A
+                // carriage return or form feed stays inside the word (B4).
                 out.push(ch);
                 at_word_start = true;
                 index += 1;
@@ -203,19 +279,23 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Whether the elided text is byte-identical to the input, i.e. the command has
-/// no comment, heredoc, or line continuation that the shell rewrites.
-pub(crate) fn text_is_unchanged(command: &str) -> bool {
-    strip_comments_and_heredocs(command).as_deref() == Some(command)
-}
-
 fn is_word_boundary(ch: u8) -> bool {
     matches!(ch, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>')
 }
 
-/// Reads a heredoc delimiter starting at `start` (just past `<<`), returning the
-/// delimiter and the index just past it. `None` when no delimiter word follows.
-fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
+/// The result of reading a heredoc delimiter word.
+enum Parsed {
+    /// A delimiter word and the index just past it.
+    Heredoc(Heredoc, usize),
+    /// No delimiter word follows, so the `<<` is ordinary shell text.
+    NotHeredoc,
+    /// The delimiter cannot be read the way the shell reads it, so the whole
+    /// command is unreadable (B1).
+    Unreadable,
+}
+
+/// Reads a heredoc delimiter starting at `start` (just past `<<`).
+fn parse_heredoc(bytes: &[u8], start: usize) -> Parsed {
     let mut index = start;
     let dash = index < bytes.len() && bytes[index] == b'-';
     if dash {
@@ -225,7 +305,7 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
         index += 1;
     }
     if index >= bytes.len() {
-        return None;
+        return Parsed::NotHeredoc;
     }
     let mut delimiter: Vec<u8> = Vec::new();
     let mut quoted = false;
@@ -235,6 +315,12 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
                 quoted = true;
                 index += 1;
                 while index < bytes.len() && bytes[index] != b'\'' {
+                    // A line continuation inside the delimiter changes where the
+                    // word ends, so the scan cannot trust it (B1).
+                    if bytes[index] == b'\\' && index + 1 < bytes.len() && bytes[index + 1] == b'\n'
+                    {
+                        return Parsed::Unreadable;
+                    }
                     delimiter.push(bytes[index]);
                     index += 1;
                 }
@@ -246,8 +332,19 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
                 quoted = true;
                 index += 1;
                 while index < bytes.len() && bytes[index] != b'"' {
-                    if bytes[index] == b'\\' && index + 1 < bytes.len() {
-                        index += 1;
+                    if bytes[index] == b'\\' {
+                        let Some(&next) = bytes.get(index + 1) else {
+                            return Parsed::Unreadable;
+                        };
+                        // The shell removes a backslash only before `$`, `` ` ``,
+                        // `"`, `\`, or a newline. Anything else keeps it, so the
+                        // delimiter differs from a quote-stripped read (B1).
+                        if matches!(next, b'$' | b'`' | b'"' | b'\\') {
+                            delimiter.push(next);
+                            index += 2;
+                            continue;
+                        }
+                        return Parsed::Unreadable;
                     }
                     delimiter.push(bytes[index]);
                     index += 1;
@@ -257,14 +354,18 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
                 }
             }
             b'\\' => {
-                quoted = true;
-                index += 1;
-                if index < bytes.len() {
-                    delimiter.push(bytes[index]);
-                    index += 1;
+                let Some(&next) = bytes.get(index + 1) else {
+                    return Parsed::Unreadable;
+                };
+                if next == b'\n' {
+                    return Parsed::Unreadable;
                 }
+                quoted = true;
+                delimiter.push(next);
+                index += 2;
             }
-            ch if is_word_boundary(ch) || ch.is_ascii_whitespace() => break,
+            b' ' | b'\t' | b'\n' => break,
+            ch if is_word_boundary(ch) => break,
             ch => {
                 delimiter.push(ch);
                 index += 1;
@@ -272,46 +373,62 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Option<(Heredoc, usize)> {
         }
     }
     if delimiter.is_empty() {
-        return None;
+        return Parsed::NotHeredoc;
     }
-    Some((
+    Parsed::Heredoc(
         Heredoc {
             delimiter,
             quoted,
             dash,
         },
         index,
-    ))
+    )
 }
 
-/// Locates the body of every pending heredoc in order, starting at `body_start`
-/// (the character after the newline). Returns whether any body must be kept as
-/// commands, and the index just past the last terminator (used only when no body
-/// is kept).
-fn process_heredocs(
+/// Locates every pending heredoc body in order from `body_start` (the character
+/// after the newline). Returns the index just past the last terminator and the
+/// bytes to keep verbatim, or `None` when a body cannot be read (B1).
+fn resolve_heredocs(
     bytes: &[u8],
     body_start: usize,
     pending: &[Heredoc],
     line: &[u8],
-) -> (bool, usize) {
-    let mut keep = line_has_interpreter(line);
+    mode: BodyMode,
+) -> Option<(usize, Vec<u8>)> {
+    let data_reader = command_is_data_reader(line);
     let mut position = body_start;
+    let mut kept: Vec<u8> = Vec::new();
     for heredoc in pending {
-        let (body_end, after) = locate_body(bytes, position, heredoc);
-        if !keep && !heredoc.quoted && body_contains_execution(&bytes[position..body_end]) {
-            keep = true;
+        let (body_end, after) = locate_body(bytes, position, heredoc)?;
+        let body = &bytes[position..body_end];
+        // An unquoted body is expanded by the outer shell, which runs a command
+        // substitution in it. The scan must not re-read it as commands, so it is
+        // refused (B3).
+        if mode == BodyMode::DropDataBodies && !heredoc.quoted && body_contains_execution(body) {
+            return None;
+        }
+        let drop = mode == BodyMode::DropDataBodies && data_reader;
+        if !drop {
+            // A kept body must be readable as commands; an unbalanced quote means
+            // it cannot be read (B2).
+            if mode == BodyMode::DropDataBodies && !body_is_readable(body) {
+                return None;
+            }
+            kept.extend_from_slice(body);
         }
         position = after;
         if position >= bytes.len() {
             break;
         }
     }
-    (keep, position)
+    Some((position, kept))
 }
 
 /// Returns the start of the terminator line (the body end) and the index just
 /// past it. When no terminator line matches, the rest of the input is the body.
-fn locate_body(bytes: &[u8], body_start: usize, heredoc: &Heredoc) -> (usize, usize) {
+/// `None` when an unquoted body line ends with `\`, which the shell joins to the
+/// next line (B1).
+fn locate_body(bytes: &[u8], body_start: usize, heredoc: &Heredoc) -> Option<(usize, usize)> {
     let mut cursor = body_start;
     while cursor <= bytes.len() {
         let line_end = bytes[cursor..]
@@ -319,8 +436,8 @@ fn locate_body(bytes: &[u8], body_start: usize, heredoc: &Heredoc) -> (usize, us
             .position(|ch| *ch == b'\n')
             .map(|offset| cursor + offset)
             .unwrap_or(bytes.len());
-        let line = &bytes[cursor..line_end];
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let raw_line = &bytes[cursor..line_end];
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
         let line = if heredoc.dash {
             strip_leading_tabs(line)
         } else {
@@ -332,14 +449,17 @@ fn locate_body(bytes: &[u8], body_start: usize, heredoc: &Heredoc) -> (usize, us
             } else {
                 bytes.len()
             };
-            return (cursor, after);
+            return Some((cursor, after));
+        }
+        if !heredoc.quoted && line.ends_with(b"\\") {
+            return None;
         }
         if line_end >= bytes.len() {
             break;
         }
         cursor = line_end + 1;
     }
-    (bytes.len(), bytes.len())
+    Some((bytes.len(), bytes.len()))
 }
 
 fn strip_leading_tabs(line: &[u8]) -> &[u8] {
@@ -350,22 +470,94 @@ fn strip_leading_tabs(line: &[u8]) -> &[u8] {
     &line[start..]
 }
 
-/// Whether the heredoc's command line names a shell that executes the body.
-fn line_has_interpreter(line: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(line);
-    text.split(|ch: char| {
-        ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')' | '<' | '>')
-    })
-    .any(|token| {
-        let name = token.rsplit('/').next().unwrap_or(token);
-        let name = name.trim_matches(|ch| ch == '\'' || ch == '"');
-        matches!(name, "sh" | "bash" | "zsh" | "dash" | "ksh")
-    })
+/// Whether the command word a heredoc is attached to reads its stdin as data.
+fn command_is_data_reader(line: &[u8]) -> bool {
+    let mut start = 0usize;
+    while start < line.len() && (line[start] == b' ' || line[start] == b'\t') {
+        start += 1;
+    }
+    let mut end = start;
+    while end < line.len()
+        && !matches!(
+            line[end],
+            b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>'
+        )
+    {
+        end += 1;
+    }
+    if end == start {
+        return false;
+    }
+    let token = &line[start..end];
+    if token
+        .iter()
+        .any(|ch| matches!(ch, b'\'' | b'"' | b'\\' | b'$' | b'`'))
+    {
+        return false;
+    }
+    let name = match token.iter().rposition(|ch| *ch == b'/') {
+        Some(position) => &token[position + 1..],
+        None => token,
+    };
+    let Ok(name) = std::str::from_utf8(name) else {
+        return false;
+    };
+    DATA_READER_PROGRAMS.contains(&name)
 }
 
 /// Whether an unquoted heredoc body runs a command substitution.
 fn body_contains_execution(body: &[u8]) -> bool {
     body.contains(&b'`') || body.windows(2).any(|window| window == b"$(")
+}
+
+/// Whether a kept heredoc body can be read as commands (its quotes are
+/// balanced).
+fn body_is_readable(body: &[u8]) -> bool {
+    let mut single = false;
+    let mut double = false;
+    let mut backtick = false;
+    let mut index = 0usize;
+    while index < body.len() {
+        let ch = body[index];
+        if single {
+            if ch == b'\'' {
+                single = false;
+            }
+            index += 1;
+            continue;
+        }
+        if double {
+            if ch == b'\\' {
+                index += 2;
+                continue;
+            }
+            if ch == b'"' {
+                double = false;
+            }
+            index += 1;
+            continue;
+        }
+        if backtick {
+            if ch == b'\\' {
+                index += 2;
+                continue;
+            }
+            if ch == b'`' {
+                backtick = false;
+            }
+            index += 1;
+            continue;
+        }
+        match ch {
+            b'\'' => single = true,
+            b'"' => double = true,
+            b'`' => backtick = true,
+            b'\\' => index += 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    !(single || double || backtick)
 }
 
 #[cfg(test)]
@@ -374,6 +566,10 @@ mod tests {
 
     fn strip(command: &str) -> String {
         strip_comments_and_heredocs(command).expect("command must be readable")
+    }
+
+    fn strip_keep(command: &str) -> String {
+        strip_comments_keeping_heredocs(command).expect("command must be readable")
     }
 
     #[test]
@@ -402,7 +598,25 @@ mod tests {
     }
 
     #[test]
-    fn shell_lexical_drops_heredoc_bodies_for_every_delimiter_form() {
+    fn shell_lexical_b4_carriage_return_and_form_feed_are_not_word_boundaries() {
+        // Bash's blank is space and tab only, so `x<CR>#x` is one word and the
+        // `#` does not start a comment (B4).
+        assert_eq!(strip("echo x\r#x"), "echo x\r#x");
+        assert_eq!(strip("echo x\u{c}#x"), "echo x\u{c}#x");
+    }
+
+    #[test]
+    fn shell_lexical_b5_a_line_continuation_keeps_the_word_start_state() {
+        // `\⏎` is removed; `#` after `a` stays mid-word, `#` after the space is
+        // still a comment (B5).
+        assert_eq!(strip("echo a\\\n#x\ntee f"), "echo a#x\ntee f");
+        assert_eq!(strip("echo \\\n#x\ntee f"), "echo \ntee f");
+        assert_eq!(strip("echo \"a\\\nb\""), "echo \"ab\"");
+        assert!(!text_is_unchanged("echo \"a\\\nb\""));
+    }
+
+    #[test]
+    fn shell_lexical_drops_data_reader_heredoc_bodies_for_every_delimiter_form() {
         let cases: &[(&str, &str)] = &[
             ("cat <<EOF\nit's\nEOF", "cat <<EOF\n"),
             ("cat <<-EOF\n\tit's\n\tEOF", "cat <<-EOF\n"),
@@ -411,6 +625,10 @@ mod tests {
             ("cat <<\\EOF\nit's\nEOF", "cat <<\\EOF\n"),
             ("cat << EOF\nit's\nEOF", "cat << EOF\n"),
             ("cat <<A <<B\none\nA\ntwo\nB", "cat <<A <<B\n"),
+            (
+                "git commit -F - <<'EOF'\nfix it's\nEOF",
+                "git commit -F - <<'EOF'\n",
+            ),
         ];
         for (command, expected) in cases {
             assert_eq!(strip(command), *expected, "command: {command}");
@@ -418,28 +636,81 @@ mod tests {
     }
 
     #[test]
-    fn shell_lexical_treats_an_unterminated_heredoc_remainder_as_body() {
-        // No terminator line: the rest is the body. The shell reports an
-        // unterminated here-document and runs nothing, so dropping is the
-        // "shorter than the shell" direction.
-        assert_eq!(strip("cat <<EOF\nit's"), "cat <<EOF\n");
-        // A body the shell would execute is still kept.
-        assert_eq!(strip("sh <<EOF\ntee /tmp/f"), "sh <<EOF\ntee /tmp/f");
-    }
-
-    #[test]
-    fn shell_lexical_keeps_executed_heredoc_bodies_as_commands() {
+    fn shell_lexical_keeps_heredoc_bodies_for_non_data_readers() {
+        // The command name is quoted, expanded, an interpreter, a non-reader,
+        // or an option/fd form, so the body stays visible to the guards.
         for command in [
             "sh <<EOF\ntee /tmp/f\nEOF",
-            "bash -s <<EOF\ntee /tmp/f\nEOF",
+            "bash -s <<EOF\ntee sub/link/f\nEOF",
             "/bin/zsh <<EOF\ntee /tmp/f\nEOF",
-            "cat <<EOF\n$(tee /tmp/f)\nEOF",
-            "cat <<EOF\n`tee /tmp/f`\nEOF",
+            "ba\"sh\" <<EOF\ntee sub/link/f\nEOF",
+            "b\\ash <<EOF\ntee sub/link/f\nEOF",
+            "s''h <<EOF\ntee sub/link/f\nEOF",
+            "$SHELL <<EOF\ntee sub/link/f\nEOF",
+            "mksh <<EOF\ntee sub/link/f\nEOF",
+            "fish <<EOF\ntee sub/link/f\nEOF",
+            "xargs tee <<EOF\nsub/link/f\nEOF",
+            "exec 3<<EOF\ntee sub/link/f\nEOF",
+            "} <<EOF\ntee sub/link/f\nEOF",
+            "f <<EOF\ntee sub/link/f\nEOF",
+            "python3 <<EOF\nopen(\"sub/link/f\",\"w\")\nEOF",
         ] {
             let elided = strip(command);
             assert!(
-                elided.contains("tee /tmp/f"),
-                "executed body must be kept: {command:?} -> {elided:?}"
+                elided.contains("tee /tmp/f") || elided.contains("sub/link/f"),
+                "body must be kept: {command:?} -> {elided:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_lexical_b1_unreadable_heredoc_delimiters() {
+        for command in [
+            "cat <<\"E\\OF\"\nx\nE\\OF\ntee sub/link/f\nEOF",
+            "cat <<\"E\\aOF\"\nx\nE\\aOF\ntee sub/link/f\nEaOF",
+            "cat <<- \"E\\OF\"\nx\nE\\OF\ntee sub/link/f\nEOF",
+            "cat <<E\\\nOF\nx\nEOF\ntee sub/link/f",
+            "cat <<\"E\\\nOF\"\nx\nEOF\ntee sub/link/f",
+            "cat <<E'O'\\\nF\nx\nEOF\ntee sub/link/f",
+            "cat <<\\\nEOF\nx\nEOF\ntee sub/link/f",
+            "cat <<EOF\nx\nEO\\\nF\ntee sub/link/f\nEOF",
+        ] {
+            assert_eq!(
+                strip_comments_and_heredocs(command),
+                None,
+                "expected unreadable: {command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_lexical_b1_readable_delimiter_forms_stay_parseable() {
+        for (command, expected) in [
+            ("cat <<'E\\OF'\nx\nE\\OF\ntee f", "cat <<'E\\OF'\ntee f"),
+            ("cat <<E\\\\OF\nx\nE\\OF\ntee f", "cat <<E\\\\OF\ntee f"),
+            (
+                "cat <<\"E\\$OF\"\nx\nE$OF\ntee f",
+                "cat <<\"E\\$OF\"\ntee f",
+            ),
+        ] {
+            assert_eq!(strip(command), *expected, "command: {command}");
+        }
+    }
+
+    #[test]
+    fn shell_lexical_b3_unquoted_body_execution_is_unreadable() {
+        for command in [
+            "cat <<EOF\n# $(tee sub/link/f)\nEOF",
+            "cat <<EOF\nx # $(tee sub/link/f)\nEOF",
+            "sh <<EOF\n# $(tee sub/link/f)\nEOF",
+            "cat <<EOF\n# $(cat .env)\nEOF",
+            "cat <<EOF\n$(tee sub/link/f)\nEOF",
+            "cat <<EOF\n`tee sub/link/f`\nEOF",
+        ] {
+            assert_eq!(
+                strip_comments_and_heredocs(command),
+                None,
+                "expected unreadable: {command:?}"
             );
         }
         // A quoted delimiter disables expansion, so the body stays dropped.
@@ -450,10 +721,54 @@ mod tests {
     }
 
     #[test]
+    fn shell_lexical_b2_kept_body_must_be_readable() {
+        assert_eq!(
+            strip_comments_and_heredocs("sh <<'EOF'\necho it's\nEOF"),
+            None
+        );
+        assert_eq!(
+            strip_comments_and_heredocs("python3 <<'EOF'\n# it's\nEOF"),
+            None
+        );
+        assert_eq!(
+            strip("python3 - <<'EOF'\nprint(\"it's\")\nEOF"),
+            "python3 - <<'EOF'\nprint(\"it's\")\n"
+        );
+    }
+
+    #[test]
+    fn shell_lexical_treats_an_unterminated_heredoc_remainder_as_body() {
+        // No terminator line: the rest is the body. The shell reports an
+        // unterminated here-document and runs nothing, so dropping is the
+        // "shorter than the shell" direction for a data reader.
+        assert_eq!(strip("cat <<EOF\nit's"), "cat <<EOF\n");
+        // A non-reader keeps the body.
+        assert_eq!(strip("sh <<EOF\ntee /tmp/f"), "sh <<EOF\ntee /tmp/f");
+    }
+
+    #[test]
+    fn shell_lexical_treats_a_near_delimiter_line_as_body() {
+        assert_eq!(
+            strip("cat <<EOF\nEOF \n EOF\nEOF\ntee f"),
+            "cat <<EOF\ntee f"
+        );
+    }
+
+    #[test]
     fn shell_lexical_drops_line_continuations_and_ignores_here_strings() {
         assert_eq!(strip("cat .e\\\nnv"), "cat .env");
         assert!(text_is_unchanged("cat <<<\"it's\""));
         assert_eq!(strip("cat <<<\"it's\"\ntee f"), "cat <<<\"it's\"\ntee f");
+    }
+
+    #[test]
+    fn shell_lexical_does_not_panic_on_short_heredoc_spellings() {
+        assert_eq!(strip("cat <"), "cat <");
+        assert_eq!(strip("cat <<x"), "cat <<x");
+        assert_eq!(
+            strip("cat << \"E\\\\OF\"\ndata\nEOF\ntee sub/link/f"),
+            "cat << \"E\\\\OF\"\n"
+        );
     }
 
     #[test]
@@ -476,10 +791,25 @@ mod tests {
             "cd crates/x && cargo test 2>&1 | tee test.log",
             "printf 'a\\tb\\n' > out.txt",
             "echo \"$'x'\"",
+            "echo \"\\q\"",
         ] {
             assert_eq!(strip(command), command, "command: {command}");
             assert!(text_is_unchanged(command), "command: {command}");
         }
         assert!(!text_is_unchanged("cargo test # comment"));
+    }
+
+    #[test]
+    fn shell_lexical_keeps_heredocs_for_the_credential_scan() {
+        // Comments are still dropped, but a body word stays visible.
+        assert_eq!(strip_keep("echo x # cat .env"), "echo x ");
+        assert_eq!(
+            strip_keep("cat <<'EOF'\ncat .env\nEOF"),
+            "cat <<'EOF'\ncat .env\n"
+        );
+        assert_eq!(
+            strip_keep("cat <<EOF\n# $(cat .env)\nEOF"),
+            "cat <<EOF\n# $(cat .env)\n"
+        );
     }
 }

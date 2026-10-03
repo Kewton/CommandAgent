@@ -477,9 +477,11 @@ where
 
 /// First direct credential reference in a Bash command string, if any.
 pub fn command_references_secret(command: &str) -> Option<String> {
-    // Read the comment- and heredoc-elided text when the lexical guard can elide
-    // it; fall back to the raw command when it cannot (Issue #576).
-    let elided = super::shell_lexical::strip_comments_and_heredocs(command);
+    // Comments are elided, so a credential named only in a comment is not a
+    // reference; heredoc bodies are kept, so a credential named inside one is
+    // still a reference (Issue #576, H-02 §1 B2補). Fall back to the raw command
+    // when the elision cannot read it.
+    let elided = super::shell_lexical::strip_comments_keeping_heredocs(command);
     let text = elided.as_deref().unwrap_or(command);
     shell_tokens(text)
         .iter()

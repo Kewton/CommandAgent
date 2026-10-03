@@ -179,7 +179,14 @@ pub(crate) fn protected_path_mutation(
     protected_paths: &[String],
 ) -> Option<String> {
     let inspection = working_directory::inspect(command);
-    write_targets(command)
+    let mut targets = write_targets(command);
+    // When the elision cannot read the command, the write guard still fails
+    // closed, but the protected-path reference would be lost. Read the raw text
+    // as well so a protected mutation is still named (design 6 "None なら生").
+    if shell_lexical::strip_comments_and_heredocs(command).is_none() {
+        targets.extend(raw_write_targets(command));
+    }
+    targets
         .into_iter()
         .filter(|target| target.operation != "working directory")
         .find_map(|target| {
@@ -256,7 +263,25 @@ fn write_targets(command: &str) -> Vec<WriteTarget> {
     let Some(tokens) = shell_tokens(text) else {
         return vec![unreadable_target()];
     };
-    let mut targets = redirect_targets(&tokens);
+    targets_from_tokens(&tokens)
+}
+
+/// Write targets of a command read directly, without comment or heredoc elision.
+/// Used only to recover a protected-path reference from text the elision cannot
+/// read (B3 `cat <<EOF\n# $(tee tests/spec.rs)\nEOF`); the write guard itself
+/// still fails closed on the same text.
+fn raw_write_targets(command: &str) -> Vec<WriteTarget> {
+    if ansi_c_quoting::outside_quotes(command).is_some() {
+        return Vec::new();
+    }
+    let Some(tokens) = shell_tokens(command) else {
+        return Vec::new();
+    };
+    targets_from_tokens(&tokens)
+}
+
+fn targets_from_tokens(tokens: &[ShellToken]) -> Vec<WriteTarget> {
+    let mut targets = redirect_targets(tokens);
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
         let words = command_words(segment);
         if words.is_empty() {
@@ -798,6 +823,33 @@ mod tests {
         );
         let rejection = confinement_rejection("tee 'unterminated", &root).expect("rejected");
         assert_eq!(rejection.operation, shell_lexical::UNREADABLE_OPERATION);
+    }
+
+    #[test]
+    fn comment_heredoc_protected_path_mutation_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+
+        for command in [
+            "echo \"x #y\";tee tests/spec.rs",
+            "echo \\#x;tee tests/spec.rs",
+            // Unreadable by the elision, but the raw fallback must still name
+            // the protected path (H-02 §1 B3).
+            "cat <<EOF\n# $(tee tests/spec.rs)\nEOF",
+        ] {
+            assert_eq!(
+                protected_path_mutation(command, &root, &protected),
+                Some("tests/spec.rs".to_string()),
+                "command: {command}"
+            );
+        }
+        assert_eq!(
+            protected_path_mutation("echo x # tee tests/spec.rs", &root, &protected),
+            None,
+            "a comment must not name a protected path"
+        );
     }
 
     #[test]
