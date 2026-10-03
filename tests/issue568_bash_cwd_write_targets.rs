@@ -135,6 +135,53 @@ fn working_directory_rejects_reads_after_cd() {
 }
 
 #[test]
+fn working_directory_rejects_dirstack_and_cdpath_reads() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cases = [
+        "pushd . ; DIRSTACK[1]=sub/link; popd; tee f",
+        "pushd . ; DIRSTACK[1]=sub/link; popd; printf x > f",
+        "pushd . ; DIRSTACK[1]=sub/link; pushd +1; tee f",
+        "pushd . ; DIRSTACK[1]=linked-outside; popd; tee f",
+        "pushd . ; DIRSTACK[1]=sub/link; popd; cat secret",
+        "CDPATH=sub cd link && cat secret",
+        "CDPATH=sub cd link && grep x secret",
+    ];
+    for command in cases {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
+}
+
+#[test]
+fn working_directory_caps_candidate_growth_within_a_second() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cds = (0..40)
+        .map(|index| format!("cd d{index}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    assert!(
+        path_confinement_rejection(&cds, root).is_none(),
+        "a long cd chain without a write must stay allowed"
+    );
+
+    let start = std::time::Instant::now();
+    let rejection = path_confinement_rejection(&format!("{cds}; tee f"), root);
+    assert!(
+        start.elapsed().as_secs() < 1,
+        "the capped candidate walk must return within a second"
+    );
+    assert!(
+        rejection.is_some(),
+        "a relative write after the cap must be rejected"
+    );
+}
+
+#[test]
 fn working_directory_names_the_resolved_operation() {
     let fixture = fixture();
     let root = &fixture.root;
@@ -167,6 +214,7 @@ fn working_directory_keeps_inside_writes_and_verification_allowed() {
         "cd crates/x && cargo test".to_string(),
         // No write, so the working-directory target alone stays allowed.
         "pushd sub".to_string(),
+        "pushd sub; tee f".to_string(),
         "popd".to_string(),
         "dirs".to_string(),
         "cd link".to_string(),

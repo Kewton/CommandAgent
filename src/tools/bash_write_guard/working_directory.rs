@@ -18,10 +18,16 @@
 //! The lexical analysis (`shell_tokens`, `ShellToken`) and the prefix
 //! `Resolution` are not changed here: this module only reads their output.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use super::command_prefix::{self, Resolution};
 use super::{ShellToken, command_words, positional_operands};
+
+/// Upper bound on the working-directory candidates. Consecutive distinct `cd`
+/// destinations can double the set at each step, so past this bound the
+/// destination is treated as undeterminable instead of expanded further.
+const MAX_CANDIDATES: usize = 64;
 
 /// The working-directory candidates and derived checks for one command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,11 +39,14 @@ pub(crate) struct Inspection {
     /// `cd`/`pushd` destinations joined onto the candidates that preceded them,
     /// to be confined exactly like a write target.
     pub(crate) targets: Vec<String>,
-    /// A `cd`/`pushd`/`popd` destination cannot be determined (CDPATH, loop, or
-    /// function definition), so relative paths after it must be refused.
+    /// A `cd`/`pushd`/`popd` destination cannot be determined: `CDPATH` or
+    /// `DIRSTACK` can redirect it, a loop or function definition can repeat or
+    /// defer it, or its candidate set passed [`MAX_CANDIDATES`]. Relative paths
+    /// after it must be refused.
     pub(crate) undecidable: bool,
-    /// Literal relative words that a following command could read. The second
-    /// stage of the inspector joins these onto every candidate.
+    /// Literal relative read words (from segments that are not a working
+    /// directory change). The second stage of the inspector joins these onto
+    /// every candidate.
     pub(crate) relative_words: Vec<String>,
 }
 
@@ -77,11 +86,15 @@ pub(crate) fn inspect(command: &str) -> Inspection {
 
     let mut has_cd = false;
     let mut cdpath = false;
+    let mut dirstack = false;
     let mut loop_keyword = false;
     let mut function_keyword = false;
     for word in tokens.iter().filter_map(word_token) {
         if word.contains("CDPATH") {
             cdpath = true;
+        }
+        if word.contains("DIRSTACK") {
+            dirstack = true;
         }
         if matches!(word, "for" | "while" | "until" | "select") {
             loop_keyword = true;
@@ -89,22 +102,36 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         if word == "function" {
             function_keyword = true;
         }
-        if is_relative_word(word) {
-            inspection.relative_words.push(word.to_string());
-        }
     }
     if command.contains("()") {
         function_keyword = true;
     }
 
+    let mut overflow = false;
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
         let words = command_words(segment);
         if words.is_empty() {
             continue;
         }
+        let resolution = command_prefix::resolve(&words);
+        // A working-directory change is consumed by the candidate walk below;
+        // its program and operands are not reads, so they do not feed the
+        // second-stage read check.
+        let cwd_program = matches!(
+            &resolution,
+            Resolution::Program { program, .. }
+                if matches!(program.as_str(), "cd" | "pushd" | "popd")
+        );
+        if !cwd_program {
+            for word in &words {
+                if is_relative_word(word) {
+                    inspection.relative_words.push((*word).to_string());
+                }
+            }
+        }
         let Resolution::Program {
             program, arguments, ..
-        } = command_prefix::resolve(&words)
+        } = resolution
         else {
             continue;
         };
@@ -113,9 +140,11 @@ pub(crate) fn inspect(command: &str) -> Inspection {
             "cd" => {
                 has_cd = true;
                 if let Some(target) = positional_operands(&arguments).first().copied()
+                    && !overflow
                     && let Some(joined) = extend(&mut inspection.bases, target)
                 {
                     inspection.targets.extend(joined);
+                    overflow = inspection.bases.len() > MAX_CANDIDATES;
                 }
             }
             "pushd" => {
@@ -129,8 +158,9 @@ pub(crate) fn inspect(command: &str) -> Inspection {
                 if target.starts_with('+') || target.starts_with('-') {
                     continue;
                 }
-                if let Some(joined) = extend(&mut inspection.bases, target) {
+                if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
                     inspection.targets.extend(joined);
+                    overflow = inspection.bases.len() > MAX_CANDIDATES;
                 }
             }
             "popd" => {
@@ -140,7 +170,8 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         }
     }
 
-    inspection.undecidable = cdpath || (has_cd && (loop_keyword || function_keyword));
+    inspection.undecidable =
+        cdpath || dirstack || overflow || (has_cd && (loop_keyword || function_keyword));
     inspection
 }
 
@@ -171,8 +202,9 @@ fn extend(bases: &mut Vec<String>, target: &str) -> Option<Vec<String>> {
     } else {
         bases.iter().map(|base| join(base, target)).collect()
     };
+    let mut seen: HashSet<String> = bases.iter().cloned().collect();
     for path in &joined {
-        if !bases.contains(path) {
+        if seen.insert(path.clone()) {
             bases.push(path.clone());
         }
     }
@@ -283,6 +315,45 @@ mod tests {
         assert!(!inspection.relative_words.contains(&"$VAR".to_string()));
         assert!(!inspection.relative_words.contains(&"-r".to_string()));
         assert!(!inspection.relative_words.contains(&"a/b".to_string()));
+    }
+
+    #[test]
+    fn working_directory_marks_dirstack_undecidable() {
+        assert!(inspect("pushd . ; DIRSTACK[1]=sub/link; popd; tee f").undecidable);
+        assert!(inspect("DIRSTACK[1]=linked-outside; pushd +1").undecidable);
+        assert!(!inspect("tee f").undecidable);
+    }
+
+    #[test]
+    fn working_directory_marks_popd_loop_undecidable() {
+        assert!(inspect("for i in 1; do popd; done; tee f").undecidable);
+    }
+
+    #[test]
+    fn working_directory_caps_candidate_growth() {
+        let command = (0..40)
+            .map(|index| format!("cd d{index}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let inspection = inspect(&command);
+        assert!(
+            inspection.undecidable,
+            "past the cap the destination is not determinable"
+        );
+        assert!(
+            inspection.bases.len() <= MAX_CANDIDATES * 2,
+            "candidate growth must stop at the cap: {}",
+            inspection.bases.len()
+        );
+    }
+
+    #[test]
+    fn working_directory_keeps_cwd_words_out_of_reads() {
+        let inspection = inspect("cd sub && cat secret");
+        assert!(!inspection.relative_words.contains(&"cd".to_string()));
+        assert!(!inspection.relative_words.contains(&"sub".to_string()));
+        assert!(inspection.relative_words.contains(&"secret".to_string()));
+        assert!(inspect("cd d0; cd d1").relative_words.is_empty());
     }
 
     #[test]

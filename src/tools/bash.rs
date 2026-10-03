@@ -805,6 +805,13 @@ pub fn path_confinement_rejection(
         }
     }
     if inspection.has_working_directory() {
+        if inspection.undecidable && !inspection.relative_words.is_empty() {
+            return Some(path_reference_rejection(
+                &inspection.relative_words[0],
+                &root,
+                Some("follows a working directory change that cannot be determined"),
+            ));
+        }
         for word in &inspection.relative_words {
             for joined in inspection.all_variants(word) {
                 if super::path_guard::ensure_bash_write_target(&root, &joined).is_err() {

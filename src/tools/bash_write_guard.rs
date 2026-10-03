@@ -872,6 +872,82 @@ mod tests {
     }
 
     #[test]
+    fn working_directory_undecidable_skips_absolute_and_home_targets() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+
+        assert!(
+            confinement_rejection(
+                &format!("for i in 1; do cd sub; done; tee {}/a.txt", root.display()),
+                &root,
+            )
+            .is_none(),
+            "an absolute workspace target must stay allowed under an undecidable cd"
+        );
+
+        for command in [
+            "for i in 1; do cd sub; done; tee ~/f",
+            "for i in 1; do cd sub; done; tee $HOME/f",
+        ] {
+            let rejection = confinement_rejection(command, &root)
+                .unwrap_or_else(|| panic!("expected rejection: {command}"));
+            assert!(
+                !rejection.reason.contains("cannot be determined"),
+                "`{command}` must keep its existing reason: {}",
+                rejection.reason
+            );
+        }
+    }
+
+    #[test]
+    fn working_directory_protected_path_mutation_skips_absolute_and_home_targets() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        let protected = vec!["tests".to_string()];
+
+        for command in [
+            "cd tests && cp a.txt /tmp/x",
+            "cd tests && cp a.txt $HOME/x",
+        ] {
+            assert!(
+                protected_path_mutation(command, &root, &protected).is_none(),
+                "`{command}` must not match the `tests` protected path"
+            );
+        }
+    }
+
+    #[test]
+    fn working_directory_write_targets_record_pushd_operands() {
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("pushd sub", &[("sub", "working directory")]),
+            ("pushd +1", &[]),
+            ("pushd -1", &[]),
+            ("pushd", &[]),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                write_target_pairs(command),
+                expected_targets(expected),
+                "command: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn working_directory_rejects_write_after_popd_loop() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            confinement_rejection("for i in 1; do popd; done; tee f", &root).is_some(),
+            "a relative write after an undecidable popd loop must be rejected"
+        );
+    }
+
+    #[test]
     fn confinement_rejection_skips_dev_null_and_rejects_dash_working_directory() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("workspace");
