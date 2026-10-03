@@ -2,6 +2,15 @@ use std::path::Path;
 
 mod ansi_c_quoting;
 mod command_prefix;
+mod working_directory;
+
+pub(super) use working_directory::Inspection;
+
+/// Reads the working-directory candidates of a command for the second-stage
+/// (`bash.rs`) path inspection.
+pub(super) fn inspect_working_directory(command: &str) -> Inspection {
+    working_directory::inspect(command)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BashWriteConfinementRejection {
@@ -29,7 +38,11 @@ pub(super) fn confinement_rejection(
     command: &str,
     root: &Path,
 ) -> Option<BashWriteConfinementRejection> {
+    let inspection = working_directory::inspect(command);
     for target in write_targets(command) {
+        if let Some(rejection) = working_directory_rejection(&target, &inspection, root) {
+            return Some(rejection);
+        }
         if target.operation == ansi_c_quoting::OPERATION {
             return Some(BashWriteConfinementRejection {
                 reason: format!(
@@ -83,6 +96,64 @@ pub(super) fn confinement_rejection(
             });
         }
     }
+    for destination in &inspection.targets {
+        if let Err(error) = super::path_guard::ensure_bash_write_target(root, destination) {
+            return Some(BashWriteConfinementRejection {
+                reason: format!(
+                    "Bash working directory target `{destination}` is outside the Gate 1 workspace boundary: {error}"
+                ),
+                path: destination.clone(),
+                operation: "working directory".to_string(),
+            });
+        }
+    }
+    None
+}
+
+/// Rejects a write target that the workspace root alone would allow but that a
+/// `cd`/`pushd` candidate turns into an escape. Absolute, `~`, `$`, `-`, and
+/// prefix-operation targets keep their existing handling.
+fn working_directory_rejection(
+    target: &WriteTarget,
+    inspection: &working_directory::Inspection,
+    root: &Path,
+) -> Option<BashWriteConfinementRejection> {
+    if matches!(
+        target.operation.as_str(),
+        "working directory"
+            | ansi_c_quoting::OPERATION
+            | command_prefix::UNRESOLVED_OPERATION
+            | command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION
+    ) {
+        return None;
+    }
+    let path = &target.path;
+    if path.starts_with('/') || path.starts_with('~') || path.starts_with('$') || path == "-" {
+        return None;
+    }
+    if inspection.undecidable {
+        return Some(BashWriteConfinementRejection {
+            path: path.clone(),
+            operation: target.operation.clone(),
+            reason: format!(
+                "Bash {} target `{}` follows a working directory change that cannot be determined (CDPATH, loop, or function), so it cannot be proven to remain in the Gate 1 workspace boundary",
+                target.operation, path
+            ),
+        });
+    }
+    for joined in inspection.relative_variants(path) {
+        if super::path_guard::ensure_bash_write_target(root, &joined).is_err() {
+            let reason = format!(
+                "Bash {} target `{joined}` is outside the Gate 1 workspace boundary relative to a working directory candidate",
+                target.operation
+            );
+            return Some(BashWriteConfinementRejection {
+                path: joined,
+                operation: target.operation.clone(),
+                reason,
+            });
+        }
+    }
     None
 }
 
@@ -97,29 +168,49 @@ pub(crate) fn protected_path_mutation(
     root: &Path,
     protected_paths: &[String],
 ) -> Option<String> {
+    let inspection = working_directory::inspect(command);
     write_targets(command)
         .into_iter()
         .filter(|target| target.operation != "working directory")
         .find_map(|target| {
-            let candidate = Path::new(&target.path);
-            let relative = if candidate.is_absolute() {
-                match candidate.strip_prefix(root) {
-                    Ok(relative) => relative,
-                    Err(_) => {
-                        return protected_paths
-                            .iter()
-                            .find(|protected| candidate.ends_with(protected))
-                            .cloned();
-                    }
-                }
-            } else {
-                candidate
-            };
-            protected_paths
-                .iter()
-                .find(|protected| path_matches(relative, Path::new(protected)))
-                .cloned()
+            let path = &target.path;
+            let mut candidates = vec![path.clone()];
+            if !path.starts_with('/')
+                && !path.starts_with('~')
+                && !path.starts_with('$')
+                && path != "-"
+            {
+                candidates.extend(inspection.relative_variants(path));
+            }
+            candidates
+                .into_iter()
+                .find_map(|candidate| protected_path_match(&candidate, root, protected_paths))
         })
+}
+
+fn protected_path_match(
+    candidate: &str,
+    root: &Path,
+    protected_paths: &[String],
+) -> Option<String> {
+    let candidate = Path::new(candidate);
+    let relative = if candidate.is_absolute() {
+        match candidate.strip_prefix(root) {
+            Ok(relative) => relative,
+            Err(_) => {
+                return protected_paths
+                    .iter()
+                    .find(|protected| candidate.ends_with(protected))
+                    .cloned();
+            }
+        }
+    } else {
+        candidate
+    };
+    protected_paths
+        .iter()
+        .find(|protected| path_matches(relative, Path::new(protected)))
+        .cloned()
 }
 
 fn path_matches(candidate: &Path, protected: &Path) -> bool {
@@ -250,6 +341,17 @@ fn collect_program_targets(program: &str, arguments: &[&str], targets: &mut Vec<
                 path: operands.first().copied().unwrap_or("~").to_string(),
                 operation: "working directory".to_string(),
             });
+        }
+        "pushd" => {
+            if let Some(target) = operands.first().copied()
+                && !target.starts_with('+')
+                && !target.starts_with('-')
+            {
+                targets.push(WriteTarget {
+                    path: target.to_string(),
+                    operation: "working directory".to_string(),
+                });
+            }
         }
         "sudoedit" => {
             targets.extend(operands.into_iter().map(|path| WriteTarget {
@@ -735,6 +837,38 @@ mod tests {
 
         assert!(protected_path_mutation("rm src/a.ts", &root, &protected).is_none());
         assert!(protected_path_mutation("cd tests", &root, &protected).is_none());
+    }
+
+    #[test]
+    fn working_directory_protected_path_mutation_matches_cd_targets() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::create_dir_all(root.join("sub/tests")).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+
+        assert_eq!(
+            protected_path_mutation("cd tests && cp a.txt spec.rs", &root, &protected),
+            Some("tests/spec.rs".to_string()),
+            "a cd-relative protected target must be detected"
+        );
+        assert!(protected_path_mutation("cd tests && touch other.rs", &root, &protected).is_none());
+        assert!(
+            protected_path_mutation("cd sub/tests && touch spec.rs", &root, &protected).is_none()
+        );
+        assert_eq!(
+            protected_path_mutation("cp a.txt tests/spec.rs", &root, &protected),
+            Some("tests/spec.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn working_directory_keeps_write_detection_unchanged() {
+        assert!(!has_recognized_mutation("cd frontend && npm test"));
+        assert!(!has_recognized_mutation("cd crates/x && cargo test"));
+        assert!(has_recognized_mutation("cd sub && tee link/f"));
+        assert!(has_recognized_mutation("pushd sub && tee f"));
+        assert!(!has_recognized_mutation("pushd sub"));
     }
 
     #[test]

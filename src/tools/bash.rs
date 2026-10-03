@@ -228,6 +228,7 @@ where
     let mut process = Command::new("sh");
     process.arg("-c").arg(&command).current_dir(root);
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    remove_shell_cdpath(&mut process);
     let output = bounded_process::run_with_timeout_cancel_and_force(
         &mut process,
         timeout,
@@ -782,38 +783,83 @@ pub fn path_confinement_rejection(
             message,
         });
     }
+    let inspection = super::bash_write_guard::inspect_working_directory(command);
     for candidate in path_tokens::path_candidates(command) {
-        if bash_path_allowed(&candidate, &root, &raw_root) {
+        if !bash_path_allowed(&candidate, &root, &raw_root) {
+            return Some(path_reference_rejection(&candidate, &root, None));
+        }
+        if candidate.starts_with('/') {
             continue;
         }
-        let nearest_relative = nearest_relative_form(&candidate, &root);
-        let guidance = workspace_relative_retry_guidance(&nearest_relative);
-        let root_display = root.to_string_lossy().to_string();
-        let path_kind = if Path::new(&candidate).is_absolute() {
-            "absolute"
-        } else {
-            "relative"
-        };
-        let reason = format!(
-            "{path_kind} path `{candidate}` resolves outside current workspace root `{root_display}`"
-        );
-        return Some(BashPathConfinementRejection {
-            path: candidate.to_string(),
-            root: root_display.clone(),
-            nearest_relative: nearest_relative.clone(),
-            guidance: guidance.clone(),
-            operation: "path reference".to_string(),
-            reason,
-            message: format!(
-                "bash_path_confinement_error: rejected {path_kind} path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
-            ),
-        });
+        if inspection.undecidable {
+            return Some(path_reference_rejection(
+                &candidate,
+                &root,
+                Some("follows a working directory change that cannot be determined"),
+            ));
+        }
+        for joined in inspection.relative_variants(&candidate) {
+            if super::path_guard::ensure_bash_write_target(&root, &joined).is_err() {
+                return Some(path_reference_rejection(&joined, &root, None));
+            }
+        }
+    }
+    if inspection.has_working_directory() {
+        for word in &inspection.relative_words {
+            for joined in inspection.all_variants(word) {
+                if super::path_guard::ensure_bash_write_target(&root, &joined).is_err() {
+                    return Some(path_reference_rejection(&joined, &root, None));
+                }
+            }
+        }
     }
     None
 }
 
 pub fn workspace_relative_retry_guidance(nearest_relative: &str) -> String {
     format!("workspace相対で再実行せよ: {nearest_relative}")
+}
+
+/// A shell consults `CDPATH` for a relative `cd` operand, which would let a
+/// command leave the working directory the static guard modelled. The static
+/// inspection cannot see the process environment, so the spawned shell never
+/// inherits it.
+fn remove_shell_cdpath(command: &mut Command) {
+    command.env_remove("CDPATH");
+}
+
+fn path_reference_rejection(
+    candidate: &str,
+    root: &Path,
+    working_directory_reason: Option<&str>,
+) -> BashPathConfinementRejection {
+    let nearest_relative = nearest_relative_form(candidate, root);
+    let guidance = workspace_relative_retry_guidance(&nearest_relative);
+    let root_display = root.to_string_lossy().to_string();
+    let path_kind = if Path::new(candidate).is_absolute() {
+        "absolute"
+    } else {
+        "relative"
+    };
+    let reason = match working_directory_reason {
+        Some(suffix) => format!(
+            "{path_kind} path `{candidate}` {suffix} and resolves outside current workspace root `{root_display}`"
+        ),
+        None => format!(
+            "{path_kind} path `{candidate}` resolves outside current workspace root `{root_display}`"
+        ),
+    };
+    BashPathConfinementRejection {
+        path: candidate.to_string(),
+        root: root_display.clone(),
+        nearest_relative: nearest_relative.clone(),
+        guidance: guidance.clone(),
+        operation: "path reference".to_string(),
+        reason,
+        message: format!(
+            "bash_path_confinement_error: rejected {path_kind} path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
+        ),
+    }
 }
 
 fn truncate_stream(value: &str) -> String {
@@ -1004,6 +1050,39 @@ fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &st
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn working_directory_shell_spawn_removes_cdpath() {
+        let mut command = Command::new("true");
+        remove_shell_cdpath(&mut command);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "CDPATH" && value.is_none()),
+            "the shell that runs `sh -c` must not inherit CDPATH"
+        );
+    }
+
+    #[test]
+    fn working_directory_keeps_verify_auto_approval() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::fs::create_dir_all(root.path().join("crates/x")).unwrap();
+        for command in ["cd frontend && npm test", "cd crates/x && cargo test"] {
+            let plan = crate::planner::verify::normalize_runtime_bash_command_for_boundary(
+                command,
+                root.path(),
+            )
+            .unwrap();
+            assert!(
+                plan.segments.iter().all(|segment| matches!(
+                    &segment.command,
+                    crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
+                )) && !has_recognized_workspace_mutation(&plan.normalized_command),
+                "{command} must stay auto-approved: {plan:?}"
+            );
+        }
+    }
 
     #[test]
     fn run_returns_nonzero_output_for_agent_feedback() {
