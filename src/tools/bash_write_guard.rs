@@ -1,5 +1,6 @@
 use std::path::Path;
 
+mod ansi_c_quoting;
 mod command_prefix;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,16 @@ pub(super) fn confinement_rejection(
     root: &Path,
 ) -> Option<BashWriteConfinementRejection> {
     for target in write_targets(command) {
+        if target.operation == ansi_c_quoting::OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: format!(
+                    "Bash command uses ANSI-C or locale quoting `{}`, whose expansion cannot be verified to remain in the Gate 1 workspace boundary; rewrite it with a literal escape (for example `printf 'a\\tb\\n'` or `grep -P '\\t'`)",
+                    target.path
+                ),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.operation == command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION {
             return Some(BashWriteConfinementRejection {
                 reason: format!(
@@ -116,6 +127,12 @@ fn path_matches(candidate: &Path, protected: &Path) -> bool {
 }
 
 fn write_targets(command: &str) -> Vec<WriteTarget> {
+    if let Some(kind) = ansi_c_quoting::outside_quotes(command) {
+        return vec![WriteTarget {
+            path: kind.introducer().to_string(),
+            operation: ansi_c_quoting::OPERATION.to_string(),
+        }];
+    }
     let Some(tokens) = shell_tokens(command) else {
         return Vec::new();
     };
@@ -983,5 +1000,59 @@ mod tests {
             Some("build/spec.ts".to_string())
         );
         assert!(protected_path_mutation("env FOO=1 cargo test", &root, &protected).is_none());
+    }
+
+    #[test]
+    fn ansi_c_quoting_is_a_recognized_mutation() {
+        assert!(has_recognized_mutation("$'tee' a.txt"));
+        assert!(has_recognized_mutation("$\"tee\" a.txt"));
+        assert!(has_recognized_mutation("X=$'tee'"));
+        assert!(!has_recognized_mutation("echo \"$'x'\""));
+        assert!(!has_recognized_mutation("echo '$'"));
+        assert!(!has_recognized_mutation("echo \\$'x'"));
+    }
+
+    #[test]
+    fn ansi_c_quoting_write_targets_record_the_operation() {
+        assert_eq!(
+            write_target_pairs("$'tee' a.txt"),
+            expected_targets(&[("$'", ansi_c_quoting::OPERATION)])
+        );
+        assert_eq!(
+            write_target_pairs("$\"tee\" a.txt"),
+            expected_targets(&[("$\"", ansi_c_quoting::OPERATION)])
+        );
+    }
+
+    #[test]
+    fn ansi_c_quoting_confinement_rejection_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+
+        for command in [
+            "$'tee' /tmp/f",
+            "env $'tee' /tmp/f",
+            "env $'-S' 'tee /tmp/f'",
+            "$\"tee\" /tmp/f",
+            "X=$'tee'",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_some(),
+                "command must be rejected: {command}"
+            );
+        }
+
+        for command in [
+            "echo \"$'x'\"",
+            "echo '$'",
+            "echo \\$'x'",
+            "printf 'a\\tb\\n' > out.txt",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_none(),
+                "command must stay allowed: {command}"
+            );
+        }
     }
 }
