@@ -15,6 +15,10 @@ use serde_json::Value;
 /// The only basenames that stay readable/writable: strict dotenv templates.
 const TEMPLATE_NAMES: [&str; 3] = [".env.example", ".env.sample", ".env.template"];
 
+/// Non-leaking reference reported when the Bash command cannot be read: the
+/// credential scan fails closed rather than returning "no reference" (H-03 N5).
+const UNREADABLE_SECRET_REFERENCE: &str = "unreadable shell text";
+
 /// A denied credential path. The value carries names only: it never contains
 /// the credential bytes, an expansion value, or a provider token.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -477,12 +481,22 @@ where
 
 /// First direct credential reference in a Bash command string, if any.
 pub fn command_references_secret(command: &str) -> Option<String> {
-    // Comments are elided, so a credential named only in a comment is not a
-    // reference; heredoc bodies are kept, so a credential named inside one is
-    // still a reference (Issue #576, H-02 §1 B2補). Fall back to the raw command
-    // when the elision cannot read it.
-    let elided = super::shell_lexical::strip_comments_keeping_heredocs(command);
-    let text = elided.as_deref().unwrap_or(command);
+    // H-03 §5 N5: read the elided text's tokens and each heredoc body's tokens
+    // separately, so a quote inside a body cannot hide a later `.env` after the
+    // heredoc. When the command cannot be read, fail closed (report a reference).
+    let Some(elided) = super::shell_lexical::strip_comments_and_heredocs(command) else {
+        return Some(UNREADABLE_SECRET_REFERENCE.to_string());
+    };
+    if let Some(reference) = tokens_reference(&elided) {
+        return Some(reference);
+    }
+    match super::shell_lexical::heredoc_bodies(command) {
+        None => Some(UNREADABLE_SECRET_REFERENCE.to_string()),
+        Some(bodies) => bodies.iter().find_map(|body| tokens_reference(body)),
+    }
+}
+
+fn tokens_reference(text: &str) -> Option<String> {
     shell_tokens(text)
         .iter()
         .find_map(|token| token_reference(token))

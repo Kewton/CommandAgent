@@ -124,6 +124,75 @@ fn comment_heredoc_rejects_b5_continuation_hidden_comments() {
 }
 
 #[test]
+fn comment_heredoc_rejects_n1_control_operators_and_functions() {
+    assert_rejected(&[
+        "cat; sh <<'EOF'\ntee sub/link/f\nEOF",
+        "cat | sh <<EOF\ntee sub/link/f\nEOF",
+        "cat <<'EOF' | sh\ntee sub/link/f\nEOF",
+        "tee >(sh) <<'EOF'\ntee sub/link/f\nEOF",
+        "cat <<'EOF' > >(sh)\ntee sub/link/f\nEOF",
+        "cat <<'EOF'; sh <<'END'\nx\nEOF\ntee sub/link/f\nEND",
+        "cat && python3 <<'EOF'\nopen(\"sub/link/secret\").read()\nEOF",
+        "cat; env sh <<'EOF'\ntee sub/link/f\nEOF",
+        // N1': a function of the same name may replace the command.
+        "cat(){ sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "function cat { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_n2_git_gh_and_openssl_forms() {
+    assert_rejected(&[
+        "git hash-object -w --stdin-paths <<'EOF'\nsub/link/secret\nEOF",
+        "git -c alias.x='!sh' x <<'EOF'\ntee sub/link/f\nEOF",
+        "openssl enc <<'EOF'\ntee sub/link/f\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_n3_carriage_return_delimiters() {
+    assert_rejected(&[
+        "cat <<EOF\r\nx\nEOF\r\ntee sub/link/f",
+        "cat <<EOF\nx\nEOF\r\ntee sub/link/f",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_n4_kept_body_comments() {
+    assert_rejected(&[
+        "sh <<'EOF'\n#'\ntee sub/link/f\n#'\nEOF",
+        "bash <<'EOF'\necho x # it's\ntee sub/link/f #'\nEOF",
+        "python3 <<'EOF'\n#'\nopen(\"sub/link/f\",\"w\")\n#'\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_detects_n5_secrets_after_a_quoted_body() {
+    for command in [
+        "cat <<'EOF'\nit's\nEOF\ncat .env",
+        "cat <<EOF\nit's\nEOF\ncat .env #'",
+        // The kept body is inspected on its own.
+        "cat <<'EOF'\ncat .env\nEOF",
+    ] {
+        assert!(
+            command_references_secret(command).is_some(),
+            "expected secret detection: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn comment_heredoc_rejects_the_mutation_killer_inputs() {
+    assert_rejected(&[
+        "echo \"a #\"; tee sub/link/f\n\"",
+        "echo `true` # it's\ntee sub/link/f #'",
+        "cat <<EOF\nx\nEOF\ntee sub/link/f",
+        "cat <<-EOF\n\tx\n\tEOF\ntee sub/link/f",
+        "cat <<\"EOF\"\nx\nEOF\ntee sub/link/f",
+    ]);
+}
+
+#[test]
 fn comment_heredoc_rejects_the_original_problem_table() {
     assert_rejected(&[
         "echo x # it's\ntee sub/link/f",
@@ -185,6 +254,9 @@ fn comment_heredoc_keeps_allowed_forms() {
         "cat <<EOF > out.txt\nit's\nEOF",
         "cat > notes.md <<'EOF'\nit's \"quoted\nEOF",
         "git commit -F - <<'EOF'\nFix it's bug\nEOF",
+        "gh issue comment 1 --body-file - <<'EOF'\nit's\nEOF",
+        "gh pr create --body-file - <<'EOF'\nit's\nEOF",
+        "cat <<EOF\nit's ok\nEOF",
         "cat <<EOF\ntee /tmp/f\nEOF",
         "cat <<'EOF'\n$(tee sub/link/f)\nEOF",
         "python3 - <<'EOF'\nprint(\"it's\")\nEOF",

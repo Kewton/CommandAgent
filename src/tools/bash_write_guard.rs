@@ -838,6 +838,9 @@ mod tests {
             // Unreadable by the elision, but the raw fallback must still name
             // the protected path (H-02 §1 B3).
             "cat <<EOF\n# $(tee tests/spec.rs)\nEOF",
+            // The kept body has its comments removed, so the command is visible
+            // (H-03 §2 N4).
+            "sh <<'EOF'\n#'\ntee tests/spec.rs\n#'\nEOF",
         ] {
             assert_eq!(
                 protected_path_mutation(command, &root, &protected),
