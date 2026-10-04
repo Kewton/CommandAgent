@@ -849,6 +849,10 @@ mod tests {
             // A spelled alias or continued function keeps the body (H-05 B1).
             "a\"\"lias cat=sh\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
             "func\\\ntion cat { sh; }\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            // A nested body is never dropped, so an exported function that runs
+            // it is still seen (H-06 blocker 1).
+            "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ntee te\"sts/spec.rs\"\nINNER\nOUTER",
+            "mkdir -p bin && printf 'sh\\n' > bin/cat && chmod +x bin/cat && PATH=$PWD/bin:$PATH sh <<'OUTER'\ncat <<'INNER'\ntee te\"sts/spec.rs\"\nINNER\nOUTER",
         ] {
             assert_eq!(
                 protected_path_mutation(command, &root, &protected),

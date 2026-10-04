@@ -58,7 +58,7 @@ struct Arg {
 /// heredoc, or line continuation, so callers can detect "the shell rewrites this
 /// text" by an equality check against the original.
 pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
-    scan(command).map(|output| output.text)
+    scan(command, false).map(|output| output.text)
 }
 
 /// Returns the raw body of every heredoc in the command (dropped or kept,
@@ -66,7 +66,7 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
 /// statically. Used by the credential scan, which inspects each body's own words
 /// (H-03 §5 N5, H-04 §4 C4).
 pub(crate) fn heredoc_bodies(command: &str) -> Option<Vec<String>> {
-    scan(command).map(|output| output.bodies)
+    scan(command, false).map(|output| output.bodies)
 }
 
 /// Whether the elided text is byte-identical to the input, i.e. the command has
@@ -75,7 +75,10 @@ pub(crate) fn text_is_unchanged(command: &str) -> bool {
     strip_comments_and_heredocs(command).as_deref() == Some(command)
 }
 
-fn scan(command: &str) -> Option<ScanOutput> {
+/// `nested` is true when this text is a kept heredoc body being read as commands:
+/// an inner heredoc body is never dropped then, because the outer command may
+/// define a function or rewrite `PATH` and execute it (H-06 blocker 1).
+fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
     // An arithmetic shift and a heredoc both start with `<<`. When the command
     // also contains `((`, the two cannot be told apart portably, so fail closed.
     if command.contains("((") && command.contains("<<") {
@@ -221,8 +224,14 @@ fn scan(command: &str) -> Option<ScanOutput> {
                 out.push(b'\n');
                 index += 1;
                 if !pending.is_empty() {
-                    let (next, kept) =
-                        resolve_heredocs(bytes, index, &pending, &elided_command, &mut bodies)?;
+                    let (next, kept) = resolve_heredocs(
+                        bytes,
+                        index,
+                        &pending,
+                        &elided_command,
+                        nested,
+                        &mut bodies,
+                    )?;
                     out.extend_from_slice(&kept);
                     index = next;
                     pending.clear();
@@ -372,9 +381,12 @@ fn resolve_heredocs(
     body_start: usize,
     pending: &[Heredoc],
     elided_command: &[u8],
+    nested: bool,
     bodies: &mut Vec<String>,
 ) -> Option<(usize, Vec<u8>)> {
-    let drop_bodies = should_drop_heredoc_bodies(elided_command, pending);
+    // A body inside a kept body is never dropped: the outer command may export a
+    // function or rewrite PATH and execute it (H-06 blocker 1).
+    let drop_bodies = !nested && should_drop_heredoc_bodies(elided_command, pending);
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
     for heredoc in pending {
@@ -397,7 +409,7 @@ fn resolve_heredocs(
             // Read the kept body both with comments elided and with quoting
             // flattened, so neither a shell comment nor a quote can hide a path
             // the body runs (N4, H-04 C3).
-            let cleaned = scan(body_text)?;
+            let cleaned = scan(body_text, true)?;
             kept.extend_from_slice(cleaned.text.as_bytes());
             bodies.extend(cleaned.bodies);
             kept.push(b' ');
@@ -955,6 +967,14 @@ mod tests {
         let elided = strip("sh <<'EOF'\n#'\ntee sub/link/f\n#'\nEOF");
         assert!(elided.contains("tee sub/link/f"), "{elided:?}");
         let elided = strip("bash <<'EOF'\necho x # it's\ntee sub/link/f #'\nEOF");
+        assert!(elided.contains("tee sub/link/f"), "{elided:?}");
+    }
+
+    #[test]
+    fn shell_lexical_keeps_nested_heredoc_bodies() {
+        // A body inside a kept body is never dropped, even when it matches the
+        // single-command data-reader shape (H-06 blocker 1).
+        let elided = strip("sh <<'OUTER'\ncat <<'INNER'\ntee sub/link/f\nINNER\nOUTER");
         assert!(elided.contains("tee sub/link/f"), "{elided:?}");
     }
 

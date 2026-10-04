@@ -182,6 +182,35 @@ fn comment_heredoc_detects_n5_secrets_after_a_quoted_body() {
 }
 
 #[test]
+fn comment_heredoc_rejects_nested_bodies_kept_as_commands() {
+    assert_rejected(&[
+        // A function exported to sh/bash/bash -s runs the nested body.
+        "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ntee sub/li\"nk/f\"\nINNER\nOUTER",
+        "cat(){ sh; }\nexport -f cat\nbash <<'OUTER'\ncat <<'INNER'\ntee sub/li\"nk/f\"\nINNER\nOUTER",
+        "cat(){ sh; }\nexport -f cat\nbash -s <<'OUTER'\ncat <<'INNER'\ntee sub/li\"nk/f\"\nINNER\nOUTER",
+        // A read escape through the nested body.
+        "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ncat sub/li\"nk/secret\"\nINNER\nOUTER",
+        // PATH rewritten so `cat` resolves to a program that runs the body.
+        "mkdir -p bin && printf 'sh\\n' > bin/cat && chmod +x bin/cat && PATH=$PWD/bin:$PATH sh <<'OUTER'\ncat <<'INNER'\ntee sub/li\"nk/f\"\nINNER\nOUTER",
+        // The unquoted control.
+        "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ntee sub/link/f\nINNER\nOUTER",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_detects_nested_secrets() {
+    for command in [
+        "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ncat .e\"nv\"\nINNER\nOUTER",
+        "mkdir -p bin && printf 'sh\\n' > bin/cat && chmod +x bin/cat && PATH=$PWD/bin:$PATH sh <<'OUTER'\ncat <<'INNER'\ncat .e\"nv\"\nINNER\nOUTER",
+    ] {
+        assert!(
+            command_references_secret(command).is_some(),
+            "expected secret detection: {command:?}"
+        );
+    }
+}
+
+#[test]
 fn comment_heredoc_rejects_the_mutation_killer_inputs() {
     assert_rejected(&[
         "echo \"a #\"; tee sub/link/f\n\"",
