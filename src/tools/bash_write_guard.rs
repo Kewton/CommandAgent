@@ -841,6 +841,11 @@ mod tests {
             // The kept body has its comments removed, so the command is visible
             // (H-03 §2 N4).
             "sh <<'EOF'\n#'\ntee tests/spec.rs\n#'\nEOF",
+            // A function definition keeps the body (H-04 C1).
+            "cat () { sh; }\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            // The flattened reading of a kept body keeps the path visible
+            // (H-04 C3).
+            "python3 <<'EOF'\npass#'\ntee tests/spec.rs\n#'\nEOF",
         ] {
             assert_eq!(
                 protected_path_mutation(command, &root, &protected),

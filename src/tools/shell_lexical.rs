@@ -13,48 +13,19 @@
 //! second-stage path candidates, and the credential scan) read the elided text
 //! at their entry points instead of each rewriting the quote state machine.
 //!
-//! Every skip is chosen so the elided text is never longer than what the shell
-//! runs. A heredoc body is dropped only when the heredoc's whole line is a single
-//! command that reads its stdin purely as data (see [`SIMPLE_DATA_READERS`] and
-//! the `git`/`gh` forms); every other body is kept, with its comments removed, so
-//! a shell, an interpreter, a function, or a pipeline that executes it is still
-//! inspected. Text that cannot be read statically is reported as `None` rather
-//! than guessed at, and the callers fail closed (H-02 §1, H-03 §5).
+//! A heredoc body is dropped only when the heredoc's whole line — the same line
+//! [`scan`] already produced, with comments and line continuations removed — is a
+//! single command whose quote-removed argv exactly matches one of the data-reader
+//! forms (see [`data_reader_argv`]), and the command defines no function or alias.
+//! Every other body is kept, read both with and without comment elision, so a
+//! shell, an interpreter, a function, a quote, or a pipeline that executes it is
+//! still inspected. Text that cannot be read statically is reported as `None`
+//! rather than guessed at, and the callers fail closed (H-02 §1, H-03 §5, H-04 §4).
 
 /// Operation recorded for a command whose text the lexical guard cannot read
 /// (an unterminated quote, an ambiguous arithmetic shift, or a heredoc whose
 /// delimiter or body cannot be read). The caller fails closed on it.
 pub(crate) const UNREADABLE_OPERATION: &str = "unreadable shell text";
-
-/// Commands that read a heredoc body only as data, never as commands.
-///
-/// Dropping the body of a heredoc attached to one of these is the "shorter than
-/// the shell" direction: the command cannot execute its stdin text. The list is
-/// deliberately short (H-03 §5 N2). `openssl` is absent because interactive
-/// modes execute the body; `git` and `gh` are handled separately because only a
-/// `-F -` / `--body-file -` form reads stdin as data.
-const SIMPLE_DATA_READERS: &[&str] = &[
-    "cat",
-    "tee",
-    "wc",
-    "head",
-    "tail",
-    "sort",
-    "uniq",
-    "cut",
-    "tr",
-    "comm",
-    "cmp",
-    "diff",
-    "fold",
-    "nl",
-    "rev",
-    "tac",
-    "base64",
-    "sha256sum",
-    "md5sum",
-    "shasum",
-];
 
 /// A heredoc whose delimiter was seen but whose body has not been consumed yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +41,14 @@ struct ScanOutput {
     bodies: Vec<String>,
 }
 
+/// One argument of a heredoc line: its quote-removed bytes, and whether any
+/// quote or backslash produced it (so `c"at"` is not the literal `cat`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Arg {
+    bytes: Vec<u8>,
+    quoted: bool,
+}
+
 /// Returns the command text with comments and data-reader heredoc bodies
 /// removed, or `None` when the text cannot be read statically.
 ///
@@ -77,14 +56,15 @@ struct ScanOutput {
 /// heredoc, or line continuation, so callers can detect "the shell rewrites this
 /// text" by an equality check against the original.
 pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
-    scan(command).map(|output| output.text)
+    scan(command, command).map(|output| output.text)
 }
 
-/// Returns the raw body of every heredoc in the command, or `None` when the
-/// command cannot be read statically. Used by the credential scan, which
-/// tokenises each body on its own (H-03 §5 N5).
+/// Returns the raw body of every heredoc in the command (dropped or kept,
+/// including nested bodies), or `None` when the command cannot be read
+/// statically. Used by the credential scan, which inspects each body's own words
+/// (H-03 §5 N5, H-04 §4 C4).
 pub(crate) fn heredoc_bodies(command: &str) -> Option<Vec<String>> {
-    scan(command).map(|output| output.bodies)
+    scan(command, command).map(|output| output.bodies)
 }
 
 /// Whether the elided text is byte-identical to the input, i.e. the command has
@@ -93,7 +73,7 @@ pub(crate) fn text_is_unchanged(command: &str) -> bool {
     strip_comments_and_heredocs(command).as_deref() == Some(command)
 }
 
-fn scan(command: &str) -> Option<ScanOutput> {
+fn scan(command: &str, root_command: &str) -> Option<ScanOutput> {
     // An arithmetic shift and a heredoc both start with `<<`. When the command
     // also contains `((`, the two cannot be told apart portably, so fail closed.
     if command.contains("((") && command.contains("<<") {
@@ -107,7 +87,7 @@ fn scan(command: &str) -> Option<ScanOutput> {
     let mut double = false;
     let mut backtick = false;
     let mut at_word_start = true;
-    let mut line_start = 0usize;
+    let mut out_line_start = 0usize;
     let mut pending: Vec<Heredoc> = Vec::new();
     while index < bytes.len() {
         let ch = bytes[index];
@@ -234,17 +214,25 @@ fn scan(command: &str) -> Option<ScanOutput> {
                 }
             }
             b'\n' => {
+                // The line the scan produced, with comments and continuations
+                // already removed: the same text the guards will read.
+                let elided_line = out[out_line_start..].to_vec();
                 out.push(b'\n');
                 index += 1;
                 if !pending.is_empty() {
-                    let line = &bytes[line_start..index - 1];
-                    let (next, kept) =
-                        resolve_heredocs(bytes, index, &pending, line, command, &mut bodies)?;
+                    let (next, kept) = resolve_heredocs(
+                        bytes,
+                        index,
+                        &pending,
+                        &elided_line,
+                        root_command,
+                        &mut bodies,
+                    )?;
                     out.extend_from_slice(&kept);
                     index = next;
                     pending.clear();
                 }
-                line_start = index;
+                out_line_start = out.len();
                 at_word_start = true;
             }
             ch if is_word_boundary(ch) => {
@@ -389,19 +377,20 @@ fn resolve_heredocs(
     bytes: &[u8],
     body_start: usize,
     pending: &[Heredoc],
-    line: &[u8],
-    command: &str,
+    elided_line: &[u8],
+    root_command: &str,
     bodies: &mut Vec<String>,
 ) -> Option<(usize, Vec<u8>)> {
-    let drop_bodies = line_is_data_reader(line, command);
+    let drop_bodies = elided_line_is_data_reader(elided_line, root_command);
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
     for heredoc in pending {
         let (body_end, after) = locate_body(bytes, position, heredoc)?;
         let body = &bytes[position..body_end];
-        if let Ok(body) = std::str::from_utf8(body) {
-            bodies.push(body.to_string());
-        }
+        let Ok(body_text) = std::str::from_utf8(body) else {
+            return None;
+        };
+        bodies.push(body_text.to_string());
         // An unquoted body is expanded by the outer shell, which runs a command
         // substitution in it. The scan must not re-read it as commands (B3).
         if !heredoc.quoted && body_contains_execution(body) {
@@ -412,11 +401,14 @@ fn resolve_heredocs(
             if !body_is_readable(body) {
                 return None;
             }
-            // Remove comments and nested heredocs from the kept body before it
-            // joins the elided text (N4).
-            let body = std::str::from_utf8(body).ok()?;
-            let cleaned = scan(body)?;
+            // Read the kept body both with comments elided and with quoting
+            // flattened, so neither a shell comment nor a quote can hide a path
+            // the body runs (N4, H-04 C3).
+            let cleaned = scan(body_text, root_command)?;
             kept.extend_from_slice(cleaned.text.as_bytes());
+            bodies.extend(cleaned.bodies);
+            kept.push(b' ');
+            kept.extend_from_slice(&flatten_quotes(body));
         }
         position = after;
         if position >= bytes.len() {
@@ -478,81 +470,273 @@ fn strip_leading_tabs(line: &[u8]) -> &[u8] {
     &line[start..]
 }
 
-/// Whether the heredoc's whole line is a single command that reads its stdin as
-/// data (H-03 §5 N1/N2).
-fn line_is_data_reader(line: &[u8], command: &str) -> bool {
-    let elided = line_without_comments(line);
+/// Whether the heredoc's elided line is a single command that reads its stdin as
+/// data (H-03 §5 N1/N2, H-04 §4 C1/C2).
+fn elided_line_is_data_reader(line: &[u8], root_command: &str) -> bool {
     // One command only: no pipelines, lists, subshells, groups, or substitutions.
-    if elided
+    if line
         .iter()
         .any(|ch| matches!(ch, b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' | b'`'))
     {
         return false;
     }
-    let words: Vec<&[u8]> = elided
-        .split(|ch| matches!(ch, b' ' | b'\t' | b'<' | b'>'))
-        .filter(|word| !word.is_empty())
-        .collect();
-    let Some(name) = words.first() else {
+    let Some(argv) = line_argv(line) else {
         return false;
     };
-    // A literal, unqualified command name.
-    if name
-        .iter()
-        .any(|ch| matches!(ch, b'\'' | b'"' | b'\\' | b'$' | b'`' | b'/'))
-    {
-        return false;
-    }
-    let Ok(name) = std::str::from_utf8(name) else {
+    let Some(name) = argv.first() else {
         return false;
     };
-    // A function of the same name may replace the command and execute the body.
-    if command.contains(&format!("{name}(")) || command.contains(&format!("function {name}")) {
+    // A literal, unqualified command name: a quote or backslash in the name, or
+    // a slash, disqualifies it.
+    if name.quoted || name.bytes.contains(&b'/') {
         return false;
     }
-    if SIMPLE_DATA_READERS.contains(&name) {
-        return true;
+    // A function or alias in the command may replace the program and execute the
+    // body.
+    if command_defines_function_or_alias(root_command) {
+        return false;
     }
-    match name {
-        "git" => git_reads_stdin_as_data(&words),
-        "gh" => gh_reads_stdin_as_data(&words),
+    data_reader_argv(&argv)
+}
+
+/// Whether a quote-removed argv exactly matches one of the data-reader forms.
+fn data_reader_argv(argv: &[Arg]) -> bool {
+    match argv[0].bytes.as_slice() {
+        // `cat` with no arguments (redirects are already removed from argv).
+        b"cat" => argv.len() == 1,
+        b"git" => git_reads_stdin_as_data(argv),
+        b"gh" => gh_reads_stdin_as_data(argv),
         _ => false,
     }
 }
 
-/// `git commit`/`git tag` with `-F -`, and no `-c`, alias, or `--stdin*` form.
-fn git_reads_stdin_as_data(words: &[&[u8]]) -> bool {
-    if words.iter().any(|word| {
-        *word == b"-c"
+/// `git commit`/`git tag` immediately after `git`, with `-F -`, and no `-c`,
+/// alias, or `--stdin*` form.
+fn git_reads_stdin_as_data(argv: &[Arg]) -> bool {
+    let Some(subcommand) = argv.get(1) else {
+        return false;
+    };
+    if subcommand.bytes != b"commit" && subcommand.bytes != b"tag" {
+        return false;
+    }
+    if argv.iter().any(|arg| {
+        let word = arg.bytes.as_slice();
+        word == b"-c"
             || (word.starts_with(b"-c") && word.len() > 2)
             || word.starts_with(b"--stdin")
-            || String::from_utf8_lossy(word).contains("alias")
+            || contains_subslice(word, b"alias")
     }) {
         return false;
     }
-    let has_subcommand = words
-        .iter()
-        .any(|word| *word == b"commit" || *word == b"tag");
-    has_subcommand && has_adjacent(words, b"-F", b"-")
+    has_adjacent(argv, b"-F", b"-")
 }
 
-/// `gh` with `--body-file -`, `-F -`, or `--input -`, and no shell alias.
-fn gh_reads_stdin_as_data(words: &[&[u8]]) -> bool {
-    if words
+/// `gh issue|pr comment|create|edit` with `--body-file -`, and no shell alias.
+fn gh_reads_stdin_as_data(argv: &[Arg]) -> bool {
+    let (Some(group), Some(action)) = (argv.get(1), argv.get(2)) else {
+        return false;
+    };
+    if group.bytes != b"issue" && group.bytes != b"pr" {
+        return false;
+    }
+    if action.bytes != b"comment" && action.bytes != b"create" && action.bytes != b"edit" {
+        return false;
+    }
+    if argv
         .iter()
-        .any(|word| String::from_utf8_lossy(word).contains("alias"))
+        .any(|arg| contains_subslice(&arg.bytes, b"alias"))
     {
         return false;
     }
-    has_adjacent(words, b"--body-file", b"-")
-        || has_adjacent(words, b"-F", b"-")
-        || has_adjacent(words, b"--input", b"-")
+    has_adjacent(argv, b"--body-file", b"-")
 }
 
-fn has_adjacent(words: &[&[u8]], option: &[u8], value: &[u8]) -> bool {
-    words
-        .windows(2)
-        .any(|pair| pair[0] == option && pair[1] == value)
+fn has_adjacent(argv: &[Arg], option: &[u8], value: &[u8]) -> bool {
+    argv.windows(2)
+        .any(|pair| pair[0].bytes == option && pair[1].bytes == value)
+}
+
+fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+}
+
+/// Reads a heredoc line into its quote-removed argv, dropping redirections and
+/// their targets. `None` when the line cannot be tokenised.
+fn line_argv(line: &[u8]) -> Option<Vec<Arg>> {
+    let mut argv: Vec<Arg> = Vec::new();
+    let mut word: Vec<u8> = Vec::new();
+    let mut quoted = false;
+    let mut started = false;
+    let mut expect_target = false;
+    let mut index = 0usize;
+    while index < line.len() {
+        match line[index] {
+            b' ' | b'\t' => {
+                flush_arg(
+                    &mut word,
+                    &mut quoted,
+                    &mut started,
+                    &mut expect_target,
+                    &mut argv,
+                );
+                index += 1;
+            }
+            b'\'' => {
+                quoted = true;
+                started = true;
+                index += 1;
+                while index < line.len() && line[index] != b'\'' {
+                    word.push(line[index]);
+                    index += 1;
+                }
+                if index < line.len() {
+                    index += 1;
+                }
+            }
+            b'"' => {
+                quoted = true;
+                started = true;
+                index += 1;
+                while index < line.len() && line[index] != b'"' {
+                    if line[index] == b'\\' && index + 1 < line.len() {
+                        index += 1;
+                    }
+                    word.push(line[index]);
+                    index += 1;
+                }
+                if index < line.len() {
+                    index += 1;
+                }
+            }
+            b'\\' => {
+                quoted = true;
+                started = true;
+                index += 1;
+                if index < line.len() {
+                    word.push(line[index]);
+                    index += 1;
+                }
+            }
+            b'<' | b'>' => {
+                if started {
+                    if expect_target || word.iter().all(|ch| ch.is_ascii_digit()) {
+                        word.clear();
+                        quoted = false;
+                        started = false;
+                    } else {
+                        argv.push(Arg {
+                            bytes: std::mem::take(&mut word),
+                            quoted,
+                        });
+                        quoted = false;
+                        started = false;
+                    }
+                }
+                index += 1;
+                if index < line.len() && matches!(line[index], b'<' | b'>') {
+                    index += 1;
+                }
+                if index < line.len() && matches!(line[index], b'-' | b'|' | b'&') {
+                    index += 1;
+                }
+                expect_target = true;
+            }
+            ch => {
+                word.push(ch);
+                started = true;
+                index += 1;
+            }
+        }
+    }
+    flush_arg(
+        &mut word,
+        &mut quoted,
+        &mut started,
+        &mut expect_target,
+        &mut argv,
+    );
+    Some(argv)
+}
+
+fn flush_arg(
+    word: &mut Vec<u8>,
+    quoted: &mut bool,
+    started: &mut bool,
+    expect_target: &mut bool,
+    argv: &mut Vec<Arg>,
+) {
+    if !*started {
+        return;
+    }
+    if !*expect_target {
+        argv.push(Arg {
+            bytes: std::mem::take(word),
+            quoted: *quoted,
+        });
+    }
+    word.clear();
+    *quoted = false;
+    *started = false;
+    *expect_target = false;
+}
+
+/// Whether the whole command defines a function or an alias: the word
+/// `function`, the word `alias`, or a word followed by `(` … `)` across blanks
+/// and line continuations (H-04 C1).
+fn command_defines_function_or_alias(command: &str) -> bool {
+    let bytes = command.as_bytes();
+    if contains_shell_word(bytes, b"function") || contains_shell_word(bytes, b"alias") {
+        return true;
+    }
+    (0..bytes.len()).any(|index| {
+        bytes[index] == b'(' && name_before(bytes, index) && closes_after(bytes, index)
+    })
+}
+
+fn contains_shell_word(haystack: &[u8], word: &[u8]) -> bool {
+    (0..=haystack.len().saturating_sub(word.len())).any(|index| {
+        &haystack[index..index + word.len()] == word
+            && (index == 0 || !is_word_char(haystack[index - 1]))
+            && (index + word.len() == haystack.len() || !is_word_char(haystack[index + word.len()]))
+    })
+}
+
+fn is_word_char(ch: u8) -> bool {
+    ch.is_ascii_alphanumeric() || ch == b'_'
+}
+
+/// Whether a word character precedes the `(` at `index`, across blanks and line
+/// continuations.
+fn name_before(bytes: &[u8], index: usize) -> bool {
+    let mut cursor = index;
+    loop {
+        if cursor >= 2 && bytes[cursor - 1] == b'\n' && bytes[cursor - 2] == b'\\' {
+            cursor -= 2;
+        } else if cursor >= 1 && (bytes[cursor - 1] == b' ' || bytes[cursor - 1] == b'\t') {
+            cursor -= 1;
+        } else {
+            break;
+        }
+    }
+    cursor >= 1 && is_word_char(bytes[cursor - 1])
+}
+
+/// Whether `)` follows the `(` at `index`, across blanks and line continuations.
+fn closes_after(bytes: &[u8], index: usize) -> bool {
+    let mut cursor = index + 1;
+    loop {
+        if cursor < bytes.len() && (bytes[cursor] == b' ' || bytes[cursor] == b'\t') {
+            cursor += 1;
+        } else if cursor + 1 < bytes.len() && bytes[cursor] == b'\\' && bytes[cursor + 1] == b'\n' {
+            cursor += 2;
+        } else {
+            break;
+        }
+    }
+    cursor < bytes.len() && bytes[cursor] == b')'
 }
 
 /// Whether an unquoted heredoc body runs a command substitution.
@@ -610,112 +794,30 @@ fn body_is_readable(body: &[u8]) -> bool {
     !(single || double || backtick)
 }
 
-/// Removes comments from a single line, using the same quote rules as [`scan`].
-fn line_without_comments(line: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(line.len());
+/// A reading of a heredoc body with line continuations removed and every quote
+/// or escape replaced by a blank, so quoting cannot hide a candidate the body
+/// runs (H-04 C3).
+fn flatten_quotes(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(body.len());
     let mut index = 0usize;
-    let mut single = false;
-    let mut double = false;
-    let mut backtick = false;
-    let mut at_word_start = true;
-    while index < line.len() {
-        let ch = line[index];
-        if single {
-            out.push(ch);
-            if ch == b'\'' {
-                single = false;
-                at_word_start = false;
-            }
-            index += 1;
-            continue;
-        }
-        if double {
-            out.push(ch);
-            if ch == b'\\' {
-                if index + 1 < line.len() {
-                    out.push(line[index + 1]);
-                    index += 2;
-                } else {
-                    index += 1;
-                }
-                at_word_start = false;
+    while index < body.len() {
+        let ch = body[index];
+        if ch == b'\\' {
+            if index + 1 < body.len() && body[index + 1] == b'\n' {
+                index += 2;
                 continue;
             }
-            if ch == b'"' {
-                double = false;
-                at_word_start = false;
-            }
+            out.push(b' ');
             index += 1;
             continue;
         }
-        if backtick {
-            out.push(ch);
-            if ch == b'\\' {
-                if index + 1 < line.len() {
-                    out.push(line[index + 1]);
-                    index += 2;
-                } else {
-                    index += 1;
-                }
-                continue;
-            }
-            if ch == b'`' {
-                backtick = false;
-                at_word_start = false;
-            }
+        if matches!(ch, b'\'' | b'"' | b'`') {
+            out.push(b' ');
             index += 1;
             continue;
         }
-        match ch {
-            b'\'' => {
-                out.push(ch);
-                single = true;
-                at_word_start = false;
-                index += 1;
-            }
-            b'"' => {
-                out.push(ch);
-                double = true;
-                at_word_start = false;
-                index += 1;
-            }
-            b'`' => {
-                out.push(ch);
-                backtick = true;
-                at_word_start = false;
-                index += 1;
-            }
-            b'\\' => {
-                out.push(ch);
-                if index + 1 < line.len() {
-                    out.push(line[index + 1]);
-                    index += 2;
-                } else {
-                    index += 1;
-                }
-                at_word_start = false;
-            }
-            b'#' if at_word_start => {
-                while index < line.len() && line[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            ch if is_word_boundary(ch) => {
-                out.push(ch);
-                at_word_start = true;
-                index += 1;
-            }
-            b' ' | b'\t' => {
-                out.push(ch);
-                at_word_start = true;
-                index += 1;
-            }
-            _ => {
-                out.push(ch);
-                at_word_start = false;
-                index += 1;
-            }
-        }
+        out.push(ch);
+        index += 1;
     }
     out
 }
@@ -769,7 +871,6 @@ mod tests {
 
     #[test]
     fn shell_lexical_pins_the_output_of_escaped_quotes() {
-        // Fixed output for the quote-escape mutants (H-03 §4, lines 136-167).
         assert_eq!(strip("echo \"a\\b\""), "echo \"a\\b\"");
         assert_eq!(strip("echo \"a\\\\b\""), "echo \"a\\\\b\"");
         assert_eq!(strip("echo 'a\\b'"), "echo 'a\\b'");
@@ -799,7 +900,6 @@ mod tests {
 
     #[test]
     fn shell_lexical_n1_requires_a_single_data_reader_command() {
-        // A pipeline, list, group, or substitution keeps the body visible.
         for command in [
             "cat; sh <<'EOF'\ntee sub/link/f\nEOF",
             "cat | sh <<EOF\ntee sub/link/f\nEOF",
@@ -819,10 +919,13 @@ mod tests {
     }
 
     #[test]
-    fn shell_lexical_n1_keeps_the_body_when_the_command_is_a_function() {
+    fn shell_lexical_c1_function_and_alias_definitions_keep_the_body() {
         for command in [
-            "cat(){ sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+            "cat () { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+            "cat\t() { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+            "cat\\\n(){ sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
             "function cat { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+            "alias cat=sh\ncat <<'EOF'\ntee sub/link/f\nEOF",
         ] {
             let elided = strip(command);
             assert!(
@@ -833,27 +936,53 @@ mod tests {
     }
 
     #[test]
-    fn shell_lexical_n2_git_and_gh_forms() {
+    fn shell_lexical_c2_git_and_gh_argv_forms() {
         assert_eq!(
             strip("git commit -F - <<'EOF'\nit's a fix\nEOF"),
             "git commit -F - <<'EOF'\n"
         );
         assert_eq!(
+            strip("git tag -F - <<'EOF'\nit's a fix\nEOF"),
+            "git tag -F - <<'EOF'\n"
+        );
+        assert_eq!(
             strip("gh issue comment 1 --body-file - <<'EOF'\nit's\nEOF"),
             "gh issue comment 1 --body-file - <<'EOF'\n"
         );
-        // Kept: a stdin-reading, alias, or interactive form.
+        assert_eq!(
+            strip("gh pr create --body-file - <<'EOF'\nit's\nEOF"),
+            "gh pr create --body-file - <<'EOF'\n"
+        );
         for command in [
-            "git hash-object -w --stdin-paths <<'EOF'\nsub/link/secret\nEOF",
-            "git -c alias.x='!sh' x <<'EOF'\ntee sub/link/f\nEOF",
+            "git '-c' 'al''ias.x=!sh #' x commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+            "git -c core.fake=1 commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+            "git -cX=Y commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+            "git --stdin-paths commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+            "git x -F - <<'EOF'\ntee sub/link/f\nEOF",
+            "git commit x - <<'EOF'\ntee sub/link/f\nEOF",
+            "git commit -F x <<'EOF'\ntee sub/link/f\nEOF",
+            "gh x --body-file - <<'EOF'\ntee sub/link/f\nEOF",
             "openssl enc <<'EOF'\ntee sub/link/f\nEOF",
         ] {
             let elided = strip(command);
             assert!(
-                elided.contains("sub/link/secret") || elided.contains("tee sub/link/f"),
+                elided.contains("tee sub/link/f"),
                 "body must be kept: {command:?} -> {elided:?}"
             );
         }
+    }
+
+    #[test]
+    fn shell_lexical_removed_simple_readers_keep_the_body() {
+        // `tee`/`head` are no longer data readers, so an unreadable body rejects
+        // (accepted false rejection) and a readable body is kept.
+        assert_eq!(
+            strip_comments_and_heredocs("tee x <<'EOF'\nit's\nEOF"),
+            None
+        );
+        let elided = strip("wc -l <<'EOF'\nhello world\nEOF");
+        assert!(elided.contains("hello world"), "{elided:?}");
+        assert_eq!(strip_comments_and_heredocs("head <<'EOF'\nit's\nEOF"), None);
     }
 
     #[test]
@@ -877,6 +1006,19 @@ mod tests {
     }
 
     #[test]
+    fn shell_lexical_c3_keeps_the_body_read_both_ways() {
+        // Applying only the shell comment rule lets a Python inline comment's
+        // quote hide the next line; the flattened reading keeps it visible (C3).
+        let elided = strip("python3 <<'EOF'\npass#'\nopen(\"sub/link/f\",\"w\")#'\nEOF");
+        assert!(elided.contains("sub/link/f"), "{elided:?}");
+        let elided = strip("python3 <<'EOF'\npass#'\nopen(\"sub/link/secret\").read()#'\nEOF");
+        assert!(elided.contains("sub/link/secret"), "{elided:?}");
+        // A readable Python body with no path stays parseable.
+        let elided = strip("python3 - <<'EOF'\nprint(\"it's\")\nEOF");
+        assert!(elided.contains("print(\"it's\")"), "{elided:?}");
+    }
+
+    #[test]
     fn shell_lexical_b1_unreadable_heredoc_delimiters() {
         for command in [
             "cat <<\"E\\OF\"\nx\nE\\OF\ntee sub/link/f\nEOF",
@@ -887,6 +1029,7 @@ mod tests {
             "cat <<E'O'\\\nF\nx\nEOF\ntee sub/link/f",
             "cat <<\\\nEOF\nx\nEOF\ntee sub/link/f",
             "cat <<EOF\nx\nEO\\\nF\ntee sub/link/f\nEOF",
+            "cat <<'E\\\nOF'\nx\nEOF\ntee sub/link/f",
         ] {
             assert_eq!(
                 strip_comments_and_heredocs(command),
@@ -933,6 +1076,26 @@ mod tests {
     }
 
     #[test]
+    fn shell_lexical_body_is_readable_table() {
+        for (body, expected) in [
+            ("\"a\\", false),
+            ("\"\\\"", false),
+            ("`a\\", false),
+            ("`\\`", false),
+            ("`a", false),
+            ("a\\\"\"", false),
+            ("tee /tmp/f", true),
+            ("print(\"it's\")", true),
+        ] {
+            assert_eq!(
+                body_is_readable(body.as_bytes()),
+                expected,
+                "body: {body:?}"
+            );
+        }
+    }
+
+    #[test]
     fn shell_lexical_b2_kept_body_must_be_readable() {
         assert_eq!(
             strip_comments_and_heredocs("sh <<'EOF'\necho it's\nEOF"),
@@ -942,16 +1105,15 @@ mod tests {
             strip_comments_and_heredocs("python3 <<'EOF'\n# it's\nEOF"),
             None
         );
-        assert_eq!(
-            strip("python3 - <<'EOF'\nprint(\"it's\")\nEOF"),
-            "python3 - <<'EOF'\nprint(\"it's\")\n"
-        );
+        let elided = strip("python3 - <<'EOF'\nprint(\"it's\")\nEOF");
+        assert!(elided.contains("print(\"it's\")"), "{elided:?}");
     }
 
     #[test]
     fn shell_lexical_treats_an_unterminated_heredoc_remainder_as_body() {
         assert_eq!(strip("cat <<EOF\nit's"), "cat <<EOF\n");
-        assert_eq!(strip("sh <<EOF\ntee /tmp/f"), "sh <<EOF\ntee /tmp/f");
+        let elided = strip("sh <<EOF\ntee /tmp/f");
+        assert!(elided.contains("tee /tmp/f"), "{elided:?}");
     }
 
     #[test]

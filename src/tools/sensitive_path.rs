@@ -481,9 +481,10 @@ where
 
 /// First direct credential reference in a Bash command string, if any.
 pub fn command_references_secret(command: &str) -> Option<String> {
-    // H-03 §5 N5: read the elided text's tokens and each heredoc body's tokens
-    // separately, so a quote inside a body cannot hide a later `.env` after the
-    // heredoc. When the command cannot be read, fail closed (report a reference).
+    // Read the elided text's tokens and, separately, each heredoc body's own
+    // words, so a quote or a line continuation inside a body cannot hide a
+    // credential name (H-03 §5 N5, H-04 §4 C4). When the command cannot be read,
+    // fail closed (report a reference).
     let Some(elided) = super::shell_lexical::strip_comments_and_heredocs(command) else {
         return Some(UNREADABLE_SECRET_REFERENCE.to_string());
     };
@@ -492,7 +493,7 @@ pub fn command_references_secret(command: &str) -> Option<String> {
     }
     match super::shell_lexical::heredoc_bodies(command) {
         None => Some(UNREADABLE_SECRET_REFERENCE.to_string()),
-        Some(bodies) => bodies.iter().find_map(|body| tokens_reference(body)),
+        Some(bodies) => bodies.iter().find_map(|body| body_words_reference(body)),
     }
 }
 
@@ -500,6 +501,14 @@ fn tokens_reference(text: &str) -> Option<String> {
     shell_tokens(text)
         .iter()
         .find_map(|token| token_reference(token))
+}
+
+/// Removes line continuations from a heredoc body, then splits it on whitespace
+/// and quoting symbols, so a quote cannot hide a credential name (H-04 C4).
+fn body_words_reference(body: &str) -> Option<String> {
+    body.replace("\\\n", "")
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '\'' | '"' | '`' | '\\'))
+        .find_map(token_reference)
 }
 
 fn argument_refusal(root: &Path, raw: &str) -> Option<SensitivePathRefusal> {

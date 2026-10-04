@@ -193,6 +193,73 @@ fn comment_heredoc_rejects_the_mutation_killer_inputs() {
 }
 
 #[test]
+fn comment_heredoc_rejects_c1_function_and_alias_definitions() {
+    assert_rejected(&[
+        "cat () { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "cat\t() { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "cat\\\n(){ sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "alias cat=sh\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "cat () { sh; }\ncat <<'EOF'\ncat sub/link/secret\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_c2_quoted_git_argv() {
+    assert_rejected(&[
+        "git '-c' 'al''ias.x=!sh #' x commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+        "git '-c' 'al''ias.x=!sh #' x tag -F - <<'EOF'\ntee sub/link/f\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_c3_python_inline_comment_quoting() {
+    assert_rejected(&[
+        "python3 <<'EOF'\npass#'\nopen(\"sub/link/f\",\"w\")#'\nEOF",
+        "python3 <<'EOF'\npass#'\nopen(\"sub/link/secret\").read()#'\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_detects_c4_secrets_in_a_body() {
+    for command in [
+        "cat <<'EOF'\nit's\ncat .env\nEOF",
+        "cat <<'EOF'\ncat .e\\\nnv\nEOF",
+        "git commit -F - <<'EOF'\nit's\ncat .env\nEOF",
+    ] {
+        assert!(
+            command_references_secret(command).is_some(),
+            "expected secret detection: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn comment_heredoc_rejects_the_h04_killer_inputs() {
+    assert_rejected(&[
+        "echo \"a\\\" #x\"; tee sub/link/f\n\"",
+        "echo `a\\` #x`; tee sub/link/f\n`",
+        "echo \\` #'\ntee sub/link/f #'",
+        "tee sub/li\\\nnk/f",
+        "cat <'<' # it's\ntee sub/link/f\n'",
+        "cat < x\ntee sub/link/f",
+        "cat <<'E\\\nOF'\nx\nEOF\ntee sub/link/f",
+        "sh <<'EOF'\necho \"\nEOF\ntee sub/link/f\n\"",
+        "cat \"a\\\" #x\"; sh <<'EOF'\ntee sub/link/f\nEOF",
+        "cat \"a\\;b\" <<'EOF'\ntee sub/link/f\nEOF",
+        "cat a\\;b <<'EOF'\ntee sub/link/f\nEOF",
+        "cat \\ #x; sh <<'EOF'\ntee sub/link/f\nEOF",
+        "cat x#;sh <<'EOF'\ntee sub/link/f\nEOF",
+        "cat \\#; sh <<'EOF'\ntee sub/link/f\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_removed_readers_are_accepted_false_rejections() {
+    // `tee` is no longer a data reader; its unreadable body now rejects.
+    assert_rejected(&["tee x <<'EOF'\nit's\nEOF"]);
+}
+
+#[test]
 fn comment_heredoc_rejects_the_original_problem_table() {
     assert_rejected(&[
         "echo x # it's\ntee sub/link/f",
