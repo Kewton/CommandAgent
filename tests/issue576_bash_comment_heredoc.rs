@@ -260,6 +260,31 @@ fn comment_heredoc_removed_readers_are_accepted_false_rejections() {
 }
 
 #[test]
+fn comment_heredoc_rejects_unquoted_and_joined_heredocs() {
+    // Fourth-revision design 10: an unquoted delimiter, or a heredoc joined to
+    // another command, keeps its body, so an unreadable body now rejects.
+    assert_rejected(&[
+        "cat <<EOF > out.txt\nit's\nEOF",
+        "cat <<EOF\nit's ok\nEOF",
+        "cat <<EOF\ndata\ntee sub/link/f",
+        "cat <<EOF\ntee /tmp/f\nEOF",
+        "git add x && git commit -F - <<'EOF'\nit's\nEOF",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_rejects_b1_spelled_function_and_alias() {
+    assert_rejected(&[
+        "a\"\"lias cat=sh\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "ali\\\nas cat=sh\ncat <<'EOF'\ncat sub/link/secret\nEOF",
+        "func\\\ntion cat { sh; }\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "command a\"\"lias cat=sh\ncat <<'EOF'\ntee sub/link/f\nEOF",
+        "func\\\ntion git { sh; }\ngit commit -F - <<'EOF'\ntee sub/link/f\nEOF",
+        "func\\\ntion gh { sh; }\ngh issue comment 1 --body-file - <<'EOF'\ntee sub/link/f\nEOF",
+    ]);
+}
+
+#[test]
 fn comment_heredoc_rejects_the_original_problem_table() {
     assert_rejected(&[
         "echo x # it's\ntee sub/link/f",
@@ -316,15 +341,12 @@ fn comment_heredoc_keeps_allowed_forms() {
     let fixture = fixture();
     let root = &fixture.root;
     let cases = [
-        // Issue #576 allowed table.
+        // Issue #576 allowed table (quoted delimiter, single command).
         "cat <<'EOF' > notes.md\nit's\nEOF",
-        "cat <<EOF > out.txt\nit's\nEOF",
         "cat > notes.md <<'EOF'\nit's \"quoted\nEOF",
         "git commit -F - <<'EOF'\nFix it's bug\nEOF",
         "gh issue comment 1 --body-file - <<'EOF'\nit's\nEOF",
         "gh pr create --body-file - <<'EOF'\nit's\nEOF",
-        "cat <<EOF\nit's ok\nEOF",
-        "cat <<EOF\ntee /tmp/f\nEOF",
         "cat <<'EOF'\n$(tee sub/link/f)\nEOF",
         "python3 - <<'EOF'\nprint(\"it's\")\nEOF",
         "cargo test # don't\ncargo build",
@@ -336,8 +358,6 @@ fn comment_heredoc_keeps_allowed_forms() {
         "cat <<'E\\OF'\nx\nE\\OF",
         "cat <<E\\\\OF\nx\nE\\OF",
         "cat <<\"E\\$OF\"\nx\nE$OF",
-        // The severe side: an unterminated data-reader heredoc runs nothing.
-        "cat <<EOF\ndata\ntee sub/link/f",
         // Short spellings must not panic and stay as before.
         "cat <",
         "cat <<x",

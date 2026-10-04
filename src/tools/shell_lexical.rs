@@ -13,14 +13,16 @@
 //! second-stage path candidates, and the credential scan) read the elided text
 //! at their entry points instead of each rewriting the quote state machine.
 //!
-//! A heredoc body is dropped only when the heredoc's whole line — the same line
+//! A heredoc body is dropped only when the command before it — the same text
 //! [`scan`] already produced, with comments and line continuations removed — is a
-//! single command whose quote-removed argv exactly matches one of the data-reader
-//! forms (see [`data_reader_argv`]), and the command defines no function or alias.
-//! Every other body is kept, read both with and without comment elision, so a
-//! shell, an interpreter, a function, a quote, or a pipeline that executes it is
-//! still inspected. Text that cannot be read statically is reported as `None`
-//! rather than guessed at, and the callers fail closed (H-02 §1, H-03 §5, H-04 §4).
+//! single command with no separator or newline, has exactly one quoted-delimiter
+//! heredoc, and its quote-removed argv exactly matches one of the data-reader
+//! forms (see [`data_reader_argv`]). Because that command cannot hold a second
+//! command, a function definition, or an alias, there is no room for a program
+//! that would execute the body. Every other body is kept, read both with and
+//! without comment elision, so a shell, an interpreter, a quote, or a pipeline
+//! that executes it is still inspected. Text that cannot be read statically is
+//! reported as `None` rather than guessed at, and the callers fail closed.
 
 /// Operation recorded for a command whose text the lexical guard cannot read
 /// (an unterminated quote, an ambiguous arithmetic shift, or a heredoc whose
@@ -56,7 +58,7 @@ struct Arg {
 /// heredoc, or line continuation, so callers can detect "the shell rewrites this
 /// text" by an equality check against the original.
 pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
-    scan(command, command).map(|output| output.text)
+    scan(command).map(|output| output.text)
 }
 
 /// Returns the raw body of every heredoc in the command (dropped or kept,
@@ -64,7 +66,7 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
 /// statically. Used by the credential scan, which inspects each body's own words
 /// (H-03 §5 N5, H-04 §4 C4).
 pub(crate) fn heredoc_bodies(command: &str) -> Option<Vec<String>> {
-    scan(command, command).map(|output| output.bodies)
+    scan(command).map(|output| output.bodies)
 }
 
 /// Whether the elided text is byte-identical to the input, i.e. the command has
@@ -73,7 +75,7 @@ pub(crate) fn text_is_unchanged(command: &str) -> bool {
     strip_comments_and_heredocs(command).as_deref() == Some(command)
 }
 
-fn scan(command: &str, root_command: &str) -> Option<ScanOutput> {
+fn scan(command: &str) -> Option<ScanOutput> {
     // An arithmetic shift and a heredoc both start with `<<`. When the command
     // also contains `((`, the two cannot be told apart portably, so fail closed.
     if command.contains("((") && command.contains("<<") {
@@ -87,7 +89,6 @@ fn scan(command: &str, root_command: &str) -> Option<ScanOutput> {
     let mut double = false;
     let mut backtick = false;
     let mut at_word_start = true;
-    let mut out_line_start = 0usize;
     let mut pending: Vec<Heredoc> = Vec::new();
     while index < bytes.len() {
         let ch = bytes[index];
@@ -214,25 +215,18 @@ fn scan(command: &str, root_command: &str) -> Option<ScanOutput> {
                 }
             }
             b'\n' => {
-                // The line the scan produced, with comments and continuations
-                // already removed: the same text the guards will read.
-                let elided_line = out[out_line_start..].to_vec();
+                // The elided command the scan has produced so far, with comments
+                // and continuations removed: the same text the guards will read.
+                let elided_command = out.clone();
                 out.push(b'\n');
                 index += 1;
                 if !pending.is_empty() {
-                    let (next, kept) = resolve_heredocs(
-                        bytes,
-                        index,
-                        &pending,
-                        &elided_line,
-                        root_command,
-                        &mut bodies,
-                    )?;
+                    let (next, kept) =
+                        resolve_heredocs(bytes, index, &pending, &elided_command, &mut bodies)?;
                     out.extend_from_slice(&kept);
                     index = next;
                     pending.clear();
                 }
-                out_line_start = out.len();
                 at_word_start = true;
             }
             ch if is_word_boundary(ch) => {
@@ -377,11 +371,10 @@ fn resolve_heredocs(
     bytes: &[u8],
     body_start: usize,
     pending: &[Heredoc],
-    elided_line: &[u8],
-    root_command: &str,
+    elided_command: &[u8],
     bodies: &mut Vec<String>,
 ) -> Option<(usize, Vec<u8>)> {
-    let drop_bodies = elided_line_is_data_reader(elided_line, root_command);
+    let drop_bodies = should_drop_heredoc_bodies(elided_command, pending);
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
     for heredoc in pending {
@@ -404,7 +397,7 @@ fn resolve_heredocs(
             // Read the kept body both with comments elided and with quoting
             // flattened, so neither a shell comment nor a quote can hide a path
             // the body runs (N4, H-04 C3).
-            let cleaned = scan(body_text, root_command)?;
+            let cleaned = scan(body_text)?;
             kept.extend_from_slice(cleaned.text.as_bytes());
             bodies.extend(cleaned.bodies);
             kept.push(b' ');
@@ -470,17 +463,25 @@ fn strip_leading_tabs(line: &[u8]) -> &[u8] {
     &line[start..]
 }
 
-/// Whether the heredoc's elided line is a single command that reads its stdin as
-/// data (H-03 §5 N1/N2, H-04 §4 C1/C2).
-fn elided_line_is_data_reader(line: &[u8], root_command: &str) -> bool {
-    // One command only: no pipelines, lists, subshells, groups, or substitutions.
-    if line
-        .iter()
-        .any(|ch| matches!(ch, b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' | b'`'))
+/// Whether the command before the body is a single data-reader command with one
+/// quoted-delimiter heredoc, so its body can be dropped (H-04 §4, H-05 §B1).
+fn should_drop_heredoc_bodies(elided_command: &[u8], pending: &[Heredoc]) -> bool {
+    // Exactly one heredoc, with a quoted delimiter, so the shell expands nothing
+    // in the body.
+    if pending.len() != 1 || !pending[0].quoted {
+        return false;
+    }
+    // A single command: no newline before the body and no separator, group, or
+    // substitution. That leaves no room for a second command, a function
+    // definition, or an alias that could execute the body.
+    if elided_command.contains(&b'\n')
+        || elided_command
+            .iter()
+            .any(|ch| matches!(ch, b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' | b'`'))
     {
         return false;
     }
-    let Some(argv) = line_argv(line) else {
+    let Some(argv) = line_argv(elided_command) else {
         return false;
     };
     let Some(name) = argv.first() else {
@@ -489,11 +490,6 @@ fn elided_line_is_data_reader(line: &[u8], root_command: &str) -> bool {
     // A literal, unqualified command name: a quote or backslash in the name, or
     // a slash, disqualifies it.
     if name.quoted || name.bytes.contains(&b'/') {
-        return false;
-    }
-    // A function or alias in the command may replace the program and execute the
-    // body.
-    if command_defines_function_or_alias(root_command) {
         return false;
     }
     data_reader_argv(&argv)
@@ -683,62 +679,6 @@ fn flush_arg(
     *expect_target = false;
 }
 
-/// Whether the whole command defines a function or an alias: the word
-/// `function`, the word `alias`, or a word followed by `(` … `)` across blanks
-/// and line continuations (H-04 C1).
-fn command_defines_function_or_alias(command: &str) -> bool {
-    let bytes = command.as_bytes();
-    if contains_shell_word(bytes, b"function") || contains_shell_word(bytes, b"alias") {
-        return true;
-    }
-    (0..bytes.len()).any(|index| {
-        bytes[index] == b'(' && name_before(bytes, index) && closes_after(bytes, index)
-    })
-}
-
-fn contains_shell_word(haystack: &[u8], word: &[u8]) -> bool {
-    (0..=haystack.len().saturating_sub(word.len())).any(|index| {
-        &haystack[index..index + word.len()] == word
-            && (index == 0 || !is_word_char(haystack[index - 1]))
-            && (index + word.len() == haystack.len() || !is_word_char(haystack[index + word.len()]))
-    })
-}
-
-fn is_word_char(ch: u8) -> bool {
-    ch.is_ascii_alphanumeric() || ch == b'_'
-}
-
-/// Whether a word character precedes the `(` at `index`, across blanks and line
-/// continuations.
-fn name_before(bytes: &[u8], index: usize) -> bool {
-    let mut cursor = index;
-    loop {
-        if cursor >= 2 && bytes[cursor - 1] == b'\n' && bytes[cursor - 2] == b'\\' {
-            cursor -= 2;
-        } else if cursor >= 1 && (bytes[cursor - 1] == b' ' || bytes[cursor - 1] == b'\t') {
-            cursor -= 1;
-        } else {
-            break;
-        }
-    }
-    cursor >= 1 && is_word_char(bytes[cursor - 1])
-}
-
-/// Whether `)` follows the `(` at `index`, across blanks and line continuations.
-fn closes_after(bytes: &[u8], index: usize) -> bool {
-    let mut cursor = index + 1;
-    loop {
-        if cursor < bytes.len() && (bytes[cursor] == b' ' || bytes[cursor] == b'\t') {
-            cursor += 1;
-        } else if cursor + 1 < bytes.len() && bytes[cursor] == b'\\' && bytes[cursor + 1] == b'\n' {
-            cursor += 2;
-        } else {
-            break;
-        }
-    }
-    cursor < bytes.len() && bytes[cursor] == b')'
-}
-
 /// Whether an unquoted heredoc body runs a command substitution.
 fn body_contains_execution(body: &[u8]) -> bool {
     body.contains(&b'`') || body.windows(2).any(|window| window == b"$(")
@@ -879,15 +819,15 @@ mod tests {
     }
 
     #[test]
-    fn shell_lexical_drops_data_reader_heredoc_bodies_for_every_delimiter_form() {
+    fn shell_lexical_drops_only_quoted_delimiter_data_reader_bodies() {
         let cases: &[(&str, &str)] = &[
-            ("cat <<EOF\nit's\nEOF", "cat <<EOF\n"),
-            ("cat <<-EOF\n\tit's\n\tEOF", "cat <<-EOF\n"),
             ("cat <<'EOF'\nit's\nEOF", "cat <<'EOF'\n"),
             ("cat <<\"EOF\"\nit's\nEOF", "cat <<\"EOF\"\n"),
             ("cat <<\\EOF\nit's\nEOF", "cat <<\\EOF\n"),
-            ("cat << EOF\nit's\nEOF", "cat << EOF\n"),
-            ("cat <<A <<B\none\nA\ntwo\nB", "cat <<A <<B\n"),
+            (
+                "cat <<'EOF' > notes.md\nit's\nEOF",
+                "cat <<'EOF' > notes.md\n",
+            ),
             (
                 "git commit -F - <<'EOF'\nfix it's\nEOF",
                 "git commit -F - <<'EOF'\n",
@@ -895,6 +835,19 @@ mod tests {
         ];
         for (command, expected) in cases {
             assert_eq!(strip(command), *expected, "command: {command}");
+        }
+        // An unquoted delimiter keeps the body, so an unreadable body rejects
+        // (H-05 §B1 design 2 / 10).
+        for command in [
+            "cat <<EOF\nit's\nEOF",
+            "cat <<-EOF\n\tit's\n\tEOF",
+            "cat << EOF\nit's\nEOF",
+        ] {
+            assert_eq!(
+                strip_comments_and_heredocs(command),
+                None,
+                "unquoted delimiter must keep the body: {command:?}"
+            );
         }
     }
 
@@ -1111,17 +1064,16 @@ mod tests {
 
     #[test]
     fn shell_lexical_treats_an_unterminated_heredoc_remainder_as_body() {
-        assert_eq!(strip("cat <<EOF\nit's"), "cat <<EOF\n");
+        // An unquoted delimiter keeps the body, so an unreadable body rejects.
+        assert_eq!(strip_comments_and_heredocs("cat <<EOF\nit's"), None);
         let elided = strip("sh <<EOF\ntee /tmp/f");
         assert!(elided.contains("tee /tmp/f"), "{elided:?}");
     }
 
     #[test]
     fn shell_lexical_treats_a_near_delimiter_line_as_body() {
-        assert_eq!(
-            strip("cat <<EOF\nEOF \n EOF\nEOF\ntee f"),
-            "cat <<EOF\ntee f"
-        );
+        let elided = strip("cat <<EOF\nEOF \n EOF\nEOF\ntee f");
+        assert!(elided.contains("tee f"), "{elided:?}");
     }
 
     #[test]

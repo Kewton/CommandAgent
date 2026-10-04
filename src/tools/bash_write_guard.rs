@@ -846,6 +846,9 @@ mod tests {
             // The flattened reading of a kept body keeps the path visible
             // (H-04 C3).
             "python3 <<'EOF'\npass#'\ntee tests/spec.rs\n#'\nEOF",
+            // A spelled alias or continued function keeps the body (H-05 B1).
+            "a\"\"lias cat=sh\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            "func\\\ntion cat { sh; }\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
         ] {
             assert_eq!(
                 protected_path_mutation(command, &root, &protected),
