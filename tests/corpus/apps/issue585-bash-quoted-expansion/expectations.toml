@@ -1,0 +1,30 @@
+case_id = "issue585-bash-quoted-expansion"
+source = "Issue #585 limited double-quoted $(...)/${...} recognition: the comment/heredoc elision misread an inner quote as the surrounding quote close and dropped the write behind a false comment. This case declares the representative table and the 8,640-form structured regression; tests/issue585_bash_quoted_expansion.rs drives the real decision on both."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/decision-cases.jsonl = [
+  "\"issue-original-normal\"",
+  "\"issue-original-backtick-after\"",
+  "\"issue-original-protected-path\"",
+  "\"issue-original-cd-relative\"",
+  "\"issue-original-parameter-expansion\"",
+  "\"canary-false-comment\"",
+  "\"placeholder-redacted\"",
+  "\"simple-substitution-git\"",
+  "\"true-comment\"",
+  "\"quoted-data-heredoc\"",
+  "\"cargo-test\"",
+  "\"git-commit-quoted-backtick\"",
+  "unreadable shell text",
+  "FAKE_585_CANARY",
+  "secret585"
+]
+fixtures/structured-cases.jsonl = [
+  "\"executes\":true",
+  "\"command\":\"echo \\\"$(echo \\\"x\\\")\\\"\""
+]

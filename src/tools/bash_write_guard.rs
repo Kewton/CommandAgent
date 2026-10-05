@@ -77,7 +77,7 @@ pub(super) fn confinement_rejection(
         }
         if target.operation == shell_lexical::UNREADABLE_OPERATION {
             return Some(BashWriteConfinementRejection {
-                reason: "Bash command text cannot be read by the lexical guard (an unterminated quote, or a `<<` that cannot be told from an arithmetic shift), so its write targets cannot be proven to remain in the Gate 1 workspace boundary; rewrite it with balanced quotes and a literal command or heredoc delimiter".to_string(),
+                reason: "Bash command text cannot be read by the lexical guard (an unterminated quote, an ambiguous `<<`, or a `$(...)`/`${...}` expansion inside double quotes whose interior cannot be proven to leave the surrounding quoting unchanged), so its write targets cannot be proven to remain in the Gate 1 workspace boundary; rewrite it with balanced quotes and a literal command or heredoc delimiter".to_string(),
                 path: target.path,
                 operation: target.operation,
             });
@@ -287,6 +287,12 @@ fn write_targets(command: &str) -> Vec<WriteTarget> {
     let mut targets = targets_from_tokens(&tokens);
     if view.backtick_substitution {
         targets.push(backtick_target());
+    }
+    // #585: a double-quoted expansion the simple-form check cannot read desyncs
+    // the quote state. Keep the targets the text still names and add the same
+    // fail-closed marker the unreadable text uses.
+    if view.ambiguous_expansion {
+        targets.push(unreadable_target());
     }
     targets
 }
@@ -1494,5 +1500,148 @@ mod tests {
             Some("tests/spec.ts".to_string())
         );
         assert!(protected_path_mutation("tee `echo out.txt`", &root, &protected).is_none());
+    }
+
+    // Issue #585: a double-quoted `$(...)`/`${...}` expansion whose interior the
+    // simple-form check cannot read desyncs the quote state, so a following
+    // word-start `#` is read as a comment and the write behind it disappears.
+    // The guard keeps the targets the elided text still names, keeps the
+    // backtick marker, and adds the same fail-closed unreadable marker.
+
+    fn unreadable_marker() -> (String, String) {
+        (
+            "<shell text>".to_string(),
+            shell_lexical::UNREADABLE_OPERATION.to_string(),
+        )
+    }
+
+    #[test]
+    fn quoted_expansion_write_targets_fail_closed() {
+        assert_eq!(
+            write_target_pairs(r#"echo "$(echo "x")""#),
+            vec![unreadable_marker()]
+        );
+        assert_eq!(
+            write_target_pairs(r#"echo "$(echo "x")" ; tee out.txt"#),
+            expected_targets(&[
+                ("out.txt", "tee"),
+                ("<shell text>", shell_lexical::UNREADABLE_OPERATION)
+            ])
+        );
+    }
+
+    #[test]
+    fn quoted_expansion_false_comment_still_adds_the_fail_closed_marker() {
+        // The readable elision is `echo "$(echo " ` (the comment drops the
+        // write), so the base commit allowed it. The marker must now refuse it.
+        let pairs = write_target_pairs(r#"echo "$(echo " #x" )" ; tee /tmp/f"#);
+        assert_eq!(pairs, vec![unreadable_marker()], "{pairs:?}");
+    }
+
+    #[test]
+    fn quoted_expansion_keeps_the_backtick_marker_together() {
+        let pairs = write_target_pairs(r#"echo "$(echo "x") `y`""#);
+        assert!(
+            pairs.iter().any(
+                |(path, operation)| path == "<backtick command substitution>"
+                    && operation == shell_lexical::backticks::UNVERIFIABLE_OPERATION
+            ),
+            "{pairs:?}"
+        );
+        assert!(pairs.contains(&unreadable_marker()), "{pairs:?}");
+    }
+
+    #[test]
+    fn quoted_expansion_is_a_recognized_mutation() {
+        for command in [
+            r#"echo "$(echo "x")""#,
+            r#"echo "${x:-"y"}""#,
+            r#"echo "$((1+2))""#,
+        ] {
+            assert!(has_recognized_mutation(command), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn quoted_expansion_keeps_simple_unquoted_and_data_forms_allowed() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        for command in [
+            r#"echo "$(git rev-parse --show-toplevel)""#,
+            r#"echo "${HOME}""#,
+            r#"echo "$(cat path/to/file.txt)""#,
+            r#"echo $(echo "x")"#,
+            r#"echo '$(echo "x")'"#,
+            r#"echo x # $(echo "y")"#,
+            "cat <<'EOF'\n$(echo \"x\")\nEOF",
+        ] {
+            assert!(
+                confinement_rejection(command, &root).is_none(),
+                "command must stay allowed: {command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_expansion_rejection_reason_is_fixed_and_names_no_command() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let first = confinement_rejection(r#"echo "$(echo " #a" )" ; tee /tmp/a"#, &root)
+            .expect("rejected");
+        let second = confinement_rejection(r#"echo "${SECRET585:-"y"}""#, &root).expect("rejected");
+        assert_eq!(first.operation, shell_lexical::UNREADABLE_OPERATION);
+        assert_eq!(second.operation, shell_lexical::UNREADABLE_OPERATION);
+        assert_eq!(
+            first.reason, second.reason,
+            "the reason must not depend on the command"
+        );
+        assert!(!first.reason.contains("/tmp/a"), "{}", first.reason);
+        // A distinctive value, not a short substring that can match the fixed
+        // English diagnostic by accident.
+        assert!(!second.reason.contains("SECRET585"), "{}", second.reason);
+    }
+
+    #[test]
+    fn quoted_expansion_protected_path_counterexamples_stay_refused() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+
+        // Reference 1: a comment-line apostrophe, then a double-quoted expansion
+        // with an inner quote, then the protected write.
+        let command = "# '\necho \"$(echo \"x\")\" ; tee tests/spec.rs";
+        assert_eq!(
+            protected_path_mutation(command, &root, &protected),
+            Some("tests/spec.rs".to_string())
+        );
+
+        // Reference 2: a cd, then the expansion, then a cd-relative protected
+        // write. Assert the existing target, the cwd candidate, and the final
+        // match separately.
+        let command = "cd tests && echo \"$(echo \"x\")\" ; tee spec.rs";
+        let pairs = write_target_pairs(command);
+        assert!(
+            pairs.contains(&("spec.rs".to_string(), "tee".to_string())),
+            "the existing target must stay visible: {pairs:?}"
+        );
+        let inspection = working_directory::inspect(command);
+        assert!(
+            inspection.undecidable,
+            "an ambiguous expansion must mark the inspection undecidable"
+        );
+        assert!(
+            inspection
+                .relative_variants("spec.rs")
+                .contains(&"tests/spec.rs".to_string()),
+            "the cwd candidate must stay visible: {:?}",
+            inspection.relative_variants("spec.rs")
+        );
+        assert_eq!(
+            protected_path_mutation(command, &root, &protected),
+            Some("tests/spec.rs".to_string())
+        );
     }
 }

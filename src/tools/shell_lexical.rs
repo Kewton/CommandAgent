@@ -25,6 +25,7 @@
 //! reported as `None` rather than guessed at, and the callers fail closed.
 
 pub(crate) mod backticks;
+mod quoted_expansion;
 
 /// Operation recorded for a command whose text the lexical guard cannot read
 /// (an unterminated quote, an ambiguous arithmetic shift, or a heredoc whose
@@ -47,6 +48,11 @@ struct ScanOutput {
     /// (Issue #581). Set by an unquoted or double-quoted backtick in this text or
     /// in a kept body, or by a backtick behind an opaque `$(`/`${` expansion.
     backtick_substitution: bool,
+    /// Whether a double-quoted `$(...)`/`${...}` expansion has an interior the
+    /// simple-form check cannot prove leaves the surrounding quoting unchanged
+    /// (Issue #585). Set by an ambiguous expansion in this text or in a kept
+    /// body, and never cleared by a later `)`/`}`/newline.
+    ambiguous_expansion: bool,
 }
 
 /// One argument of a heredoc line: its quote-removed bytes, and whether any
@@ -64,7 +70,11 @@ struct Arg {
 /// heredoc, or line continuation, so callers can detect "the shell rewrites this
 /// text" by an equality check against the original.
 pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
-    scan(command, false).map(|output| output.text)
+    scan(command, false).and_then(|output| {
+        // A double-quoted expansion the simple-form check cannot read makes the
+        // whole text unreadable, so the callers fail closed (Issue #585).
+        (!output.ambiguous_expansion).then_some(output.text)
+    })
 }
 
 /// Returns the raw body of every heredoc in the command (dropped or kept,
@@ -72,7 +82,7 @@ pub(crate) fn strip_comments_and_heredocs(command: &str) -> Option<String> {
 /// statically. Used by the credential scan, which inspects each body's own words
 /// (H-03 §5 N5, H-04 §4 C4).
 pub(crate) fn heredoc_bodies(command: &str) -> Option<Vec<String>> {
-    scan(command, false).map(|output| output.bodies)
+    scan(command, false).and_then(|output| (!output.ambiguous_expansion).then_some(output.bodies))
 }
 
 /// Whether the elided text is byte-identical to the input, i.e. the command has
@@ -82,10 +92,14 @@ pub(crate) fn text_is_unchanged(command: &str) -> bool {
 }
 
 /// The write-target inspector's view of a command: the elided text and whether
-/// it runs a backtick command substitution (Issue #581).
+/// it runs a backtick command substitution (Issue #581) or has an ambiguous
+/// double-quoted expansion (Issue #585). The text is returned even when a signal
+/// is set, so the caller keeps the targets and cwd candidates the existing scan
+/// obtained and adds its own refusal on top.
 pub(crate) struct WriteGuardView {
     pub(crate) text: String,
     pub(crate) backtick_substitution: bool,
+    pub(crate) ambiguous_expansion: bool,
 }
 
 /// Reads the write-target inspector's view of a command in one scan.
@@ -93,6 +107,7 @@ pub(crate) fn write_guard_view(command: &str) -> Option<WriteGuardView> {
     scan(command, false).map(|output| WriteGuardView {
         text: output.text,
         backtick_substitution: output.backtick_substitution,
+        ambiguous_expansion: output.ambiguous_expansion,
     })
 }
 
@@ -109,6 +124,7 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut bodies: Vec<String> = Vec::new();
     let mut backtick_substitution = false;
+    let mut ambiguous_expansion = false;
     let mut index = 0usize;
     let mut single = false;
     let mut double = false;
@@ -148,6 +164,34 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                 }
                 at_word_start = false;
                 continue;
+            }
+            if ch == b'$' {
+                match quoted_expansion::classify(bytes, index) {
+                    quoted_expansion::Expansion::Simple { end } => {
+                        // Copy the whole simple expansion, removing the line
+                        // continuations the shell removes, so the elided text is
+                        // byte-identical to the scan that read the bytes one at a
+                        // time before Issue #585.
+                        let mut cursor = index;
+                        while cursor < end {
+                            if bytes[cursor] == b'\\' && bytes.get(cursor + 1) == Some(&b'\n') {
+                                cursor += 2;
+                                continue;
+                            }
+                            out.push(bytes[cursor]);
+                            cursor += 1;
+                        }
+                        index = end;
+                        at_word_start = false;
+                        continue;
+                    }
+                    quoted_expansion::Expansion::Ambiguous => {
+                        // Keep the existing scan's text and signals, and never
+                        // clear the flag: the callers fail closed.
+                        ambiguous_expansion = true;
+                    }
+                    quoted_expansion::Expansion::Bare => {}
+                }
             }
             out.push(ch);
             if ch == b'`' && backticks::in_executable_context(backticks::Context::DoubleQuoted) {
@@ -258,7 +302,7 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                 out.push(b'\n');
                 index += 1;
                 if !pending.is_empty() {
-                    let (next, kept, kept_backtick) = resolve_heredocs(
+                    let (next, kept, kept_backtick, kept_ambiguous) = resolve_heredocs(
                         bytes,
                         index,
                         &pending,
@@ -270,6 +314,10 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                     if kept_backtick {
                         // A kept body read as commands carries its own marker out.
                         backtick_substitution = true;
+                    }
+                    if kept_ambiguous {
+                        // A kept body read as commands carries its ambiguity out.
+                        ambiguous_expansion = true;
                     }
                     index = next;
                     pending.clear();
@@ -305,6 +353,7 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
         text,
         bodies,
         backtick_substitution,
+        ambiguous_expansion,
     })
 }
 
@@ -421,7 +470,8 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Parsed {
 
 /// Locates every pending heredoc body in order from `body_start` (the character
 /// after the newline). Returns the index just past the last terminator, the
-/// bytes to keep, and whether a kept body runs a backtick command substitution.
+/// bytes to keep, whether a kept body runs a backtick command substitution, and
+/// whether a kept body has an ambiguous double-quoted expansion (Issue #585).
 /// `bodies` receives the raw body of each heredoc. `None` when a body cannot be
 /// read.
 fn resolve_heredocs(
@@ -431,13 +481,14 @@ fn resolve_heredocs(
     elided_command: &[u8],
     nested: bool,
     bodies: &mut Vec<String>,
-) -> Option<(usize, Vec<u8>, bool)> {
+) -> Option<(usize, Vec<u8>, bool, bool)> {
     // A body inside a kept body is never dropped: the outer command may export a
     // function or rewrite PATH and execute it (H-06 blocker 1).
     let drop_bodies = !nested && should_drop_heredoc_bodies(elided_command, pending);
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
     let mut nested_backtick = false;
+    let mut nested_ambiguous = false;
     for heredoc in pending {
         let (body_end, after) = locate_body(bytes, position, heredoc)?;
         let body = &bytes[position..body_end];
@@ -461,6 +512,7 @@ fn resolve_heredocs(
             let cleaned = scan(body_text, true)?;
             kept.extend_from_slice(cleaned.text.as_bytes());
             nested_backtick |= cleaned.backtick_substitution;
+            nested_ambiguous |= cleaned.ambiguous_expansion;
             bodies.extend(cleaned.bodies);
             kept.push(b' ');
             kept.extend_from_slice(&flatten_quotes(body));
@@ -470,7 +522,7 @@ fn resolve_heredocs(
             break;
         }
     }
-    Some((position, kept, nested_backtick))
+    Some((position, kept, nested_backtick, nested_ambiguous))
 }
 
 /// Returns the start of the terminator line (the body end) and the index just
@@ -1270,6 +1322,36 @@ mod tests {
             let view = write_guard_view(command).expect("command must be readable");
             assert_eq!(
                 view.backtick_substitution,
+                *expected,
+                "command: {command:?} -> {view_text:?}",
+                view_text = view.text
+            );
+        }
+    }
+
+    #[test]
+    fn shell_lexical_marks_ambiguous_quoted_expansions_and_never_clears_them() {
+        let cases: &[(&str, bool)] = &[
+            (r#"echo "$(echo "x")""#, true),
+            (r#"echo "${x:-"y"}""#, true),
+            ("echo \"$(echo\nx)\"", true),
+            // A later `)`, `}`, and newline must not clear the signal.
+            ("echo \"$(echo \"x\")\"\n}", true),
+            ("echo \"$(a(b))\"", true),
+            // Simple forms, single quotes, comments, and unquoted expansions are
+            // not ambiguous.
+            (r#"echo "$(x)""#, false),
+            (r#"echo "${HOME}""#, false),
+            (r#"echo "$(git rev-parse --show-toplevel)""#, false),
+            (r#"echo '$(echo "x")'"#, false),
+            (r#"echo x # $(echo "y")"#, false),
+            (r#"echo $(echo "x")"#, false),
+            ("cat <<'EOF'\n$(echo \"x\")\nEOF", false),
+        ];
+        for (command, expected) in cases {
+            let view = write_guard_view(command).expect("command must be readable");
+            assert_eq!(
+                view.ambiguous_expansion,
                 *expected,
                 "command: {command:?} -> {view_text:?}",
                 view_text = view.text
