@@ -211,6 +211,37 @@ fn comment_heredoc_detects_nested_secrets() {
 }
 
 #[test]
+fn comment_heredoc_rejects_quoted_dash_terminator_with_followup_command() {
+    assert_rejected(&[
+        "cat <<-'EOF'\n\tit's\n\tEOF\ntee sub/link/f",
+        "cat <<-'EOF'\n\tit's\n\t\tEOF\ntee sub/link/f",
+        "cat <<-'EOF'\n\tit's\nEOF\ntee sub/link/f",
+        "cat <<-'EOF'\n\tit's\n\tEOF\ncat sub/link/secret",
+    ]);
+}
+
+#[test]
+fn comment_heredoc_detects_quoted_dash_followup_secret() {
+    for command in [
+        "cat <<-'EOF'\n\tit's\n\tEOF\ncat .env",
+        "cat <<-'EOF'\n\tit's\n\t\tEOF\ncat .env",
+    ] {
+        assert!(
+            command_references_secret(command).is_some(),
+            "expected secret detection: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn comment_heredoc_rejects_kept_body_continuation_paths() {
+    assert_rejected(&[
+        "sh <<'EOF'\ntee sub/li\\\nnk/f\nEOF",
+        "sh <<'EOF'\ncat sub/li\\\nnk/secret\nEOF",
+    ]);
+}
+
+#[test]
 fn comment_heredoc_rejects_the_mutation_killer_inputs() {
     assert_rejected(&[
         "echo \"a #\"; tee sub/link/f\n\"",

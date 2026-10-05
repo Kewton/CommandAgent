@@ -1141,4 +1141,59 @@ mod tests {
         }
         assert!(!text_is_unchanged("cargo test # comment"));
     }
+
+    #[test]
+    fn shell_lexical_quoted_dash_strips_tabs_only_from_the_terminator() {
+        // `<<-` strips leading tabs from the terminator, so the body (and only
+        // the body) is dropped and the command after the terminator stays.
+        for command in [
+            "cat <<-'EOF'\n\tit's\n\tEOF\ntee sub/link/f",
+            "cat <<-'EOF'\n\tit's\n\t\tEOF\ntee sub/link/f",
+            "cat <<-'EOF'\n\tit's\nEOF\ntee sub/link/f",
+        ] {
+            assert_eq!(
+                strip(command),
+                "cat <<-'EOF'\ntee sub/link/f",
+                "command: {command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_lexical_quoted_dash_heredoc_reaches_the_protected_path_check() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+        for command in [
+            "cat <<-'EOF'\n\tit's\n\tEOF\ntee tests/spec.rs",
+            "cat <<-'EOF'\n\tit's\n\t\tEOF\ntee tests/spec.rs",
+        ] {
+            assert_eq!(
+                crate::tools::bash_write_guard::protected_path_mutation(command, &root, &protected),
+                Some("tests/spec.rs".to_string()),
+                "command: {command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_lexical_pins_unquoted_backslash_output() {
+        assert_eq!(strip("echo a\\b"), "echo a\\b");
+        assert_eq!(strip("echo a\\ b"), "echo a\\ b");
+        assert_eq!(strip("x\\y z"), "x\\y z");
+    }
+
+    #[test]
+    fn shell_lexical_single_angle_and_here_string_are_not_heredocs() {
+        assert_eq!(strip("cat < file\ntee f"), "cat < file\ntee f");
+        assert_eq!(strip("cat <<< x\ntee f"), "cat <<< x\ntee f");
+        assert_eq!(strip("cat <<'EOF'\nbody\nEOF\ntee f"), "cat <<'EOF'\ntee f");
+    }
+
+    #[test]
+    fn shell_lexical_keeps_a_continuation_split_path_in_a_kept_body() {
+        let elided = strip("sh <<'EOF'\ntee sub/li\\\nnk/f\nEOF");
+        assert!(elided.contains("sub/link/f"), "{elided:?}");
+    }
 }
