@@ -1,10 +1,14 @@
 //! Shell word boundaries for confinement, without executing shell expansions.
 
 pub(super) fn path_candidates(command: &str) -> Vec<String> {
-    let Some(words) = literal_shell_words(command) else {
+    // Read the comment- and heredoc-elided text when the lexical guard can elide
+    // it; fall back to the raw command when it cannot (Issue #576).
+    let elided = super::super::shell_lexical::strip_comments_and_heredocs(command);
+    let text = elided.as_deref().unwrap_or(command);
+    let Some(words) = literal_shell_words(text) else {
         // Expansion syntax and malformed input must not disable the old,
         // conservative inspection of paths embedded in executable text.
-        return embedded_candidates(command);
+        return embedded_candidates(text);
     };
     words
         .into_iter()

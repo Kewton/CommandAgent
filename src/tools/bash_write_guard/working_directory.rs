@@ -80,7 +80,13 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         undecidable: false,
         relative_words: Vec::new(),
     };
-    let Some(tokens) = super::shell_tokens(command) else {
+    let Some(text) = super::super::shell_lexical::strip_comments_and_heredocs(command) else {
+        // The shell text cannot be read, so no working-directory change can be
+        // modelled; relative writes after it must be refused (Issue #576).
+        inspection.undecidable = true;
+        return inspection;
+    };
+    let Some(tokens) = super::shell_tokens(&text) else {
         return inspection;
     };
 
@@ -103,7 +109,7 @@ pub(crate) fn inspect(command: &str) -> Inspection {
             function_keyword = true;
         }
     }
-    if command.contains("()") {
+    if text.contains("()") {
         function_keyword = true;
     }
 

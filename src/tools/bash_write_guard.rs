@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use super::shell_lexical;
+
 mod ansi_c_quoting;
 mod command_prefix;
 mod working_directory;
@@ -73,6 +75,13 @@ pub(super) fn confinement_rejection(
                 operation: target.operation,
             });
         }
+        if target.operation == shell_lexical::UNREADABLE_OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: "Bash command text cannot be read by the lexical guard (an unterminated quote, or a `<<` that cannot be told from an arithmetic shift), so its write targets cannot be proven to remain in the Gate 1 workspace boundary; rewrite it with balanced quotes and a literal command or heredoc delimiter".to_string(),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.path == "/dev/null"
             && matches!(target.operation.as_str(), "output redirection" | "tee")
         {
@@ -124,6 +133,7 @@ fn working_directory_rejection(
             | ansi_c_quoting::OPERATION
             | command_prefix::UNRESOLVED_OPERATION
             | command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION
+            | shell_lexical::UNREADABLE_OPERATION
     ) {
         return None;
     }
@@ -169,7 +179,14 @@ pub(crate) fn protected_path_mutation(
     protected_paths: &[String],
 ) -> Option<String> {
     let inspection = working_directory::inspect(command);
-    write_targets(command)
+    let mut targets = write_targets(command);
+    // When the elision cannot read the command, the write guard still fails
+    // closed, but the protected-path reference would be lost. Read the raw text
+    // as well so a protected mutation is still named (design 6 "None なら生").
+    if shell_lexical::strip_comments_and_heredocs(command).is_none() {
+        targets.extend(raw_write_targets(command));
+    }
+    targets
         .into_iter()
         .filter(|target| target.operation != "working directory")
         .find_map(|target| {
@@ -217,17 +234,54 @@ fn path_matches(candidate: &Path, protected: &Path) -> bool {
     candidate == protected || candidate.starts_with(protected) || protected.starts_with(candidate)
 }
 
+/// A fail-closed target for a command whose text the lexical guard cannot read.
+/// The sentinel path never matches a protected path.
+fn unreadable_target() -> WriteTarget {
+    WriteTarget {
+        path: "<shell text>".to_string(),
+        operation: shell_lexical::UNREADABLE_OPERATION.to_string(),
+    }
+}
+
 fn write_targets(command: &str) -> Vec<WriteTarget> {
-    if let Some(kind) = ansi_c_quoting::outside_quotes(command) {
+    let elided = shell_lexical::strip_comments_and_heredocs(command);
+    // #575: the ANSI-C / locale introducer is refused on the raw text and on the
+    // elided text. Reading only one of them either changes the refusal reason or
+    // misses a `# it's\n$'tee' #'`, where the raw scan is inside a comment's
+    // quote and the elided scan is not.
+    if let Some(kind) = ansi_c_quoting::outside_quotes(command)
+        .or_else(|| elided.as_deref().and_then(ansi_c_quoting::outside_quotes))
+    {
         return vec![WriteTarget {
             path: kind.introducer().to_string(),
             operation: ansi_c_quoting::OPERATION.to_string(),
         }];
     }
+    let Some(text) = elided.as_deref() else {
+        return vec![unreadable_target()];
+    };
+    let Some(tokens) = shell_tokens(text) else {
+        return vec![unreadable_target()];
+    };
+    targets_from_tokens(&tokens)
+}
+
+/// Write targets of a command read directly, without comment or heredoc elision.
+/// Used only to recover a protected-path reference from text the elision cannot
+/// read (B3 `cat <<EOF\n# $(tee tests/spec.rs)\nEOF`); the write guard itself
+/// still fails closed on the same text.
+fn raw_write_targets(command: &str) -> Vec<WriteTarget> {
+    if ansi_c_quoting::outside_quotes(command).is_some() {
+        return Vec::new();
+    }
     let Some(tokens) = shell_tokens(command) else {
         return Vec::new();
     };
-    let mut targets = redirect_targets(&tokens);
+    targets_from_tokens(&tokens)
+}
+
+fn targets_from_tokens(tokens: &[ShellToken]) -> Vec<WriteTarget> {
+    let mut targets = redirect_targets(tokens);
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
         let words = command_words(segment);
         if words.is_empty() {
@@ -721,7 +775,6 @@ mod tests {
             ("tee a\\ b", &[("a b", "tee")]),
             ("tee \"a\\\"b\"", &[("a\"b", "tee")]),
             ("tee 'it''s'", &[("its", "tee")]),
-            ("tee 'unterminated", &[]),
             ("cp a b", &[("b", "cp")]),
             ("cp -t dir a", &[("dir", "cp")]),
             ("cp -tdir a", &[("dir", "cp")]),
@@ -756,6 +809,62 @@ mod tests {
                 "command: {command}"
             );
         }
+    }
+
+    #[test]
+    fn unterminated_quote_is_rejected_as_unreadable_shell_text() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+
+        assert_eq!(
+            write_target_pairs("tee 'unterminated"),
+            expected_targets(&[("<shell text>", shell_lexical::UNREADABLE_OPERATION)])
+        );
+        let rejection = confinement_rejection("tee 'unterminated", &root).expect("rejected");
+        assert_eq!(rejection.operation, shell_lexical::UNREADABLE_OPERATION);
+    }
+
+    #[test]
+    fn comment_heredoc_protected_path_mutation_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+
+        for command in [
+            "echo \"x #y\";tee tests/spec.rs",
+            "echo \\#x;tee tests/spec.rs",
+            // Unreadable by the elision, but the raw fallback must still name
+            // the protected path (H-02 §1 B3).
+            "cat <<EOF\n# $(tee tests/spec.rs)\nEOF",
+            // The kept body has its comments removed, so the command is visible
+            // (H-03 §2 N4).
+            "sh <<'EOF'\n#'\ntee tests/spec.rs\n#'\nEOF",
+            // A function definition keeps the body (H-04 C1).
+            "cat () { sh; }\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            // The flattened reading of a kept body keeps the path visible
+            // (H-04 C3).
+            "python3 <<'EOF'\npass#'\ntee tests/spec.rs\n#'\nEOF",
+            // A spelled alias or continued function keeps the body (H-05 B1).
+            "a\"\"lias cat=sh\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            "func\\\ntion cat { sh; }\ncat <<'EOF'\ntee tests/spec.rs\nEOF",
+            // A nested body is never dropped, so an exported function that runs
+            // it is still seen (H-06 blocker 1).
+            "cat(){ sh; }\nexport -f cat\nsh <<'OUTER'\ncat <<'INNER'\ntee te\"sts/spec.rs\"\nINNER\nOUTER",
+            "mkdir -p bin && printf 'sh\\n' > bin/cat && chmod +x bin/cat && PATH=$PWD/bin:$PATH sh <<'OUTER'\ncat <<'INNER'\ntee te\"sts/spec.rs\"\nINNER\nOUTER",
+        ] {
+            assert_eq!(
+                protected_path_mutation(command, &root, &protected),
+                Some("tests/spec.rs".to_string()),
+                "command: {command}"
+            );
+        }
+        assert_eq!(
+            protected_path_mutation("echo x # tee tests/spec.rs", &root, &protected),
+            None,
+            "a comment must not name a protected path"
+        );
     }
 
     #[test]

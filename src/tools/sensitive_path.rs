@@ -15,6 +15,10 @@ use serde_json::Value;
 /// The only basenames that stay readable/writable: strict dotenv templates.
 const TEMPLATE_NAMES: [&str; 3] = [".env.example", ".env.sample", ".env.template"];
 
+/// Non-leaking reference reported when the Bash command cannot be read: the
+/// credential scan fails closed rather than returning "no reference" (H-03 N5).
+const UNREADABLE_SECRET_REFERENCE: &str = "unreadable shell text";
+
 /// A denied credential path. The value carries names only: it never contains
 /// the credential bytes, an expansion value, or a provider token.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -477,9 +481,34 @@ where
 
 /// First direct credential reference in a Bash command string, if any.
 pub fn command_references_secret(command: &str) -> Option<String> {
-    shell_tokens(command)
+    // Read the elided text's tokens and, separately, each heredoc body's own
+    // words, so a quote or a line continuation inside a body cannot hide a
+    // credential name (H-03 §5 N5, H-04 §4 C4). When the command cannot be read,
+    // fail closed (report a reference).
+    let Some(elided) = super::shell_lexical::strip_comments_and_heredocs(command) else {
+        return Some(UNREADABLE_SECRET_REFERENCE.to_string());
+    };
+    if let Some(reference) = tokens_reference(&elided) {
+        return Some(reference);
+    }
+    match super::shell_lexical::heredoc_bodies(command) {
+        None => Some(UNREADABLE_SECRET_REFERENCE.to_string()),
+        Some(bodies) => bodies.iter().find_map(|body| body_words_reference(body)),
+    }
+}
+
+fn tokens_reference(text: &str) -> Option<String> {
+    shell_tokens(text)
         .iter()
         .find_map(|token| token_reference(token))
+}
+
+/// Removes line continuations from a heredoc body, then splits it on whitespace
+/// and quoting symbols, so a quote cannot hide a credential name (H-04 C4).
+fn body_words_reference(body: &str) -> Option<String> {
+    body.replace("\\\n", "")
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '\'' | '"' | '`' | '\\'))
+        .find_map(token_reference)
 }
 
 fn argument_refusal(root: &Path, raw: &str) -> Option<SensitivePathRefusal> {
