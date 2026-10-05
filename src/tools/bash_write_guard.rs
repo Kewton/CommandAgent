@@ -82,6 +82,13 @@ pub(super) fn confinement_rejection(
                 operation: target.operation,
             });
         }
+        if target.operation == shell_lexical::backticks::UNVERIFIABLE_OPERATION {
+            return Some(BashWriteConfinementRejection {
+                reason: "Bash command runs a backtick command substitution (`` `...` ``) whose expanded word cannot be proven to remain in the Gate 1 workspace boundary; rewrite it with a literal argument or with `$(...)`/`$VAR` and a workspace-relative path".to_string(),
+                path: target.path,
+                operation: target.operation,
+            });
+        }
         if target.path == "/dev/null"
             && matches!(target.operation.as_str(), "output redirection" | "tee")
         {
@@ -134,6 +141,7 @@ fn working_directory_rejection(
             | command_prefix::UNRESOLVED_OPERATION
             | command_prefix::UNVERIFIABLE_SPLIT_STRING_OPERATION
             | shell_lexical::UNREADABLE_OPERATION
+            | shell_lexical::backticks::UNVERIFIABLE_OPERATION
     ) {
         return None;
     }
@@ -243,27 +251,44 @@ fn unreadable_target() -> WriteTarget {
     }
 }
 
+/// A fail-closed target for a command that runs a backtick command substitution
+/// whose expanded word cannot be proven to remain in the workspace (Issue #581).
+/// The sentinel path never matches a protected path.
+fn backtick_target() -> WriteTarget {
+    WriteTarget {
+        path: "<backtick command substitution>".to_string(),
+        operation: shell_lexical::backticks::UNVERIFIABLE_OPERATION.to_string(),
+    }
+}
+
 fn write_targets(command: &str) -> Vec<WriteTarget> {
-    let elided = shell_lexical::strip_comments_and_heredocs(command);
+    let view = shell_lexical::write_guard_view(command);
     // #575: the ANSI-C / locale introducer is refused on the raw text and on the
     // elided text. Reading only one of them either changes the refusal reason or
     // misses a `# it's\n$'tee' #'`, where the raw scan is inside a comment's
     // quote and the elided scan is not.
-    if let Some(kind) = ansi_c_quoting::outside_quotes(command)
-        .or_else(|| elided.as_deref().and_then(ansi_c_quoting::outside_quotes))
-    {
+    if let Some(kind) = ansi_c_quoting::outside_quotes(command).or_else(|| {
+        view.as_ref()
+            .and_then(|view| ansi_c_quoting::outside_quotes(&view.text))
+    }) {
         return vec![WriteTarget {
             path: kind.introducer().to_string(),
             operation: ansi_c_quoting::OPERATION.to_string(),
         }];
     }
-    let Some(text) = elided.as_deref() else {
+    let Some(view) = view else {
         return vec![unreadable_target()];
     };
-    let Some(tokens) = shell_tokens(text) else {
+    let Some(tokens) = shell_tokens(&view.text) else {
         return vec![unreadable_target()];
     };
-    targets_from_tokens(&tokens)
+    // #581: keep the targets the text already names, then add the refusal marker
+    // for an executed backtick command substitution.
+    let mut targets = targets_from_tokens(&tokens);
+    if view.backtick_substitution {
+        targets.push(backtick_target());
+    }
+    targets
 }
 
 /// Write targets of a command read directly, without comment or heredoc elision.
@@ -1373,5 +1398,101 @@ mod tests {
                 "command must stay allowed: {command}"
             );
         }
+    }
+
+    #[test]
+    fn backtick_substitution_write_targets_table() {
+        let operation = shell_lexical::backticks::UNVERIFIABLE_OPERATION;
+        let sentinel = "<backtick command substitution>";
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("echo `tee /tmp/f`", &[(sentinel, operation)]),
+            ("echo `x`", &[(sentinel, operation)]),
+            ("cat `cat sub/link/secret`", &[(sentinel, operation)]),
+            (
+                "echo `x`\ntee out.txt",
+                &[("out.txt", "tee"), (sentinel, operation)],
+            ),
+            // The write targets the text names stay first, so the existing
+            // reason is preserved.
+            (
+                "tee `echo /tmp/f`",
+                &[("`echo", "tee"), ("/tmp/f`", "tee"), (sentinel, operation)],
+            ),
+            // Literal, escaped, single-quoted, and commented-out backticks add
+            // no marker.
+            ("echo '`x`'", &[]),
+            ("echo \\`x\\`", &[]),
+            ("echo x # `tee /tmp/f`", &[]),
+            ("cat <<'EOF'\n`tee /tmp/f`\nEOF", &[]),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                write_target_pairs(command),
+                expected_targets(expected),
+                "command: {command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn backtick_substitution_is_a_recognized_mutation() {
+        assert!(has_recognized_mutation("echo `tee /tmp/f`"));
+        assert!(has_recognized_mutation("echo `x`"));
+        assert!(has_recognized_mutation("cat `cat sub/link/secret`"));
+        assert!(!has_recognized_mutation("echo '`x`'"));
+        assert!(!has_recognized_mutation("echo \\`x\\`"));
+        assert!(!has_recognized_mutation("git commit -m 'Fix `x`'"));
+        assert!(!has_recognized_mutation("cargo test"));
+    }
+
+    #[test]
+    fn backtick_substitution_confinement_rejection_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+
+        let rejection = confinement_rejection("echo `tee /tmp/f`", &root).expect("rejected");
+        assert_eq!(
+            rejection.operation,
+            shell_lexical::backticks::UNVERIFIABLE_OPERATION
+        );
+        assert!(
+            !rejection.reason.contains("tee /tmp/f"),
+            "the reason must not quote the command: {}",
+            rejection.reason
+        );
+
+        // An undecidable `cd` must not replace the backtick reason (the new
+        // operation is excluded from the working-directory rewrite).
+        let rejection = confinement_rejection("for i in 1; do cd sub; done; echo `x`", &root)
+            .expect("rejected");
+        assert_eq!(
+            rejection.operation,
+            shell_lexical::backticks::UNVERIFIABLE_OPERATION
+        );
+
+        // The existing dynamic-target reason is preserved.
+        let rejection = confinement_rejection("tee `echo /tmp/f`", &root).expect("rejected");
+        assert_eq!(rejection.operation, "tee");
+    }
+
+    #[test]
+    fn backtick_substitution_protected_path_mutation_table() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.ts".to_string()];
+
+        assert_eq!(
+            protected_path_mutation("tee tests/spec.ts `x`", &root, &protected),
+            Some("tests/spec.ts".to_string())
+        );
+        // The raw fallback still names a protected path in text the elision
+        // cannot read.
+        assert_eq!(
+            protected_path_mutation("cat <<EOF\n# $(tee tests/spec.ts)\nEOF", &root, &protected),
+            Some("tests/spec.ts".to_string())
+        );
+        assert!(protected_path_mutation("tee `echo out.txt`", &root, &protected).is_none());
     }
 }

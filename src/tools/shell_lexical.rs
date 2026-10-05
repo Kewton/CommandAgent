@@ -24,6 +24,8 @@
 //! that executes it is still inspected. Text that cannot be read statically is
 //! reported as `None` rather than guessed at, and the callers fail closed.
 
+pub(crate) mod backticks;
+
 /// Operation recorded for a command whose text the lexical guard cannot read
 /// (an unterminated quote, an ambiguous arithmetic shift, or a heredoc whose
 /// delimiter or body cannot be read). The caller fails closed on it.
@@ -41,6 +43,10 @@ struct Heredoc {
 struct ScanOutput {
     text: String,
     bodies: Vec<String>,
+    /// Whether the text runs a backtick command substitution the shell executes
+    /// (Issue #581). Set by an unquoted or double-quoted backtick in this text or
+    /// in a kept body, or by a backtick behind an opaque `$(`/`${` expansion.
+    backtick_substitution: bool,
 }
 
 /// One argument of a heredoc line: its quote-removed bytes, and whether any
@@ -75,6 +81,21 @@ pub(crate) fn text_is_unchanged(command: &str) -> bool {
     strip_comments_and_heredocs(command).as_deref() == Some(command)
 }
 
+/// The write-target inspector's view of a command: the elided text and whether
+/// it runs a backtick command substitution (Issue #581).
+pub(crate) struct WriteGuardView {
+    pub(crate) text: String,
+    pub(crate) backtick_substitution: bool,
+}
+
+/// Reads the write-target inspector's view of a command in one scan.
+pub(crate) fn write_guard_view(command: &str) -> Option<WriteGuardView> {
+    scan(command, false).map(|output| WriteGuardView {
+        text: output.text,
+        backtick_substitution: output.backtick_substitution,
+    })
+}
+
 /// `nested` is true when this text is a kept heredoc body being read as commands:
 /// an inner heredoc body is never dropped then, because the outer command may
 /// define a function or rewrite `PATH` and execute it (H-06 blocker 1).
@@ -87,6 +108,7 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
     let bytes = command.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut bodies: Vec<String> = Vec::new();
+    let mut backtick_substitution = false;
     let mut index = 0usize;
     let mut single = false;
     let mut double = false;
@@ -97,6 +119,11 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
         let ch = bytes[index];
         if single {
             out.push(ch);
+            if ch == b'`' && backticks::in_executable_context(backticks::Context::SingleQuoted) {
+                // A backtick inside single quotes is literal; the check is asked
+                // here so every quoting context decides the same question.
+                backtick_substitution = true;
+            }
             if ch == b'\'' {
                 single = false;
                 at_word_start = false;
@@ -123,6 +150,10 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                 continue;
             }
             out.push(ch);
+            if ch == b'`' && backticks::in_executable_context(backticks::Context::DoubleQuoted) {
+                // A command substitution runs inside double quotes.
+                backtick_substitution = true;
+            }
             if ch == b'"' {
                 double = false;
                 at_word_start = false;
@@ -165,6 +196,9 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                 out.push(ch);
                 backtick = true;
                 at_word_start = false;
+                if backticks::in_executable_context(backticks::Context::Unquoted) {
+                    backtick_substitution = true;
+                }
                 index += 1;
             }
             b'\\' => {
@@ -224,7 +258,7 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                 out.push(b'\n');
                 index += 1;
                 if !pending.is_empty() {
-                    let (next, kept) = resolve_heredocs(
+                    let (next, kept, kept_backtick) = resolve_heredocs(
                         bytes,
                         index,
                         &pending,
@@ -233,6 +267,10 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
                         &mut bodies,
                     )?;
                     out.extend_from_slice(&kept);
+                    if kept_backtick {
+                        // A kept body read as commands carries its own marker out.
+                        backtick_substitution = true;
+                    }
                     index = next;
                     pending.clear();
                 }
@@ -258,7 +296,16 @@ fn scan(command: &str, nested: bool) -> Option<ScanOutput> {
         }
     }
     let text = String::from_utf8(out).ok()?;
-    Some(ScanOutput { text, bodies })
+    // A backtick behind an opaque `$(`/`${` is refused even when the scan's own
+    // quote state calls it data, so the check runs over the elided text once.
+    if !backtick_substitution {
+        backtick_substitution = backticks::opaque_expansion_with_backticks(&text);
+    }
+    Some(ScanOutput {
+        text,
+        bodies,
+        backtick_substitution,
+    })
 }
 
 fn is_word_boundary(ch: u8) -> bool {
@@ -373,9 +420,10 @@ fn parse_heredoc(bytes: &[u8], start: usize) -> Parsed {
 }
 
 /// Locates every pending heredoc body in order from `body_start` (the character
-/// after the newline). Returns the index just past the last terminator and the
-/// bytes to keep. `bodies` receives the raw body of each heredoc. `None` when a
-/// body cannot be read.
+/// after the newline). Returns the index just past the last terminator, the
+/// bytes to keep, and whether a kept body runs a backtick command substitution.
+/// `bodies` receives the raw body of each heredoc. `None` when a body cannot be
+/// read.
 fn resolve_heredocs(
     bytes: &[u8],
     body_start: usize,
@@ -383,12 +431,13 @@ fn resolve_heredocs(
     elided_command: &[u8],
     nested: bool,
     bodies: &mut Vec<String>,
-) -> Option<(usize, Vec<u8>)> {
+) -> Option<(usize, Vec<u8>, bool)> {
     // A body inside a kept body is never dropped: the outer command may export a
     // function or rewrite PATH and execute it (H-06 blocker 1).
     let drop_bodies = !nested && should_drop_heredoc_bodies(elided_command, pending);
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
+    let mut nested_backtick = false;
     for heredoc in pending {
         let (body_end, after) = locate_body(bytes, position, heredoc)?;
         let body = &bytes[position..body_end];
@@ -411,6 +460,7 @@ fn resolve_heredocs(
             // the body runs (N4, H-04 C3).
             let cleaned = scan(body_text, true)?;
             kept.extend_from_slice(cleaned.text.as_bytes());
+            nested_backtick |= cleaned.backtick_substitution;
             bodies.extend(cleaned.bodies);
             kept.push(b' ');
             kept.extend_from_slice(&flatten_quotes(body));
@@ -420,7 +470,7 @@ fn resolve_heredocs(
             break;
         }
     }
-    Some((position, kept))
+    Some((position, kept, nested_backtick))
 }
 
 /// Returns the start of the terminator line (the body end) and the index just
@@ -1195,5 +1245,35 @@ mod tests {
     fn shell_lexical_keeps_a_continuation_split_path_in_a_kept_body() {
         let elided = strip("sh <<'EOF'\ntee sub/li\\\nnk/f\nEOF");
         assert!(elided.contains("sub/link/f"), "{elided:?}");
+    }
+
+    #[test]
+    fn shell_lexical_marks_executed_backticks_in_the_elided_text() {
+        let cases: &[(&str, bool)] = &[
+            ("echo `tee /tmp/f`", true),
+            ("echo \"`tee /tmp/f`\"", true),
+            ("echo $(echo `tee /tmp/f`)", true),
+            // A wrongly-nested `$(...)` still refuses on the strict side.
+            ("echo $(echo '`data`')", true),
+            ("echo `tee /tmp/f", true),
+            // Literal, escaped, or commented-out backticks are not executed.
+            ("echo '`tee /tmp/f`'", false),
+            ("echo \\`tee /tmp/f\\`", false),
+            ("echo \"\\`tee /tmp/f\\`\"", false),
+            ("echo x # `tee /tmp/f`", false),
+            // A quoted-delimiter data body is dropped, a kept body is read.
+            ("cat <<'EOF'\n`tee /tmp/f`\nEOF", false),
+            ("sh <<'EOF'\n`tee /tmp/f`\nEOF", true),
+            ("cargo test", false),
+        ];
+        for (command, expected) in cases {
+            let view = write_guard_view(command).expect("command must be readable");
+            assert_eq!(
+                view.backtick_substitution,
+                *expected,
+                "command: {command:?} -> {view_text:?}",
+                view_text = view.text
+            );
+        }
     }
 }
