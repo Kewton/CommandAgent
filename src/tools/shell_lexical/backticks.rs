@@ -158,4 +158,215 @@ mod tests {
             );
         }
     }
+
+    // The tables below cover the branches of `opaque_expansion_with_backticks`
+    // that the leader's mutation run left surviving or untested (Issue #581).
+    // Each row's note names the line, the branch, and the mutant it kills. A row
+    // that cannot kill a mutant is documented as equivalent or as the stricter
+    // side (a mutation that refuses *more*, never fewer).
+
+    /// Single-quoted branch: lines 61 (`opaque && ch == '`'`), 64 (`ch == '\''`),
+    /// and 67 (`index += 1`).
+    #[test]
+    fn backticks_single_quote_branch_pins_the_result() {
+        let cases: &[(&str, bool, &str)] = &[
+            (
+                "echo $(echo '`data`')",
+                true,
+                "line 61 true arm: opaque + single quote + backtick",
+            ),
+            (
+                "echo $(echo 'x')",
+                false,
+                "line 61: `x` is not a backtick, so the `opaque &&` guard must hold",
+            ),
+            (
+                "echo '`x`'",
+                false,
+                "line 61: opaque is false, so dropping the guard returns true wrongly",
+            ),
+            (
+                "echo 'a$(y)`z`'",
+                false,
+                "line 64: single closes only on `'`; `==`->`!=` closes on `a`, lets `$(` set opaque, and returns true",
+            ),
+            (
+                "echo 'a' $(x)`y`",
+                true,
+                "line 64: dropping the closing arm never re-enters the unquoted state, so `$(` stays data",
+            ),
+            (
+                "echo '`x` $(y)`z`'",
+                false,
+                "line 67: one byte per step keeps every backtick inside the single quote",
+            ),
+        ];
+        for (text, expected, note) in cases {
+            assert_eq!(
+                opaque_expansion_with_backticks(text),
+                *expected,
+                "{note}: {text:?}"
+            );
+        }
+    }
+
+    /// Double-quoted branch: lines 72/73 (`b'\\'` arm), 76/78 (`b'"'` arm),
+    /// 81 (`b'`' if opaque`), 82 (`$(`/`${`), and 87 (`index += 1`). The issue's
+    /// example `echo "a\"'" $(x)`y`` is the first row.
+    #[test]
+    fn backticks_double_quote_branch_pins_the_result() {
+        let cases: &[(&str, bool, &str)] = &[
+            (
+                r#"echo "a\"'" $(x)`y`"#,
+                true,
+                "line 72/73: `\"` must stay inside the double quote; removing the arm or `+= 2`->`+= 1` closes it early and loses the `$(`+backtick refusal",
+            ),
+            (
+                r#"echo "a\\" $(x)`y`"#,
+                true,
+                "line 72/73: `\\` skips the second backslash, the quote still closes cleanly",
+            ),
+            (
+                r#"echo "a\"$(x)`y`""#,
+                true,
+                "line 72/82: `$(` after an escaped quote sets opaque",
+            ),
+            (
+                r#"echo "a\"'`y`""#,
+                false,
+                "line 81: a backtick with no opaque expansion stays false even after `\"`",
+            ),
+            (
+                r#"echo "a\"'$(x)`y`""#,
+                true,
+                "line 72/82: escaped quote, single quote, `$(` then backtick",
+            ),
+            (
+                r#"echo "a\"${x}`y`""#,
+                true,
+                "line 82: `${` after an escaped quote sets opaque",
+            ),
+            (
+                r#"echo "a\\${x}`y`""#,
+                true,
+                "line 72/82: `\\` then `${` then backtick",
+            ),
+            (
+                r#"echo "a" '$(x)`y`'"#,
+                false,
+                "line 76/78: the closing `\"` must end the double quote before `'` starts a single quote; dropping the arm or `+= 1`->`-= 1` keeps opaque and returns true",
+            ),
+            (
+                r#"echo "$(x)`y`""#,
+                true,
+                "line 81/82/87: `$(` and backtick inside double quotes",
+            ),
+            (
+                r#"echo "${x}`y`""#,
+                true,
+                "line 82: `${` inside double quotes",
+            ),
+            (
+                r#"echo "$(x)""#,
+                false,
+                "no backtick stays false even with an escaped-free expansion",
+            ),
+        ];
+        for (text, expected, note) in cases {
+            assert_eq!(
+                opaque_expansion_with_backticks(text),
+                *expected,
+                "{note}: {text:?}"
+            );
+        }
+    }
+
+    /// Unquoted branch: lines 91 (`b'\\'`), 92/94 (`b'\''`), 96/98 (`b'"'`),
+    /// 100 (`b'`' if opaque`), 101/103 (`$(`/`${`), and 105 (`_ => index += 1`).
+    #[test]
+    fn backticks_unquoted_branch_pins_the_result() {
+        let cases: &[(&str, bool, &str)] = &[
+            (
+                "echo \\$(x)`y`",
+                false,
+                "line 91: `+= 2` skips the escaped `$`; `+= 1` or dropping the arm would read `$(` and return true",
+            ),
+            (
+                "echo $(x)`y`",
+                true,
+                "line 100/101/105: `$(` sets opaque and the backtick refuses",
+            ),
+            ("echo ${x}`y`", true, "line 101: `${` sets opaque"),
+            (
+                "echo `x` $(y)",
+                false,
+                "line 100: a backtick before the expansion is not refused",
+            ),
+            (
+                "echo 'a' $(x)`y`",
+                true,
+                "line 92/94: the single quote closes before `$(`",
+            ),
+            (
+                r#"echo " '$(x)`y`'"#,
+                true,
+                "line 96/98: `\"` opens a double quote; dropping the arm starts a single quote and `$(` stays data",
+            ),
+            (
+                "echo \\`x\\` $(y)",
+                false,
+                "line 91: escaped backticks stay literal and set no opaque",
+            ),
+            (
+                "echo $x `y`",
+                false,
+                "line 101/105: a bare `$` is not an expansion",
+            ),
+            (
+                "echo \"$x `y`\"",
+                false,
+                "line 82/105: a bare `$` inside double quotes is not an expansion",
+            ),
+        ];
+        for (text, expected, note) in cases {
+            assert_eq!(
+                opaque_expansion_with_backticks(text),
+                *expected,
+                "{note}: {text:?}"
+            );
+        }
+    }
+
+    /// Forms with no backtick substitution must stay allowed (false), including
+    /// the item-2 examples `$(echo 'x')`, `${x}`, and `"$(echo "a")"`.
+    #[test]
+    fn backticks_without_a_substitution_stay_allowed() {
+        let cases: &[&str] = &[
+            "$(echo 'x')",
+            "${x}",
+            r#"echo "$(echo "a")""#,
+            r#"echo "$(echo \"a\")""#,
+            "echo $(x)",
+            "echo ${x}",
+            r#"echo "$(x)""#,
+            "echo $x",
+            "echo $x `y`",
+            "cargo test",
+            "",
+        ];
+        for text in cases {
+            assert!(
+                !opaque_expansion_with_backticks(text),
+                "no backtick substitution: {text:?}"
+            );
+        }
+    }
+
+    /// `in_executable_context` is a three-value decision; pin every value.
+    #[test]
+    fn backticks_context_decision_is_pinned() {
+        assert!(in_executable_context(Context::Unquoted));
+        assert!(in_executable_context(Context::DoubleQuoted));
+        assert!(!in_executable_context(Context::SingleQuoted));
+    }
 }

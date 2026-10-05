@@ -190,3 +190,51 @@ fn backtick_substitution_detects_secrets() {
         "expected secret detection"
     );
 }
+
+/// An escaped `\"` / `\\` inside a double quote must not hide the command
+/// substitution behind it (`R/A=1`, `V=0`). The first row is the mutation
+/// report's example.
+#[test]
+fn backtick_substitution_rejects_double_quote_escapes() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cases = [
+        r#"echo "a\"'" $(x)`y`"#,
+        r#"echo "a\"$(x)`y`""#,
+        r#"echo "a\\$(x)`y`""#,
+        r#"echo "a\"'$(x)`y`""#,
+        r#"echo "a\"${x}`y`""#,
+        r#"echo "a\\${x}`y`""#,
+    ];
+    for command in cases {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command:?}"
+        );
+        assert!(
+            !bash_verify_command_is_auto_approvable(command, root),
+            "must not be auto-approved: {command:?}"
+        );
+    }
+}
+
+/// A `$(`/`${` expansion with no backtick substitution must stay allowed.
+#[test]
+fn backtick_substitution_keeps_forms_without_a_substitution() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cases = [
+        "$(echo 'x')",
+        "${x}",
+        r#"echo "$(echo "a")""#,
+        "echo $(x)",
+        "echo ${x}",
+        r#"echo "$(x)""#,
+    ];
+    for command in cases {
+        assert!(
+            path_confinement_rejection(command, root).is_none(),
+            "expected allow: {command:?}"
+        );
+    }
+}
