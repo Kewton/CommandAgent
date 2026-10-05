@@ -369,4 +369,71 @@ mod tests {
         assert!(in_executable_context(Context::DoubleQuoted));
         assert!(!in_executable_context(Context::SingleQuoted));
     }
+
+    /// The unquoted `b'\\' => index += 2` arm (line 91). The surviving mutant
+    /// `index *= 2` equals `+= 2` only at index 2; for a backslash at index >= 3
+    /// it jumps to `2 * index`, skips the `$(` behind the escape, and misses the
+    /// executing backtick. Each row moves the backslash so the jump lands on the
+    /// `(` past the `$`, or further into the expansion, and the unmutated answer
+    /// (true) flips. The last two rows pin the escape itself: one lands before
+    /// the `$` (it does not kill `*= 2`, but `-= 2` underflows and panics at
+    /// index 1 — the `\` is at index 1 there), and one escapes the `$` so no
+    /// expansion is seen at all.
+    #[test]
+    fn backticks_unquoted_backslash_skip_pins_the_result() {
+        let cases: &[(&str, bool, &str)] = &[
+            (
+                "abc\\x$(echo `y`)",
+                true,
+                "backslash at 3: `*= 2` lands on `(` past the `$`, opaque stays false",
+            ),
+            (
+                "abcd\\x$(echo `y`)",
+                true,
+                "backslash at 4: `*= 2` lands inside `echo`, past `$(`",
+            ),
+            (
+                "abcde\\x$(echo `y`)",
+                true,
+                "backslash at 5: `*= 2` lands past `$(`",
+            ),
+            (
+                "abcdef\\x$(echo `y`)",
+                true,
+                "backslash at 6: `*= 2` lands past `$(`",
+            ),
+            (
+                "abcdefg\\x$(echo `y`)",
+                true,
+                "backslash at 7: `*= 2` lands past `$(`",
+            ),
+            (
+                "echo \\x $(echo `y`)",
+                true,
+                "backslash at 5 with a separator: `*= 2` lands past `$(`",
+            ),
+            (
+                "echo ab\\c $(echo '`d`')",
+                true,
+                "backslash at 7 before a single-quoted backtick under `$(`: `*= 2` skips opaque",
+            ),
+            (
+                "a\\x$(echo `y`)",
+                true,
+                "backslash at 1: `*= 2` lands before `$` (no kill here), but `-= 2` underflows and panics",
+            ),
+            (
+                "abc\\$(x)`y`",
+                false,
+                "the `+= 2` must skip the escaped `$`; `+= 1` recognises `$(` and returns true",
+            ),
+        ];
+        for (text, expected, note) in cases {
+            assert_eq!(
+                opaque_expansion_with_backticks(text),
+                *expected,
+                "{note}: {text:?}"
+            );
+        }
+    }
 }
