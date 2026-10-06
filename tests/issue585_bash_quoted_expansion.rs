@@ -539,8 +539,13 @@ fn quoted_expansion_structured_corpus_matches_the_predicate() {
 
 /// Representative forms are re-run under `/bin/sh`, `dash`, and `bash` against a
 /// `mark` script on a restricted `PATH`, and the mark's presence must match the
-/// fixture's per-shell mark. Only mark-only forms with no write are chosen. A
-/// shell the environment lacks is skipped and reported, never counted as a pass.
+/// fixture's per-shell mark. Only mark-only forms with no write are chosen.
+///
+/// Issue #587: the four outcomes — the mark ran, the form finished without a
+/// mark, the shell is missing, and the run timed out — are counted separately.
+/// A missing shell and a timeout are *not* a pass: a missing expected shell
+/// fails the test, and so does a timeout. The normal environment (`/bin/sh`,
+/// `dash`, `bash`) runs every form exactly as before.
 #[test]
 fn quoted_expansion_representative_forms_match_shell_execution() {
     let rows = structured_cases();
@@ -565,11 +570,15 @@ fn quoted_expansion_representative_forms_match_shell_execution() {
     std::fs::create_dir_all(&cwd).unwrap();
     let restricted_path = format!("{}:/usr/bin:/bin", mark_dir.display());
 
+    let mut marks = 0usize;
+    let mut no_marks = 0usize;
+    let mut timeouts: Vec<(&str, usize)> = Vec::new();
+    let mut missing: Vec<&str> = Vec::new();
     for shell in ["/bin/sh", "dash", "/bin/bash"] {
         if !shell_is_available(shell) {
-            eprintln!(
-                "quoted_expansion shell comparison: skipping missing shell {shell} (not a pass)"
-            );
+            // A missing shell is not a pass. Record it and fail at the end
+            // instead of silently skipping the comparison.
+            missing.push(shell);
             continue;
         }
         for row in &selected {
@@ -578,21 +587,62 @@ fn quoted_expansion_representative_forms_match_shell_execution() {
                 "/bin/bash" => row.executed.bash,
                 _ => row.executed.dash,
             };
-            let observed =
-                shell_prints_mark(shell, &row.command, &restricted_path, &cwd, dir.path())
-                    .unwrap_or_else(|error| {
-                        panic!("failed to run {shell} for id {}: {error}", row.id)
-                    });
-            assert_eq!(
-                observed, expected,
-                "shell {shell} id {}: {:?}",
-                row.id, row.command
-            );
+            let observed = shell_compare(shell, &row.command, &restricted_path, &cwd, dir.path())
+                .unwrap_or_else(|error| panic!("failed to run {shell} for id {}: {error}", row.id));
+            match observed {
+                ShellOutcome::Mark => {
+                    assert!(
+                        expected,
+                        "shell {shell} id {}: the form ran but the fixture expects no mark: {:?}",
+                        row.id, row.command
+                    );
+                    marks += 1;
+                }
+                ShellOutcome::NoMark => {
+                    assert!(
+                        !expected,
+                        "shell {shell} id {}: the fixture expects a mark but none was seen: {:?}",
+                        row.id, row.command
+                    );
+                    no_marks += 1;
+                }
+                ShellOutcome::TimedOut => {
+                    // A timeout is neither a mark nor a clean non-execution, so
+                    // it must fail the comparison explicitly, never be folded
+                    // into "no mark" (Issue #587).
+                    timeouts.push((shell, row.id));
+                }
+            }
         }
     }
+    assert!(
+        timeouts.is_empty(),
+        "a timed-out form is not a pass: {timeouts:?}"
+    );
+    assert!(
+        missing.is_empty(),
+        "a missing shell is not a pass; expected /bin/sh, dash, and /bin/bash but missing {missing:?}"
+    );
+    assert!(
+        marks > 0 && no_marks > 0,
+        "the comparison must observe both executed and non-executed forms: marks={marks} no_marks={no_marks}"
+    );
+    eprintln!(
+        "quoted_expansion shell comparison: {marks} marks, {no_marks} no-marks, 0 timeouts, 0 missing"
+    );
 }
 
-/// Whether the shell can be spawned at all. A missing shell is not a failure.
+/// The three distinguishable results of re-running one form under one shell.
+enum ShellOutcome {
+    /// The `mark` script printed its sentinel.
+    Mark,
+    /// The form finished without printing the sentinel.
+    NoMark,
+    /// The form did not finish within the timeout.
+    TimedOut,
+}
+
+/// Whether the shell can be spawned at all.
 fn shell_is_available(shell: &str) -> bool {
     match Command::new(shell)
         .arg("-c")
@@ -609,14 +659,16 @@ fn shell_is_available(shell: &str) -> bool {
 }
 
 /// Runs `command` under `shell` with a closed stdin, a restricted `PATH`, and a
-/// two-second timeout, and reports whether the mark reached stdout or stderr.
-fn shell_prints_mark(
+/// two-second timeout, and distinguishes whether the mark reached stdout or
+/// stderr, whether the form finished without the mark, or whether it timed out.
+/// A timeout is reported separately so the caller never counts it as a pass.
+fn shell_compare(
     shell: &str,
     command: &str,
     restricted_path: &str,
     cwd: &Path,
     temp: &Path,
-) -> std::io::Result<bool> {
+) -> std::io::Result<ShellOutcome> {
     let out_path = temp.join("shell-out.txt");
     let err_path = temp.join("shell-err.txt");
     let mut child = Command::new(shell)
@@ -630,6 +682,7 @@ fn shell_prints_mark(
         .stderr(Stdio::from(File::create(&err_path)?))
         .spawn()?;
     let deadline = Instant::now() + Duration::from_secs(2);
+    let mut timed_out = false;
     loop {
         if child.try_wait()?.is_some() {
             break;
@@ -637,11 +690,19 @@ fn shell_prints_mark(
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
+            timed_out = true;
             break;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
+    if timed_out {
+        return Ok(ShellOutcome::TimedOut);
+    }
     let mut combined = std::fs::read_to_string(&out_path).unwrap_or_default();
     combined.push_str(&std::fs::read_to_string(&err_path).unwrap_or_default());
-    Ok(combined.contains("H585_EXEC"))
+    Ok(if combined.contains("H585_EXEC") {
+        ShellOutcome::Mark
+    } else {
+        ShellOutcome::NoMark
+    })
 }

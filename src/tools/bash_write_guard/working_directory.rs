@@ -93,6 +93,11 @@ pub(crate) fn inspect(command: &str) -> Inspection {
     let ambiguous = view.ambiguous_expansion;
     let text = view.text;
     let Some(tokens) = super::shell_tokens(&text) else {
+        // The elided text of an ambiguous expansion can leave an unterminated
+        // quote, so the walk cannot run. Keep the ambiguity signal anyway: the
+        // design promise "an ambiguous expansion is undecidable" must hold on
+        // this early-return path too (Issue #587).
+        inspection.undecidable = ambiguous;
         return inspection;
     };
 
@@ -406,5 +411,27 @@ mod tests {
 
         // A simple expansion inside double quotes is not ambiguous.
         assert!(!inspect("cd tests && echo \"$(git rev-parse --show-toplevel)\"").undecidable);
+    }
+
+    #[test]
+    fn working_directory_holds_ambiguity_on_the_unterminated_early_return() {
+        // Issue #587: the elided text of an ambiguous expansion can leave an
+        // unterminated quote (`echo "$(echo`), so `shell_tokens` fails and the
+        // walk returns before the `undecidable` OR. The ambiguity signal must
+        // still reach `undecidable` on that early-return path, including when a
+        // trailing backslash keeps the quote open.
+        for command in [r#"echo "$(echo"#, "echo \"$(echo\\"] {
+            let view = crate::tools::shell_lexical::write_guard_view(command)
+                .unwrap_or_else(|| panic!("expected a view: {command:?}"));
+            assert!(view.ambiguous_expansion, "{command:?}");
+            assert!(
+                super::super::shell_tokens(&view.text).is_none(),
+                "the fixture must take the early-return path: {command:?}"
+            );
+            assert!(
+                inspect(command).undecidable,
+                "cwd undecidable must hold the ambiguous mark: {command:?}"
+            );
+        }
     }
 }
