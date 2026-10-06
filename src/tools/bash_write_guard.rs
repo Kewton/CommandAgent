@@ -1644,4 +1644,26 @@ mod tests {
             Some("tests/spec.rs".to_string())
         );
     }
+
+    #[test]
+    fn quoted_expansion_canary_values_are_recognized_mutations() {
+        // M for the issue's five fake canaries: each is a recognized mutation, so
+        // the write guard fails closed on it (the public side clears V).
+        for canary in [
+            "x",
+            "秘密585",
+            "<redacted>",
+            "runtime_bash_policy",
+            "FAKE_585_CANARY",
+        ] {
+            for template in [
+                r#"echo "$(echo "{canary}")""#,
+                r#"echo "$(echo " #{canary}" )" ; tee /tmp/f"#,
+                r#"cat "$(cat "{canary}")""#,
+            ] {
+                let command = template.replace("{canary}", canary);
+                assert!(has_recognized_mutation(&command), "{command:?}");
+            }
+        }
+    }
 }

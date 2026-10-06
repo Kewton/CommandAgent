@@ -14,7 +14,7 @@
 {"id": "unterminated", "command": "echo \"$(echo", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
 {"id": "escaped-backslash", "command": "echo \"$(a\\b)\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
 {"id": "canary-nested", "command": "echo \"$(echo \"FAKE_585_CANARY\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
-{"id": "canary-false-comment", "command": "echo \"$(echo \" #secret585\" )\" ; cat .env", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "canary-false-comment", "command": "echo \"$(echo \" #秘密585\" )\" ; cat .env", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
 {"id": "placeholder-redacted", "command": "echo \"$(echo \"<redacted>\")\" ; tee /tmp/f", "executes": true, "reject": true, "operation": "placeholder path", "secret": true, "auto_approvable": false}
 {"id": "escaped-quote-inside", "command": "echo \"$(echo \\\"x\\\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
 {"id": "simple-parameter-name", "command": "echo \"${HOME}\"", "executes": false, "reject": false, "secret": false}

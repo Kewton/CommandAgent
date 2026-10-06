@@ -22,9 +22,14 @@ fixtures/decision-cases.jsonl = [
   "\"git-commit-quoted-backtick\"",
   "unreadable shell text",
   "FAKE_585_CANARY",
-  "secret585"
+  "秘密585"
 ]
 fixtures/structured-cases.jsonl = [
-  "\"executes\":true",
-  "\"command\":\"echo \\\"$(echo \\\"x\\\")\\\"\""
+  "\"expected_any_execution\":true",
+  "\"expected_any_execution\":false",
+  "\"executed\":{\"sh\":true",
+  "\"executed\":{\"sh\":false",
+  "\"base\":{\"R\":",
+  "\"id\":0,",
+  "\"id\":8639,"
 ]
