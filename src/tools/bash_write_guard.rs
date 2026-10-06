@@ -1645,6 +1645,78 @@ mod tests {
         );
     }
 
+    // Issue #587: the 8,640 saved forms must be judged by the raw write guard
+    // `R` directly. The integration test could only observe the public `A`
+    // (`path_confinement_rejection`), which coincided with `R` on every row at
+    // #585 but would hide a future loosening of `R` alone.
+    #[derive(serde::Deserialize)]
+    struct RawGuardForm {
+        id: usize,
+        command: String,
+        base: RawGuardBase,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RawGuardBase {
+        #[serde(rename = "R")]
+        r: bool,
+    }
+
+    #[test]
+    fn quoted_expansion_structured_corpus_is_directly_rejected_by_the_raw_guard() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue585-bash-quoted-expansion/fixtures/structured-cases.jsonl",
+        );
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let mut rows = 0usize;
+        let mut baseline_rejections = 0usize;
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let form: RawGuardForm = serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("invalid saved form {line:?}: {error}"));
+            rows += 1;
+            let rejected = confinement_rejection(&form.command, &root).is_some();
+            assert!(
+                !form.base.r || rejected,
+                "id {}: raw guard R must not go true->false: {:?}",
+                form.id,
+                form.command
+            );
+            if form.base.r {
+                baseline_rejections += 1;
+            }
+        }
+        assert_eq!(rows, 8_640, "saved forms");
+        assert_eq!(
+            baseline_rejections, 6_163,
+            "the baseline rejected exactly 6,163 forms"
+        );
+    }
+
+    #[test]
+    fn quoted_expansion_unterminated_ambiguous_forms_keep_r_and_a() {
+        // Issue #587: marking the early-return path undecidable must not change
+        // the existing `R`/`A` = 1 the write guard already reports for these two
+        // forms (the fix only widens the cwd refusal signal).
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        for command in [r#"echo "$(echo"#, "echo \"$(echo\\"] {
+            assert!(
+                confinement_rejection(command, &root).is_some(),
+                "R must stay 1: {command:?}"
+            );
+            assert!(
+                crate::tools::bash::path_confinement_rejection(command, &root).is_some(),
+                "A must stay 1: {command:?}"
+            );
+        }
+    }
+
     #[test]
     fn quoted_expansion_canary_values_are_recognized_mutations() {
         // M for the issue's five fake canaries: each is a recognized mutation, so
