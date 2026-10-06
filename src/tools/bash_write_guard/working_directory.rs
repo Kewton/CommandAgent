@@ -80,12 +80,18 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         undecidable: false,
         relative_words: Vec::new(),
     };
-    let Some(text) = super::super::shell_lexical::strip_comments_and_heredocs(command) else {
+    let Some(view) = super::super::shell_lexical::write_guard_view(command) else {
         // The shell text cannot be read, so no working-directory change can be
         // modelled; relative writes after it must be refused (Issue #576).
         inspection.undecidable = true;
         return inspection;
     };
+    // An ambiguous double-quoted expansion desyncs the quote state. Keep the
+    // candidates the existing scan obtained and mark the inspection undecidable,
+    // so the protected-path variants stay visible but relative writes are still
+    // refused (Issue #585).
+    let ambiguous = view.ambiguous_expansion;
+    let text = view.text;
     let Some(tokens) = super::shell_tokens(&text) else {
         return inspection;
     };
@@ -176,8 +182,11 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         }
     }
 
-    inspection.undecidable =
-        cdpath || dirstack || overflow || (has_cd && (loop_keyword || function_keyword));
+    inspection.undecidable = ambiguous
+        || cdpath
+        || dirstack
+        || overflow
+        || (has_cd && (loop_keyword || function_keyword));
     inspection
 }
 
@@ -373,5 +382,29 @@ mod tests {
             inspection.all_variants("link"),
             vec!["link".to_string(), "sub/link".to_string()]
         );
+    }
+
+    #[test]
+    fn working_directory_keeps_candidates_for_quoted_expansion_but_undecidable() {
+        // Issue #585: a double-quoted expansion with an inner quote desyncs the
+        // quote state. The candidates the existing scan obtained must stay, and
+        // the inspection must be marked undecidable so relative writes are still
+        // refused.
+        let inspection = inspect("cd tests && echo \"$(echo \"x\")\" ; tee spec.rs");
+        assert!(inspection.bases.contains(&"tests".to_string()));
+        assert!(inspection.undecidable);
+        assert!(
+            inspection.relative_words.contains(&"spec.rs".to_string()),
+            "{:?}",
+            inspection.relative_words
+        );
+        assert!(
+            inspection
+                .relative_variants("spec.rs")
+                .contains(&"tests/spec.rs".to_string())
+        );
+
+        // A simple expansion inside double quotes is not ambiguous.
+        assert!(!inspect("cd tests && echo \"$(git rev-parse --show-toplevel)\"").undecidable);
     }
 }

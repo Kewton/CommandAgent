@@ -1,0 +1,36 @@
+{"id": "issue-original-normal", "command": "echo \"$(echo \" #x\" )\" ; tee /tmp/f", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "issue-original-backtick-after", "command": "echo \"$(echo \" #x\" )\" `y`", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "issue-original-protected-path", "command": "echo \"$(echo \"x\")\" ; tee tests/spec.rs", "executes": true, "reject": true, "secret": true, "auto_approvable": false}
+{"id": "issue-original-cd-relative", "command": "cd tests && echo \"$(echo \"x\")\" ; tee spec.rs", "executes": true, "reject": true, "secret": true, "auto_approvable": false}
+{"id": "issue-original-parameter-expansion", "command": "echo \"${x:-\"y\"}\" ; tee /tmp/f", "executes": true, "reject": true, "secret": true, "auto_approvable": false}
+{"id": "inner-quote-only", "command": "echo \"$(echo \"a\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "arithmetic", "command": "echo \"$((1+2))\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "parameter-hash", "command": "echo \"${x#y}\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "parameter-percent", "command": "echo \"${x%y}\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "parameter-subscript", "command": "echo \"${x[0]}\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "nested-command-substitution", "command": "echo \"$(echo \"$(x)\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "newline-inside", "command": "echo \"$(echo\nx)\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "backtick-inside", "command": "echo \"$(echo `x`)\"", "executes": true, "reject": true, "secret": true, "auto_approvable": false}
+{"id": "unterminated", "command": "echo \"$(echo", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "escaped-backslash", "command": "echo \"$(a\\b)\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "canary-nested", "command": "echo \"$(echo \"FAKE_585_CANARY\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "canary-false-comment", "command": "echo \"$(echo \" #秘密585\" )\" ; cat .env", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "placeholder-redacted", "command": "echo \"$(echo \"<redacted>\")\" ; tee /tmp/f", "executes": true, "reject": true, "operation": "placeholder path", "secret": true, "auto_approvable": false}
+{"id": "escaped-quote-inside", "command": "echo \"$(echo \\\"x\\\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
+{"id": "simple-parameter-name", "command": "echo \"${HOME}\"", "executes": false, "reject": false, "secret": false}
+{"id": "simple-parameter-key", "command": "echo \"${key}\"", "executes": false, "reject": false, "secret": false}
+{"id": "simple-substitution-git", "command": "echo \"$(git rev-parse --show-toplevel)\"", "executes": false, "reject": false, "secret": false}
+{"id": "simple-substitution-cat", "command": "echo \"$(cat path/to/file.txt)\"", "executes": false, "reject": false, "secret": false}
+{"id": "simple-substitution-short", "command": "echo \"$(x)\"", "executes": false, "reject": false, "secret": false}
+{"id": "unquoted-substitution", "command": "echo $(echo \"x\")", "executes": false, "reject": false, "secret": false}
+{"id": "unquoted-arithmetic", "command": "echo $((1+2))", "executes": false, "reject": false, "secret": false}
+{"id": "unquoted-parameter-operator", "command": "echo ${x:-y}", "executes": false, "reject": false, "secret": false}
+{"id": "single-quoted", "command": "echo '$(echo \"x\")'", "executes": false, "reject": false, "secret": false}
+{"id": "true-comment", "command": "echo x # $(echo \"y\")", "executes": false, "reject": false, "secret": false}
+{"id": "escaped-introducer", "command": "echo \"\\$(echo \"x\")\"", "executes": false, "reject": false, "secret": false}
+{"id": "quoted-data-heredoc", "command": "cat <<'EOF'\n$(echo \"x\")\nEOF", "executes": false, "reject": false, "secret": false}
+{"id": "cargo-test", "command": "cargo test", "executes": false, "reject": false, "secret": false, "auto_approvable": true}
+{"id": "npm-test", "command": "npm test", "executes": false, "reject": false, "secret": false, "auto_approvable": true}
+{"id": "cd-npm-test", "command": "cd sub && npm test", "executes": false, "reject": false, "secret": false, "auto_approvable": true}
+{"id": "git-commit-quoted-backtick", "command": "git commit -m 'Fix `x` bug'", "executes": false, "reject": false, "secret": false, "auto_approvable": true}
+{"id": "plain-echo", "command": "echo \"plain\"", "executes": false, "reject": false, "secret": false}

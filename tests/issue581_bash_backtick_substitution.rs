@@ -218,7 +218,10 @@ fn backtick_substitution_rejects_double_quote_escapes() {
     }
 }
 
-/// A `$(`/`${` expansion with no backtick substitution must stay allowed.
+/// A `$(`/`${` expansion with no backtick substitution and no ambiguous interior
+/// must stay allowed. The inner-quoted expansion `echo "$(echo "a")"` moved to
+/// Issue #585's reject table, because #585 refuses a double-quoted expansion
+/// whose interior cannot be proven to leave the surrounding quoting unchanged.
 #[test]
 fn backtick_substitution_keeps_forms_without_a_substitution() {
     let fixture = fixture();
@@ -226,7 +229,6 @@ fn backtick_substitution_keeps_forms_without_a_substitution() {
     let cases = [
         "$(echo 'x')",
         "${x}",
-        r#"echo "$(echo "a")""#,
         "echo $(x)",
         "echo ${x}",
         r#"echo "$(x)""#,
