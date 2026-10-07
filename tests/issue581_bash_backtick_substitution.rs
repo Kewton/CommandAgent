@@ -218,25 +218,62 @@ fn backtick_substitution_rejects_double_quote_escapes() {
     }
 }
 
-/// A `$(`/`${` expansion with no backtick substitution and no ambiguous interior
-/// must stay allowed. The inner-quoted expansion `echo "$(echo "a")"` moved to
-/// Issue #585's reject table, because #585 refuses a double-quoted expansion
-/// whose interior cannot be proven to leave the surrounding quoting unchanged.
+/// A plain variable reference (`$NAME` / `${NAME}`) displayed by `echo` with no
+/// backtick substitution and no ambiguous interior must stay allowed. Issue #582
+/// moved the command-substitution rows (`$(echo 'x')`, `echo $(x)`,
+/// `echo "$(x)"`) and the dynamic execution word (`${x}`) to a reject table,
+/// because a command substitution runs a command whose read arguments cannot be
+/// proven to remain in the workspace, and a dynamic program word is not a read
+/// path the guard can resolve.
 #[test]
 fn backtick_substitution_keeps_forms_without_a_substitution() {
     let fixture = fixture();
     let root = &fixture.root;
-    let cases = [
-        "$(echo 'x')",
-        "${x}",
-        "echo $(x)",
-        "echo ${x}",
-        r#"echo "$(x)""#,
-    ];
+    let cases = ["echo ${x}"];
     for command in cases {
         assert!(
             path_confinement_rejection(command, root).is_none(),
             "expected allow: {command:?}"
         );
     }
+}
+
+/// Issue #582: a command substitution word is refused on the read side, moving
+/// the former allow rows here without deleting them. The rows are rejected
+/// (`R/A=1`) and never auto-approved.
+#[test]
+fn backtick_substitution_rejects_command_substitution_words() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cases = ["$(echo 'x')", "echo $(x)", r#"echo "$(x)""#];
+    for command in cases {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected rejection: {command:?}"));
+        assert_eq!(
+            rejection.operation, "path reference",
+            "command: {command:?}"
+        );
+        assert!(
+            !bash_verify_command_is_auto_approvable(command, root),
+            "must not be auto-approved: {command:?}"
+        );
+    }
+}
+
+/// Issue #582: a bare dynamic execution word (`${x}`) is refused by the read
+/// side while the verify auto-approval still reports it approvable, so the
+/// refusal runs before the shell starts. This pins the ordering the issue
+/// requires: `V=1` does not erase the read refusal.
+#[test]
+fn backtick_substitution_refuses_dynamic_program_even_when_verify_approves() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let command = "${x}";
+    let rejection = path_confinement_rejection(command, root)
+        .unwrap_or_else(|| panic!("expected rejection: {command:?}"));
+    assert_eq!(rejection.operation, "path reference");
+    assert!(
+        bash_verify_command_is_auto_approvable(command, root),
+        "the verify allow-list is unchanged for {command:?}"
+    );
 }

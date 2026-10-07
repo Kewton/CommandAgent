@@ -19,12 +19,12 @@
 {"id": "escaped-quote-inside", "command": "echo \"$(echo \\\"x\\\")\"", "executes": true, "reject": true, "operation": "unreadable shell text", "secret": true, "auto_approvable": false}
 {"id": "simple-parameter-name", "command": "echo \"${HOME}\"", "executes": false, "reject": false, "secret": false}
 {"id": "simple-parameter-key", "command": "echo \"${key}\"", "executes": false, "reject": false, "secret": false}
-{"id": "simple-substitution-git", "command": "echo \"$(git rev-parse --show-toplevel)\"", "executes": false, "reject": false, "secret": false}
-{"id": "simple-substitution-cat", "command": "echo \"$(cat path/to/file.txt)\"", "executes": false, "reject": false, "secret": false}
-{"id": "simple-substitution-short", "command": "echo \"$(x)\"", "executes": false, "reject": false, "secret": false}
-{"id": "unquoted-substitution", "command": "echo $(echo \"x\")", "executes": false, "reject": false, "secret": false}
-{"id": "unquoted-arithmetic", "command": "echo $((1+2))", "executes": false, "reject": false, "secret": false}
-{"id": "unquoted-parameter-operator", "command": "echo ${x:-y}", "executes": false, "reject": false, "secret": false}
+{"id": "simple-substitution-git", "command": "echo \"$(git rev-parse --show-toplevel)\"", "executes": false, "reject": true, "operation": "path reference", "secret": false}
+{"id": "simple-substitution-cat", "command": "echo \"$(cat path/to/file.txt)\"", "executes": false, "reject": true, "operation": "path reference", "secret": false}
+{"id": "simple-substitution-short", "command": "echo \"$(x)\"", "executes": false, "reject": true, "operation": "path reference", "secret": false}
+{"id": "unquoted-substitution", "command": "echo $(echo \"x\")", "executes": false, "reject": true, "operation": "path reference", "secret": false}
+{"id": "unquoted-arithmetic", "command": "echo $((1+2))", "executes": false, "reject": true, "operation": "path reference", "secret": false}
+{"id": "unquoted-parameter-operator", "command": "echo ${x:-y}", "executes": false, "reject": true, "operation": "path reference", "secret": false, "auto_approvable": true}
 {"id": "single-quoted", "command": "echo '$(echo \"x\")'", "executes": false, "reject": false, "secret": false}
 {"id": "true-comment", "command": "echo x # $(echo \"y\")", "executes": false, "reject": false, "secret": false}
 {"id": "escaped-introducer", "command": "echo \"\\$(echo \"x\")\"", "executes": false, "reject": false, "secret": false}

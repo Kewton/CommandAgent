@@ -222,6 +222,21 @@ pub(super) fn ensure_bash_write_target(root: &Path, raw: &str) -> anyhow::Result
     Ok(())
 }
 
+/// A read-only literal confinement proof: unlike [`ensure_bash_write_target`] it
+/// never expands a glob or brace, so a quoted literal that merely looks like a
+/// pattern is judged by its literal spelling and a same-spelling sibling symlink
+/// is never pulled in (Issue #582 design 3). The write-target proof is left
+/// unchanged.
+pub(super) fn ensure_bash_read_target(root: &Path, raw: &str) -> anyhow::Result<()> {
+    if raw.starts_with('~') {
+        bail!("home-relative Bash read target is outside the workspace contract");
+    }
+    if raw.contains(['$', '`']) {
+        bail!("dynamic Bash read target cannot be proven to remain in the workspace");
+    }
+    ensure_single_target(root, raw)
+}
+
 fn ensure_single_target(root: &Path, raw: &str) -> anyhow::Result<()> {
     let path = Path::new(raw);
     if !path.is_absolute() {

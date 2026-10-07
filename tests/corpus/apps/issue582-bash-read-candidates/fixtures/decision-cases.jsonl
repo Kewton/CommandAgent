@@ -1,0 +1,24 @@
+{"id": "static-relative-beside-dynamic", "command": "X=$HOME; head sub/link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "quoted-joined-outward", "command": "echo $HOME && head sub/li\"nk/secret\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "glob-outward", "command": "cat lin*/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "glob-hidden-outward", "command": "cat .hid*/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "glob-dot-outward", "command": "cat .*/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "brace-outward", "command": "cat {linked-outside,x}/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "brace-dot-outward", "command": "cat {.,}./secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "dynamic-root-glob", "command": "cat $ROOT/lin*/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "dynamic-home", "command": "cat $HOME/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "dynamic-file", "command": "cat $FILE", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "system-prefix-absolute-glob", "command": "cat /usr/../etc/*", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "dynamic-program-verify-approved", "command": "${x}", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "nine-cargo-test", "command": "cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-cd-npm-test", "command": "cd frontend && npm test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-echo-home-ls", "command": "echo $HOME && ls src", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-path-assignment", "command": "PATH=$PWD/bin:$PATH cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-ls-src-glob", "command": "ls src/*.rs", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-cat-txt", "command": "cat *.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-rg-recursive", "command": "rg foo src/**/*.rs", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-node-modules", "command": "ls node_modules/*/package.json", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "nine-quoted-route", "command": "cat \"src/app/[id]/route.ts\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "unmatched-glob", "command": "cat nomatch*/secret", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "secret-directive", "command": "cat .env", "R": false, "A": false, "W": false, "P": false, "S": true, "V": false}
+{"id": "protected-path-write", "command": "tee tests/spec.rs", "R": false, "A": true, "W": false, "P": true, "S": false, "V": false}

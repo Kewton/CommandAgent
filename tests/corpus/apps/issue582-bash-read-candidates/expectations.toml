@@ -1,0 +1,22 @@
+case_id = "issue582-bash-read-candidates"
+source = "Issue #582 (integrating #571): the second-stage Bash path inspection judged only static path words, so a static relative path beside a $, backtick, or glob escaped the workspace and unquoted glob, brace, dynamic-rooted, and absolute-glob reads were never resolved. This case declares the representative decision table; tests/issue582_bash_read_candidates.rs drives R/S/V and read_guard.rs drives R/A/W/P/S/V on the same file."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/decision-cases.jsonl = [
+  "\"id\": \"static-relative-beside-dynamic\"",
+  "\"id\": \"glob-outward\"",
+  "\"id\": \"brace-outward\"",
+  "\"id\": \"dynamic-root-glob\"",
+  "\"id\": \"dynamic-home\"",
+  "\"id\": \"dynamic-file\"",
+  "\"id\": \"nine-cargo-test\"",
+  "\"id\": \"nine-path-assignment\"",
+  "\"id\": \"nine-quoted-route\"",
+  "\"id\": \"dynamic-program-verify-approved\"",
+  "\"id\": \"protected-path-write\""
+]

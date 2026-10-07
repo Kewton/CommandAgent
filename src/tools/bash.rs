@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
 mod path_tokens;
+mod read_guard;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_STREAM_BYTES: usize = 24_000;
@@ -784,22 +785,32 @@ pub fn path_confinement_rejection(
         });
     }
     let inspection = super::bash_write_guard::inspect_working_directory(command);
-    for candidate in path_tokens::path_candidates(command) {
-        if !bash_path_allowed(&candidate, &root, &raw_root) {
-            return Some(path_reference_rejection(&candidate, &root, None));
+    let read = read_guard::inspect(command);
+    if let Some(word) = read.unverifiable {
+        return Some(path_reference_rejection(
+            &word,
+            &root,
+            Some(read_guard::UNVERIFIABLE_REASON),
+        ));
+    }
+    for candidate in read.candidates {
+        let path = candidate.path();
+        let expands = candidate.expands();
+        if !bash_path_allowed(path, &root, &raw_root, expands) {
+            return Some(path_reference_rejection(path, &root, None));
         }
-        if candidate.starts_with('/') {
+        if path.starts_with('/') {
             continue;
         }
         if inspection.undecidable {
             return Some(path_reference_rejection(
-                &candidate,
+                path,
                 &root,
                 Some("follows a working directory change that cannot be determined"),
             ));
         }
-        for joined in inspection.relative_variants(&candidate) {
-            if super::path_guard::ensure_bash_write_target(&root, &joined).is_err() {
+        for joined in inspection.relative_variants(path) {
+            if ensure_read_candidate(&root, &joined, expands).is_err() {
                 return Some(path_reference_rejection(&joined, &root, None));
             }
         }
@@ -963,21 +974,45 @@ fn is_absolute_path_candidate_start(line: &str, start: usize) -> bool {
         )
 }
 
-fn bash_path_allowed(candidate: &str, canonical_root: &Path, raw_root: &Path) -> bool {
+fn bash_path_allowed(
+    candidate: &str,
+    canonical_root: &Path,
+    raw_root: &Path,
+    expands: bool,
+) -> bool {
     let path = Path::new(candidate);
     if !path.is_absolute() || path.starts_with(canonical_root) || path.starts_with(raw_root) {
         // Keeping a dynamic route whole must not hide traversal or a symlink
         // escape that the old suffix scan rejected. Reuse the existing path
         // proof, including canonicalization of a missing leaf's parent.
-        return super::path_guard::ensure_bash_write_target(canonical_root, candidate).is_ok();
+        return ensure_read_candidate(canonical_root, candidate, expands).is_ok();
     }
     if candidate == "/" {
         return true;
+    }
+    // An absolute glob or brace outside the workspace cannot be enumerated and
+    // must not be admitted by the raw-string system-prefix fallback: a spelling
+    // such as `/usr/../<fixture>/*` canonicalizes `/usr/..` to `/` and would
+    // otherwise pass the `/usr` prefix check (Issue #582 design 6).
+    if expands && path_tokens::contains_glob_or_brace(candidate) {
+        return super::path_guard::ensure_bash_write_target(canonical_root, candidate).is_ok();
     }
     let comparable = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     comparable.starts_with(canonical_root)
         || comparable.starts_with(raw_root)
         || is_system_prefix_allowed(&comparable)
+}
+
+/// Confine one read-path spelling. A word the shell expands goes through the
+/// write-target proof (which expands every glob and brace); a literal spelling
+/// goes through the read-only literal proof, so a quoted bracket is never
+/// expanded (Issue #582 design 3).
+fn ensure_read_candidate(root: &Path, raw: &str, expands: bool) -> anyhow::Result<()> {
+    if expands {
+        super::path_guard::ensure_bash_write_target(root, raw)
+    } else {
+        super::path_guard::ensure_bash_read_target(root, raw)
+    }
 }
 
 fn is_system_prefix_allowed(path: &Path) -> bool {

@@ -204,11 +204,59 @@ fn quoted_expansion_handles_introducer_line_continuation() {
     let rejection = path_confinement_rejection(ambiguous, root)
         .unwrap_or_else(|| panic!("expected rejection: {ambiguous:?}"));
     assert_eq!(rejection.operation, UNREADABLE_OPERATION);
-    // A simple interior across the continuation stays allowed.
+    // A simple interior across the continuation is still a command
+    // substitution, so Issue #582 refuses it (`R/A=1`, `V=0`).
     let simple = "echo \"$\\\n(echo x)\"";
     assert!(
-        path_confinement_rejection(simple, root).is_none(),
-        "expected allow: {simple:?}"
+        path_confinement_rejection(simple, root).is_some(),
+        "expected rejection: {simple:?}"
+    );
+}
+
+/// Issue #582: the simple forms that are not a plain `$NAME` / `${NAME}`
+/// reference — command substitution, arithmetic, and parameter operators — are
+/// now refused on the read side, moving the former allow rows to this reject
+/// table without deleting any row. `operation` is the fixed `path reference`
+/// reason; `V` is pinned separately because it is not derived from the read
+/// guard.
+#[test]
+fn quoted_expansion_rejects_command_substitution_and_parameter_words() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let cases = [
+        r#"echo "$(git rev-parse --show-toplevel)""#,
+        r#"echo "$(cat path/to/file.txt)""#,
+        r#"echo "$(x)""#,
+        r#"echo $(echo "x")"#,
+        r#"echo $((1+2))"#,
+        r#"echo ${x:-y}"#,
+        r#"echo $(echo ')') #'"#,
+        r#"echo "$(echo x)" # ordinary"#,
+    ];
+    for command in cases {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected rejection: {command:?}"));
+        assert_eq!(
+            rejection.operation, "path reference",
+            "command: {command:?}"
+        );
+    }
+}
+
+/// Issue #582: `echo ${x:-y}` is still approvable by the verify allow-list, yet
+/// the read refusal runs before the shell starts. This pins the ordering the
+/// issue requires: `V=1` does not erase the read refusal.
+#[test]
+fn quoted_expansion_refuses_parameter_word_even_when_verify_approves() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let command = "echo ${x:-y}";
+    let rejection = path_confinement_rejection(command, root)
+        .unwrap_or_else(|| panic!("expected rejection: {command:?}"));
+    assert_eq!(rejection.operation, "path reference");
+    assert!(
+        bash_verify_command_is_auto_approvable(command, root),
+        "the verify allow-list is unchanged for {command:?}"
     );
 }
 
@@ -219,25 +267,15 @@ fn quoted_expansion_keeps_simple_unquoted_and_data_forms() {
     let fixture = fixture();
     let root = &fixture.root;
     let cases = [
-        // The two maintained simple forms.
+        // The two maintained simple forms: a plain variable name reference.
         r#"echo "${HOME}""#,
         r#"echo "${key}""#,
-        r#"echo "$(git rev-parse --show-toplevel)""#,
-        r#"echo "$(cat path/to/file.txt)""#,
-        r#"echo "$(x)""#,
-        // Unquoted expansions keep their existing handling.
-        r#"echo $(echo "x")"#,
-        r#"echo $((1+2))"#,
-        r#"echo ${x:-y}"#,
         // Single quotes make every byte literal.
         r#"echo '$(echo "x")'"#,
         r#"echo '${x:-"y"}'"#,
         // A true comment is not a command.
         r#"echo x # $(echo "y")"#,
         r#"echo x # '${x:-"y"}'"#,
-        r#"echo $(echo ')') #'"#,
-        // A true comment after a simple expansion stays allowed.
-        r#"echo "$(echo x)" # ordinary"#,
         // An escaped introducer is not an expansion.
         r#"echo "\$(echo "x")""#,
         r#"echo "\${x:-"y"}""#,
