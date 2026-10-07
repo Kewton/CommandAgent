@@ -611,6 +611,31 @@ mod tests {
     use super::*;
 
     const MEASURED_FIXTURE: &str = "tests/corpus/apps/test0725_cli_elev_003/fixtures";
+    // Test-only upper bound. It only waits for child completion; a fast child
+    // returns immediately, so load no longer turns a pass into a timeout.
+    const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Probe a fixture under the test-only child bound and require that every
+    /// observation ended because the child exited on its own, never because the
+    /// bound fired. The product default timeout is left untouched.
+    fn run_expecting_exit(root: &Path, config: Config) -> Report {
+        let report = run(root, config.with_timeout(TEST_TIMEOUT)).unwrap();
+        let exited = report
+            .observations
+            .iter()
+            .chain(
+                report
+                    .output_claims
+                    .iter()
+                    .filter_map(|claim| claim.observation.as_ref()),
+            )
+            .all(|observation| observation.outcome == "exited");
+        assert!(
+            exited,
+            "an observation did not terminate on its own: {report:?}"
+        );
+        report
+    }
 
     fn fixture(script: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
@@ -644,11 +669,10 @@ mod tests {
         let dir = fixture(
             "import sys\nif '--anvil-invalid-probe' in sys.argv: raise SystemExit(2)\nprint('value=7')\n",
         );
-        let report = run(
+        let report = run_expecting_exit(
             dir.path(),
             Config::new("cli/main.py", &["README.md", "USAGE.md"]),
-        )
-        .unwrap();
+        );
         assert!(report.ok, "{report:?}");
         assert_eq!(report.observations[0].exit_code, Some(0));
         assert_eq!(report.observations[1].exit_code, Some(2));
@@ -659,7 +683,7 @@ mod tests {
     #[test]
     fn swallowing_cli_is_rejected_when_invalid_input_exits_zero() {
         let dir = fixture("print('value=7')\n");
-        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+        let report = run_expecting_exit(dir.path(), Config::new("cli/main.py", &["README.md"]));
         assert!(!report.ok);
         assert!(!report.c1_ok);
         assert!(
@@ -675,7 +699,7 @@ mod tests {
             "import sys\nif '--anvil-invalid-probe' in sys.argv: raise SystemExit(2)\nprint('value=7')\n",
         );
         let config = || Config::new("cli/main.py", &["README.md"]);
-        assert!(run(dir.path(), config()).unwrap().ok);
+        assert!(run_expecting_exit(dir.path(), config()).ok);
         let frozen = std::fs::read(dir.path().join(CASE_BINDING_PATH)).unwrap();
         std::fs::write(
             dir.path().join("README.md"),
@@ -683,7 +707,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = run(dir.path(), config()).unwrap();
+        let report = run_expecting_exit(dir.path(), config());
 
         assert!(!report.binding_intact);
         assert!(report.observations.is_empty());
@@ -698,7 +722,7 @@ mod tests {
     fn measured_optional_and_placeholder_usage_normalizes_to_sample_values() {
         let dir = measured_fixture(true);
 
-        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+        let report = run_expecting_exit(dir.path(), Config::new("cli/main.py", &["README.md"]));
 
         assert_eq!(
             report.binding.cases[0].args,
@@ -755,7 +779,7 @@ mod tests {
     fn measured_readme_extracts_two_output_examples_and_rejects_both() {
         let dir = measured_fixture(true);
 
-        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+        let report = run_expecting_exit(dir.path(), Config::new("cli/main.py", &["README.md"]));
 
         assert!(report.c1_ok);
         assert!(report.c4_ok);
