@@ -151,6 +151,7 @@ fn project(source: &Source) -> HeadlessSummary {
         source.terminal_status,
         source.exit_code,
     );
+    let interrupted = report.status == Some(TerminalStatus::Interrupted);
     let terminal = latest_terminal(&events);
     let failed = terminal
         .and_then(|event| event.get("ok"))
@@ -192,13 +193,25 @@ fn project(source: &Source) -> HeadlessSummary {
         provider_usage_by_role,
         stop_class: failed
             .then(|| {
-                latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
-                    .or_else(|| {
-                        latest_event_text(&events, "community_profile_verification", "violation")
+                if interrupted {
+                    // An interruption must not adopt a failure class from an
+                    // unrelated event that preceded it. Only an
+                    // interruption-specific value survives; otherwise this is
+                    // null.
+                    terminal.and_then(|event| text(event, "failure_kind"))
+                } else {
+                    latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
+                        .or_else(|| {
+                            latest_event_text(
+                                &events,
+                                "community_profile_verification",
+                                "violation",
+                            )
                             .filter(|value| !value.is_empty())
                             .map(|_| "community_profile_violation".to_string())
-                    })
-                    .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
+                        })
+                        .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
+                }
             })
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
@@ -546,5 +559,85 @@ mod tests {
         let value = std::thread::spawn(move || render(&source)).join().unwrap();
         assert!(!value.contains(canary), "{value}");
         crate::sensitive_data::reset_scopes_for_tests();
+    }
+
+    fn write_events(lines: &[Value]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = lines
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, format!("{body}\n")).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn interrupted_run_does_not_adopt_a_pre_interruption_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "interrupted",
+                "failure_kind": "direct_cli_command_interrupted",
+                "stop_reason": "interrupted by user",
+                "next_action": "resume_or_rerun_command",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "interrupted");
+        assert_eq!(
+            value["stop_class"], "direct_cli_command_interrupted",
+            "an interruption must not inherit a pre-interruption failure class"
+        );
+        assert_eq!(value["next_action"], "resume_or_rerun_command");
+    }
+
+    #[test]
+    fn interrupted_run_without_a_specific_class_reports_no_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "interrupted",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "interrupted");
+        assert!(
+            value["stop_class"].is_null(),
+            "no interruption-specific value exists, so stop_class must be null: {value}"
+        );
+    }
+
+    #[test]
+    fn failed_run_still_reports_the_planner_quality_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "failed",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["stop_class"], "planner_quality_exhausted");
     }
 }

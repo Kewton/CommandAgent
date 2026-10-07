@@ -603,9 +603,48 @@ enum ResumeSource {
     Yaml(PathBuf),
 }
 
+/// The error for `/resume <run-id>` when the run has no recovery UltraPlan.
+///
+/// Names the missing artifact and an operation that can actually proceed: the
+/// most recent saved step plan when one exists, otherwise a re-run. It never
+/// invents a resumable artifact.
+fn missing_recovery_ultra_plan_error(root: &Path, run: &RunInventoryItem) -> String {
+    let next = match newest_saved_step_plan(root) {
+        Some(plan) => format!(
+            "run the saved step plan with `--run-plan {}`",
+            workspace_relative_display(root, &plan)
+        ),
+        None => "re-run the original command".to_string(),
+    };
+    format!(
+        "run `{}` has no recovery UltraPlan to resume (the run stopped before one was saved); {next}",
+        run.short_id
+    )
+}
+
+fn newest_saved_step_plan(root: &Path) -> Option<PathBuf> {
+    let mut candidates = std::fs::read_dir(crate::runtime_paths::plans_dir(root))
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if !(name.starts_with("plan-") && name.ends_with(".yaml")) {
+                return None;
+            }
+            Some((entry.metadata().ok()?.modified().ok()?, path))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.into_iter().next().map(|(_, path)| path)
+}
+
 fn resume_plan_from_source(root: &Path, source: ResumeSource) -> anyhow::Result<ResumePlan> {
     let (source_run, yaml_path) = match source {
         ResumeSource::Run(run) => {
+            if run.recovery_ultra_plan_path.trim().is_empty() {
+                bail!("{}", missing_recovery_ultra_plan_error(root, &run));
+            }
             let yaml_path =
                 resolve_resume_yaml_path(root, Path::new(&run.recovery_ultra_plan_path))
                     .with_context(|| {
