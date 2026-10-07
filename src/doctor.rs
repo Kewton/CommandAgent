@@ -1742,6 +1742,32 @@ mod tests {
     }
 
     #[test]
+    fn provider_reachability_checks_are_named_and_skipped_without_a_key() {
+        let openai = openai_reachability_check_with(Some("sk-proj-doctor-issue514"), |_| Ok(200));
+        assert_eq!(openai.id, "provider.openai.reachable");
+        assert_eq!(openai.details["reachable"], true);
+
+        let responses =
+            openai_responses_reachability_check_with(Some("sk-proj-doctor-issue514"), |_| Ok(400));
+        assert_eq!(responses.id, "provider.openai.responses_reachable");
+        assert_eq!(responses.details["reachable"], true);
+
+        let openai_skipped = openai_reachability_check_with(None, |_| {
+            unreachable!("doctor must not probe OpenAI without a key")
+        });
+        assert_eq!(openai_skipped.id, "provider.openai.reachable");
+        assert!(openai_skipped.details["reachable"].is_null());
+        assert!(openai_skipped.message.contains("not attempted"));
+
+        let responses_skipped = openai_responses_reachability_check_with(None, |_| {
+            unreachable!("doctor must not probe the Responses route without a key")
+        });
+        assert_eq!(responses_skipped.id, "provider.openai.responses_reachable");
+        assert!(responses_skipped.details["reachable"].is_null());
+        assert!(responses_skipped.message.contains("not attempted"));
+    }
+
+    #[test]
     fn terra_doctor_identity_is_strict_and_recommends_snapshot_pin() {
         let exact = openai_model_identity_check("executor", "gpt-5.6-terra");
         let pinned = openai_model_identity_check("planner", "gpt-5.6-terra-2026-08-18");

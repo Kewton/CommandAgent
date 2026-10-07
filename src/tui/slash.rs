@@ -585,6 +585,7 @@ pub fn handle_command(
                 ui,
             ),
             SlashCommandKind::UltraPlan => {
+                require_slash_goal(&parsed.goal, command.name)?;
                 let plan = crate::planner::generate_ultra_plan_with_ui(
                     planner,
                     &parsed.goal,
@@ -1232,6 +1233,18 @@ pub fn expand_goal_references(goal: &str, config: &Config) -> anyhow::Result<Str
     Ok(out)
 }
 
+/// Reject a goal-less planning command before it reaches the provider.
+///
+/// Mirrors the direct CLI, which rejects `--ultra-plan` without a trailing goal
+/// (`config::required_goal`). Without this, `/ultra-plan` would send
+/// `Goal: (none)` to the planner and fail only at the provider.
+fn require_slash_goal(goal: &str, command: &str) -> anyhow::Result<()> {
+    if goal.trim().is_empty() {
+        bail!("{command} requires a goal; usage: {command} <goal>");
+    }
+    Ok(())
+}
+
 pub fn parse_words(input: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
@@ -1288,6 +1301,8 @@ mod tests {
     use crate::providers::{AssistantReply, ChatClient};
     use crate::state::ConversationMessage;
     use crate::tools::registry::ToolSpec;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Clone)]
     struct DummyClient;
@@ -1309,6 +1324,32 @@ mod tests {
             _native_tools_enabled: bool,
         ) -> anyhow::Result<AssistantReply> {
             Ok(AssistantReply::text("unused"))
+        }
+    }
+
+    #[derive(Clone)]
+    struct CountingClient {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ChatClient for CountingClient {
+        fn label(&self) -> &str {
+            "counting"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(AssistantReply::text("unexpected"))
         }
     }
 
@@ -1611,6 +1652,43 @@ mod tests {
         assert!(output.starts_with("CommandAgent doctor:"), "{output}");
         assert!(output.contains("OpenAI key"), "{output}");
         assert!(output.contains("Playwright probe"), "{output}");
+    }
+
+    #[test]
+    fn ultra_plan_without_a_goal_is_rejected_before_the_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = config();
+        config.workspace_root = dir.path().to_path_buf();
+        config.state_dir = dir.path().join("state");
+        std::fs::create_dir_all(&config.state_dir).unwrap();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut planner = CountingClient {
+            calls: Arc::clone(&calls),
+        };
+        let mut execution = CountingClient {
+            calls: Arc::clone(&calls),
+        };
+
+        let result = handle_command(
+            "/ultra-plan",
+            &config,
+            &mut planner,
+            &mut execution,
+            &crate::tui::NOOP_UI,
+        );
+
+        assert!(result.is_err(), "an empty goal must be rejected");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "the planner provider must not be called for a goal-less /ultra-plan"
+        );
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("requires a goal"),
+            "the rejection must name the missing goal: {error}"
+        );
     }
 
     #[test]

@@ -77,10 +77,13 @@ field-by-field and explicit CLI flags win. Read
 [configuration precedence](../guide/en/configuration.md#resolution-precedence)
 before combining top-level values and presets.
 
-## 4. Run the offline doctor
+## 4. Run the doctor
 
 `--doctor` diagnoses configuration, provider readiness, local probes, external
-draft profiles, and extension roots without making network requests:
+draft profiles, and extension roots. Depending on the configured provider, it
+makes reachability checks that connect to that host (for example OpenAI
+/v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API
+key is absent:
 
 ```bash
 commandagent --preset local_cli --doctor

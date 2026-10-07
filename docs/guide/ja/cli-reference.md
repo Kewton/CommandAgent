@@ -65,7 +65,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--filter` | `<phase\|tool\|provider>` | なし | `--events` を 1 つの event family に絞ります。 | [トラブルシューティング](troubleshooting.md) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
-| `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--doctor` | なし | オフ | 設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。設定されたプロバイダによっては、そのホストへ到達確認を行います（例: OpenAI の /v1/models または Responses、Ollama、LM Studio）。API キーがない確認は試行しません。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--json` | なし | オフ | `--doctor`、`--extensions`、または `--runs` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
