@@ -7,7 +7,6 @@ from typing import Any
 
 from .schema import EVAL_SCHEMA_VERSION
 
-
 SUMMARY_HEADER = [
     "run_id",
     "eval_schema_version",
@@ -473,6 +472,12 @@ def read_summary(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         fieldnames = reader.fieldnames or []
+        known = set(SUMMARY_HEADER)
+        unknown_columns = [name for name in fieldnames if name not in known]
+        if unknown_columns:
+            raise ValueError(
+                f"unsupported summary columns in {path}: {', '.join(unknown_columns)}"
+            )
         rows = list(reader)
         for row in rows:
             for key in SUMMARY_HEADER:

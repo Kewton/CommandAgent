@@ -66,21 +66,35 @@ fn inspect(root: &Path) -> Inspection {
     if inside.stdout.trim() != "true" {
         return Inspection::Unmanaged;
     }
-    match run_git(
-        root,
-        &[
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-            "--",
-            ".",
-        ],
-    ) {
+    let scope = change_scope();
+    let mut arguments = vec![
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--",
+    ];
+    arguments.extend(scope.iter().map(String::as_str));
+    match run_git(root, &arguments) {
         Ok(output) if output.success => Inspection::Managed(parse_status(&output.stdout)),
         Ok(output) => Inspection::Unavailable(nonempty_error(&output)),
         Err(error) => Inspection::Unavailable(error),
     }
+}
+
+/// Pathspecs that scope the workspace change report to the user's files.
+///
+/// CommandAgent creates its own runtime state inside the workspace — including
+/// `.commandagent/lock`, which `workspace_lock::acquire` writes before this
+/// inspection runs. Excluding the tool's state keeps a genuinely clean
+/// workspace from warning about changes CommandAgent itself produced, while a
+/// user's real uncommitted changes still report.
+fn change_scope() -> Vec<String> {
+    vec![
+        ".".to_string(),
+        format!(":(exclude){}", crate::runtime_paths::WORKSPACE_DIR),
+        format!(":(exclude){}", crate::runtime_paths::LEGACY_WORKSPACE_DIR),
+    ]
 }
 
 fn render_exit_report(root: &Path) -> Option<String> {
@@ -113,17 +127,20 @@ fn render_exit_report(root: &Path) -> Option<String> {
 fn diff_stat(root: &Path) -> String {
     let has_head =
         run_git(root, &["rev-parse", "--verify", "HEAD"]).is_ok_and(|output| output.success);
-    let argument_sets: &[&[&str]] = if has_head {
-        &[&["diff", "--stat", "HEAD", "--", "."]]
+    let prefixes: &[&[&str]] = if has_head {
+        &[&["diff", "--stat", "HEAD"]]
     } else {
-        &[
-            &["diff", "--stat", "--", "."],
-            &["diff", "--cached", "--stat", "--", "."],
-        ]
+        &[&["diff", "--stat"], &["diff", "--cached", "--stat"]]
     };
-    argument_sets
+    let scope = change_scope();
+    prefixes
         .iter()
-        .filter_map(|arguments| run_git(root, arguments).ok())
+        .filter_map(|prefix| {
+            let mut arguments = prefix.to_vec();
+            arguments.push("--");
+            arguments.extend(scope.iter().map(String::as_str));
+            run_git(root, &arguments).ok()
+        })
         .filter(|output| output.success)
         .map(|output| output.stdout.trim().to_string())
         .filter(|output| !output.is_empty())
@@ -233,5 +250,49 @@ mod tests {
         assert!(report.contains(EXIT_REPORT_HEADING), "{report}");
         assert!(report.contains("tracked.txt"), "{report}");
         assert!(report.contains("Untracked files:\n  - new.txt"), "{report}");
+    }
+
+    #[test]
+    fn commandagent_runtime_state_is_not_a_workspace_change() {
+        let root = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "-q"]);
+        fs::write(root.path().join("tracked.txt"), "committed\n").unwrap();
+        git(root.path(), &["add", "tracked.txt"]);
+        git(
+            root.path(),
+            &[
+                "-c",
+                "user.name=CommandAgent Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "initial",
+            ],
+        );
+        fs::create_dir_all(root.path().join(".commandagent/runs/run-1")).unwrap();
+        fs::write(root.path().join(".commandagent/lock"), "{}\n").unwrap();
+        fs::write(
+            root.path().join(".commandagent/runs/run-1/events.jsonl"),
+            "",
+        )
+        .unwrap();
+
+        let Inspection::Managed(status) = inspect(root.path()) else {
+            panic!("expected managed workspace");
+        };
+        assert!(
+            !status.dirty,
+            "the tool's own runtime state must not count as a change"
+        );
+        assert!(render_exit_report(root.path()).is_none());
+
+        fs::write(root.path().join("user-note.txt"), "mine\n").unwrap();
+        let Inspection::Managed(status) = inspect(root.path()) else {
+            panic!("expected managed workspace");
+        };
+        assert!(status.dirty, "a real user change must still report");
+        assert_eq!(status.untracked, ["user-note.txt"]);
     }
 }

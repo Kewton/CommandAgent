@@ -20,7 +20,7 @@
 | `/profile` | `/profile <name>` | この REPL セッションで新しい Gate 1 カードに使う明示 profile を設定します。 |
 | `/clear` | `/clear` | 直近の結果を破棄せずに端末画面を消去します。 |
 | `/last` | `/last` | 直近の REPL 結果を再表示します。 |
-| `/doctor` | `/doctor` | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 |
+| `/doctor` | `/doctor` | 設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。設定されたプロバイダによっては、そのホストへ到達確認を行います（例: OpenAI の /v1/models または Responses、Ollama、LM Studio）。API キーがない確認は試行しません。 |
 | `/packs` | `/packs` | 実効 profile と intent に対し、`commandagent --packs` と同じ列・順序で compatible な admitted/local pack を一覧表示します。 |
 | `/pack` | `/pack <id@version>` | Gate 4 で compatible な admitted exact-byte pack を選び、新しい Gate 1 カードへ戻ります。 |
 | `/runs` | `/runs` | ワークスペースの最近の run と recovery 可否を一覧表示します。 |

@@ -1330,6 +1330,38 @@ mod tests {
     }
 
     #[test]
+    fn shell_lexical_flatten_quotes_does_not_skip_the_body_after_a_continuation() {
+        // The second reading of a kept body drops a `\` + newline continuation
+        // by advancing past exactly those two bytes (`index += 2`). Advancing by
+        // `index *= 2` instead jumps much further and drops the rest of the
+        // body, so the path only that reading recovers disappears. The comment
+        // rule elides the `#` line from the first reading, so `sub/link/f` is
+        // the flattened reading's alone.
+        let command = "sh <<'EOF'\nxxxxxxxxxxxxxxx\\\n\n# tee sub/link/f\nEOF";
+        let elided = strip(command);
+        assert!(elided.contains("sub/link/f"), "{elided:?}");
+    }
+
+    #[test]
+    fn shell_lexical_quoted_dash_reads_a_tab_only_body_line() {
+        // A body line that is nothing but tabs walks `strip_leading_tabs` to the
+        // end of the line. Indexing `line[start]` there (`start <= line.len()`)
+        // reads past the slice and panics; `start < line.len()` stops first.
+        assert_eq!(
+            strip("cat <<-'EOF'\n\t\n\tEOF\ntee f"),
+            "cat <<-'EOF'\ntee f"
+        );
+    }
+
+    #[test]
+    fn shell_lexical_double_angle_at_end_of_input_does_not_read_past_the_end() {
+        // An input ending in `<<` has `index + 2 == bytes.len()` at the first
+        // `<`, so the lookahead guard must be `<`, not `<=`, or the `bytes
+        // [index + 2]` read runs past the end and panics.
+        assert_eq!(strip("cat <<"), "cat <<");
+    }
+
+    #[test]
     fn shell_lexical_marks_ambiguous_quoted_expansions_and_never_clears_them() {
         let cases: &[(&str, bool)] = &[
             (r#"echo "$(echo "x")""#, true),
