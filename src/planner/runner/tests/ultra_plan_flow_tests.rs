@@ -2005,6 +2005,9 @@ if __name__ == "__main__":
         write_fake_nextjs_package_manager(dir.path(), false);
         enable_browser_probe_test_override(dir.path());
         let port = write_browser_probe_mock_command(dir.path(), "500");
+        // The logical port is a fixed number the goal and package name; holding
+        // it here proves the probe never depends on that port being free.
+        let _occupied_logical_port = std::net::TcpListener::bind(("127.0.0.1", port)).ok();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
             dir.path().join("package.json"),
