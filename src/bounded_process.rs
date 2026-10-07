@@ -531,6 +531,12 @@ mod tests {
 
     static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    // Test-only upper bound for children expected to terminate on their own. It
+    // only waits for child completion; a fast child returns immediately, so
+    // load no longer turns a pass into a timeout and the bound never becomes
+    // the reason a run is accepted.
+    const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
     #[test]
     fn run_with_timeout_kills_hanging_child() {
         let mut command = Command::new("sh");
@@ -567,8 +573,9 @@ mod tests {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let output = run_with_timeout(&mut command, Duration::from_secs(2)).unwrap();
+        let output = run_with_timeout(&mut command, TEST_TIMEOUT).unwrap();
 
+        assert_eq!(output.kind, BoundedProcessOutcomeKind::Exited, "{output:?}");
         assert!(output.success(), "{output:?}");
         let env = String::from_utf8(output.stdout).unwrap();
         assert!(env.contains("PATH="), "{env}");
@@ -609,7 +616,12 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let inherited_output = run_with_timeout(&mut inherited, Duration::from_secs(2)).unwrap();
+        let inherited_output = run_with_timeout(&mut inherited, TEST_TIMEOUT).unwrap();
+        assert_eq!(
+            inherited_output.kind,
+            BoundedProcessOutcomeKind::Exited,
+            "{inherited_output:?}"
+        );
         assert!(inherited_output.success(), "{inherited_output:?}");
         assert_eq!(inherited_output.stdout, b"unset");
 
@@ -621,7 +633,12 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let explicit_output = run_with_timeout(&mut explicit, Duration::from_secs(2)).unwrap();
+        let explicit_output = run_with_timeout(&mut explicit, TEST_TIMEOUT).unwrap();
+        assert_eq!(
+            explicit_output.kind,
+            BoundedProcessOutcomeKind::Exited,
+            "{explicit_output:?}"
+        );
         assert!(explicit_output.success(), "{explicit_output:?}");
         assert_eq!(explicit_output.stdout, b"test");
     }
