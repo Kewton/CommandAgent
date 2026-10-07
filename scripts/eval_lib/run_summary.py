@@ -7,7 +7,6 @@ from typing import Any
 
 from .schema import EVAL_SCHEMA_VERSION
 
-
 SUMMARY_HEADER = [
     "run_id",
     "eval_schema_version",
