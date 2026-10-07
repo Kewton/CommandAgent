@@ -119,30 +119,42 @@ fn genuine_uncommitted_changes_still_warn_before_the_run() {
     assert!(stderr.contains("user-note.txt"), "{stderr}");
 }
 
-fn interrupted_run(root: &Path, id: &str) {
+/// Write an interrupted run, optionally recording the action that started it.
+///
+/// The action string mirrors the `Debug` form the product stores in
+/// `run_start.action` (for example `RunPlan("saved-plan.yaml")`).
+fn interrupted_run(root: &Path, id: &str, action: Option<&str>) {
     let dir = root.join(".commandagent/runs").join(id);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("events.jsonl"),
-        concat!(
-            "{\"event\":\"planner_quality_retry_exhausted\",\"stop_class\":\"planner_quality_exhausted\"}\n",
-            "{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"interrupted\",",
-            "\"failure_kind\":\"direct_cli_command_interrupted\",",
-            "\"stop_reason\":\"interrupted by user\",",
-            "\"next_action\":\"resume_or_rerun_command\"}\n"
-        ),
-    )
-    .unwrap();
+    let mut events = String::new();
+    if let Some(action) = action {
+        let encoded = serde_json::to_string(action).unwrap();
+        events.push_str(&format!(
+            "{{\"event\":\"run_start\",\"action\":{encoded}}}\n"
+        ));
+    }
+    events.push_str(concat!(
+        "{\"event\":\"planner_quality_retry_exhausted\",\"stop_class\":\"planner_quality_exhausted\"}\n",
+        "{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"interrupted\",",
+        "\"failure_kind\":\"direct_cli_command_interrupted\",",
+        "\"stop_reason\":\"interrupted by user\",",
+        "\"next_action\":\"resume_or_rerun_command\"}\n"
+    ));
+    std::fs::write(dir.join("events.jsonl"), events).unwrap();
+}
+
+fn resume_error(root: &Path, id: &str) -> String {
+    commandagent::runs::prepare_resume(root, id)
+        .unwrap_err()
+        .to_string()
 }
 
 #[test]
-fn resume_without_a_recovery_ultra_plan_names_the_missing_artifact() {
+fn resume_without_a_recovery_ultra_plan_names_the_missing_artifact_generically() {
     let root = tempfile::tempdir().unwrap();
-    interrupted_run(root.path(), "issue518-interrupted");
+    interrupted_run(root.path(), "issue518-interrupted", None);
 
-    let error = commandagent::runs::prepare_resume(root.path(), "issue518-interrupted")
-        .unwrap_err()
-        .to_string();
+    let error = resume_error(root.path(), "issue518-interrupted");
 
     assert!(error.contains("recovery UltraPlan"), "{error}");
     assert!(
@@ -150,31 +162,48 @@ fn resume_without_a_recovery_ultra_plan_names_the_missing_artifact() {
         "the error must not leak the raw resolution failure: {error}"
     );
     assert!(
-        error.contains("re-run"),
-        "with no saved plan the next step is a re-run: {error}"
+        error.contains("--run-plan <path>") && error.contains("re-run"),
+        "without an identifiable plan the guidance must stay general: {error}"
     );
 }
 
 #[test]
-fn resume_without_a_recovery_ultra_plan_points_at_a_saved_step_plan() {
+fn resume_does_not_guess_a_plan_from_the_newest_saved_file() {
     let root = tempfile::tempdir().unwrap();
-    interrupted_run(root.path(), "issue518-interrupted");
+    interrupted_run(root.path(), "issue518-interrupted", None);
     let plans = root.path().join(".commandagent/plans");
     std::fs::create_dir_all(&plans).unwrap();
-    std::fs::write(
-        plans.join("plan-00000000-0000-0000-0000-000000000000.yaml"),
-        "goal: x\n",
-    )
-    .unwrap();
+    let newest = plans.join("plan-00000000-0000-0000-0000-000000000000.yaml");
+    std::fs::write(&newest, "goal: x\n").unwrap();
 
-    let error = commandagent::runs::prepare_resume(root.path(), "issue518-interrupted")
-        .unwrap_err()
-        .to_string();
+    let error = resume_error(root.path(), "issue518-interrupted");
+
+    assert!(
+        !error.contains("plan-00000000-0000-0000-0000-000000000000.yaml"),
+        "a plan that cannot be pinned to the run must not be named: {error}"
+    );
+    assert!(
+        !error.contains("plan-"),
+        "no saved-file scan may leak into the guidance: {error}"
+    );
+    assert!(error.contains("--run-plan <path>"), "{error}");
+}
+
+#[test]
+fn resume_names_the_plan_the_run_recorded_for_itself() {
+    let root = tempfile::tempdir().unwrap();
+    interrupted_run(
+        root.path(),
+        "issue518-interrupted",
+        Some(r#"RunPlan("saved-plan.yaml")"#),
+    );
+    std::fs::write(root.path().join("saved-plan.yaml"), "goal: x\n").unwrap();
+
+    let error = resume_error(root.path(), "issue518-interrupted");
 
     assert!(error.contains("recovery UltraPlan"), "{error}");
-    assert!(error.contains("--run-plan"), "{error}");
     assert!(
-        error.contains(".commandagent/plans/plan-"),
-        "the saved plan path must be named: {error}"
+        error.contains("`--run-plan saved-plan.yaml`"),
+        "the run's own recorded plan path must be named: {error}"
     );
 }

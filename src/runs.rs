@@ -605,16 +605,18 @@ enum ResumeSource {
 
 /// The error for `/resume <run-id>` when the run has no recovery UltraPlan.
 ///
-/// Names the missing artifact and an operation that can actually proceed: the
-/// most recent saved step plan when one exists, otherwise a re-run. It never
-/// invents a resumable artifact.
+/// Names the missing artifact and a step that can actually proceed. It only
+/// names a concrete plan path when that plan can be pinned to this run; a
+/// directory scan (for example the newest `plan-*.yaml`) cannot identify the
+/// run's own plan, so it falls back to a general instruction. It never invents
+/// a resumable artifact.
 fn missing_recovery_ultra_plan_error(root: &Path, run: &RunInventoryItem) -> String {
-    let next = match newest_saved_step_plan(root) {
+    let next = match recorded_run_plan_path(root, run) {
         Some(plan) => format!(
             "run the saved step plan with `--run-plan {}`",
             workspace_relative_display(root, &plan)
         ),
-        None => "re-run the original command".to_string(),
+        None => "specify a saved plan with `--run-plan <path>`, or re-run".to_string(),
     };
     format!(
         "run `{}` has no recovery UltraPlan to resume (the run stopped before one was saved); {next}",
@@ -622,21 +624,41 @@ fn missing_recovery_ultra_plan_error(root: &Path, run: &RunInventoryItem) -> Str
     )
 }
 
-fn newest_saved_step_plan(root: &Path) -> Option<PathBuf> {
-    let mut candidates = std::fs::read_dir(crate::runtime_paths::plans_dir(root))
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_str()?;
-            if !(name.starts_with("plan-") && name.ends_with(".yaml")) {
-                return None;
-            }
-            Some((entry.metadata().ok()?.modified().ok()?, path))
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-    candidates.into_iter().next().map(|(_, path)| path)
+/// The plan path a run recorded for itself, when it can be pinned to this run.
+///
+/// A generated step-plan run does not record the plan it saved, so a plain save
+/// directory scan cannot attribute a `plan-*.yaml` to a run. Only a run started
+/// from an explicit `--run-plan <path>` records that path, in
+/// `run_start.action`. Returns `None` when no such path is recorded, or when it
+/// no longer resolves to a file inside the workspace.
+fn recorded_run_plan_path(root: &Path, run: &RunInventoryItem) -> Option<PathBuf> {
+    let events = read_events(&run.events_path);
+    let action = events.iter().rev().find_map(|event| {
+        if event.get("event").and_then(Value::as_str) == Some("run_start") {
+            event.get("action").and_then(Value::as_str)
+        } else {
+            None
+        }
+    })?;
+    let recorded = plan_path_from_action(action)?;
+    let path = Path::new(&recorded);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    resolved.is_file().then_some(resolved)
+}
+
+/// Extract the plan path from a recorded `Action::RunPlan` debug string.
+fn plan_path_from_action(action: &str) -> Option<String> {
+    let inner = action.strip_prefix("RunPlan(")?.strip_suffix(')')?;
+    let inner = inner.strip_prefix('"')?.strip_suffix('"')?;
+    if inner.is_empty() {
+        None
+    } else {
+        Some(inner.to_string())
+    }
 }
 
 fn resume_plan_from_source(root: &Path, source: ResumeSource) -> anyhow::Result<ResumePlan> {
