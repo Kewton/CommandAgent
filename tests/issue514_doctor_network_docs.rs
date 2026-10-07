@@ -15,6 +15,8 @@ const JAPANESE_DOCS: &[&str] = &[
     "docs/guide/ja/slash-commands.md",
 ];
 
+const README: &str = "README.md";
+
 fn repo_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
@@ -87,6 +89,27 @@ fn bilingual_doctor_docs_state_reachability_and_drop_the_offline_claim() {
             "{path} still claims no network requests in English"
         );
     }
+}
+
+#[test]
+fn readme_doctor_summary_states_provider_reachability() {
+    let markdown = read_repo_file(README);
+    assert!(
+        markdown.contains("reachability check"),
+        "{README} doctor summary is missing a reachability check statement"
+    );
+    assert!(
+        !markdown.contains("offline doctor"),
+        "{README} still describes the doctor as offline"
+    );
+    assert!(
+        !markdown.contains(FORBIDDEN_EN),
+        "{README} still claims no network requests"
+    );
+    assert!(
+        !markdown.contains(FORBIDDEN_JA),
+        "{README} still claims no network requests in Japanese"
+    );
 }
 
 #[test]
