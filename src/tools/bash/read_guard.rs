@@ -331,4 +331,27 @@ mod tests {
             .is_some()
         );
     }
+
+    /// The `$?` branch must copy `$?` verbatim into `Word.text`. Copying a
+    /// shorter range loses the exit status, which changes the candidate the
+    /// embedded absolute-path scan extracts (`/abs/x` or `/abs/x$` instead of
+    /// `/abs/x$?`) and can change the decision. This is a read-only check.
+    #[test]
+    fn read_candidates_keep_exit_status_in_the_word_text() {
+        let parsed = super::path_tokens::read_words("echo /abs/x$?").unwrap();
+        let word = &parsed[0][1];
+        assert_eq!(word.text, "/abs/x$?");
+        assert!(word.dynamic && word.simple_variable);
+
+        for command in ["echo /abs/x$?", r#"echo "/abs/x$?""#] {
+            let verdict = super::inspect(command);
+            assert!(verdict.unverifiable.is_none(), "{command}");
+            let paths: Vec<&str> = verdict
+                .candidates
+                .iter()
+                .map(|candidate| candidate.path())
+                .collect();
+            assert_eq!(paths, ["/abs/x$?"], "{command}");
+        }
+    }
 }
