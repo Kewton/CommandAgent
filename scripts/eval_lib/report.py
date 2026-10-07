@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import statistics
 import json
+import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
 from .failure_classification import (
     capability_failure_included,
-    failure_layer_for_kind,
     failure_kind_required_for_row,
+    failure_layer_for_kind,
     normalize_failure_kind,
 )
 from .run_summary import read_summary
@@ -906,7 +906,6 @@ def stop_reason_summary(rows: list[dict[str, str]]) -> list[str]:
     for row in rows:
         if not diagnostic_failure_row(row):
             continue
-        extras = parse_extras(row)
         detail_rows.append(
             {
                 "scenario": row.get("scenario", ""),
