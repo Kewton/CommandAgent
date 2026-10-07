@@ -38,6 +38,15 @@ mod plan_final_probe;
 #[path = "acceptance/profile_contract_event.rs"]
 mod profile_contract_event;
 use profile_contract_event::emit_probe_event;
+#[cfg(test)]
+#[path = "acceptance/test_transport.rs"]
+pub(super) mod test_transport;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(super) use test_transport::{
+    inferred_required_capabilities, inferred_required_evidence, inferred_required_obligations,
+    run_nextjs_dev_route_probe,
+};
 pub(super) fn emit_browser_probe_event(
     config: &Config,
     observation: &BrowserReadinessObservation,
@@ -233,40 +242,12 @@ pub(super) fn annotate_interaction_evidence_with_source_diagnostics(
     }
 }
 
-#[cfg(test)]
-pub(super) fn inferred_required_capabilities(profile: &str, goal: &str) -> Vec<String> {
-    resolve_profile_runtime(profile).required_capabilities(goal)
-}
-
-#[cfg(test)]
-pub(super) fn inferred_required_evidence(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> Vec<String> {
-    resolve_profile_runtime(profile).required_evidence(goal, required_capabilities)
-}
-
 pub(super) fn runtime_required_evidence(
     runtime: &dyn ProfileRuntime,
     goal: &str,
     required_capabilities: &[String],
 ) -> Vec<String> {
     runtime.required_evidence(goal, required_capabilities)
-}
-
-#[cfg(test)]
-pub(super) fn inferred_required_obligations(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> Vec<String> {
-    let profile_id = ProfileId::parse(profile);
-    ProfileRuntimeRegistry::resolve(&profile_id).required_obligations(
-        &profile_id,
-        goal,
-        required_capabilities,
-    )
 }
 
 pub(super) fn run_profile_behavior_probe(
@@ -393,16 +374,6 @@ pub(super) struct HttpProbeResult {
     pub(super) body_excerpt: String,
 }
 
-#[cfg(test)]
-pub(super) fn run_nextjs_dev_route_probe(config: &Config, evidence_path: &Path) -> Value {
-    run_nextjs_dev_route_probe_with_interaction_options(
-        config,
-        evidence_path,
-        BrowserInteractionProbeOptions::default(),
-        None,
-    )
-}
-
 pub(super) fn run_nextjs_dev_route_probe_with_interaction_options(
     config: &Config,
     evidence_path: &Path,
@@ -473,7 +444,12 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
         }
     };
 
-    if localhost_port_accepts_connection(spec.port) {
+    #[cfg(test)]
+    let dynamic_transport = test_transport::enabled(&config.workspace_root);
+    #[cfg(not(test))]
+    let dynamic_transport = false;
+
+    if !dynamic_transport && localhost_port_accepts_connection(spec.port) {
         let owner = dev_server_port_owner(spec.port);
         if let Some(owner) = &owner
             && owner
@@ -503,7 +479,7 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
         }
     }
 
-    if localhost_port_accepts_connection(spec.port) {
+    if !dynamic_transport && localhost_port_accepts_connection(spec.port) {
         let owner = dev_server_port_owner(spec.port);
         let failure_kind = "port_in_use";
         let owner_text = owner
@@ -550,6 +526,9 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
             );
         }
     };
+
+    #[cfg(test)]
+    let transport = test_transport::begin(&config.workspace_root, dynamic_transport);
 
     let mut command =
         verifier_env::normalized_command_at_root(&spec.package_manager, &config.workspace_root);
@@ -760,7 +739,12 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
             }
         }
 
-        match http_get_local_route(spec.port, &spec.route) {
+        #[cfg(test)]
+        let poll_port = transport.poll_port(&config.workspace_root, spec.port);
+        #[cfg(not(test))]
+        let poll_port = spec.port;
+
+        match http_get_local_route(poll_port, &spec.route) {
             Ok(response) => {
                 emit_dev_server_lifecycle_stage(
                     config,
@@ -830,7 +814,7 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
                     let interaction =
                         interaction_probe::probe_browser_interaction_against_running_server_with_options(
                             &config.workspace_root,
-                            spec.port,
+                            poll_port,
                             run_dir,
                             &interaction_path,
                             Duration::from_secs(120),
