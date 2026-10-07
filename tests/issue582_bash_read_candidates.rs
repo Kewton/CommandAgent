@@ -33,12 +33,29 @@ struct Fixture {
     root: PathBuf,
 }
 
+/// A tempdir outside the prefix `is_system_prefix_allowed` accepts (`/usr`,
+/// `/bin`, `/opt`, `/etc`, `/tmp`). `tempfile::tempdir()` lives under `/tmp` on
+/// Linux, which would let a fixture path outside the workspace be admitted as a
+/// system path and fail only on Linux; `CARGO_TARGET_TMPDIR` is under the target
+/// directory instead.
+fn tempdir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("create tempdir");
+    assert!(
+        !["/usr", "/bin", "/opt", "/etc", "/tmp"]
+            .iter()
+            .any(|prefix| dir.path().starts_with(prefix)),
+        "the fixture tempdir must not sit under a system prefix: {}",
+        dir.path().display()
+    );
+    dir
+}
+
 /// A workspace that contains escaping symlinks (visible and hidden), a dangling
 /// symlink, a symlink loop, a quoted-literal route directory, a package under
 /// `node_modules`, and an outside directory holding an existing `secret`. A
 /// second `root` is canonicalized so symlink checks compare real paths.
 fn fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("ws");
     for directory in [
         "sub",
@@ -227,7 +244,7 @@ fn read_candidates_terminates_a_glob_symlink_loop() {
     let root = &fixture.root;
     assert_rejected(root, &["cat sub/loop/loop/*/f"]);
 
-    let inside = tempfile::tempdir().unwrap();
+    let inside = tempdir();
     let inside_root = inside.path().join("ws");
     std::fs::create_dir_all(inside_root.join("sub")).unwrap();
     std::fs::write(inside_root.join("sub/f"), "x").unwrap();
@@ -565,7 +582,7 @@ fn read_candidates_allows_simple_echo_exit_status() {
 /// refused when the bracketed name itself resolves outside (Issue #582 design 3).
 #[test]
 fn read_candidates_does_not_expand_a_quoted_literal_next_to_an_outward_symlink() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("ws");
     std::fs::create_dir_all(root.join("src/app/[id]")).unwrap();
     std::fs::write(root.join("src/app/[id]/route.ts"), "x").unwrap();
@@ -588,7 +605,7 @@ fn read_candidates_does_not_expand_a_quoted_literal_next_to_an_outward_symlink()
     assert_rejected(&root, &["cat src/app/[id]/route.ts"]);
 
     // A bracketed name that is itself the outward symlink is refused.
-    let dir2 = tempfile::tempdir().unwrap();
+    let dir2 = tempdir();
     let root2 = dir2.path().join("ws");
     std::fs::create_dir_all(root2.join("src/app")).unwrap();
     let outside2 = dir2.path().join("outside");
