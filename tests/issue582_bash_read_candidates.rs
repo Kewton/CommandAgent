@@ -598,3 +598,26 @@ fn read_candidates_does_not_expand_a_quoted_literal_next_to_an_outward_symlink()
     let root2 = root2.canonicalize().unwrap();
     assert_rejected(&root2, &[r#"cat "src/app/[id]/route.ts""#]);
 }
+
+/// The echo/assignment exception allows a dynamic word, but an absolute path
+/// embedded in that word must still be confined. `$X=<root>/sub/link/secret`
+/// is a simple echo argument (allowed by the exception), and only the embedded
+/// absolute-path scan extracts `<root>/sub/link/secret`, which resolves outside
+/// through the `sub/link` symlink — dropping that scan would allow it.
+#[test]
+fn read_candidates_reject_embedded_absolute_path_in_an_allowed_dynamic_word() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let embedded = format!("{}/sub/link/secret", root.display());
+    assert_rejected(
+        root,
+        &[
+            // A simple echo argument showing an assignment-like value.
+            &format!("echo $X={embedded}"),
+            // The same value inside double quotes.
+            &format!("echo \"$X={embedded}\""),
+            // A leading simple variable assignment.
+            &format!("X=$Y={embedded}"),
+        ],
+    );
+}
