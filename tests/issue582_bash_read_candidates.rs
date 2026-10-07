@@ -450,3 +450,79 @@ fn read_candidates_decision_corpus_matches_the_predicate() {
     }
     assert!(seen >= 20, "the decision table is too small: {seen}");
 }
+
+/// Mutation-killing coverage for the word splitter. Each command is a shape
+/// whose read refusal depends on one piece of `path_tokens::read_words`; if
+/// that piece is removed or mis-advanced the word is misread and the command
+/// would be allowed, so these rows move in the "allow more" direction when the
+/// splitter is mutated.
+#[test]
+fn read_candidates_reject_dynamic_words_inside_double_quotes() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            // A plain variable inside double quotes is still a dynamic read.
+            r#"cat "$FILE""#,
+            r#"cat "$HOME/secret""#,
+            // A simple command substitution inside double quotes.
+            r#"cat "a$(x)b""#,
+            // A parameter operator inside double quotes.
+            r#"cat "${x:-y}""#,
+        ],
+    );
+}
+
+/// A backslash inside double quotes (`\$`, `\"`, `\\`, or `\` + newline) must
+/// not swallow the outward static path placed after the quoted word.
+#[test]
+fn read_candidates_reject_outward_path_after_double_quote_backslash() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            r#"cat "a\$b" sub/link/secret"#,
+            r#"cat "a\"b" sub/link/secret"#,
+            "cat \"a\\\nb\" sub/link/secret",
+            r#"cat "a\\b" sub/link/secret"#,
+        ],
+    );
+}
+
+/// A backslash outside quotes must not swallow the outward static path that
+/// follows the escaped word.
+#[test]
+fn read_candidates_reject_outward_path_after_unquoted_backslash() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            r"cat sub/li\nk/secret",
+            r"cat a\b sub/link/secret",
+            r"cat sub/link\/secret",
+        ],
+    );
+}
+
+/// A separator with no following space must not drop a character: `;/…`,
+/// `;sub/…`, `&&../…`, `||../…`, and an absolute path right after `;` all stay
+/// confined.
+#[test]
+fn read_candidates_reject_outward_path_immediately_after_separator() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let outside = fixture._dir.path().join("outside");
+    assert_rejected(
+        root,
+        &[
+            "true;../secret",
+            "true&&../secret",
+            "true||../secret",
+            "true;sub/link/secret",
+            &format!("true;{}/secret", outside.display()),
+        ],
+    );
+}

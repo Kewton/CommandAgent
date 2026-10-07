@@ -451,4 +451,57 @@ mod tests {
         assert!(!is_literal_path("FILE=/outside/file"));
         assert!(!is_literal_path("sh -c /outside/file"));
     }
+
+    /// Exact tokenization of the shapes whose read refusal depends on one line
+    /// of the splitter. Removing the double-quoted dynamic arm, mis-advancing a
+    /// backslash index, or dropping a character after a separator all change
+    /// these word lists, so each mutation turns one assertion red even when a
+    /// desynced quote would still refuse the whole command downstream.
+    #[test]
+    fn keeps_expansions_and_escapes_whole() {
+        // A `$`/backtick inside double quotes is an executed expansion.
+        let quoted = read_words(r#"cat "$FILE""#).unwrap();
+        assert_eq!(quoted[0][0].text, "cat");
+        assert_eq!(quoted[0][1].text, "$FILE");
+        assert!(quoted[0][1].dynamic && quoted[0][1].simple_variable);
+
+        let substitution = read_words(r#"cat "a$(x)b""#).unwrap();
+        assert_eq!(substitution[0][1].text, "a$(x)b");
+        assert!(substitution[0][1].dynamic && !substitution[0][1].simple_variable);
+
+        let operator = read_words(r#"cat "${x:-y}""#).unwrap();
+        assert!(operator[0][1].dynamic && !operator[0][1].simple_variable);
+
+        // A backslash inside double quotes (`\$`, `\"`, `\\`, `\`+newline).
+        assert_eq!(
+            words(r#"cat "a\$b" sub/link/secret"#),
+            ["cat", "a$b", "sub/link/secret"]
+        );
+        assert_eq!(
+            words(r#"cat "a\"b" sub/link/secret"#),
+            ["cat", "a\"b", "sub/link/secret"]
+        );
+        assert_eq!(
+            words("cat \"a\\\nb\" sub/link/secret"),
+            ["cat", "ab", "sub/link/secret"]
+        );
+        assert_eq!(
+            words(r#"cat "a\\b" sub/link/secret"#),
+            ["cat", r"a\b", "sub/link/secret"]
+        );
+
+        // A backslash outside quotes.
+        assert_eq!(words(r"cat sub/li\nk/secret"), ["cat", "sub/link/secret"]);
+        assert_eq!(
+            words(r"cat a\b sub/link/secret"),
+            ["cat", "ab", "sub/link/secret"]
+        );
+        assert_eq!(words(r"cat sub/link\/secret"), ["cat", "sub/link/secret"]);
+
+        // A separator with no following space must not drop a character.
+        assert_eq!(words("true;../secret"), ["true", "../secret"]);
+        assert_eq!(words("true&&../secret"), ["true", "../secret"]);
+        assert_eq!(words("true||../secret"), ["true", "../secret"]);
+        assert_eq!(words("true;/outside/x"), ["true", "/outside/x"]);
+    }
 }
