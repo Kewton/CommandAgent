@@ -22,3 +22,30 @@
 {"id": "unmatched-glob", "command": "cat nomatch*/secret", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "secret-directive", "command": "cat .env", "R": false, "A": false, "W": false, "P": false, "S": true, "V": false}
 {"id": "protected-path-write", "command": "tee tests/spec.rs", "R": false, "A": true, "W": false, "P": true, "S": false, "V": false}
+{"id": "space-escaped-static-relative", "command": "cat sub/space\\ link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "space-double-quoted-static-relative", "command": "cat \"sub/space link/secret\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "space-single-quoted-component", "command": "cat 'sub/space link'/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "space-quoted-after-flag", "command": "head -n 3 \"sub/space link/secret\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "space-cd-relative", "command": "cd sub && cat \"space link/secret\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "fullwidth-space-static-relative", "command": "cat sub/wide\u3000link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "nbsp-static-relative", "command": "cat sub/nb\u00a0link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "fullwidth-space-cd-target", "command": "cd sub/wide\u3000link && cat secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-dd-if", "command": "dd if=sub/link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-grep-file", "command": "grep --file=sub/link/secret x", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-diff-from-file", "command": "diff --from-file=sub/link/secret a.txt", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-make-arg", "command": "make IN=sub/link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-cd-relative", "command": "cd sub && dd if=link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "equals-quoted-space", "command": "grep --file=\"sub/space link/secret\" x", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-parent-escape", "command": "dd if=../outside/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "allow-quoted-space-inside", "command": "cat \"docs/my notes.md\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-escaped-space-inside", "command": "cat docs/my\\ notes.md", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-dd-nonpath", "command": "dd if=in.bin of=out.bin", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-grep-file-nonpath", "command": "grep --file=patterns.txt src", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-features", "command": "cargo test --features=gui", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-target-dir", "command": "cargo build --target-dir=target/h05", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-display-message", "command": "ls data/ || echo \"data/ directory does not exist\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-sh-c-body", "command": "sh -c \"cat a.txt\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-sed-substitution", "command": "sed -i \"s/a b/c d/\" a.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-awk-equals", "command": "awk -F= '{print $1}' a.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-leading-assignment", "command": "RUST_LOG=debug cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-leading-assignment-path", "command": "OUT=out/x cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}

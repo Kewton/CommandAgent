@@ -81,6 +81,12 @@ fn fixture() -> Fixture {
     std::fs::write(outside.join("secret"), CANARY).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/esc")).unwrap();
+    // A quoted or escaped single word, and a full-width space (U+3000) or a
+    // no-break space (U+00A0) inside an unquoted word, must still be judged as
+    // one path (Issue #603).
+    std::os::unix::fs::symlink(&outside, root.join("sub/space link")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/wide\u{3000}link")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/nb\u{a0}link")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join(".hidden-out")).unwrap();
     std::os::unix::fs::symlink(dir.path().join("missing-target"), root.join("dangling")).unwrap();
@@ -402,6 +408,61 @@ fn read_candidates_stop_before_the_shell_and_leak_no_canary() {
     assert!(
         !log.contains(CANARY),
         "the canary must not appear in the event log"
+    );
+}
+
+/// Issue #603: a quoted or escaped single word that carries a space, an unquoted
+/// full-width space (U+3000) or no-break space (U+00A0), and the right-hand side
+/// of a non-assignment `=` all name an outward symlink and are refused.
+#[test]
+fn read_candidates_reject_space_and_equals_reads() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            r"cat sub/space\ link/secret",
+            r#"cat "sub/space link/secret""#,
+            r"cat 'sub/space link'/secret",
+            r#"head -n 3 "sub/space link/secret""#,
+            r#"cd sub && cat "space link/secret""#,
+            "cat sub/wide\u{3000}link/secret",
+            "cat sub/nb\u{a0}link/secret",
+            "cd sub/wide\u{3000}link && cat secret",
+            "dd if=sub/link/secret",
+            "grep --file=sub/link/secret x",
+            "diff --from-file=sub/link/secret a.txt",
+            "make IN=sub/link/secret",
+            "cd sub && dd if=link/secret",
+            r#"grep --file="sub/space link/secret" x"#,
+            "dd if=../outside/secret",
+        ],
+    );
+}
+
+/// Issue #603: the shapes the issue keeps allowed must not be refused. A
+/// display message, a non-path `=` right side, an inside path, a leading
+/// assignment, and a `sh -c` body all stay allowed.
+#[test]
+fn read_candidates_allow_the_space_and_equals_normal_forms() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_allowed(
+        root,
+        &[
+            r#"cat "docs/my notes.md""#,
+            r"cat docs/my\ notes.md",
+            "dd if=in.bin of=out.bin",
+            "grep --file=patterns.txt src",
+            "cargo test --features=gui",
+            "cargo build --target-dir=target/h05",
+            r#"ls data/ || echo "data/ directory does not exist""#,
+            r#"sh -c "cat a.txt""#,
+            r#"sed -i "s/a b/c d/" a.txt"#,
+            r"awk -F= '{print $1}' a.txt",
+            "RUST_LOG=debug cargo test",
+            "OUT=out/x cargo test",
+        ],
     );
 }
 
