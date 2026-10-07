@@ -8,6 +8,11 @@ pub(super) mod tests {
     use clap::Parser;
     use serde_json::Value;
 
+    // Test-only completion bound. These corpus commands must observe a real
+    // exit; a fast child returns immediately, so load cannot turn the expected
+    // nonzero exit into a timeout misread as that status.
+    const TEST_COMPLETION_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
     pub(crate) const PAGE: &str =
         include_str!("../../../tests/corpus/apps/issue474-compound-node-hooks/src/app/page.tsx");
 
@@ -96,9 +101,14 @@ pub(super) mod tests {
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .current_dir(root.path()),
-                std::time::Duration::from_secs(5),
+                TEST_COMPLETION_BOUND,
             )
             .unwrap();
+            assert_ne!(
+                raw.kind,
+                crate::bounded_process::BoundedProcessOutcomeKind::TimedOut,
+                "{command}: {raw:?}"
+            );
             assert!(!raw.success());
             assert!(String::from_utf8_lossy(&raw.stderr).contains(&format!("Error: {error}")));
             let failed = ultra_final_acceptance_report_with_cycle(&plan, &config, 1).unwrap();
@@ -265,9 +275,14 @@ pub(super) mod tests {
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .current_dir(root.path()),
-                std::time::Duration::from_secs(5),
+                TEST_COMPLETION_BOUND,
             )
             .unwrap();
+            assert_ne!(
+                raw.kind,
+                crate::bounded_process::BoundedProcessOutcomeKind::TimedOut,
+                "{command}: {raw:?}"
+            );
             let actual_error = case["actual_error"].as_str().unwrap();
             assert!(!raw.success());
             assert!(String::from_utf8_lossy(&raw.stderr).contains(actual_error));
