@@ -21,7 +21,7 @@ command name and an alias of `/exit`, giving 24 accepted names in total.
 | `/profile` | `/profile <name>` | Set the explicit profile used by new Gate 1 cards in this REPL session. |
 | `/clear` | `/clear` | Clear the terminal screen without discarding the most recent result. |
 | `/last` | `/last` | Render the most recent REPL result again. |
-| `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
+| `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent. |
 | `/packs` | `/packs` | List compatible admitted and local packs with the same columns and ordering as `commandagent --packs` for the active profile and intent. |
 | `/pack` | `/pack <id@version>` | At Gate 4, select a compatible admitted exact-byte pack and return to a new Gate 1 card. |
 | `/runs` | `/runs` | List recent workspace runs and recovery availability. |

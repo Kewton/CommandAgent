@@ -406,7 +406,7 @@ pub struct Cli {
         long,
         action = ArgAction::SetTrue,
         help_heading = "Actions (use one)",
-        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests."
+        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent."
     )]
     pub doctor: bool,
     #[arg(
