@@ -3,10 +3,12 @@ fn enable_browser_probe_test_override(root: &Path) {
     std::fs::write(root.join(".anvil/enable-browser-probe-tests"), "1").unwrap();
 }
 
+// The goal/package port stays logical: the mock child binds an OS-assigned port
+// and publishes it through the ready file, so the parent reads the real port
+// instead of racing for a number the helper has just freed.
+const BROWSER_PROBE_MOCK_LOGICAL_PORT: u16 = 3011;
+
 fn write_browser_probe_mock_command(root: &Path, status: &str) -> u16 {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
     let dir = root.join(".anvil/evidence");
     std::fs::create_dir_all(&dir).unwrap();
     let exe = std::env::current_exe().unwrap();
@@ -20,12 +22,13 @@ fn write_browser_probe_mock_command(root: &Path, status: &str) -> u16 {
         ],
         "env": {
             "COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD": "1",
-            "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT": port.to_string(),
+            "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT": "0",
             "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS": status,
             "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS": "0"
         },
-        "port": port,
+        "port": BROWSER_PROBE_MOCK_LOGICAL_PORT,
         "require_build": false,
+        "dynamic_port": true,
         "display": "mock browser probe child"
     });
     std::fs::write(
@@ -33,7 +36,7 @@ fn write_browser_probe_mock_command(root: &Path, status: &str) -> u16 {
         serde_json::to_string_pretty(&command).unwrap(),
     )
     .unwrap();
-    port
+    BROWSER_PROBE_MOCK_LOGICAL_PORT
 }
 
 fn run_ignored_runner_harness(test_name: &str) -> std::process::ExitStatus {
