@@ -161,6 +161,17 @@ pub(crate) fn run_and_record(
     source: &str,
     owner_id: &str,
 ) -> CommandCheckSummary {
+    run_and_record_with_timeout(root, bindings, events_path, source, owner_id, FIXED_TIMEOUT)
+}
+
+fn run_and_record_with_timeout(
+    root: &Path,
+    bindings: &[CommandCheckBinding],
+    events_path: Option<&Path>,
+    source: &str,
+    owner_id: &str,
+    timeout: Duration,
+) -> CommandCheckSummary {
     if bindings.is_empty() {
         return CommandCheckSummary {
             passed: true,
@@ -169,7 +180,7 @@ pub(crate) fn run_and_record(
     }
     let mut results = Vec::with_capacity(bindings.len());
     for (index, binding) in bindings.iter().enumerate() {
-        let observation = execute(root, &binding.check);
+        let observation = execute(root, &binding.check, timeout);
         let passed = observation.reasons.is_empty();
         let result = CommandCheckResult {
             check_id: binding.id.clone(),
@@ -194,7 +205,7 @@ pub(crate) fn run_and_record(
                 "observed_exit_code": observation.exit_code,
                 "stdout_regex": binding.check.stdout_regex,
                 "max_bytes": binding.check.max_bytes,
-                "fixed_timeout_ms": fixed_timeout().as_millis(),
+                "fixed_timeout_ms": timeout.as_millis(),
                 "timed_out": observation.timed_out,
                 "elapsed_ms": observation.elapsed_ms,
                 "output_truncated": observation.output_truncated,
@@ -246,7 +257,7 @@ impl CommandCheckSummary {
     }
 }
 
-fn execute(root: &Path, check: &DeclarativeCommandCheck) -> Observation {
+fn execute(root: &Path, check: &DeclarativeCommandCheck, timeout: Duration) -> Observation {
     let started = Instant::now();
     if let Some(reference) =
         crate::tools::sensitive_path::tokens_reference_secret(check.argv.iter().map(String::as_str))
@@ -269,7 +280,7 @@ fn execute(root: &Path, check: &DeclarativeCommandCheck) -> Observation {
         .current_dir(root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = match bounded_process::run_with_timeout(&mut command, fixed_timeout()) {
+    let output = match bounded_process::run_with_timeout(&mut command, timeout) {
         Ok(output) => output,
         Err(error) => {
             return Observation {
@@ -293,7 +304,7 @@ fn execute(root: &Path, check: &DeclarativeCommandCheck) -> Observation {
     if timed_out {
         reasons.push(format!(
             "command timed out after {} ms",
-            fixed_timeout().as_millis()
+            timeout.as_millis()
         ));
     } else if exit_code != Some(check.expected_exit_code) {
         reasons.push(format!(
@@ -521,14 +532,6 @@ fn append_summary(
     crate::eval_events::append_run_summary(events_path, &lines.join("\n"));
 }
 
-fn fixed_timeout() -> Duration {
-    if cfg!(test) {
-        Duration::from_millis(100)
-    } else {
-        FIXED_TIMEOUT
-    }
-}
-
 fn string_array(params: &Table, name: &str) -> Result<Vec<String>, CatalogError> {
     match params.get(name) {
         Some(Value::Array(values)) => values
@@ -672,6 +675,11 @@ mod tests {
         assert!(emitted.contains(r#""event":"declarative_command_check_result""#));
         assert!(emitted.contains(r#""status":"passed""#));
         assert!(emitted.contains(r#""source":"draft_profile""#));
+        assert!(emitted.contains(r#""timed_out":false"#));
+        assert!(
+            emitted.contains(r#""fixed_timeout_ms":30000,"#),
+            "the product entry point must keep the 30000 ms default: {emitted}"
+        );
         let rendered =
             std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
         assert!(rendered.contains("Declarative command checks"));
@@ -689,39 +697,103 @@ mod tests {
     }
 
     #[test]
-    fn failures_and_timeout_are_honest_and_output_is_bounded() {
+    fn stdout_mismatch_is_rejected_without_a_timeout() {
         let root = tempfile::tempdir().unwrap();
-        let failed = run_and_record(
+        let summary = run_and_record_with_timeout(
             root.path(),
-            &[
-                CommandCheckBinding {
-                    id: ID.to_string(),
-                    check: check(&["printf", "0123456789"], Some("missing"), 4),
-                },
-                CommandCheckBinding {
-                    id: ID.to_string(),
-                    check: check(&["sleep", "1"], None, 32),
-                },
-            ],
+            &[CommandCheckBinding {
+                id: ID.to_string(),
+                check: check(&["printf", "green-tea\\n"], Some("missing"), 128),
+            }],
             None,
             "draft_profile",
             "static-site",
+            Duration::from_secs(30),
         );
-        assert!(!failed.passed);
-        assert_eq!(failed.failed_count, 2);
+        assert!(!summary.passed);
+        assert_eq!(summary.failed_count, 1);
+        let result = &summary.results[0];
+        assert!(!result.timed_out);
+        assert_eq!(result.observed_exit_code, Some(0));
+        assert_eq!(
+            result.reasons.first().map(String::as_str),
+            Some("stdout did not match stdout_regex")
+        );
+    }
+
+    #[test]
+    fn output_over_the_limit_is_rejected_without_a_timeout() {
+        let root = tempfile::tempdir().unwrap();
+        let summary = run_and_record_with_timeout(
+            root.path(),
+            &[CommandCheckBinding {
+                id: ID.to_string(),
+                check: check(&["printf", "0123456789"], None, 4),
+            }],
+            None,
+            "draft_profile",
+            "static-site",
+            Duration::from_secs(30),
+        );
+        assert!(!summary.passed);
+        assert_eq!(summary.failed_count, 1);
+        let result = &summary.results[0];
+        assert!(!result.timed_out);
+        assert_eq!(result.observed_exit_code, Some(0));
+        assert_eq!(
+            result.reasons.first().map(String::as_str),
+            Some("command output exceeded max_bytes (4)")
+        );
+    }
+
+    #[test]
+    fn short_deadline_reports_timeout_distinctly_from_exit_mismatch() {
+        let root = tempfile::tempdir().unwrap();
+        let events = root.path().join("run/events.jsonl");
+        // The deadline is the controlled execution boundary: it is far above
+        // child startup and far below `sleep 5`, so `bounded_process` can only
+        // return `TimedOut`. A spawn failure would be `timed_out: false`, and an
+        // early exit would be `Exited`, so `timed_out: true` plus the full
+        // deadline elapsed proves a started child was interrupted, rather than
+        // an unstarted child merely being killed.
+        let deadline = Duration::from_millis(300);
+        let summary = run_and_record_with_timeout(
+            root.path(),
+            &[CommandCheckBinding {
+                id: ID.to_string(),
+                check: check(&["sleep", "5"], None, 32),
+            }],
+            Some(&events),
+            "draft_profile",
+            "static-site",
+            deadline,
+        );
+        assert!(!summary.passed);
+        assert_eq!(summary.failed_count, 1);
+        let result = &summary.results[0];
+        assert!(result.timed_out);
+        assert_eq!(result.status, "failed");
         assert!(
-            failed.results[0]
+            result.elapsed_ms >= deadline.as_millis(),
+            "the injected deadline must be waited out: {result:?}"
+        );
+        assert_eq!(
+            result.reasons.first().map(String::as_str),
+            Some("command timed out after 300 ms")
+        );
+        assert!(
+            !result
                 .reasons
                 .iter()
-                .any(|reason| reason.contains("max_bytes"))
+                .any(|reason| reason.contains("expected exit code")),
+            "timeout must not be collapsed into an exit-code failure: {result:?}"
         );
+        let emitted = std::fs::read_to_string(&events).unwrap();
+        assert!(emitted.contains(r#""timed_out":true"#));
         assert!(
-            failed.results[0]
-                .reasons
-                .iter()
-                .any(|reason| reason.contains("stdout"))
+            emitted.contains(r#""fixed_timeout_ms":300,"#),
+            "the event must record the injected deadline: {emitted}"
         );
-        assert!(failed.results[1].timed_out);
     }
 
     #[test]
