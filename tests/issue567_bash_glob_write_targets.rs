@@ -20,10 +20,27 @@ struct Fixture {
     root: PathBuf,
 }
 
+/// A tempdir outside the prefix `is_system_prefix_allowed` accepts (`/usr`,
+/// `/bin`, `/opt`, `/etc`, `/tmp`). `tempfile::tempdir()` lives under `/tmp` on
+/// Linux, which would let a fixture path outside the workspace be admitted as a
+/// system path and fail only on Linux; `CARGO_TARGET_TMPDIR` is under the target
+/// directory instead.
+fn tempdir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("create tempdir");
+    assert!(
+        !["/usr", "/bin", "/opt", "/etc", "/tmp"]
+            .iter()
+            .any(|prefix| dir.path().starts_with(prefix)),
+        "the fixture tempdir must not sit under a system prefix: {}",
+        dir.path().display()
+    );
+    dir
+}
+
 /// A workspace that contains an escaping symlink (visible and hidden), a
 /// symlink loop, and an outside directory holding an existing `secret`.
 fn escaping_fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("ws");
     std::fs::create_dir_all(root.join("sub")).unwrap();
     let outside = dir.path().join("outside");
@@ -45,13 +62,31 @@ fn escaping_fixture() -> Fixture {
 /// A workspace whose root contains only inside directories, so `*` matches
 /// only real workspace entries.
 fn inside_fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("ws");
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::create_dir_all(root.join("src/[id]")).unwrap();
     std::fs::write(root.join("sub/f"), "x").unwrap();
     std::fs::write(root.join("a.txt"), "x").unwrap();
     std::os::unix::fs::symlink(root.join("sub"), root.join("sub/loop")).unwrap();
+    let root = root.canonicalize().unwrap();
+    Fixture { _dir: dir, root }
+}
+
+/// A workspace with an escaping `sub/link` symlink and an escaping symlink
+/// whose name holds a full-width space (`sub/wide　link`), plus an outside
+/// directory holding an existing `secret` (Issue #602).
+fn ambiguous_fixture() -> Fixture {
+    let dir = tempdir();
+    let root = dir.path().join("ws");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/f"), "x").unwrap();
+    std::fs::write(root.join("a.txt"), "x").unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside-secret").unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/wide\u{3000}link")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -390,4 +425,57 @@ fn over_limit_brace_targets_fail_fast_without_panicking() {
         start.elapsed().as_secs() < 10,
         "over-limit brace targets must fail fast"
     );
+}
+
+#[test]
+fn rejects_mixed_quoted_and_executed_glob_write_targets() {
+    // Issue #602 problem 1: the write guard must refuse the mixed shape itself,
+    // with the verification-impossible operation, not only through the read-side
+    // judgement (W is not callable from here, so the public second stage and the
+    // operation name carry the check).
+    let fixture = ambiguous_fixture();
+    let root = &fixture.root;
+    let cases = [
+        r"echo x > {x,y\}z,sub/link/f}",
+        r"echo x > sub/li[n\]]k/f",
+        r"echo x > {x,y'}'z,sub/link/f}",
+        r"echo x > {a,\{b,sub/link/f}",
+        r#"echo x > sub/li[n"]"]k/f"#,
+        r"cd sub && echo x > {a,\{b,link/f}",
+        r"echo $HOME; echo x > sub/li[n\]]k/f",
+        "cat <<'EOF' > sub/li[n\\]]k/f\nx\nEOF",
+        r"tee sub/li[n\]]k/f",
+        r"cp a.txt sub/li[n\]]k/f",
+        r"touch sub/li[n\]]k/f",
+        r"printf x >> sub/li[n\]]k/f",
+        r"printf x 2> sub/li[n\]]k/f",
+        r"echo x > tests/sp[e\]]c.rs",
+    ];
+    for command in cases {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected rejection: {command:?}"));
+        assert_eq!(
+            rejection.operation, "unverifiable glob write target",
+            "command: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn rejects_write_targets_broken_by_unicode_whitespace() {
+    // Issue #602 problem 2: bash splits words only on space and tab, so a
+    // full-width space stays inside the word and the escaping symlink is proven.
+    let fixture = ambiguous_fixture();
+    let root = &fixture.root;
+    for command in [
+        "echo x > sub/wide\u{3000}link/f",
+        "echo x | tee sub/wide\u{3000}link/f",
+        "cp a.txt sub/wide\u{3000}link/f",
+        "cd sub/wide\u{3000}link && echo x > f",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command:?}"
+        );
+    }
 }
