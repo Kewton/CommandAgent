@@ -1,5 +1,9 @@
 use super::*;
 
+// Test-only completion bound. These corpus reads must observe a real exit; a
+// fast child returns immediately, so load cannot turn success into a timeout.
+const TEST_COMPLETION_BOUND: Duration = Duration::from_secs(30);
+
 #[test]
 fn e1_successful_reads_do_not_promote_failed_build_or_business_acceptance() {
     for (label, commands, evidence, expected_reason) in [
@@ -59,10 +63,15 @@ fn e1_successful_reads_do_not_promote_failed_build_or_business_acceptance() {
                 command,
                 &treatment,
                 true,
-                Duration::from_secs(5),
+                TEST_COMPLETION_BOUND,
                 || false,
             )
             .unwrap();
+            assert_ne!(
+                outcome.kind,
+                crate::tools::bash::BashOutcomeKind::Timeout,
+                "{label}: {command}: {outcome:?}"
+            );
             assert!(outcome.is_success(), "{label}: {command}: {outcome:?}");
             assert!(outcome.stdout.contains(read["contains"].as_str().unwrap()));
         }

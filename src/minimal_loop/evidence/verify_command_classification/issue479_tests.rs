@@ -4,6 +4,11 @@ use crate::minimal_loop::completion::CompletionContract;
 use serde_json::json;
 use std::path::Path;
 
+// Test-only completion bound. These corpus commands must observe a real exit; a
+// fast child returns immediately, so load cannot turn the expected status
+// (success or a genuine nonzero exit) into a timeout misread as that status.
+const TEST_COMPLETION_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn commands() -> Vec<String> {
     serde_json::from_str(include_str!(
         "../../../../tests/corpus/apps/issue479-verifier-formation/original-commands.json"
@@ -202,9 +207,14 @@ fn issue479_saved_modules_strengthen_loadability_and_explicit_export_boundary() 
                     .current_dir(root.path())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped()),
-                std::time::Duration::from_secs(5),
+                TEST_COMPLETION_BOUND,
             )
             .unwrap();
+            assert_ne!(
+                raw.kind,
+                crate::bounded_process::BoundedProcessOutcomeKind::TimedOut,
+                "{command}: {raw:?}"
+            );
             assert!(!raw.success());
             assert!(String::from_utf8_lossy(&raw.stderr).contains("original import failure"));
         }

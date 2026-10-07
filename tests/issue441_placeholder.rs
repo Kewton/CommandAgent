@@ -35,6 +35,10 @@ const C2: &str = "H01_546_FAKE_registered_key_77";
 const C: &str = "H01_557_FAKE_canary_qq";
 const R: &str = "H01_557_FAKE_registered_key_88";
 
+/// Test-only completion bound for the blocked-command probe. The bound stays
+/// finite; the assertion still requires `Blocked`, so a timeout is not a pass.
+const TEST_COMPLETION_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The scope registry is process-global, so tests that install or reset a scope
 /// share one lock.
 static SCOPE_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -212,14 +216,8 @@ fn evidence_hashes_original_bytes_even_when_cd_could_be_stripped() {
     );
     let command = format!("cd '{}' && printf '<user> 日本語'", root.path().display());
     assert!(bash::strip_workspace_root_cd_prefix(&command, root.path()).is_none());
-    let result = bash::run_structured(
-        &command,
-        root.path(),
-        true,
-        std::time::Duration::from_secs(1),
-        || false,
-    )
-    .unwrap();
+    let result =
+        bash::run_structured(&command, root.path(), true, TEST_COMPLETION_BOUND, || false).unwrap();
     assert_eq!(result.kind, BashOutcomeKind::Blocked);
     let records = private_records(root.path());
     assert_omitted_prefix(&records[0], &command);

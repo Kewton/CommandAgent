@@ -7,16 +7,27 @@ use crate::planner::runner::final_acceptance::*;
 use crate::planner::verify::VerificationReport;
 use serde_json::Value;
 
+// Test-only completion bound. These corpus commands must observe a real exit; a
+// fast child returns immediately, so load cannot turn the expected status
+// (success or a genuine nonzero exit) into a timeout misread as that status.
+const TEST_COMPLETION_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn raw(root: &Path, command: &str) -> crate::bounded_process::BoundedProcessOutput {
-    crate::bounded_process::run_with_timeout(
+    let output = crate::bounded_process::run_with_timeout(
         std::process::Command::new("sh")
             .args(["-c", command])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .current_dir(root),
-        std::time::Duration::from_secs(5),
+        TEST_COMPLETION_BOUND,
     )
-    .unwrap()
+    .unwrap();
+    assert_ne!(
+        output.kind,
+        crate::bounded_process::BoundedProcessOutcomeKind::TimedOut,
+        "{command}: {output:?}"
+    );
+    output
 }
 
 fn prompt(
