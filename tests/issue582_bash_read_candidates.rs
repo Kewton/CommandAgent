@@ -526,3 +526,75 @@ fn read_candidates_reject_outward_path_immediately_after_separator() {
         ],
     );
 }
+
+/// A quoted or escaped glob/brace metacharacter in the same word as an executed
+/// one cannot be told apart after the quoting is dropped, so the word is
+/// refused rather than expanded with the wrong set (Issue #582 review blocker).
+#[test]
+fn read_candidates_reject_mixed_quoted_and_executed_expansions() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            r"cat {x,y\}z,sub/link/secret}",
+            r"cat {x,y'}'z,sub/link/secret}",
+            r"cat {a,\{b,sub/link/secret}",
+            r"cat sub/li[n\]]k/secret",
+            r"cat sub/li[n']']k/secret",
+            r#"echo $HOME; cat sub/li[n\]]k/secret"#,
+            r"cd sub && cat {a,\{b,link/secret}",
+            r"cat '[id]'*",
+            r"cat 'q[x]'/*",
+        ],
+    );
+}
+
+/// A simple echo may display the exit status `$?`; other special parameters and
+/// arithmetic stay refused (Issue #582 review false rejection).
+#[test]
+fn read_candidates_allows_simple_echo_exit_status() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_allowed(root, &[r#"echo "EXIT_CODE=$?""#, "echo $?"]);
+    assert_rejected(root, &["echo $#", "echo $$", "echo $((1+2))", "cat $?"]);
+}
+
+/// A quoted literal bracket is not expanded, so an unrelated sibling symlink
+/// whose name matches the bracket class is never read; the literal is still
+/// refused when the bracketed name itself resolves outside (Issue #582 design 3).
+#[test]
+fn read_candidates_does_not_expand_a_quoted_literal_next_to_an_outward_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("ws");
+    std::fs::create_dir_all(root.join("src/app/[id]")).unwrap();
+    std::fs::write(root.join("src/app/[id]/route.ts"), "x").unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "x").unwrap();
+    // `i` matches the `[id]` character class the quoted literal must not expand.
+    std::os::unix::fs::symlink(&outside, root.join("src/app/i")).unwrap();
+    let root = root.canonicalize().unwrap();
+
+    assert_allowed(
+        &root,
+        &[
+            r#"cat "src/app/[id]/route.ts""#,
+            "cat 'src/app/[id]/route.ts'",
+            r"cat src/app/'[id]'/route.ts",
+        ],
+    );
+    // The unquoted spelling expands `[id]` to the outward `i` and is refused.
+    assert_rejected(&root, &["cat src/app/[id]/route.ts"]);
+
+    // A bracketed name that is itself the outward symlink is refused.
+    let dir2 = tempfile::tempdir().unwrap();
+    let root2 = dir2.path().join("ws");
+    std::fs::create_dir_all(root2.join("src/app")).unwrap();
+    let outside2 = dir2.path().join("outside");
+    std::fs::create_dir_all(&outside2).unwrap();
+    std::fs::write(outside2.join("route.ts"), "x").unwrap();
+    std::os::unix::fs::symlink(&outside2, root2.join("src/app/[id]")).unwrap();
+    let root2 = root2.canonicalize().unwrap();
+    assert_rejected(&root2, &[r#"cat "src/app/[id]/route.ts""#]);
+}

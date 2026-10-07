@@ -28,14 +28,37 @@ use super::path_tokens::{self, Word};
 pub(super) const UNVERIFIABLE_REASON: &str =
     "is a read argument whose expanded value cannot be proven to remain in the workspace";
 
+/// A read-path candidate together with how it must be confined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ReadCandidate {
+    /// A literal path spelling. It is confined by its literal form only, so a
+    /// quoted bracket or brace is never treated as a glob (Issue #582 design 3).
+    Literal(String),
+    /// A word the shell may expand: the existing write-target proof expands
+    /// every glob/brace result and confines it.
+    Expand(String),
+}
+
+impl ReadCandidate {
+    pub(super) fn path(&self) -> &str {
+        match self {
+            Self::Literal(path) | Self::Expand(path) => path,
+        }
+    }
+
+    pub(super) fn expands(&self) -> bool {
+        matches!(self, Self::Expand(_))
+    }
+}
+
 /// The read-path candidates and the first unverifiable word for one command.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct ReadVerdict {
     /// A word whose value cannot be determined statically. The caller refuses.
     pub unverifiable: Option<String>,
-    /// Literal path spellings and supported glob/brace words to confine with the
-    /// existing write-target proof and the working-directory candidate union.
-    pub candidates: Vec<String>,
+    /// Path spellings to confine with the write-target proof and the
+    /// working-directory candidate union.
+    pub candidates: Vec<ReadCandidate>,
 }
 
 /// Reads the read-path judgement for a command the write guard allowed.
@@ -70,6 +93,14 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
                 continue;
             }
             if word.glob {
+                // A quoted or escaped glob/brace metacharacter in the same word
+                // as an executed one cannot be told apart once `text` drops the
+                // quoting, so the expansion proof would confine a different set
+                // than the shell. Refuse rather than expand (Issue #582 review
+                // blocker, design 1).
+                if word.quoted_glob && verdict.unverifiable.is_none() {
+                    verdict.unverifiable = Some(word.text.clone());
+                }
                 // A shell glob option this guard does not model (`shopt -s
                 // dotglob`, `GLOBIGNORE`, `set -f`) changes which names the same
                 // spelling matches, so the word cannot be proven by assuming the
@@ -77,7 +108,9 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
                 if glob_shell_option && verdict.unverifiable.is_none() {
                     verdict.unverifiable = Some(word.text.clone());
                 }
-                verdict.candidates.push(word.text.clone());
+                verdict
+                    .candidates
+                    .push(ReadCandidate::Expand(word.text.clone()));
                 continue;
             }
             push_static(&mut verdict.candidates, word);
@@ -86,24 +119,29 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
     verdict
 }
 
-fn push_static(candidates: &mut Vec<String>, word: &Word) {
+fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word) {
     let mut produced = Vec::new();
     if word.text.starts_with('/') {
         // A quoted operator or bracket is part of the actual filename. Inspect
         // the complete absolute word before any embedded fallback.
-        produced.push(word.text.clone());
+        produced.push(ReadCandidate::Literal(word.text.clone()));
     } else if path_tokens::is_literal_path(&word.text) {
-        produced.push(word.text.clone());
+        // A literal spelling (which may contain a quoted bracket) is confined by
+        // its literal form, never expanded as a glob (Issue #582 design 3).
+        produced.push(ReadCandidate::Literal(word.text.clone()));
     } else {
-        produced.extend(super::absolute_path_candidates(&word.text).map(str::to_owned));
+        produced.extend(
+            super::absolute_path_candidates(&word.text)
+                .map(|path| ReadCandidate::Expand(path.to_owned())),
+        );
     }
     produced.dedup();
     candidates.extend(produced);
 }
 
-fn extend_embedded(candidates: &mut Vec<String>, text: &str) {
-    let mut produced: Vec<String> = super::absolute_path_candidates(text)
-        .map(str::to_owned)
+fn extend_embedded(candidates: &mut Vec<ReadCandidate>, text: &str) {
+    let mut produced: Vec<ReadCandidate> = super::absolute_path_candidates(text)
+        .map(|path| ReadCandidate::Expand(path.to_owned()))
         .collect();
     produced.dedup();
     candidates.extend(produced);
@@ -279,7 +317,12 @@ mod tests {
         // The static outward path beside the dynamic word is still a candidate.
         let verdict = super::inspect("echo $HOME && head sub/li\"nk/secret\"");
         assert!(verdict.unverifiable.is_none());
-        assert!(verdict.candidates.iter().any(|c| c == "sub/link/secret"));
+        assert!(
+            verdict
+                .candidates
+                .iter()
+                .any(|candidate| candidate.path() == "sub/link/secret")
+        );
         assert!(
             super::super::path_confinement_rejection(
                 "echo $HOME && head sub/li\"nk/secret\"",

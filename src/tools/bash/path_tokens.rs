@@ -26,6 +26,12 @@ pub(super) struct Word {
     /// An unquoted glob or brace metacharacter (`* ? [ { }`) is present, so the
     /// shell may expand the word to a different set of names.
     pub glob: bool,
+    /// A glob or brace metacharacter (`* ? [ ] { } ,`) is present but was
+    /// quoted or escaped, so the shell keeps it literal. When such a word also
+    /// carries an executed glob or brace, the two cannot be told apart after
+    /// `text` drops the quoting, and the expansion proof would read a different
+    /// set than the shell (Issue #582 review blocker).
+    pub quoted_glob: bool,
 }
 
 impl Word {
@@ -35,6 +41,7 @@ impl Word {
             dynamic: false,
             simple_variable: true,
             glob: false,
+            quoted_glob: false,
         }
     }
 }
@@ -61,6 +68,9 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                     index += 1;
                 }
                 ('\'', _) => {
+                    if is_glob_brace_meta(ch) {
+                        word.quoted_glob = true;
+                    }
                     word.text.push(ch);
                     index += 1;
                 }
@@ -76,6 +86,9 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                         if next == '\n' {
                             index += 2;
                         } else {
+                            if is_glob_brace_meta(next) {
+                                word.quoted_glob = true;
+                            }
                             if matches!(next, '$' | '`' | '"' | '\\') {
                                 word.text.push(next);
                             } else {
@@ -94,6 +107,9 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                     has_word = true;
                 }
                 ('"', _) => {
+                    if is_glob_brace_meta(ch) {
+                        word.quoted_glob = true;
+                    }
                     word.text.push(ch);
                     index += 1;
                 }
@@ -115,6 +131,9 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
             '\\' => {
                 if let Some(next) = chars.get(index + 1).copied() {
                     if next != '\n' {
+                        if is_glob_brace_meta(next) {
+                            word.quoted_glob = true;
+                        }
                         word.text.push(next);
                     }
                     index += 2;
@@ -228,7 +247,18 @@ fn consume_expansion(chars: &[char], index: usize, word: &mut Word) -> usize {
             }
             cursor
         }
-        c if c.is_ascii_digit() || matches!(c, '@' | '*' | '#' | '?' | '$' | '!' | '-') => {
+        '?' => {
+            // `$?` is the exit status. A simple echo may display it, so keep the
+            // word "simple"; every other special parameter and arithmetic
+            // expansion still clears the flag (Issue #582 review, false
+            // rejection of `echo "EXIT_CODE=$?"`).
+            word.dynamic = true;
+            for ch in &chars[index..=index + 1] {
+                word.text.push(*ch);
+            }
+            index + 2
+        }
+        c if c.is_ascii_digit() || matches!(c, '@' | '*' | '#' | '$' | '!' | '-') => {
             word.dynamic = true;
             word.simple_variable = false;
             for ch in &chars[index..=index + 1] {
@@ -310,6 +340,12 @@ fn is_identifier_start(ch: char) -> bool {
 
 fn is_identifier_continue(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+/// Whether a character is a glob or brace metacharacter whose quoting the word
+/// text cannot preserve.
+fn is_glob_brace_meta(ch: char) -> bool {
+    matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | ',')
 }
 
 /// Whether a static word names a literal path: it holds a `/` and no character
