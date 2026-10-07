@@ -2790,6 +2790,15 @@ def order_pr_numbers_for_merge(
     return ordered
 
 
+def issue_to_pr_numbers(issue_order: list[int], pr_numbers: list[int]) -> dict[int, int]:
+    if len(issue_order) != len(pr_numbers):
+        raise ValueError(
+            "issue order and PR numbers must have the same length: "
+            f"{len(issue_order)} issue(s) vs {len(pr_numbers)} PR number(s)"
+        )
+    return dict(zip(issue_order, pr_numbers, strict=True))
+
+
 def branch_has_commits(branch_name: str, *, runner: Runner = run_command) -> bool:
     completed = runner(
         ["git", "rev-list", "--count", f"{DEFAULT_BASE}..{branch_name}"],
@@ -3912,7 +3921,7 @@ def main() -> int:
     )
     if dry_run and publish_requested and not pr_numbers:
         pr_numbers = issue_merge_order
-    issue_to_pr = dict(zip(issue_merge_order, pr_numbers))
+    issue_to_pr = issue_to_pr_numbers(issue_merge_order, pr_numbers)
 
     uat_gate = UatGateResult("not-requested", "UAT phase was not requested")
     uat_requested = (
