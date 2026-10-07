@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
 mod path_tokens;
+mod read_guard;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_STREAM_BYTES: usize = 24_000;
@@ -784,7 +785,15 @@ pub fn path_confinement_rejection(
         });
     }
     let inspection = super::bash_write_guard::inspect_working_directory(command);
-    for candidate in path_tokens::path_candidates(command) {
+    let read = read_guard::inspect(command);
+    if let Some(word) = read.unverifiable {
+        return Some(path_reference_rejection(
+            &word,
+            &root,
+            Some(read_guard::UNVERIFIABLE_REASON),
+        ));
+    }
+    for candidate in read.candidates {
         if !bash_path_allowed(&candidate, &root, &raw_root) {
             return Some(path_reference_rejection(&candidate, &root, None));
         }
@@ -973,6 +982,13 @@ fn bash_path_allowed(candidate: &str, canonical_root: &Path, raw_root: &Path) ->
     }
     if candidate == "/" {
         return true;
+    }
+    // An absolute glob or brace outside the workspace cannot be enumerated and
+    // must not be admitted by the raw-string system-prefix fallback: a spelling
+    // such as `/usr/../<fixture>/*` canonicalizes `/usr/..` to `/` and would
+    // otherwise pass the `/usr` prefix check (Issue #582 design 6).
+    if path_tokens::contains_glob_or_brace(candidate) {
+        return super::path_guard::ensure_bash_write_target(canonical_root, candidate).is_ok();
     }
     let comparable = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     comparable.starts_with(canonical_root)

@@ -413,7 +413,6 @@ fn comment_heredoc_keeps_allowed_forms() {
         "echo x # tee sub/link/f",
         "cd sub && tee f # CDPATH",
         "echo a#b > out.txt",
-        "echo $# ${#x} ${x#y} > out.txt",
         // B1 readable delimiter forms (H-02 §1, "今の判定のまま").
         "cat <<'E\\OF'\nx\nE\\OF",
         "cat <<E\\\\OF\nx\nE\\OF",
@@ -429,6 +428,20 @@ fn comment_heredoc_keeps_allowed_forms() {
             "expected allow: {command:?}"
         );
     }
+}
+
+/// Issue #582: a complex parameter display is not a plain `$NAME` reference, so
+/// the read side now refuses it. The write stays named and the row moved here
+/// from the allow table without being deleted.
+#[test]
+fn comment_heredoc_rejects_complex_parameter_display() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let command = "echo $# ${#x} ${x#y} > out.txt";
+    assert!(
+        path_confinement_rejection(command, root).is_some(),
+        "expected rejection: {command:?}"
+    );
 }
 
 #[test]
