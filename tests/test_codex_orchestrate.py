@@ -1843,6 +1843,19 @@ def test_order_pr_numbers_for_merge_rejects_incomplete_pr_set() -> None:
         module.order_pr_numbers_for_merge(results, [2, 3], [42])
 
 
+def test_issue_to_pr_numbers_maps_in_issue_order() -> None:
+    module = load_script()
+
+    assert module.issue_to_pr_numbers([2, 3, 4], [42, 43, 44]) == {2: 42, 3: 43, 4: 44}
+
+
+def test_issue_to_pr_numbers_rejects_length_mismatch() -> None:
+    module = load_script()
+
+    with pytest.raises(ValueError, match="same length"):
+        module.issue_to_pr_numbers([2, 3, 4], [42, 43])
+
+
 def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
     module = load_script()
     calls: list[list[str]] = []

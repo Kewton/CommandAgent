@@ -906,7 +906,6 @@ def stop_reason_summary(rows: list[dict[str, str]]) -> list[str]:
     for row in rows:
         if not diagnostic_failure_row(row):
             continue
-        extras = parse_extras(row)
         detail_rows.append(
             {
                 "scenario": row.get("scenario", ""),
