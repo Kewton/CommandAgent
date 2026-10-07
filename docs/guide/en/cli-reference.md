@@ -66,7 +66,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--filter` | `<phase\|tool\|provider>` | none | Filter a selected run's events by phase, tool, or provider. | [Troubleshooting](troubleshooting.md) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
-| `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--json` | none | off | Render --doctor, --extensions, or --runs output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
