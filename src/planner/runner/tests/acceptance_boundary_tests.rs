@@ -138,31 +138,88 @@ fn nextjs_dev_route_probe_disabled_records_lifecycle_stages() {
     );
 }
 
+#[cfg(unix)]
+const GRANDCHILD_READY_MARKER: &str = "grandchild-ready";
+#[cfg(unix)]
+const GRANDCHILD_PIPE_RELATIVE: &str = ".anvil/evidence/dev-server-grandchild.pipe";
+
+#[cfg(unix)]
+fn create_grandchild_pipe(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("pipe path");
+    let rc = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+    assert_eq!(rc, 0, "create grandchild pipe {path:?}");
+}
+
+#[cfg(unix)]
+fn open_grandchild_pipe_reader(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .ok()
+}
+
+#[cfg(unix)]
+fn poll_grandchild_pipe(path: &Path, wait_for_data: bool) -> bool {
+    let Some(mut reader) = open_grandchild_pipe_reader(path) else {
+        return false;
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut buffer = [0_u8; 32];
+    while Instant::now() < deadline {
+        match reader.read(&mut buffer) {
+            Ok(0) if !wait_for_data => return true,
+            Ok(n) if wait_for_data && n > 0 => return true,
+            _ => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    false
+}
+
+#[cfg(unix)]
+fn measured_cleanup_after_grandchild_ready(
+    child: Child,
+    logs: &DevServerLogPaths,
+) -> DevServerCleanup {
+    let pipe = logs
+        .stdout
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(GRANDCHILD_PIPE_RELATIVE);
+    let ready = poll_grandchild_pipe(&pipe, true);
+    let started = Instant::now();
+    let cleanup = cleanup_dev_server_child(child, logs);
+    let measured = format!("{ready} {}", started.elapsed().as_millis());
+    let _ = std::fs::write(pipe.with_extension("measurement"), measured);
+    cleanup
+}
+
 #[test]
 #[cfg(unix)]
 fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
     let _probe_guard = dev_server_probe_test_guard();
-    let dir = tempfile::tempdir().unwrap();
+    let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+    let dir = tempfile::Builder::new().prefix("runner-dev-server-").tempdir_in(exe_dir).unwrap();
     let port = free_local_port();
     let events = dir.path().join("events.jsonl");
     write_fake_nextjs_dev_workspace(dir.path(), port, true);
     let cfg = nextjs_config_with_events(dir.path(), &events);
     let evidence_path = nextjs_dev_route_evidence_path(&cfg);
+    let pipe = dir.path().join(GRANDCHILD_PIPE_RELATIVE);
+    create_grandchild_pipe(&pipe);
+    let _pipe_reader = open_grandchild_pipe_reader(&pipe).expect("open grandchild pipe reader");
 
-    let started = Instant::now();
     let evidence = run_nextjs_dev_route_probe_with_runtime(
         &cfg,
         &evidence_path,
         true,
-        cleanup_dev_server_child,
+        measured_cleanup_after_grandchild_ready,
         BrowserInteractionProbeOptions::default(),
         Some(port),
     );
 
-    assert!(
-        started.elapsed() < Duration::from_secs(5),
-        "cleanup should be bounded and fast"
-    );
     assert_eq!(evidence.get("ok").and_then(Value::as_bool), Some(true));
     assert!(evidence_path.is_file(), "browser readiness evidence");
     assert!(evidence_path.with_file_name("dev-server.out").is_file());
@@ -172,26 +229,27 @@ fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
         dev_server_stage_names(&events_json),
         vec!["start", "wait", "probe", "cleanup"]
     );
-    let cleanup = events_json
-        .iter()
-        .find(|event| {
-            event.get("event").and_then(Value::as_str) == Some("dev_server_lifecycle")
-                && event.get("stage").and_then(Value::as_str) == Some("cleanup")
-        })
-        .expect("cleanup event");
+    let cleanup = dev_server_lifecycle_event(&events_json, "cleanup");
     assert_eq!(cleanup.get("ok").and_then(Value::as_bool), Some(true));
-    let pid = events_json
-        .iter()
-        .find(|event| {
-            event.get("event").and_then(Value::as_str) == Some("dev_server_lifecycle")
-                && event.get("stage").and_then(Value::as_str) == Some("start")
-        })
-        .and_then(|event| event.get("pid"))
-        .and_then(Value::as_u64)
-        .expect("dev server pid") as u32;
+
+    let measured =
+        std::fs::read_to_string(pipe.with_extension("measurement")).expect("cleanup measurement");
+    let (ready, elapsed_ms) = measured.split_once(' ').expect("measurement fields");
+    assert_eq!(ready, "true", "grandchild ready before cleanup");
+    let elapsed_ms: u128 = elapsed_ms.trim().parse().expect("cleanup elapsed ms");
+    assert!(
+        elapsed_ms <= (DEV_SERVER_CLEANUP_TERM_TIMEOUT + DEV_SERVER_CLEANUP_KILL_TIMEOUT).as_millis(),
+        "cleanup must stay within its own term+kill bound (no pipe deadlock): {elapsed_ms}ms"
+    );
+
+    let pid = dev_server_lifecycle_event(&events_json, "start")["pid"].as_u64().unwrap() as u32;
     assert!(
         wait_until_process_group_gone(pid, Duration::from_secs(2)),
         "process group {pid} should be gone"
+    );
+    assert!(
+        poll_grandchild_pipe(&pipe, false),
+        "grandchild pipe must reach EOF once the grandchild is reaped"
     );
 }
 
@@ -224,13 +282,7 @@ fn dev_server_writes_readiness_before_forced_cleanup_failure() {
         dev_server_stage_names(&events_json),
         vec!["start", "wait", "probe", "cleanup"]
     );
-    let cleanup = events_json
-        .iter()
-        .find(|event| {
-            event.get("event").and_then(Value::as_str) == Some("dev_server_lifecycle")
-                && event.get("stage").and_then(Value::as_str) == Some("cleanup")
-        })
-        .expect("cleanup event");
+    let cleanup = dev_server_lifecycle_event(&events_json, "cleanup");
     assert_eq!(cleanup.get("ok").and_then(Value::as_bool), Some(false));
     assert_eq!(
         cleanup.get("failure_kind").and_then(Value::as_str),
@@ -255,9 +307,13 @@ fn fake_dev_server_package_manager_child() {
         .as_deref()
         == Some("1")
     {
+        // The grandchild holds the pipe: the parent reads ready, then EOF.
+        let script = format!(
+            "exec 3>{GRANDCHILD_PIPE_RELATIVE} || exit 1; echo {GRANDCHILD_READY_MARKER} >&3; sleep 300"
+        );
         let _ = std::process::Command::new("sh")
             .arg("-c")
-            .arg("sleep 300")
+            .arg(script)
             .spawn()
             .expect("spawn grandchild");
     }
