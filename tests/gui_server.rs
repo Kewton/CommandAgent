@@ -9,6 +9,10 @@ use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
+#[path = "support/gui_wait.rs"]
+mod gui_wait;
+
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
 const FIXTURE_EXEC_RETRY_DELAY: Duration = Duration::from_millis(25);
@@ -1860,7 +1864,13 @@ tail -f /dev/null
     let stop_path = format!("/api/sessions/{id}/stop");
     let stop_body = serde_json::json!({ "generation": generation });
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("descendant.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let unauthorized = server.request_without_access("POST", &stop_path, Some(&stop_body));
     assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
@@ -1914,11 +1924,14 @@ tail -f /dev/null
     assert_eq!(duplicate.json()["status"], "already_stopping");
 
     let events_path = run_root.join("events.jsonl");
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &events_path,
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let parsed = parse_json_lines(&events);
     let cli_stop = parsed
         .iter()
@@ -1935,7 +1948,7 @@ tail -f /dev/null
     assert_eq!(server_stop["process_tree_gone"], true);
     assert_eq!(server_stop["cli_terminal_observed"], true);
     assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
@@ -1976,7 +1989,13 @@ wait "$child"
     let id = created["id"].as_str().unwrap();
     let generation = created["process_generation"].as_str().unwrap();
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("descendant.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let accepted = server.request(
         "POST",
@@ -1984,11 +2003,14 @@ wait "$child"
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(accepted.status, 202, "{}", accepted.body);
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let parsed = parse_json_lines(&events);
     assert!(
         parsed
@@ -2006,7 +2028,7 @@ wait "$child"
     assert_eq!(server_stop["cli_terminal_observed"], false);
     assert_eq!(server_stop["failure_kind"], "gui_trial_stop_forced");
     assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.json()["gate"], "gate_4");
     assert_eq!(status.json()["status"], "interrupted");
@@ -2047,7 +2069,7 @@ esac
     let created = launch_fixture_session(&server);
     let id = created["id"].as_str().unwrap();
     let initial_generation = created["process_generation"].as_str().unwrap();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let directive = server.request(
         "POST",
@@ -2071,7 +2093,13 @@ esac
         .to_string();
     assert_ne!(generation, initial_generation);
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("continuation.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("continuation.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let stale = server.request(
         "POST",
@@ -2085,18 +2113,21 @@ esac
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(accepted.status, 202, "{}", accepted.body);
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        &generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let current = events
         .split("\"event\":\"human_directive_continuation_started\"")
         .last()
         .unwrap();
     assert!(current.contains("\"event\":\"tui_command_stop\""));
     assert!(current.contains("\"status\":\"interrupted\""));
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     server.stop();
 }
 
@@ -5293,6 +5324,103 @@ fn execution_root_less_profile_mutations_enforce_token_and_origin() {
     server.stop();
 }
 
+/// Wait, with a finite deadline, for the `gui_server` child to print its
+/// listening line on stdout. A child that exits or closes stdout before the
+/// line arrives fails immediately instead of hanging the harness.
+#[cfg(unix)]
+fn await_listen_line(
+    clock: &impl gui_wait::Clock,
+    child: &mut Child,
+    stdout: &mut BufReader<std::process::ChildStdout>,
+    timeout: Duration,
+) -> String {
+    use std::os::fd::AsRawFd;
+
+    gui_wait::wait_for(clock, "the gui_server listening line", timeout, || {
+        let mut poll_fd = libc::pollfd {
+            fd: stdout.get_ref().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, 0) };
+        if ready < 0 {
+            return gui_wait::Poll::Failed(format!(
+                "polling gui_server stdout failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        if ready > 0 {
+            let mut line = String::new();
+            return match stdout.read_line(&mut line) {
+                Ok(0) => gui_wait::Poll::Failed(
+                    "gui_server closed stdout before printing a listening line".to_string(),
+                ),
+                Ok(_) => gui_wait::Poll::Ready(line),
+                Err(error) => {
+                    gui_wait::Poll::Failed(format!("reading gui_server stdout failed: {error}"))
+                }
+            };
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => gui_wait::Poll::Failed(format!(
+                "gui_server exited before printing a listening line: {status}"
+            )),
+            Ok(None) => gui_wait::Poll::Pending(
+                "waiting for gui_server to print its listening line".to_string(),
+            ),
+            Err(error) => {
+                gui_wait::Poll::Failed(format!("cannot poll the gui_server process: {error}"))
+            }
+        }
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn server_ready_wait_returns_the_printed_line() {
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "printf 'gui_server listening on http://127.0.0.1:43210/\\n'",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let line = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_secs(5));
+    assert!(line.contains("127.0.0.1:43210"), "{line}");
+    let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "before printing a listening line")]
+fn server_ready_wait_fails_when_the_child_stops_before_ready() {
+    let mut child = Command::new("sh")
+        .args(["-c", "exit 7"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let _ = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_secs(5));
+}
+
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "timed out")]
+fn server_ready_wait_times_out_when_no_listening_line_arrives() {
+    let mut child = Command::new("sh")
+        .args(["-c", "sleep 1"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let _ = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_millis(150));
+}
+
 #[cfg(unix)]
 struct Server {
     child: Child,
@@ -5536,9 +5664,14 @@ impl Server {
             command.env_remove("GUI_TRIAL_TOKEN");
         }
         let mut child = command.spawn().unwrap();
-        let mut line = String::new();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        stdout.read_line(&mut line).unwrap();
+        let clock = gui_wait::SystemClock::new();
+        let line = await_listen_line(
+            &clock,
+            &mut child,
+            &mut stdout,
+            gui_wait::SERVER_READY_TIMEOUT,
+        );
         let port = line
             .split("127.0.0.1:")
             .nth(1)
@@ -5764,50 +5897,63 @@ fn launch_fixture_session(server: &Server) -> serde_json::Value {
 
 #[cfg(unix)]
 fn wait_for_path(path: &std::path::Path, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    while !path.is_file() {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {}",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("{} to appear", path.display()),
+        timeout,
+        || {
+            if path.is_file() {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("{} is not a file yet", path.display()))
+            }
+        },
+    );
 }
 
 #[cfg(unix)]
 fn wait_for_event(path: &std::path::Path, event: &str, timeout: Duration) -> String {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Ok(events) = std::fs::read_to_string(path)
-            && events.contains(&format!("\"event\":\"{event}\""))
-        {
-            return events;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {event} in {}",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("the {event} event in {}", path.display()),
+        timeout,
+        || match std::fs::read_to_string(path) {
+            Ok(events) if events.contains(&format!("\"event\":\"{event}\"")) => {
+                gui_wait::Poll::Ready(events)
+            }
+            Ok(_) => gui_wait::Poll::Pending(format!("{} has no {event} yet", path.display())),
+            Err(error) => {
+                gui_wait::Poll::Pending(format!("{} is not readable yet: {error}", path.display()))
+            }
+        },
+    )
 }
 
 #[cfg(unix)]
 fn wait_for_idle_lease(server: &Server, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "trial lease did not return to idle"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        "the trial workspace lease to return to idle",
+        timeout,
+        || {
+            let lease = server.request("GET", "/api/trial-workspace", None);
+            if lease.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the trial workspace probe failed with status {}",
+                    lease.status
+                ));
+            }
+            let status = lease.json()["status"].clone();
+            if status == "idle" {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("the trial workspace lease is {status}"))
+            }
+        },
+    );
 }
 
 #[cfg(unix)]
