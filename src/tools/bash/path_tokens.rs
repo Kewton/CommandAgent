@@ -161,7 +161,12 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                 segments.push(std::mem::take(&mut words));
                 index += 1;
             }
-            other if other.is_whitespace() => {
+            // Only the shell's default word separators end a word: a space and a
+            // tab (the newline and carriage return are handled above). Every
+            // other Unicode whitespace — an ideographic space, a no-break space —
+            // is an ordinary character of the word, which is what the shell
+            // reads (Issue #603 design 2).
+            ' ' | '\t' => {
                 flush(&mut words, &mut word, &mut has_word);
                 index += 1;
             }
@@ -370,6 +375,18 @@ pub(super) fn is_literal_path(word: &str) -> bool {
         })
 }
 
+/// Whether a word names a static literal path once its interior whitespace is
+/// removed (Issue #603). A word that still carries whitespace after
+/// [`read_words`] ran was quoted or escaped into a single word, so its literal
+/// spelling — not the split of its pieces — is the path. The same condition
+/// judges the right-hand side of a `=` argument. The existing
+/// [`is_literal_path`] is left unchanged, so the conservative multiword-argument
+/// inspection still applies where it did.
+pub(super) fn is_literal_path_allowing_whitespace(value: &str) -> bool {
+    let stripped: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
+    is_literal_path(&stripped)
+}
+
 /// Whether the word carries a glob or brace metacharacter the shell may expand.
 pub(super) fn contains_glob_or_brace(value: &str) -> bool {
     value.chars().any(|ch| matches!(ch, '*' | '?' | '[' | '{'))
@@ -486,6 +503,41 @@ mod tests {
         assert!(!is_literal_path("secret"));
         assert!(!is_literal_path("FILE=/outside/file"));
         assert!(!is_literal_path("sh -c /outside/file"));
+    }
+
+    /// The shell separates words on a space, a tab, and a newline only. An
+    /// ideographic space and a no-break space stay inside the word, so a name
+    /// Bash reads as one word is judged as one word (Issue #603 design 2).
+    #[test]
+    fn splits_only_space_tab_and_newline() {
+        assert_eq!(
+            words("cat sub/wide\u{3000}link/secret"),
+            ["cat", "sub/wide\u{3000}link/secret"]
+        );
+        assert_eq!(
+            words("cat sub/nb\u{a0}link/secret"),
+            ["cat", "sub/nb\u{a0}link/secret"]
+        );
+        assert_eq!(words("cat a\tb"), ["cat", "a", "b"]);
+        assert_eq!(words("cat a\nb"), ["cat", "a", "b"]);
+    }
+
+    /// The whitespace-allowing form accepts a quoted or escaped single word and a
+    /// `=` right-hand side, but still refuses a multiword program, an option, and
+    /// an assignment (Issue #603 designs 1 and 3).
+    #[test]
+    fn literal_path_allowing_whitespace_table() {
+        assert!(is_literal_path_allowing_whitespace("sub/space link/secret"));
+        assert!(is_literal_path_allowing_whitespace(
+            "sub/wide\u{3000}link/secret"
+        ));
+        assert!(is_literal_path_allowing_whitespace(
+            "sub/nb\u{a0}link/secret"
+        ));
+        assert!(is_literal_path_allowing_whitespace("sub/link/secret"));
+        assert!(!is_literal_path_allowing_whitespace("cat a.txt"));
+        assert!(!is_literal_path_allowing_whitespace("--features=gui"));
+        assert!(!is_literal_path_allowing_whitespace("FILE=/outside/file"));
     }
 
     /// Exact tokenization of the shapes whose read refusal depends on one line

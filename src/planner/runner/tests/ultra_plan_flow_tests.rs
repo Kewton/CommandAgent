@@ -1597,6 +1597,7 @@ if __name__ == "__main__":
         let events = dir.path().join("events.jsonl");
         let port = free_local_port();
         enable_dev_server_probe_test_override(dir.path());
+        test_transport::enable(dir.path());
         write_fake_nextjs_package_manager(dir.path(), false);
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();
@@ -3718,6 +3719,7 @@ if __name__ == "__main__":
         let port = free_local_port();
         let events = dir.path().join(".anvil/runs/fake/events.jsonl");
         enable_dev_server_probe_test_override(dir.path());
+        test_transport::enable(dir.path());
         write_fake_nextjs_package_manager(dir.path(), false);
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();
