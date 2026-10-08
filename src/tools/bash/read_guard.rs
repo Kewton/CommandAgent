@@ -113,13 +113,13 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
                     .push(ReadCandidate::Expand(word.text.clone()));
                 continue;
             }
-            push_static(&mut verdict.candidates, word);
+            push_static(&mut verdict.candidates, word, index >= leading);
         }
     }
     verdict
 }
 
-fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word) {
+fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word, equals_rhs_is_candidate: bool) {
     let mut produced = Vec::new();
     if word.text.starts_with('/') {
         // A quoted operator or bracket is part of the actual filename. Inspect
@@ -130,6 +130,19 @@ fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word) {
         // its literal form, never expanded as a glob (Issue #582 design 3).
         produced.push(ReadCandidate::Literal(word.text.clone()));
     } else {
+        // A quoted or escaped single word that carries whitespace still names a
+        // literal path; the embedded absolute-path scan below is kept beside it so
+        // neither replaces the other (Issue #603 design 1).
+        if path_tokens::is_literal_path_allowing_whitespace(&word.text) {
+            produced.push(ReadCandidate::Literal(word.text.clone()));
+        }
+        // The right-hand side of a non-assignment `NAME=value` word names a read
+        // path (`dd if=...`, `grep --file=...`, `make IN=...`). A leading
+        // assignment is excluded by the caller; an absolute right side is left to
+        // the embedded scan (Issue #603 design 3).
+        if equals_rhs_is_candidate && let Some(value) = equals_right_hand_side(&word.text) {
+            produced.push(ReadCandidate::Literal(value.to_string()));
+        }
         produced.extend(
             super::absolute_path_candidates(&word.text)
                 .map(|path| ReadCandidate::Expand(path.to_owned())),
@@ -137,6 +150,17 @@ fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word) {
     }
     produced.dedup();
     candidates.extend(produced);
+}
+
+/// The right-hand side of a `NAME=value` word when it is a static path spelling.
+/// An empty or absolute right side yields `None`: the embedded absolute-path scan
+/// already inspects an absolute one (Issue #603 design 3).
+fn equals_right_hand_side(word: &str) -> Option<&str> {
+    let (_, value) = word.split_once('=')?;
+    if value.is_empty() || value.starts_with('/') {
+        return None;
+    }
+    path_tokens::is_literal_path_allowing_whitespace(value).then_some(value)
 }
 
 fn extend_embedded(candidates: &mut Vec<ReadCandidate>, text: &str) {
@@ -203,8 +227,27 @@ mod tests {
         root: PathBuf,
     }
 
+    /// A fixture tempdir under the Cargo target directory, never under a
+    /// read-allowed system prefix (`/tmp` on Linux would let an escaping symlink
+    /// target be admitted as a system path; Issue #604). Cargo sets
+    /// `CARGO_TARGET_TMPDIR` only for integration tests, so a unit test derives
+    /// the same location from the test binary path.
+    fn fixture_tempdir() -> tempfile::TempDir {
+        let executable = std::env::current_exe().expect("test executable path");
+        let target = executable
+            .parent()
+            .and_then(Path::parent)
+            .expect("target profile directory");
+        let base = target.join("tmp");
+        std::fs::create_dir_all(&base).expect("fixture base directory");
+        tempfile::Builder::new()
+            .prefix("read-guard-")
+            .tempdir_in(base)
+            .expect("fixture tempdir")
+    }
+
     fn fixture() -> Fixture {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = fixture_tempdir();
         let root = dir.path().join("ws");
         for directory in [
             "sub",
@@ -229,6 +272,12 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("secret"), "x").unwrap();
         std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
+        // A quoted or escaped single word, and a full-width space (U+3000) or a
+        // no-break space (U+00A0) inside an unquoted word, must still be judged
+        // as one path (Issue #603).
+        std::os::unix::fs::symlink(&outside, root.join("sub/space link")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("sub/wide\u{3000}link")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("sub/nb\u{a0}link")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join(".hidden-out")).unwrap();
         std::os::unix::fs::symlink(dir.path().join("missing-target"), root.join("dangling"))
@@ -353,5 +402,39 @@ mod tests {
                 .collect();
             assert_eq!(paths, ["/abs/x$?"], "{command}");
         }
+    }
+
+    /// Issue #603: a quoted or escaped single word that carries a space, an
+    /// unquoted full-width or no-break space, and the right-hand side of a
+    /// non-assignment `=` become read candidates. A leading assignment's right
+    /// side does not, and a `=` option without a slash is not a path.
+    #[test]
+    fn read_candidates_extract_space_and_equals_candidates() {
+        let paths = |command: &str| {
+            super::inspect(command)
+                .candidates
+                .iter()
+                .map(|candidate| candidate.path().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            paths(r#"cat "sub/space link/secret""#).contains(&"sub/space link/secret".to_string())
+        );
+        assert!(
+            paths("cat sub/wide\u{3000}link/secret")
+                .contains(&"sub/wide\u{3000}link/secret".to_string())
+        );
+        assert!(
+            paths("cat sub/nb\u{a0}link/secret").contains(&"sub/nb\u{a0}link/secret".to_string())
+        );
+        assert!(paths("dd if=sub/link/secret").contains(&"sub/link/secret".to_string()));
+        assert!(paths("grep --file=sub/link/secret x").contains(&"sub/link/secret".to_string()));
+        assert!(paths("make IN=sub/link/secret").contains(&"sub/link/secret".to_string()));
+        // A leading assignment is a variable, not a path; the reference side is
+        // judged elsewhere, so its right side is not a read candidate here.
+        assert!(paths("OUT=out/x cargo test").is_empty());
+        assert!(paths("RUST_LOG=debug cargo test").is_empty());
+        // An option right side without a slash is not a path.
+        assert!(paths("cargo test --features=gui").is_empty());
     }
 }
