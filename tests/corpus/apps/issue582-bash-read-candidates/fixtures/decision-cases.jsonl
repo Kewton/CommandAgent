@@ -57,6 +57,7 @@
 {"id": "cr-cd-touch", "command": "cd cr\rdir; touch f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
 {"id": "cr-pushd-touch", "command": "pushd cr\rdir && touch f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
 {"id": "cr-cd-read", "command": "cd cr\rdir && cat secret", "R": true, "A": false, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-cd-relative-nested", "command": "cd cr\rsub && cat esc", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
 {"id": "cr-crlf-read", "command": "cat sub/cr\rlink/secret\r\n", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "cr-crlf-tail", "command": "cat lfcr\r\n", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "rel-cat", "command": "cat lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}

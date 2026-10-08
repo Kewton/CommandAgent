@@ -64,6 +64,10 @@ fn fixture() -> Fixture {
         "frontend",
         "dir1",
         "dir2",
+        // Issue #613: an inside directory whose name holds a carriage return.
+        // Only the WordChar reading reaches it, and a nested outward symlink
+        // below it is invisible to every other candidate.
+        "cr\rsub",
     ] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
@@ -102,6 +106,9 @@ fn fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join("lf")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("space lf")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("wide\u{3000}lf")).unwrap();
+    // Issue #613: an outward symlink inside the CR-named directory above, so
+    // only the merged WordChar candidate reaches it (`cd cr␍sub && cat esc`).
+    std::os::unix::fs::symlink(&outside, root.join("cr\rsub/esc")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -733,8 +740,24 @@ fn read_candidates_reject_carriage_return_symlinks() {
             "cat sub/cr\rlink/secret\r\n",
             "cat lfcr\r\n",
             "true\rtee /nonexistent-f613-outside/f",
+            // Only the WordChar reading reaches `cr\rsub`; the nested outward
+            // symlink `cr\rsub/esc` is invisible to every other candidate, so
+            // dropping the `working_directory` union would allow it.
+            "cd cr\rsub && cat esc",
         ],
     );
+}
+
+/// Issue #613 design 2 ("存在しない・ディレクトリでない以外の理由で lstat に
+/// 失敗したら、確かめる"): a `/`-less word whose `lstat` fails for a reason other
+/// than a missing name still reaches the literal proof. A component longer than
+/// `NAME_MAX` fails with `ENAMETOOLONG` and is refused, not admitted.
+#[test]
+fn read_candidates_reject_unstattable_relative_words() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let over_long = "a".repeat(300);
+    assert_rejected(root, &[&format!("cat {over_long}")]);
 }
 
 /// Issue #613 problem 2: a `/`-less relative word that is itself an outward

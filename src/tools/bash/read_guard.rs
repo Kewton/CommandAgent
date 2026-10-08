@@ -377,6 +377,10 @@ mod tests {
             "frontend",
             "dir1",
             "dir2",
+            // Issue #613: an inside directory whose name holds a carriage return.
+            // Only the WordChar reading reaches it, and a nested outward symlink
+            // below it is invisible to every other candidate.
+            "cr\rsub",
         ] {
             std::fs::create_dir_all(root.join(directory)).unwrap();
         }
@@ -415,6 +419,9 @@ mod tests {
         std::os::unix::fs::symlink(&outside, root.join("lf")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("space lf")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("wide\u{3000}lf")).unwrap();
+        // Issue #613: an outward symlink inside the CR-named directory above, so
+        // only the merged WordChar candidate reaches it (`cd cr␍sub && cat esc`).
+        std::os::unix::fs::symlink(&outside, root.join("cr\rsub/esc")).unwrap();
         let root = root.canonicalize().unwrap();
         Fixture { _dir: dir, root }
     }
@@ -465,6 +472,34 @@ mod tests {
             assert_eq!(v, case.v, "{}: V mismatch for {:?}", case.id, case.command);
         }
         assert!(seen >= 20, "the decision table is too small: {seen}");
+    }
+
+    /// Issue #613 design 2 "存在しない・ディレクトリでない以外の理由で lstat に
+    /// 失敗したら、確かめる": an `lstat` that fails for any reason other than a
+    /// missing name or a non-directory ancestor still needs the literal proof. A
+    /// component longer than `NAME_MAX` fails with `ENAMETOOLONG`, and narrowing
+    /// the check to `NotFound` would drop that path.
+    #[test]
+    fn joined_is_symlink_treats_other_lstat_failures_as_needing_proof() {
+        let fixture = fixture();
+        let root = &fixture.root;
+        let over_long = "a".repeat(300);
+        assert!(
+            super::joined_is_symlink(root, &over_long),
+            "an over-long name (ENAMETOOLONG) must reach the literal proof"
+        );
+        assert!(
+            !super::joined_is_symlink(root, "no-such-name-f613"),
+            "a missing name is not a symlink"
+        );
+        assert!(
+            !super::joined_is_symlink(root, "a.txt"),
+            "a regular file is not a symlink"
+        );
+        assert!(
+            super::joined_is_symlink(root, "lf"),
+            "an existing symlink needs the proof"
+        );
     }
 
     #[test]

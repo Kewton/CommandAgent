@@ -469,4 +469,58 @@ mod tests {
             );
         }
     }
+
+    /// Issue #613: `inspect` unions the historical carriage-return reading with
+    /// the WordChar reading. `merge` must combine the candidates, the `cd`
+    /// targets, the relative words, and OR the undecidable mark — emptying it,
+    /// dropping the `!` in the base-dedup check, or turning the `|=` into `&=`
+    /// each lose a value the WordChar reading alone found.
+    #[test]
+    fn working_directory_merge_unions_both_readings() {
+        let mut merged = Inspection::empty();
+        let mut word_char = Inspection::empty();
+        word_char.bases.push("cr\rdir".to_string());
+        word_char.targets.push("cr\rdir".to_string());
+        word_char.relative_words.push("esc".to_string());
+        word_char.undecidable = true;
+        merged.merge(word_char);
+
+        assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+        assert_eq!(merged.targets, vec!["cr\rdir".to_string()]);
+        assert_eq!(merged.relative_words, vec!["esc".to_string()]);
+        assert!(
+            merged.undecidable,
+            "the undecidable mark of either reading must survive the union"
+        );
+
+        // A candidate already present is not added twice.
+        let mut duplicate = Inspection::empty();
+        duplicate.bases.push("cr\rdir".to_string());
+        merged.merge(duplicate);
+        assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+    }
+
+    /// Issue #613: only the WordChar reading sees the `\r` in a `cd`
+    /// destination, so the merged candidate is what keeps it. A `/`-less operand
+    /// that is an outward symlink *inside* the CR-named directory is reached by
+    /// no other route, so dropping the union would allow it.
+    #[test]
+    fn working_directory_keeps_carriage_return_cd_candidates() {
+        let inspection = inspect("cd cr\rdir && cat esc");
+        assert!(
+            inspection.bases.contains(&"cr\rdir".to_string()),
+            "the CR destination must be a candidate: {:?}",
+            inspection.bases
+        );
+        assert!(
+            inspection.targets.contains(&"cr\rdir".to_string()),
+            "the CR destination must be confined: {:?}",
+            inspection.targets
+        );
+        assert!(
+            inspection.relative_words.contains(&"esc".to_string()),
+            "the relative operand must stay visible: {:?}",
+            inspection.relative_words
+        );
+    }
 }
