@@ -77,7 +77,6 @@ export default function MeasurementsPage() {
           data-testid="measurement-map-frame"
           role="region"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             data-testid="measurement-score-time-map"
             src={scoreTimeMapPath}
