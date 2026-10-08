@@ -23,6 +23,7 @@ use std::path::Path;
 
 use super::command_prefix::{self, Resolution};
 use super::{ShellToken, command_words, positional_operands};
+use crate::tools::bash::path_tokens::CrMode;
 
 /// Upper bound on the working-directory candidates. Consecutive distinct `cd`
 /// destinations can double the set at each step, so past this bound the
@@ -51,6 +52,32 @@ pub(crate) struct Inspection {
 }
 
 impl Inspection {
+    /// An inspection that has seen nothing yet: the workspace root candidate and
+    /// no `cd` destination.
+    fn empty() -> Self {
+        Inspection {
+            bases: vec![String::new()],
+            targets: Vec::new(),
+            undecidable: false,
+            relative_words: Vec::new(),
+        }
+    }
+
+    /// Unions another reading of the same command (Issue #613). The candidates,
+    /// `cd` targets, and relative words are combined, and the undecidable mark
+    /// holds if either reading raised it, so the union is never looser than one
+    /// reading alone.
+    fn merge(&mut self, other: Inspection) {
+        for base in other.bases {
+            if !self.bases.contains(&base) {
+                self.bases.push(base);
+            }
+        }
+        self.targets.extend(other.targets);
+        self.relative_words.extend(other.relative_words);
+        self.undecidable |= other.undecidable;
+    }
+
     /// Whether a `cd`/`pushd` added a candidate beyond the workspace root.
     pub(crate) fn has_working_directory(&self) -> bool {
         self.bases.iter().any(|base| !base.is_empty())
@@ -74,15 +101,10 @@ impl Inspection {
 
 /// Reads the working-directory candidates out of a command.
 pub(crate) fn inspect(command: &str) -> Inspection {
-    let mut inspection = Inspection {
-        bases: vec![String::new()],
-        targets: Vec::new(),
-        undecidable: false,
-        relative_words: Vec::new(),
-    };
     let Some(view) = super::super::shell_lexical::write_guard_view(command) else {
         // The shell text cannot be read, so no working-directory change can be
         // modelled; relative writes after it must be refused (Issue #576).
+        let mut inspection = Inspection::empty();
         inspection.undecidable = true;
         return inspection;
     };
@@ -91,8 +113,21 @@ pub(crate) fn inspect(command: &str) -> Inspection {
     // so the protected-path variants stay visible but relative writes are still
     // refused (Issue #585).
     let ambiguous = view.ambiguous_expansion;
-    let text = view.text;
-    let Some(tokens) = super::shell_tokens(&text) else {
+    // Issue #613: a carriage return is an ordinary word character in Bash. Read
+    // the text that way too and union the candidates, so a `cd` destination
+    // whose name holds a `\r` still adds the directory the shell changes into.
+    // The two readings coincide when the text has no `\r`.
+    let mut inspection = walk(&view.text, ambiguous, CrMode::Separator);
+    if view.text.contains('\r') {
+        inspection.merge(walk(&view.text, ambiguous, CrMode::WordChar));
+    }
+    inspection
+}
+
+/// The working-directory walk of one reading of the elided text (Issue #613).
+fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
+    let mut inspection = Inspection::empty();
+    let Some(tokens) = super::shell_tokens(text, cr_mode) else {
         // The elided text of an ambiguous expansion can leave an unterminated
         // quote, so the walk cannot run. Keep the ambiguity signal anyway: the
         // design promise "an ambiguous expansion is undecidable" must hold on
@@ -425,7 +460,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("expected a view: {command:?}"));
             assert!(view.ambiguous_expansion, "{command:?}");
             assert!(
-                super::super::shell_tokens(&view.text).is_none(),
+                super::super::shell_tokens(&view.text, CrMode::Separator).is_none(),
                 "the fixture must take the early-return path: {command:?}"
             );
             assert!(

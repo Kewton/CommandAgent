@@ -91,6 +91,17 @@ fn fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join(".hidden-out")).unwrap();
     std::os::unix::fs::symlink(dir.path().join("missing-target"), root.join("dangling")).unwrap();
     std::os::unix::fs::symlink(root.join("sub"), root.join("sub/loop")).unwrap();
+    std::os::unix::fs::symlink(root.join("sub"), root.join("inlink")).unwrap();
+    // Issue #613 problem 1: outward symlinks whose name holds a carriage return.
+    // Bash keeps the `\r` inside the word; the historical reading splits on it
+    // and misses the symlink.
+    std::os::unix::fs::symlink(&outside, root.join("sub/cr\rlink")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("cr\rdir")).unwrap();
+    std::os::unix::fs::symlink(outside.join("secret"), root.join("lfcr\r")).unwrap();
+    // Issue #613 problem 2: a `/`-less name can itself be an outward symlink.
+    std::os::unix::fs::symlink(&outside, root.join("lf")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("space lf")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("wide\u{3000}lf")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -696,6 +707,104 @@ fn read_candidates_reject_embedded_absolute_path_in_an_allowed_dynamic_word() {
             &format!("echo \"$X={embedded}\""),
             // A leading simple variable assignment.
             &format!("X=$Y={embedded}"),
+        ],
+    );
+}
+
+/// Issue #613 problem 1: Bash keeps a carriage return inside the word. The
+/// historical reading split on it and missed an outward symlink whose name holds
+/// a `\r`; the guard now reads the text both ways. The last row pins acceptance
+/// criterion 3 (`true⏎rm 保護 path` keeps its value).
+#[test]
+fn read_candidates_reject_carriage_return_symlinks() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            "echo x > sub/cr\rlink/f",
+            "cat sub/cr\rlink/secret",
+            "cd cr\rdir && echo x > f",
+            "tee sub/cr\rlink/f",
+            "cp a.txt sub/cr\rlink/f",
+            "cd cr\rdir; touch f",
+            "pushd cr\rdir && touch f",
+            "cd cr\rdir && cat secret",
+            "cat sub/cr\rlink/secret\r\n",
+            "cat lfcr\r\n",
+            "true\rtee /nonexistent-f613-outside/f",
+        ],
+    );
+}
+
+/// Issue #613 problem 2: a `/`-less relative word that is itself an outward
+/// symlink is proven against the workspace root and every working-directory
+/// candidate, whatever position it holds.
+#[test]
+fn read_candidates_reject_relative_symlink_words() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_rejected(
+        root,
+        &[
+            "cat lf",
+            "head -n1 lf",
+            "grep x lf",
+            "diff a.txt lf",
+            "cat \"space lf\"",
+            "cat space\\ lf",
+            "cat wide\u{3000}lf",
+            "dd if=lf",
+            "grep --file=lf a.txt",
+            "make IN=lf",
+            "cat < lf",
+            "cat lf | head",
+            "(cat lf)",
+            "true && cat lf",
+            "cp lf a2.txt",
+            "source lf",
+            ". lf",
+            "python3 lf",
+            "ls linked-outside",
+            "cat dangling",
+        ],
+    );
+}
+
+/// The `許可のまま` shapes must not be falsely refused: a word that is not an
+/// outward symlink costs one `lstat` and stays allowed, a leading assignment's
+/// value is a variable, an inside symlink resolves inside, and the CRLF line end
+/// keeps its value. The last two rows pin the two values of acceptance criterion
+/// 3.
+#[test]
+fn read_candidates_allow_the_carriage_return_and_relative_normal_forms() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    assert_allowed(
+        root,
+        &[
+            "cat README.md",
+            "ls src",
+            "ls -la",
+            "git status",
+            "echo x > out.txt",
+            "touch newfile",
+            "cp a.txt c.txt",
+            "cd sub && cat f",
+            "cd sub && ls",
+            "make CC=gcc",
+            "cargo build --features=gui",
+            "dd if=input.txt of=out.bin",
+            "cat inlink",
+            "echo node",
+            "awk -F= '{print $1}' a.txt",
+            "FOO=lf cargo test",
+            "cat a.txt\r\n",
+            "cargo test\r\n",
+            "git status\r\ngit diff\r\n",
+            "cd sub\r\ncat f\r\n",
+            "echo x > out.txt\r\n",
+            "true\rrm tests/spec.rs",
         ],
     );
 }

@@ -9,6 +9,21 @@
 //! the existing write-side proof, and a word whose value cannot be determined is
 //! refused. This module never returns a *result*; it only classifies.
 
+/// Whether a carriage return separates words or is an ordinary word character
+/// (Issue #613). Bash reads a space, a tab, and a newline as word separators and
+/// keeps a carriage return inside the word, so the same text has two readings:
+/// the historical one that treats `\r` as a separator and might miss an outward
+/// symlink whose name holds a `\r`, and the shell-faithful one that keeps it.
+/// The guard judges a command with both readings and refuses or recognizes when
+/// either does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CrMode {
+    /// A carriage return separates words (the historical reading).
+    Separator,
+    /// A carriage return is an ordinary word character, as Bash reads it.
+    WordChar,
+}
+
 /// One shell word with the metadata the read-path judge needs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Word {
@@ -49,7 +64,7 @@ impl Word {
 /// Split a command into segments of words, tracking shell expansions without
 /// running them. Returns `None` when the quoting cannot be read (an unterminated
 /// quote), so the caller fails closed.
-pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
+pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>>> {
     let chars: Vec<char> = command.chars().collect();
     let mut segments: Vec<Vec<Word>> = Vec::new();
     let mut words: Vec<Word> = Vec::new();
@@ -153,7 +168,9 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                 has_word = true;
                 index += 1;
             }
-            ';' | '|' | '&' | '<' | '>' | '(' | ')' | '\n' | '\r' => {
+            ';' | '|' | '&' | '<' | '>' | '(' | ')' | '\n' | '\r'
+                if cr_mode == CrMode::Separator || ch != '\r' =>
+            {
                 flush(&mut words, &mut word, &mut has_word);
                 if matches!(ch, ';' | '|' | '&') && chars.get(index + 1) == Some(&ch) {
                     index += 1;
@@ -162,10 +179,11 @@ pub(super) fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
                 index += 1;
             }
             // Only the shell's default word separators end a word: a space and a
-            // tab (the newline and carriage return are handled above). Every
-            // other Unicode whitespace — an ideographic space, a no-break space —
-            // is an ordinary character of the word, which is what the shell
-            // reads (Issue #603 design 2).
+            // tab (the newline is handled above; a carriage return is a separator
+            // only in [`CrMode::Separator`] and reaches the `other` arm in
+            // [`CrMode::WordChar`]). Every other Unicode whitespace — an
+            // ideographic space, a no-break space — is an ordinary character of
+            // the word, which is what the shell reads (Issue #603 design 2).
             ' ' | '\t' => {
                 flush(&mut words, &mut word, &mut has_word);
                 index += 1;
@@ -396,6 +414,11 @@ pub(super) fn contains_glob_or_brace(value: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The historical reading, where a carriage return separates words.
+    fn read_words(command: &str) -> Option<Vec<Vec<Word>>> {
+        super::read_words(command, CrMode::Separator)
+    }
+
     fn words(command: &str) -> Vec<String> {
         read_words(command)
             .unwrap_or_else(|| panic!("expected readable words: {command}"))
@@ -520,6 +543,25 @@ mod tests {
         );
         assert_eq!(words("cat a\tb"), ["cat", "a", "b"]);
         assert_eq!(words("cat a\nb"), ["cat", "a", "b"]);
+    }
+
+    /// Issue #613: Bash keeps a carriage return inside the word. The
+    /// `WordChar` reading reproduces that, while `Separator` keeps the historical
+    /// split. A newline still ends the word in both readings.
+    #[test]
+    fn carriage_return_word_reading_table() {
+        let word_char = |command: &str| {
+            super::read_words(command, CrMode::WordChar)
+                .unwrap_or_else(|| panic!("expected readable words: {command}"))
+                .into_iter()
+                .flatten()
+                .map(|word| word.text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(word_char("cat lfcr\r"), ["cat", "lfcr\r"]);
+        assert_eq!(word_char("cat a\rb"), ["cat", "a\rb"]);
+        assert_eq!(word_char("cat a\r\nb"), ["cat", "a\r", "b"]);
+        assert_eq!(words("cat a\rb"), ["cat", "a", "b"]);
     }
 
     /// The whitespace-allowing form accepts a quoted or escaped single word and a

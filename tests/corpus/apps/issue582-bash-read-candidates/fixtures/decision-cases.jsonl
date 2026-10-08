@@ -49,3 +49,54 @@
 {"id": "allow-awk-equals", "command": "awk -F= '{print $1}' a.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-leading-assignment", "command": "RUST_LOG=debug cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-leading-assignment-path", "command": "OUT=out/x cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "cr-redirect-write", "command": "echo x > sub/cr\rlink/f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-static-read", "command": "cat sub/cr\rlink/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "cr-cd-write", "command": "cd cr\rdir && echo x > f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-tee-write", "command": "tee sub/cr\rlink/f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-cp-write", "command": "cp a.txt sub/cr\rlink/f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-cd-touch", "command": "cd cr\rdir; touch f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-pushd-touch", "command": "pushd cr\rdir && touch f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-cd-read", "command": "cd cr\rdir && cat secret", "R": true, "A": false, "W": true, "P": false, "S": false, "V": false}
+{"id": "cr-crlf-read", "command": "cat sub/cr\rlink/secret\r\n", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "cr-crlf-tail", "command": "cat lfcr\r\n", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-cat", "command": "cat lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-head", "command": "head -n1 lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-grep", "command": "grep x lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-diff", "command": "diff a.txt lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-quoted-space", "command": "cat \"space lf\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-escaped-space", "command": "cat space\\ lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "rel-fullwidth", "command": "cat wide\u3000lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-dd-if", "command": "dd if=lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-grep-file", "command": "grep --file=lf a.txt", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-make", "command": "make IN=lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-input", "command": "cat < lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "rel-pipe", "command": "cat lf | head", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "rel-subshell", "command": "(cat lf)", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-and", "command": "true && cat lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-cp", "command": "cp lf a2.txt", "R": true, "A": true, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
+{"id": "rel-source", "command": "source lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-dot", "command": ". lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-python", "command": "python3 lf", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-ls-linked", "command": "ls linked-outside", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "rel-dangling", "command": "cat dangling", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "cr-true-rm-stays", "command": "true\rrm tests/spec.rs", "R": false, "A": true, "W": false, "P": true, "S": false, "V": false}
+{"id": "cr-true-tee-stays", "command": "true\rtee /nonexistent-f613-outside/f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false}
+{"id": "allow-cat-readme", "command": "cat README.md", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-ls-src", "command": "ls src", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-ls-la", "command": "ls -la", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-git-status", "command": "git status", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-echo-out", "command": "echo x > out.txt", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-touch-newfile", "command": "touch newfile", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-cp-rename", "command": "cp a.txt c.txt", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-cd-cat-f", "command": "cd sub && cat f", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-cd-ls", "command": "cd sub && ls", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-make-cc", "command": "make CC=gcc", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-cargo-features", "command": "cargo build --features=gui", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-cat-inlink", "command": "cat inlink", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-echo-node", "command": "echo node", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-foo-assign", "command": "FOO=lf cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-crlf-cat", "command": "cat a.txt\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-crlf-cargo", "command": "cargo test\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-crlf-git", "command": "git status\r\ngit diff\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-crlf-cd-cat", "command": "cd sub\r\ncat f\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
+{"id": "allow-crlf-echo-out", "command": "echo x > out.txt\r\n", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}

@@ -6,7 +6,7 @@ use anyhow::{Context, bail};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
-mod path_tokens;
+pub(crate) mod path_tokens;
 mod read_guard;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
@@ -814,6 +814,17 @@ pub fn path_confinement_rejection(
                 return Some(path_reference_rejection(&joined, &root, None));
             }
         }
+    }
+    // Issue #613 design 2: a `/`-less static word can be an outward symlink that
+    // no directory separator exposes. It is proven when joined onto the
+    // workspace root and each working-directory candidate, but only when the
+    // joined path actually is a symlink (the read guard holds that body). An
+    // undetermined working directory is left to the relative-candidate branch
+    // below, which already refuses the words a `cd` could redirect.
+    if let Some(word) =
+        read_guard::relative_word_rejection(&read.relative_words, &root, &inspection.bases)
+    {
+        return Some(path_reference_rejection(&word, &root, None));
     }
     if inspection.has_working_directory() {
         if inspection.undecidable && !inspection.relative_words.is_empty() {

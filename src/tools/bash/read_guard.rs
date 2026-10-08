@@ -21,7 +21,9 @@
 //! or runs a substitution to resolve a word, and it is never used to prove a
 //! later variable reference safe.
 
-use super::path_tokens::{self, Word};
+use std::path::{Path, PathBuf};
+
+use super::path_tokens::{self, CrMode, Word};
 
 /// The reason recorded for a read word whose expanded value cannot be proven to
 /// remain in the workspace.
@@ -59,6 +61,9 @@ pub(super) struct ReadVerdict {
     /// Path spellings to confine with the write-target proof and the
     /// working-directory candidate union.
     pub candidates: Vec<ReadCandidate>,
+    /// `/`-less static words the caller re-checks against the working-directory
+    /// candidates when no directory separator names them (Issue #613 design 2).
+    pub relative_words: Vec<String>,
 }
 
 /// Reads the read-path judgement for a command the write guard allowed.
@@ -67,10 +72,24 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
     // has readable text, so the raw fallback is only a belt-and-braces guard.
     let elided = super::super::shell_lexical::strip_comments_and_heredocs(command);
     let text = elided.as_deref().unwrap_or(command);
-    let Some(segments) = path_tokens::read_words(text) else {
+    let mut verdict = inspect_text(text, CrMode::Separator);
+    // Issue #613: Bash keeps a carriage return inside the word. Read the text
+    // that way too and union the verdicts, so an outward path whose spelling
+    // holds a `\r` is refused when either reading sees it. The two readings
+    // coincide when the text has no `\r`.
+    if text.contains('\r') {
+        merge(&mut verdict, inspect_text(text, CrMode::WordChar));
+    }
+    verdict
+}
+
+/// The read-path judgement of one carriage-return reading of the elided text.
+fn inspect_text(text: &str, cr_mode: CrMode) -> ReadVerdict {
+    let Some(segments) = path_tokens::read_words(text, cr_mode) else {
         return ReadVerdict {
             unverifiable: Some("<shell text>".to_string()),
             candidates: Vec::new(),
+            relative_words: Vec::new(),
         };
     };
     let glob_shell_option = uses_glob_shell_option(text);
@@ -114,9 +133,111 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
                 continue;
             }
             push_static(&mut verdict.candidates, word, index >= leading);
+            collect_relative_targets(&mut verdict.relative_words, word, index >= leading);
         }
     }
     verdict
+}
+
+/// Unions another carriage-return reading into `into`. An unverifiable word in
+/// either reading is kept, and the candidates and `/`-less words are combined,
+/// so the union never admits more than one reading alone.
+fn merge(into: &mut ReadVerdict, other: ReadVerdict) {
+    if into.unverifiable.is_none() {
+        into.unverifiable = other.unverifiable;
+    }
+    into.candidates.extend(other.candidates);
+    into.relative_words.extend(other.relative_words);
+}
+
+/// Records the `/`-less static words the caller re-checks against the
+/// working-directory candidates (Issue #613 design 2). A leading assignment
+/// (`NAME=value`) is a variable, not a path; `.`, `..`, an empty word, and a
+/// `~`-prefixed word are excluded. The command name and options are not
+/// excluded, matching the existing `cd`-relative word check; a word that is not
+/// an actual outward symlink costs only one `lstat` and stays allowed.
+fn collect_relative_targets(targets: &mut Vec<String>, word: &Word, is_value_word: bool) {
+    if !is_value_word {
+        return;
+    }
+    if is_relative_target(&word.text) {
+        targets.push(word.text.clone());
+    }
+    // The right-hand side of a non-assignment `NAME=value` word names a read
+    // path (`dd if=lf`, `grep --file=lf`, `make IN=lf`) even without a `/`.
+    if let Some(value) = relative_equals_right_hand_side(&word.text) {
+        targets.push(value.to_string());
+    }
+}
+
+/// Whether a static word can name a `/`-less relative path the caller re-checks.
+fn is_relative_target(word: &str) -> bool {
+    !word.is_empty() && word != "." && word != ".." && !word.starts_with('~') && !word.contains('/')
+}
+
+/// The right-hand side of a `NAME=value` word when it is a non-empty, `/`-less
+/// spelling. An empty or `/`-containing right side is left to the existing
+/// handling.
+fn relative_equals_right_hand_side(word: &str) -> Option<&str> {
+    let (_, value) = word.split_once('=')?;
+    (!value.is_empty() && !value.contains('/')).then_some(value)
+}
+
+/// The first `/`-less static read word that escapes the workspace when joined
+/// onto a working-directory candidate (Issue #613 design 2). The literal read
+/// proof runs only when the joined path is an existing symlink (or cannot be
+/// `lstat`ed for a reason other than a missing name or a non-directory parent),
+/// so a word that is not a symlink — an option, a display string, or an
+/// `awk -F= '{print $1}'`-style quoted fragment — keeps its existing handling.
+///
+/// A working directory that cannot be determined is left to the existing
+/// relative-candidate logic in `bash.rs`: that path already refuses the words a
+/// `cd` could redirect, while this check deliberately walks only the workspace
+/// root and the destinations that *can* be determined. Rejecting every
+/// `/`-less word of an undecidable walk here would refuse a bare `cd` chain that
+/// names no path (Issue #568 `working_directory_caps_candidate_growth`).
+pub(super) fn relative_word_rejection(
+    words: &[String],
+    root: &Path,
+    bases: &[String],
+) -> Option<String> {
+    for word in words {
+        for base in bases {
+            let joined = join_base(base, word);
+            if !joined_is_symlink(root, &joined) {
+                continue;
+            }
+            if super::super::path_guard::ensure_bash_read_target(root, &joined).is_err() {
+                return Some(word.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Whether the joined path is an existing symlink, or failed to `lstat` for a
+/// reason other than a missing name or a non-directory ancestor.
+fn joined_is_symlink(root: &Path, joined: &str) -> bool {
+    let candidate = if Path::new(joined).is_absolute() {
+        PathBuf::from(joined)
+    } else {
+        root.join(joined)
+    };
+    match std::fs::symlink_metadata(&candidate) {
+        Ok(metadata) => metadata.file_type().is_symlink(),
+        Err(error) => {
+            error.kind() != std::io::ErrorKind::NotFound
+                && error.raw_os_error() != Some(libc::ENOTDIR)
+        }
+    }
+}
+
+fn join_base(base: &str, path: &str) -> String {
+    if base.is_empty() {
+        path.to_string()
+    } else {
+        format!("{base}/{path}")
+    }
 }
 
 fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word, equals_rhs_is_candidate: bool) {
@@ -283,6 +404,17 @@ mod tests {
         std::os::unix::fs::symlink(dir.path().join("missing-target"), root.join("dangling"))
             .unwrap();
         std::os::unix::fs::symlink(root.join("sub"), root.join("sub/loop")).unwrap();
+        std::os::unix::fs::symlink(root.join("sub"), root.join("inlink")).unwrap();
+        // Issue #613 problem 1: outward symlinks whose name holds a carriage
+        // return. Bash keeps the `\r` inside the word; the historical reading
+        // splits on it and misses the symlink.
+        std::os::unix::fs::symlink(&outside, root.join("sub/cr\rlink")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("cr\rdir")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret"), root.join("lfcr\r")).unwrap();
+        // Issue #613 problem 2: a `/`-less name can itself be an outward symlink.
+        std::os::unix::fs::symlink(&outside, root.join("lf")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("space lf")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("wide\u{3000}lf")).unwrap();
         let root = root.canonicalize().unwrap();
         Fixture { _dir: dir, root }
     }
@@ -337,7 +469,11 @@ mod tests {
 
     #[test]
     fn read_candidates_keeps_static_word_metadata() {
-        let parsed = super::path_tokens::read_words("echo $HOME && head sub/link/secret").unwrap();
+        let parsed = super::path_tokens::read_words(
+            "echo $HOME && head sub/link/secret",
+            super::CrMode::Separator,
+        )
+        .unwrap();
         // The dynamic word and the static relative word are both present: the
         // static word is not dropped because a sibling word is dynamic.
         let words = parsed.into_iter().flatten().collect::<Vec<_>>();
@@ -387,7 +523,8 @@ mod tests {
     /// `/abs/x$?`) and can change the decision. This is a read-only check.
     #[test]
     fn read_candidates_keep_exit_status_in_the_word_text() {
-        let parsed = super::path_tokens::read_words("echo /abs/x$?").unwrap();
+        let parsed =
+            super::path_tokens::read_words("echo /abs/x$?", super::CrMode::Separator).unwrap();
         let word = &parsed[0][1];
         assert_eq!(word.text, "/abs/x$?");
         assert!(word.dynamic && word.simple_variable);
