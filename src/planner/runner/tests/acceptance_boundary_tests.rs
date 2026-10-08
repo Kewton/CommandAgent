@@ -226,11 +226,7 @@ fn fake_dev_server_package_manager_child() {
             .spawn()
             .expect("spawn grandchild");
     }
-    let port = std::env::var("PORT")
-        .expect("PORT")
-        .parse::<u16>()
-        .expect("PORT number");
-    let listener = std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind fake server");
+    let listener = test_transport::bind_fake_dev_server();
     listener.set_nonblocking(true).unwrap();
     loop {
         match listener.accept() {
@@ -936,6 +932,7 @@ fn final_acceptance_repair_cycle_reprobes_restart_hook_recovery_to_pass() {
     let port = free_local_port();
     let events = dir.path().join(".anvil/runs/restart-cycle/events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
+    test_transport::enable(dir.path());
     write_fake_nextjs_package_manager(dir.path(), false);
     interaction_probe::write_test_availability_override(dir.path(), true);
     interaction_probe::write_test_result_overrides(

@@ -1043,6 +1043,13 @@ fn runner_test_modules_do_not_grow_past_transferred_budget() {
             path: "src/planner/runner/tests/ultra_plan_flow_tests.rs",
             line_baseline: 4_297,
         },
+        // Issue #608 extracts the fake dev-server transport into a cfg(test)
+        // leaf. Its lines count toward the same runner test total so the
+        // relocation cannot become a growth-guard bypass.
+        TestModuleBudget {
+            path: "src/planner/runner/acceptance/test_transport.rs",
+            line_baseline: 244,
+        },
     ];
     let mut aggregate = 0;
     for budget in budgets {
