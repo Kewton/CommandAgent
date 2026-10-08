@@ -532,9 +532,26 @@ fn emit_pipeline_event(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    /// Diagnostic ceiling for the test-side handshakes below. It never decides a
+    /// pass on its own: the verdict comes from the signal that was actually
+    /// observed, and this bound only turns a missing signal into a bounded
+    /// failure instead of an unbounded wait.
+    const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(5);
+
+    fn recv_within<T>(rx: &Receiver<T>, what: &str) -> T {
+        match rx.recv_timeout(HANDSHAKE_DEADLINE) {
+            Ok(value) => value,
+            Err(RecvTimeoutError::Timeout) => panic!("timed out waiting for {what}"),
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the worker stopped before signalling {what}")
+            }
+        }
+    }
 
     fn pending_with_job(
         key: PhasePlanKey,
@@ -553,51 +570,79 @@ mod tests {
 
     #[test]
     fn speculative_reply_runs_inside_the_open_verification_window() {
-        let verification_open = Arc::new(AtomicBool::new(false));
-        let overlap_observed = Arc::new(AtomicBool::new(false));
-        let open_for_worker = Arc::clone(&verification_open);
-        let observed_by_worker = Arc::clone(&overlap_observed);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (open_tx, open_rx) = mpsc::channel::<()>();
+        let (observed_tx, observed_rx) = mpsc::channel::<bool>();
         let pending = pending_with_job(
             PhasePlanKey::new("next", "prompt"),
             Arc::new(AtomicBool::new(false)),
             move |_| {
-                let deadline = Instant::now() + Duration::from_secs(1);
-                while !open_for_worker.load(Ordering::Acquire) && Instant::now() < deadline {
-                    thread::yield_now();
+                let _ = started_tx.send(());
+                // Block on the window signal instead of spinning a fixed
+                // deadline: a lost signal can no longer race the parent.
+                let overlap_observed = open_rx.recv_timeout(HANDSHAKE_DEADLINE).is_ok();
+                let _ = observed_tx.send(overlap_observed);
+                if !overlap_observed {
+                    anyhow::bail!("the verification window never opened before the deadline");
                 }
-                observed_by_worker
-                    .store(open_for_worker.load(Ordering::Acquire), Ordering::Release);
                 Ok(AssistantReply::text("prefetched"))
             },
         );
 
-        verification_open.store(true, Ordering::Release);
-        let reply = pending.join().unwrap();
+        // Only open the window once the worker is provably running, so the
+        // overlap is a real concurrency claim rather than a sleep race.
+        recv_within(&started_rx, "the speculative worker start");
+        open_tx.send(()).expect("open the verification window");
+        let overlap_observed = recv_within(&observed_rx, "the overlap observation");
+        assert!(
+            overlap_observed,
+            "the worker must observe the open verification window before joining"
+        );
 
-        assert!(overlap_observed.load(Ordering::Acquire));
+        let reply = pending.join().unwrap();
         assert_eq!(reply.content, "prefetched");
     }
 
     #[test]
     fn failed_gate_cancels_and_discards_speculative_reply() {
-        let cancellation_observed = Arc::new(AtomicBool::new(false));
-        let observed_by_worker = Arc::clone(&cancellation_observed);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (observed_tx, observed_rx) = mpsc::channel::<(bool, Option<AssistantReply>)>();
         let pending = pending_with_job(
             PhasePlanKey::new("next", "prompt"),
             Arc::new(AtomicBool::new(false)),
             move |cancel| {
-                let deadline = Instant::now() + Duration::from_secs(1);
+                let _ = started_tx.send(());
+                let deadline = Instant::now() + HANDSHAKE_DEADLINE;
                 while !cancel.load(Ordering::Acquire) && Instant::now() < deadline {
                     thread::yield_now();
                 }
-                observed_by_worker.store(cancel.load(Ordering::Acquire), Ordering::Release);
-                anyhow::bail!("cancelled")
+                // Read the product cancellation flag itself; a test-only signal
+                // must never stand in for the observed flag.
+                let cancel_observed = cancel.load(Ordering::Acquire);
+                let handed_back = (!cancel_observed).then(|| AssistantReply::text("prefetched"));
+                let _ = observed_tx.send((cancel_observed, handed_back));
+                if !cancel_observed {
+                    anyhow::bail!("cancellation was never observed before the deadline");
+                }
+                anyhow::bail!("cancelled: discard the speculative reply")
             },
         );
 
+        // Set cancellation only after the worker is provably running and polling
+        // the flag, so the observation cannot race the parent.
+        recv_within(&started_rx, "the speculative worker start");
         pending.cancel_and_join();
 
-        assert!(cancellation_observed.load(Ordering::Acquire));
+        let (cancel_observed, handed_back) =
+            recv_within(&observed_rx, "the cancellation observation");
+        assert!(
+            cancel_observed,
+            "the worker must observe the cancellation flag"
+        );
+        assert!(
+            handed_back.is_none(),
+            "a cancelled worker must discard the speculative reply"
+        );
     }
 
     #[test]

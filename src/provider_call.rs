@@ -18,6 +18,13 @@ const CONTEXT_UNDERCUT_PERCENT: u64 = 70;
 const CONTEXT_UNDERCUT_PERSISTENCE: usize = 2;
 type ProviderChunkCallback<'a> = dyn FnMut(&str) -> anyhow::Result<()> + 'a;
 
+mod wait_clock;
+
+#[cfg(test)]
+mod test_sync;
+
+use wait_clock::WaitClock;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderCallScope {
     PlannerUltra,
@@ -433,99 +440,112 @@ where
     });
 
     let mut display_scrubber = redaction.as_ref().map(|context| context.stream_scrubber());
+    let mut clock = InstantWaitClock { started };
+    let mut boundary = ChannelWaitBoundary { receiver: &rx };
     loop {
-        if is_cancelled() {
-            let outcome = provider_aborted_by_user(
-                config,
-                ProviderTurnTelemetryBase {
+        let step = wait_clock::wait_step(
+            &mut clock,
+            &mut boundary,
+            timeout,
+            PROVIDER_WAIT_SLICE,
+            &is_cancelled,
+            |elapsed| {
+                emit_provider_progress_if_due(
+                    elapsed,
+                    config.chat_timeout_secs,
+                    &mut next_progress_at,
+                );
+            },
+        );
+        match step {
+            wait_clock::WaitStep::Cancelled => {
+                let outcome = provider_aborted_by_user(
+                    config,
+                    ProviderTurnTelemetryBase {
+                        scope,
+                        provider: &provider,
+                        model: &model,
+                        tool_count,
+                        native_tools_enabled,
+                        think,
+                        estimated_prompt_tokens,
+                        estimated_stable_prefix_chars,
+                        elapsed: clock.elapsed(),
+                        timed_out: false,
+                        aborted_by_user: true,
+                    },
+                );
+                record_provider_trace(
+                    config,
                     scope,
-                    provider: &provider,
-                    model: &model,
-                    tool_count,
+                    &provider,
+                    &model,
+                    trace_messages,
+                    trace_tools,
                     native_tools_enabled,
-                    think,
-                    estimated_prompt_tokens,
-                    estimated_stable_prefix_chars,
-                    elapsed: started.elapsed(),
-                    timed_out: false,
-                    aborted_by_user: true,
-                },
-            );
-            record_provider_trace(
-                config,
-                scope,
-                &provider,
-                &model,
-                trace_messages,
-                trace_tools,
-                native_tools_enabled,
-                &outcome.result,
-            );
-            return outcome;
-        }
-        let elapsed = started.elapsed();
-        if elapsed >= timeout {
-            let elapsed = started.elapsed();
-            crate::tui::status_bus::publish_provider_finished(elapsed);
-            emit_provider_turn_duration(
-                config,
-                ProviderTurnTelemetry {
+                    &outcome.result,
+                );
+                return outcome;
+            }
+            wait_clock::WaitStep::Deadline => {
+                let elapsed = clock.elapsed();
+                crate::tui::status_bus::publish_provider_finished(elapsed);
+                emit_provider_turn_duration(
+                    config,
+                    ProviderTurnTelemetry {
+                        scope,
+                        provider: &provider,
+                        model: &model,
+                        tool_count,
+                        native_tools_enabled,
+                        think,
+                        estimated_prompt_tokens,
+                        estimated_stable_prefix_chars,
+                        prompt_eval_count: None,
+                        eval_count: None,
+                        tool_calls_in_response: 0,
+                        prompt_eval_duration: None,
+                        eval_duration: None,
+                        load_duration: None,
+                        total_duration: None,
+                        prefill_seconds: None,
+                        generation_seconds: None,
+                        load_seconds: None,
+                        tokens_per_second_eval: None,
+                        response_metadata: None,
+                        finish_reason: "timeout".to_string(),
+                        elapsed,
+                        timed_out: true,
+                        aborted_by_user: false,
+                        ok: false,
+                    },
+                );
+                if scope.is_planner() {
+                    emit_provider_turn_timeout(config, scope, &provider, &model, elapsed);
+                }
+                let result = Err(anyhow!(
+                    "{}: provider call exceeded configured deadline of {}s",
+                    scope.timeout_kind(),
+                    config.chat_timeout_secs
+                ));
+                record_provider_trace(
+                    config,
                     scope,
-                    provider: &provider,
-                    model: &model,
-                    tool_count,
+                    &provider,
+                    &model,
+                    trace_messages,
+                    trace_tools,
                     native_tools_enabled,
-                    think,
-                    estimated_prompt_tokens,
-                    estimated_stable_prefix_chars,
-                    prompt_eval_count: None,
-                    eval_count: None,
-                    tool_calls_in_response: 0,
-                    prompt_eval_duration: None,
-                    eval_duration: None,
-                    load_duration: None,
-                    total_duration: None,
-                    prefill_seconds: None,
-                    generation_seconds: None,
-                    load_seconds: None,
-                    tokens_per_second_eval: None,
-                    response_metadata: None,
-                    finish_reason: "timeout".to_string(),
+                    &result,
+                );
+                return ProviderCallOutcome {
+                    result,
                     elapsed,
                     timed_out: true,
                     aborted_by_user: false,
-                    ok: false,
-                },
-            );
-            if scope.is_planner() {
-                emit_provider_turn_timeout(config, scope, &provider, &model, elapsed);
+                };
             }
-            let result = Err(anyhow!(
-                "{}: provider call exceeded configured deadline of {}s",
-                scope.timeout_kind(),
-                config.chat_timeout_secs
-            ));
-            record_provider_trace(
-                config,
-                scope,
-                &provider,
-                &model,
-                trace_messages,
-                trace_tools,
-                native_tools_enabled,
-                &result,
-            );
-            return ProviderCallOutcome {
-                result,
-                elapsed,
-                timed_out: true,
-                aborted_by_user: false,
-            };
-        }
-        emit_provider_progress_if_due(started, config.chat_timeout_secs, &mut next_progress_at);
-        let slice = PROVIDER_WAIT_SLICE.min(timeout.saturating_sub(elapsed));
-        match rx.recv_timeout(slice) {
-            Ok(ProviderWorkerMessage::Chunk(chunk)) => {
+            wait_clock::WaitStep::Message(ProviderWorkerMessage::Chunk(chunk)) => {
                 let scrubbed = match display_scrubber.as_mut() {
                     Some(scrubber) => scrubber.push(&chunk),
                     None => chunk,
@@ -535,7 +555,7 @@ where
                     && let Some(on_chunk) = on_chunk.as_deref_mut()
                     && let Err(err) = on_chunk(&scrubbed)
                 {
-                    let elapsed = started.elapsed();
+                    let elapsed = clock.elapsed();
                     crate::tui::status_bus::publish_provider_finished(elapsed);
                     let result = Err(anyhow!("failed to render provider stream: {err:#}"));
                     emit_provider_turn_duration(
@@ -577,7 +597,7 @@ where
                     };
                 }
             }
-            Ok(ProviderWorkerMessage::Completed(worker_result)) => {
+            wait_clock::WaitStep::Message(ProviderWorkerMessage::Completed(worker_result)) => {
                 if render_stream_chunks
                     && let (Some(scrubber), Some(on_chunk)) =
                         (display_scrubber.as_mut(), on_chunk.as_deref_mut())
@@ -593,7 +613,7 @@ where
                     response_metadata,
                 } = *worker_result;
                 let result = enforce_response_limit(result, max_response_bytes);
-                let elapsed = started.elapsed();
+                let elapsed = clock.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 if result.is_ok() {
                     crate::tui::presentation::emit_provider_turn_completed(
@@ -639,8 +659,8 @@ where
                     aborted_by_user: false,
                 };
             }
-            Ok(ProviderWorkerMessage::Panicked(payload)) => {
-                let elapsed = started.elapsed();
+            wait_clock::WaitStep::Message(ProviderWorkerMessage::Panicked(payload)) => {
+                let elapsed = clock.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 emit_provider_turn_duration(
                     config,
@@ -690,9 +710,9 @@ where
                 );
                 std::panic::resume_unwind(payload);
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let elapsed = started.elapsed();
+            wait_clock::WaitStep::Sliced => continue,
+            wait_clock::WaitStep::Disconnected => {
+                let elapsed = clock.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 emit_provider_turn_duration(
                     config,
@@ -849,12 +869,39 @@ pub fn is_scoped_timeout(scope: ProviderCallScope, error: &str) -> bool {
     error.contains(scope.timeout_kind())
 }
 
-fn emit_provider_progress_if_due(
+/// Production wait clock: the real monotonic `Instant` captured at call start.
+struct InstantWaitClock {
     started: Instant,
+}
+
+impl wait_clock::WaitClock for InstantWaitClock {
+    fn elapsed(&mut self) -> Duration {
+        self.started.elapsed()
+    }
+}
+
+/// Production wait boundary: a blocking, bounded receive from the worker
+/// channel. It preserves the distinction between an elapsed slice and a
+/// disconnected worker so the loop cannot spin on a dead sender.
+struct ChannelWaitBoundary<'a> {
+    receiver: &'a mpsc::Receiver<ProviderWorkerMessage>,
+}
+
+impl wait_clock::WaitBoundary<ProviderWorkerMessage> for ChannelWaitBoundary<'_> {
+    fn wait(&mut self, slice: Duration) -> wait_clock::WaitSignal<ProviderWorkerMessage> {
+        match self.receiver.recv_timeout(slice) {
+            Ok(message) => wait_clock::WaitSignal::Ready(message),
+            Err(mpsc::RecvTimeoutError::Timeout) => wait_clock::WaitSignal::Elapsed,
+            Err(mpsc::RecvTimeoutError::Disconnected) => wait_clock::WaitSignal::Disconnected,
+        }
+    }
+}
+
+fn emit_provider_progress_if_due(
+    elapsed: Duration,
     deadline_secs: u64,
     next_progress_at: &mut Duration,
 ) {
-    let elapsed = started.elapsed();
     if let Some(elapsed_secs) = provider_progress_due(elapsed, next_progress_at) {
         crate::tui::presentation::emit_provider_turn_progress(elapsed_secs, deadline_secs);
     }
@@ -1231,32 +1278,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[derive(Clone)]
-    struct HangingClient {
-        delay: Duration,
-    }
-
-    impl ChatClient for HangingClient {
-        fn label(&self) -> &str {
-            "hanging"
-        }
-
-        fn boxed_clone(&self) -> Box<dyn ChatClient> {
-            Box::new(self.clone())
-        }
-
-        fn chat(
-            &mut self,
-            _model: &str,
-            _messages: &[ConversationMessage],
-            _tools: &[ToolSpec],
-            _native_tools_enabled: bool,
-        ) -> anyhow::Result<AssistantReply> {
-            std::thread::sleep(self.delay);
-            Ok(AssistantReply::text("late"))
-        }
-    }
-
-    #[derive(Clone)]
     struct TokenClient;
 
     impl ChatClient for TokenClient {
@@ -1398,53 +1419,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct CancellationStreamingClient {
-        callback_closed: Arc<AtomicBool>,
-    }
-
-    impl ChatClient for CancellationStreamingClient {
-        fn label(&self) -> &str {
-            "cancellation-streaming-mock"
-        }
-
-        fn boxed_clone(&self) -> Box<dyn ChatClient> {
-            Box::new(self.clone())
-        }
-
-        fn supports_streaming(&self) -> bool {
-            true
-        }
-
-        fn chat_stream(
-            &mut self,
-            _model: &str,
-            _messages: &[ConversationMessage],
-            _tools: &[ToolSpec],
-            _native_tools_enabled: bool,
-            on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
-        ) -> anyhow::Result<AssistantReply> {
-            for _ in 0..200 {
-                if let Err(error) = on_chunk("") {
-                    self.callback_closed.store(true, Ordering::SeqCst);
-                    return Err(error);
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Ok(AssistantReply::text("late"))
-        }
-
-        fn chat(
-            &mut self,
-            _model: &str,
-            _messages: &[ConversationMessage],
-            _tools: &[ToolSpec],
-            _native_tools_enabled: bool,
-        ) -> anyhow::Result<AssistantReply> {
-            Ok(AssistantReply::text("batch"))
-        }
-    }
-
     #[test]
     fn planner_scope_timeout_kinds_are_stable() {
         assert_eq!(
@@ -1457,7 +1431,11 @@ mod tests {
         );
     }
 
-    fn test_config(root: &std::path::Path, events_path: PathBuf, chat_timeout_secs: u64) -> Config {
+    pub(super) fn test_config(
+        root: &std::path::Path,
+        events_path: PathBuf,
+        chat_timeout_secs: u64,
+    ) -> Config {
         Config {
             workspace_root: root.to_path_buf(),
             state_dir: PathBuf::from("state"),
@@ -1851,154 +1829,6 @@ mod tests {
     }
 
     #[test]
-    fn cloned_provider_call_times_out_without_waiting_for_worker() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let events_path = tmp.path().join("events.jsonl");
-        let config = test_config(tmp.path(), events_path.clone(), 1);
-        let mut client = HangingClient {
-            delay: Duration::from_secs(5),
-        };
-
-        let started = Instant::now();
-        let outcome = chat(
-            &mut client,
-            &config,
-            ProviderCallScope::PlannerStep,
-            "m",
-            &[ConversationMessage::user("plan".to_string())],
-            &[],
-            false,
-        );
-
-        assert!(outcome.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(3));
-        let error = outcome.result.unwrap_err().to_string();
-        assert!(
-            error.contains("phase_step_planner_timeout"),
-            "unexpected error: {error}"
-        );
-        let events = std::fs::read_to_string(events_path).expect("events");
-        assert!(events.contains("\"event\":\"provider_turn_duration\""));
-        assert!(events.contains("\"caller_scope\":\"planner_step\""));
-        assert!(events.contains("\"timeout_source\":\"override:test\""));
-        assert!(events.contains("\"classification\":\"phase_step_planner_timeout\""));
-    }
-
-    #[test]
-    fn cloned_provider_call_aborts_promptly_when_cancelled() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let events_path = tmp.path().join("events.jsonl");
-        let config = test_config(tmp.path(), events_path.clone(), 30);
-        let mut client = HangingClient {
-            delay: Duration::from_secs(30),
-        };
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let thread_cancelled = Arc::clone(&cancelled);
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            thread_cancelled.store(true, Ordering::SeqCst);
-        });
-
-        let started = Instant::now();
-        let outcome = chat_with_cancel(
-            &mut client,
-            &config,
-            ProviderChatRequest {
-                scope: ProviderCallScope::PlannerStep,
-                model: "m",
-                messages: &[ConversationMessage::user("plan".to_string())],
-                tools: &[],
-                native_tools_enabled: false,
-            },
-            || cancelled.load(Ordering::SeqCst),
-        );
-
-        assert!(outcome.aborted_by_user);
-        assert!(!outcome.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(2));
-        let error = outcome.result.unwrap_err().to_string();
-        assert!(is_aborted_by_user(&error), "unexpected error: {error}");
-        let events = std::fs::read_to_string(events_path).expect("events");
-        assert!(events.contains("\"event\":\"provider_turn_duration\""));
-        assert!(events.contains("\"aborted_by_user\":true"));
-        assert!(events.contains("\"classification\":\"aborted_by_user\""));
-        assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
-        assert!(!events.contains("\"event\":\"provider_turn_timeout\""));
-    }
-
-    #[test]
-    fn openai_compatible_mock_call_preserves_provider_cancellation() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let events_path = tmp.path().join("events.jsonl");
-        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
-        let address = listener.local_addr().expect("address");
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept");
-            let mut request = vec![0_u8; 16 * 1024];
-            let read = stream.read(&mut request).expect("request");
-            let request = String::from_utf8_lossy(&request[..read]);
-            assert!(request.starts_with("POST /v1/chat/completions "));
-            std::thread::sleep(Duration::from_secs(2));
-            let body = r#"{"id":"chatcmpl-delayed","model":"served-model","choices":[{"message":{"content":"late"}}]}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            )
-            .expect("response");
-        });
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let parsed = crate::provider_cli::parse_from([
-            "commandagent",
-            "--cwd",
-            &cwd,
-            "--provider",
-            "openai-compatible",
-            "--model",
-            "served-model",
-            "--base-url",
-            &format!("http://{address}"),
-        ])
-        .expect("generic CLI");
-        let mut config =
-            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
-                .expect("generic config");
-        config.eval_events_path = Some(events_path.clone());
-        config.chat_timeout_secs = 30;
-        config.chat_timeout_source = "override:test".to_string();
-        let mut client = crate::providers::client_from_config(&config, false).expect("client");
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let thread_cancelled = Arc::clone(&cancelled);
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            thread_cancelled.store(true, Ordering::SeqCst);
-        });
-
-        let started = Instant::now();
-        let outcome = chat_with_cancel(
-            client.as_mut(),
-            &config,
-            ProviderChatRequest {
-                scope: ProviderCallScope::Executor,
-                model: &config.model,
-                messages: &[ConversationMessage::user("wait")],
-                tools: &[],
-                native_tools_enabled: false,
-            },
-            || cancelled.load(Ordering::SeqCst),
-        );
-
-        assert!(outcome.aborted_by_user);
-        assert!(!outcome.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(1));
-        let events = std::fs::read_to_string(&events_path).expect("events");
-        assert!(events.contains("\"provider\":\"openai-compatible\""));
-        assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
-        assert!(!events.contains("\"event\":\"provider_turn_timeout\""));
-        server.join().expect("server");
-    }
-
-    #[test]
     fn cloned_provider_call_resumes_worker_panic_on_caller_thread() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let events_path = tmp.path().join("events.jsonl");
@@ -2203,59 +2033,6 @@ mod tests {
         assert!(chunks.is_empty());
         assert_eq!(client.stream_calls.load(Ordering::SeqCst), 0);
         assert_eq!(client.chat_calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn planner_cancellation_closes_stream_callback_with_visible_streaming_disabled() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
-        let callback_closed = Arc::new(AtomicBool::new(false));
-        let mut client = CancellationStreamingClient {
-            callback_closed: Arc::clone(&callback_closed),
-        };
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let thread_cancelled = Arc::clone(&cancelled);
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            thread_cancelled.store(true, Ordering::SeqCst);
-        });
-        let mut rendered_chunks = Vec::new();
-
-        let started = Instant::now();
-        let outcome = chat_with_cancel_and_stream(
-            &mut client,
-            &config,
-            ProviderChatRequest {
-                scope: ProviderCallScope::PlannerStep,
-                model: "m",
-                messages: &[ConversationMessage::user("plan")],
-                tools: &[],
-                native_tools_enabled: false,
-            },
-            || cancelled.load(Ordering::SeqCst),
-            &mut |chunk| {
-                rendered_chunks.push(chunk.to_string());
-                Ok(())
-            },
-        );
-
-        assert!(outcome.aborted_by_user);
-        assert!(started.elapsed() < Duration::from_secs(1));
-        assert!(rendered_chunks.is_empty());
-        let callback_deadline = Instant::now() + Duration::from_secs(1);
-        while !callback_closed.load(Ordering::SeqCst) && Instant::now() < callback_deadline {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(
-            callback_closed.load(Ordering::SeqCst),
-            "stream worker did not observe the dropped receiver"
-        );
-        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).expect("events");
-        assert!(events.contains("\"aborted_by_user\":true"), "{events}");
-        assert!(
-            events.contains("\"event\":\"provider_turn_aborted_by_user\""),
-            "{events}"
-        );
     }
 
     #[test]

@@ -4,10 +4,40 @@ mod tests {
     use crate::planner::recovery_snapshot::{current_source_sha256, source_file_sha256};
     use serde_json::Value;
 
+    include!("issue475_tests/runtime_transport.rs");
+
     const FIXTURE: &str = "tests/corpus/apps/issue475-store-preflight";
 
+    /// Temp dirs must stay outside the read-allowed system prefixes. On Linux
+    /// `tempfile::tempdir()` lives under `/tmp`, which lets the product read
+    /// guard admit a path outside the workspace as a system path and fail only
+    /// there (Issue #604). `CARGO_TARGET_TMPDIR` is set for integration tests
+    /// only, so a unit test falls back to the test binary's target directory.
+    fn issue475_tempdir() -> tempfile::TempDir {
+        let parent = std::env::var_os("CARGO_TARGET_TMPDIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::current_exe()
+                    .expect("test executable path")
+                    .parent()
+                    .and_then(std::path::Path::parent)
+                    .expect("target profile directory")
+                    .join("tmp")
+            });
+        std::fs::create_dir_all(&parent).unwrap();
+        let dir = tempfile::tempdir_in(&parent).expect("create issue475 tempdir");
+        assert!(
+            !["/usr", "/bin", "/opt", "/etc", "/tmp"]
+                .iter()
+                .any(|prefix| dir.path().starts_with(prefix)),
+            "issue475 tempdir must not sit under a system prefix: {}",
+            dir.path().display()
+        );
+        dir
+    }
+
     fn workspace(mode: &str) -> (tempfile::TempDir, Config) {
-        let root = tempfile::tempdir().unwrap();
+        let root = issue475_tempdir();
         for p in [
             "src/lib/store.ts",
             "src/lib/types.ts",
@@ -176,53 +206,74 @@ mod tests {
         }
     }
 
+    /// Build one observer case with the dynamic-port transport installed before
+    /// the Recovery snapshot. `logical_port` is the goal/contract port; the
+    /// transport never binds it.
+    #[cfg(unix)]
+    fn prepare_observer_case(
+        existing: bool,
+        permitted: bool,
+        logical_port: u16,
+    ) -> (tempfile::TempDir, Config) {
+        let (root, mut config) = workspace("pass");
+        config.offline = false;
+        // Explicit test transport markers. No Next.js compiler is invoked; an
+        // accidental next invocation fails instead of resolving a host toolchain.
+        std::fs::create_dir_all(root.path().join("node_modules/next")).unwrap();
+        std::fs::create_dir_all(root.path().join("node_modules/.bin")).unwrap();
+        let next = root.path().join("node_modules/.bin/next");
+        std::fs::write(&next, "#!/bin/sh\nexit 98\n").unwrap();
+        issue475_set_executable(&next);
+        if existing {
+            std::fs::create_dir(root.path().join("data")).unwrap();
+            for p in ["projects", "tasks"] {
+                std::fs::write(root.path().join(format!("data/{p}.json")), "[]").unwrap();
+            }
+        }
+        install_issue475_observer_transport(root.path(), logical_port);
+        let contract = config.completion_contract_path.as_ref().unwrap();
+        let mut value: Value = serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
+        value["required_capabilities"] = json!(["stateful_interaction"]);
+        if !permitted {
+            value["protected_paths"] = json!(["data/projects.json"]);
+            value["required_paths"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("data/projects.json"));
+        }
+        value["goal"] = json!(format!("Observe the app on port {logical_port}"));
+        // Keep later verification read-only so the capability stage owns the writes.
+        value["verify_commands"] = json!(["node --check probe.mjs"]);
+        std::fs::write(contract, value.to_string()).unwrap();
+        (root, config)
+    }
+
+    #[cfg(unix)]
+    fn observation_workspace(root: &Path) -> PathBuf {
+        root.join(".commandagent/recovery-observations/attempt-0/workspace")
+    }
+
+    #[cfg(unix)]
+    fn expect_business_unobserved(result: &RecoveryPreflight) {
+        assert!(
+            matches!(result, RecoveryPreflight::Failed{reason,..} if reason.contains("issue475_business_unobserved")),
+            "{result:?}"
+        );
+    }
+
     #[test]
     #[cfg(unix)]
     fn issue475_product_nextjs_observer_correlates_operations_with_stage_and_hashes() {
+        // Hold the logical goal port for the whole test: the dynamic transport must
+        // succeed without ever binding it.
+        let logical = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let logical_port = logical.local_addr().unwrap().port();
         for (existing, permitted) in [(false, true), (true, true), (false, false)] {
-            let (root, mut config) = workspace("pass");
-            config.offline = false;
-            // Explicit test transport markers. No Next.js compiler is invoked; an
-            // accidental next invocation fails instead of resolving a host toolchain.
-            std::fs::create_dir_all(root.path().join("node_modules/next")).unwrap();
-            std::fs::create_dir_all(root.path().join("node_modules/.bin")).unwrap();
-            let next = root.path().join("node_modules/.bin/next");
-            std::fs::write(&next, "#!/bin/sh\nexit 98\n").unwrap();
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(next, std::fs::Permissions::from_mode(0o755)).unwrap();
-            if existing {
-                std::fs::create_dir(root.path().join("data")).unwrap();
-                for p in ["projects", "tasks"] {
-                    std::fs::write(root.path().join(format!("data/{p}.json")), "[]").unwrap();
-                }
-            }
-            let port = std::net::TcpListener::bind("127.0.0.1:0")
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .port();
-            let contract = config.completion_contract_path.as_ref().unwrap();
-            let mut value: Value =
-                serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
-            value["required_capabilities"] = json!(["stateful_interaction"]);
-            if !permitted {
-                value["protected_paths"] = json!(["data/projects.json"]);
-                value["required_paths"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!("data/projects.json"));
-            }
-            value["goal"] = json!(format!("Observe the app on port {port}"));
-            // Keep later verification read-only so the capability stage owns the writes.
-            value["verify_commands"] = json!(["node --check probe.mjs"]);
-            std::fs::write(contract, value.to_string()).unwrap();
+            let (root, config) = prepare_observer_case(existing, permitted, logical_port);
             let before = source_file_sha256(root.path()).unwrap();
             let result = recovery_preflight(&config, &candidate("observer-control"), 0);
             if permitted {
-                assert!(
-                    matches!(&result, RecoveryPreflight::Failed{reason,..} if reason.contains("issue475_business_unobserved")),
-                    "{result:?}"
-                );
+                expect_business_unobserved(&result);
             } else {
                 assert!(
                     matches!(&result, RecoveryPreflight::Unavailable{reason} if reason == "preflight_source_mutation_rejected_and_restored"),
@@ -230,9 +281,20 @@ mod tests {
                 );
             }
             assert_eq!(source_file_sha256(root.path()).unwrap(), before);
-            let observation = root
-                .path()
-                .join(".commandagent/recovery-observations/attempt-0/workspace");
+            let observation = observation_workspace(root.path());
+            let actual_port = issue475_announced_port(&observation);
+            assert_ne!(actual_port, logical_port, "transport bound the logical port");
+            let readiness: Value = serde_json::from_slice(
+                &std::fs::read(
+                    crate::minimal_loop::browser_probe::browser_readiness_evidence_path(
+                        &observation,
+                    ),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(readiness["dev_server"]["child_spawned"], true);
+            assert_eq!(readiness["dev_server"]["child_reaped"], true);
             let operations: Vec<Value> = std::fs::read_to_string(
                 observation.join(".commandagent/evidence/issue475-operations.jsonl"),
             )
@@ -290,8 +352,90 @@ mod tests {
             assert_eq!(audit(&events)["restore_invoked"], false);
             println!(
                 "ISSUE475_OBSERVER {}",
-                json!({"existing":existing,"permitted":permitted,"transport":"scripted; no Next.js compilation or browser","operations":operations,"stage":stage,"historical_operation":"unknown"})
+                json!({"existing":existing,"permitted":permitted,"actual_port":actual_port,"logical_port":logical_port,"transport":"scripted; no Next.js compilation or browser","operations":operations,"stage":stage,"historical_operation":"unknown"})
             );
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn issue475_observer_transport_isolates_two_concurrent_processes() {
+        // Two independent CommandAgent processes run the observer at once while the
+        // logical goal port stays occupied. Each transport must bind its own actual
+        // port, so the runs never contend for a freed logical number.
+        let logical = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let logical_port = logical.local_addr().unwrap().port();
+        let output = issue475_tempdir();
+        let exe = std::env::current_exe().unwrap();
+        let child_test =
+            "planner::auto_recovery::tests::issue475::tests::issue475_observer_transport_child";
+        let spawn = |tag: &str| {
+            let path = output.path().join(format!("{tag}.json"));
+            let child = std::process::Command::new(&exe)
+                .args(["--ignored", "--exact", child_test, "--nocapture"])
+                .env("COMMANDAGENT_ISSUE475_TRANSPORT_CHILD", "1")
+                .env("COMMANDAGENT_ISSUE475_LOGICAL_PORT", logical_port.to_string())
+                .env("COMMANDAGENT_ISSUE475_CHILD_OUTPUT", &path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            (child, path)
+        };
+        let (first, first_path) = spawn("first");
+        let (second, second_path) = spawn("second");
+        let first = first.wait_with_output().unwrap();
+        let second = second.wait_with_output().unwrap();
+        assert!(
+            first.status.success(),
+            "first observer child failed: {}",
+            String::from_utf8_lossy(&first.stderr)
+        );
+        assert!(
+            second.status.success(),
+            "second observer child failed: {}",
+            String::from_utf8_lossy(&second.stderr)
+        );
+        let first_port = child_announced_port(&first_path);
+        let second_port = child_announced_port(&second_path);
+        assert_ne!(
+            first_port, second_port,
+            "concurrent transports shared an actual port"
+        );
+        assert_ne!(first_port, logical_port);
+        assert_ne!(second_port, logical_port);
+    }
+
+    #[cfg(unix)]
+    fn child_announced_port(path: &Path) -> u16 {
+        let value: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["ok"], true, "{value}");
+        u16::try_from(value["port"].as_u64().unwrap()).unwrap()
+    }
+
+    #[test]
+    #[ignore]
+    #[cfg(unix)]
+    fn issue475_observer_transport_child() {
+        if std::env::var_os("COMMANDAGENT_ISSUE475_TRANSPORT_CHILD").is_none() {
+            return;
+        }
+        let logical_port: u16 = std::env::var("COMMANDAGENT_ISSUE475_LOGICAL_PORT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let (root, config) = prepare_observer_case(true, true, logical_port);
+        let result = recovery_preflight(&config, &candidate("observer-control"), 0);
+        let actual_port = issue475_announced_port(&observation_workspace(root.path()));
+        expect_business_unobserved(&result);
+        std::fs::write(
+            std::env::var("COMMANDAGENT_ISSUE475_CHILD_OUTPUT").unwrap(),
+            json!({"ok": true, "port": actual_port}).to_string(),
+        )
+        .unwrap();
+        println!(
+            "ISSUE475_TRANSPORT_CHILD {}",
+            json!({"logical_port": logical_port, "actual_port": actual_port})
+        );
     }
 }
