@@ -29,7 +29,7 @@
 {"id": "space-cd-relative", "command": "cd sub && cat \"space link/secret\"", "R": true, "A": false, "W": false, "P": false, "S": false, "V": false, "operation": "path reference"}
 {"id": "fullwidth-space-static-relative", "command": "cat sub/wide\u3000link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "nbsp-static-relative", "command": "cat sub/nb\u00a0link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
-{"id": "fullwidth-space-cd-target", "command": "cd sub/wide\u3000link && cat secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "fullwidth-space-cd-target", "command": "cd sub/wide\u3000link && cat secret", "R": true, "A": false, "W": true, "P": false, "S": false, "V": true, "operation": "working directory"}
 {"id": "equals-dd-if", "command": "dd if=sub/link/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "equals-grep-file", "command": "grep --file=sub/link/secret x", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "equals-diff-from-file", "command": "diff --from-file=sub/link/secret a.txt", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
