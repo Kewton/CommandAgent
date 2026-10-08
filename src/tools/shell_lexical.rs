@@ -884,6 +884,28 @@ mod tests {
         strip_comments_and_heredocs(command).expect("command must be readable")
     }
 
+    /// A tempdir outside the prefix the read guard accepts as a system path
+    /// (`/usr`, `/bin`, `/opt`, `/etc`, `/tmp`). `tempfile::tempdir()` lives
+    /// under `/tmp` on Linux, which would let a fixture path outside the
+    /// workspace be admitted as a system path and fail only on Linux (issue
+    /// #604). Cargo defines `CARGO_TARGET_TMPDIR` for integration tests only, so
+    /// a unit test falls back to the crate's `target/` directory.
+    fn fixture_tempdir() -> tempfile::TempDir {
+        let parent = std::env::var_os("CARGO_TARGET_TMPDIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+        std::fs::create_dir_all(&parent).unwrap();
+        let dir = tempfile::tempdir_in(&parent).expect("create tempdir");
+        assert!(
+            !["/usr", "/bin", "/opt", "/etc", "/tmp"]
+                .iter()
+                .any(|prefix| dir.path().starts_with(prefix)),
+            "the fixture tempdir must not sit under a system prefix: {}",
+            dir.path().display()
+        );
+        dir
+    }
+
     #[test]
     fn shell_lexical_drops_word_start_comments_and_keeps_operand_hashes() {
         assert_eq!(strip("echo x # it's"), "echo x ");
@@ -1389,5 +1411,73 @@ mod tests {
                 view_text = view.text
             );
         }
+    }
+
+    #[test]
+    fn shell_lexical_flatten_quotes_does_not_read_past_a_trailing_backslash() {
+        // The second reading reads the byte after a `\` to decide whether it is
+        // a line continuation. An unterminated quoted heredoc makes the body end
+        // exactly on a `\`, so `index + 1 == body.len()` there. Widening the
+        // lookahead to `<=` (or replacing `&&` with `||`) then reads
+        // `body[index + 1]` past the slice and panics; the `<` short-circuit
+        // stops first. The trailing `\` becomes a blank, so the path and both
+        // readings stay.
+        let command = "sh <<'EOF'\ntee sub/link/f\\";
+        assert_eq!(
+            strip(command),
+            "sh <<'EOF'\ntee sub/link/f\\ tee sub/link/f "
+        );
+    }
+
+    #[test]
+    fn shell_lexical_flatten_quotes_keeps_the_byte_after_a_backslash() {
+        // The second reading replaces a `\` with a blank and keeps the byte
+        // after it, so `\t` becomes ` t`. The first reading keeps the body
+        // inside the quote `pass#'` opens, so only the flattened reading turns
+        // `tee \tests/spec.rs` into a `tee` write target. Replacing the `&&`
+        // with `||` (or the `==` with `!=`) takes the continuation branch for
+        // every `\`, drops the byte after it, and `tests/spec.rs` becomes
+        // `ests/spec.rs`, so the protected path is missed.
+        let fixture = fixture_tempdir();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+        let command = "python3 <<'EOF'\npass#'\ntee \\tests/spec.rs\n#'\nEOF";
+        assert_eq!(
+            crate::tools::bash_write_guard::protected_path_mutation(command, &root, &protected),
+            Some("tests/spec.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn shell_lexical_flatten_quotes_removes_a_continuation_split_protected_path() {
+        // The flattened second reading removes a `\` + newline continuation, so
+        // `tests/sp\<newline>ec.rs` becomes the single `tee tests/spec.rs`
+        // target. The first reading keeps the body inside the quote `pass#'`
+        // opens, so only the flattened reading names it. A reading that never
+        // removes the continuation (`<` became `==`/`>`, or the `+`/`==` operand
+        // changed) leaves `tests/sp` and `ec.rs` apart and the protected path is
+        // missed.
+        let fixture = fixture_tempdir();
+        let root = fixture.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let protected = vec!["tests/spec.rs".to_string()];
+        let command = "python3 <<'EOF'\npass#'\ntee tests/sp\\\nec.rs\n#'\nEOF";
+        assert_eq!(
+            crate::tools::bash_write_guard::protected_path_mutation(command, &root, &protected),
+            Some("tests/spec.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn shell_lexical_here_string_guard_rejects_a_late_short_spelling() {
+        // The `<<<` here-string guard is `index + 2 < bytes.len()`. Mutating the
+        // `+` to `*` makes `index * 2` reach `bytes.len()` too early, so a `<<<`
+        // past the midpoint stops being read as a here-string and is reparsed as
+        // a `<<` heredoc. Leading blanks are dropped by `line_argv`, so `cat`
+        // stays a lone data reader there and the misread drops the body, hiding
+        // the `tee tests/spec.rs` write.
+        let command = format!("{}cat <<<'EOF'\ntee tests/spec.rs\nEOF", " ".repeat(40));
+        assert_eq!(strip(&command), command);
     }
 }
