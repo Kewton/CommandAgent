@@ -14,6 +14,14 @@ use commandagent::tui::status::UiStatus;
 use commandagent::tui::{InteractionUi, OutputRenderer, UiGuard};
 use serde_json::json;
 
+#[path = "support/tui_interrupt_sync.rs"]
+mod tui_interrupt_sync;
+
+use tui_interrupt_sync::{
+    ProviderStartInterruptUi, ShellReadyInterruptUi, StartReleaseClient, shell_child_gone,
+    shell_child_marker, shell_interrupt_command, shell_ready_marker, test_tempdir,
+};
+
 fn config(root: PathBuf) -> Config {
     Config {
         workspace_root: root.clone(),
@@ -272,153 +280,6 @@ impl InteractionUi for InterruptAfterUi {
 
     fn interrupted(&self) -> bool {
         self.checks.fetch_add(1, Ordering::SeqCst) >= self.interrupt_after
-    }
-}
-
-#[derive(Clone)]
-struct SleepingCloneClient {
-    label: &'static str,
-    sleep: Duration,
-    calls: Arc<AtomicUsize>,
-}
-
-impl SleepingCloneClient {
-    fn new(label: &'static str, sleep: Duration) -> Self {
-        Self {
-            label,
-            sleep,
-            calls: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn calls(&self) -> usize {
-        self.calls.load(Ordering::SeqCst)
-    }
-}
-
-impl ChatClient for SleepingCloneClient {
-    fn label(&self) -> &str {
-        self.label
-    }
-
-    fn supports_native_tools(&self, _model: &str) -> bool {
-        true
-    }
-
-    fn boxed_clone(&self) -> Box<dyn ChatClient> {
-        Box::new(self.clone())
-    }
-
-    fn chat(
-        &mut self,
-        _model: &str,
-        _messages: &[ConversationMessage],
-        _tools: &[ToolSpec],
-        _native_tools_enabled: bool,
-    ) -> anyhow::Result<AssistantReply> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        std::thread::sleep(self.sleep);
-        Ok(AssistantReply::text("late"))
-    }
-}
-
-struct TimedInterruptUi {
-    events: Mutex<Vec<String>>,
-    interrupt_at: Instant,
-    force_at: Option<Instant>,
-}
-
-impl TimedInterruptUi {
-    fn new(interrupt_after: Duration) -> Self {
-        Self {
-            events: Mutex::new(Vec::new()),
-            interrupt_at: Instant::now() + interrupt_after,
-            force_at: None,
-        }
-    }
-}
-
-impl InteractionUi for TimedInterruptUi {
-    fn before_model_call(&self, label: &str) -> UiGuard {
-        self.events.lock().unwrap().push(format!("model:{label}"));
-        UiGuard::noop()
-    }
-
-    fn before_tool_call(&self, name: &str) -> UiGuard {
-        self.events.lock().unwrap().push(format!("tool:{name}"));
-        UiGuard::noop()
-    }
-
-    fn publish_status(&self, status: UiStatus) {
-        self.events
-            .lock()
-            .unwrap()
-            .push(format!("status:{}:{}", status.provider, status.model));
-    }
-
-    fn interrupted(&self) -> bool {
-        Instant::now() >= self.interrupt_at
-    }
-
-    fn force_interrupted(&self) -> bool {
-        self.force_at
-            .is_some_and(|force_at| Instant::now() >= force_at)
-    }
-}
-
-struct ToolTimedInterruptUi {
-    events: Mutex<Vec<String>>,
-    tool_started_at: Mutex<Option<Instant>>,
-    interrupt_after: Duration,
-    force_after: Duration,
-}
-
-impl ToolTimedInterruptUi {
-    fn new(interrupt_after: Duration, force_after: Duration) -> Self {
-        Self {
-            events: Mutex::new(Vec::new()),
-            tool_started_at: Mutex::new(None),
-            interrupt_after,
-            force_after,
-        }
-    }
-
-    fn elapsed_since_tool_start(&self) -> Option<Duration> {
-        let started = *self.tool_started_at.lock().unwrap();
-        started.map(|started| started.elapsed())
-    }
-}
-
-impl InteractionUi for ToolTimedInterruptUi {
-    fn before_model_call(&self, label: &str) -> UiGuard {
-        self.events.lock().unwrap().push(format!("model:{label}"));
-        UiGuard::noop()
-    }
-
-    fn before_tool_call(&self, name: &str) -> UiGuard {
-        self.events.lock().unwrap().push(format!("tool:{name}"));
-        let mut started = self.tool_started_at.lock().unwrap();
-        if started.is_none() {
-            *started = Some(Instant::now());
-        }
-        UiGuard::noop()
-    }
-
-    fn publish_status(&self, status: UiStatus) {
-        self.events
-            .lock()
-            .unwrap()
-            .push(format!("status:{}:{}", status.provider, status.model));
-    }
-
-    fn interrupted(&self) -> bool {
-        self.elapsed_since_tool_start()
-            .is_some_and(|elapsed| elapsed >= self.interrupt_after)
-    }
-
-    fn force_interrupted(&self) -> bool {
-        self.elapsed_since_tool_start()
-            .is_some_and(|elapsed| elapsed >= self.force_after)
     }
 }
 
@@ -880,15 +741,17 @@ fn primary_ultra_plan_run_renders_plan_then_activity_then_summary() {
 #[test]
 fn in_flight_provider_interrupt_finishes_before_sleep_and_writes_terminal_records() {
     let _guard = tui_integration_test_lock();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = test_tempdir();
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let plan_path = write_ultra_plan(dir.path());
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());
     cfg.chat_timeout_secs = 30;
-    let mut planner = SleepingCloneClient::new("planner", Duration::from_secs(30));
+    let mut planner = StartReleaseClient::new("planner");
+    let provider_started = planner.started_gate();
+    let release_worker = planner.release_gate();
     let mut execution = FakeClient::new("exec", Vec::new());
-    let ui = TimedInterruptUi::new(Duration::from_secs(1));
+    let ui = ProviderStartInterruptUi::new(provider_started);
 
     let started = Instant::now();
     let err = commandagent::tui::slash::handle_command(
@@ -900,9 +763,18 @@ fn in_flight_provider_interrupt_finishes_before_sleep_and_writes_terminal_record
     )
     .unwrap_err()
     .to_string();
+    // The caller has returned; only now may the in-flight provider worker finish.
+    release_worker.raise();
 
     assert!(err.contains("interrupted by user"), "{err}");
     assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(
+        ui.events()
+            .iter()
+            .any(|event| event.starts_with("model:planner")),
+        "the interrupt must be armed after the provider turn started: {:?}",
+        ui.events()
+    );
     assert_eq!(planner.calls(), 1, "provider abort must not retry");
     let events = std::fs::read_to_string(&events_path).unwrap();
     assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
@@ -920,7 +792,7 @@ fn in_flight_provider_interrupt_finishes_before_sleep_and_writes_terminal_record
 #[test]
 fn in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace() {
     let _guard = tui_integration_test_lock();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = test_tempdir();
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let plan_path = write_ultra_plan(dir.path());
     let mut cfg = config(dir.path().to_path_buf());
@@ -933,13 +805,17 @@ fn in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace() {
             content: String::new(),
             tool_calls: vec![ToolCall::new(
                 "Bash",
-                json!({"command": "trap '' TERM; while :; do :; done"}),
+                json!({"command": shell_interrupt_command()}),
             )],
             prompt_tokens: None,
             completion_tokens: None,
         }],
     );
-    let ui = ToolTimedInterruptUi::new(Duration::from_millis(100), Duration::from_millis(300));
+    let ui = ShellReadyInterruptUi::new(
+        shell_ready_marker(dir.path()),
+        Duration::ZERO,
+        Duration::from_millis(100),
+    );
 
     let started = Instant::now();
     let err = commandagent::tui::slash::handle_command(
@@ -951,10 +827,32 @@ fn in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace() {
     )
     .unwrap_err()
     .to_string();
+    let finished = Instant::now();
 
+    let ready_at = ui
+        .ready_at()
+        .expect("the shell must announce ready before the interrupt is armed");
+    assert!(
+        ui.interrupt_saw_ready(),
+        "the first interrupt must be gated by the shell ready marker"
+    );
+    assert!(
+        finished.duration_since(ready_at) < Duration::from_secs(2),
+        "force must finalize without waiting the 5s user-interrupt grace"
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(
+        ui.events().iter().any(|event| event == "tool:Bash"),
+        "{:?}",
+        ui.events()
+    );
     assert!(err.contains("command_aborted_by_user"), "{err}");
     assert!(err.contains("interrupted by user"), "{err}");
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(
+        shell_child_gone(),
+        "force must leave no shell child behind: {}",
+        shell_child_marker()
+    );
     let events = std::fs::read_to_string(&events_path).unwrap();
     assert!(events.contains("\"error_kind\":\"command_aborted_by_user\""));
     assert_exactly_one_tui_stop(&events, "interrupted");
