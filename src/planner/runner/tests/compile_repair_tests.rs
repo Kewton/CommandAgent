@@ -53,6 +53,7 @@ fn compile_error_repair_prompt_anchors_file_and_then_runs_readiness() {
     let events = dir.path().join("events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
     let contract = write_compile_error_nextjs_workspace(dir.path(), port);
+    test_transport::enable_browser_probe_transport(dir.path(), port);
     let mut cfg = config(dir.path().to_path_buf());
     cfg.profile = "nextjs".to_string();
     cfg.eval_events_path = Some(events.clone());

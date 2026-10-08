@@ -72,6 +72,7 @@ fn enable_dev_server_probe_test_override(root: &Path) {
 
 #[cfg(unix)]
 fn write_fake_nextjs_dev_workspace(root: &Path, port: u16, spawn_grandchild: bool) {
+    test_transport::enable(root);
     std::fs::write(
         root.join("package.json"),
         format!(
@@ -301,6 +302,7 @@ exit /b 2
 
 #[cfg(unix)]
 fn write_probe_nextjs_workspace(root: &Path, port: u16, page: &str) {
+    test_transport::enable(root);
     std::fs::write(
         root.join("package.json"),
         format!(
