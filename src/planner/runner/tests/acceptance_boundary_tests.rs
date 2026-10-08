@@ -199,6 +199,7 @@ fn measured_cleanup_after_grandchild_ready(
 #[test]
 #[cfg(unix)]
 fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
+    const CLEANUP_INTERVAL_BOUND: Duration = Duration::from_secs(5);
     let _probe_guard = dev_server_probe_test_guard();
     let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
     let dir = tempfile::Builder::new().prefix("runner-dev-server-").tempdir_in(exe_dir).unwrap();
@@ -232,14 +233,13 @@ fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
     let cleanup = dev_server_lifecycle_event(&events_json, "cleanup");
     assert_eq!(cleanup.get("ok").and_then(Value::as_bool), Some(true));
 
-    let measured =
-        std::fs::read_to_string(pipe.with_extension("measurement")).expect("cleanup measurement");
+    let measured = std::fs::read_to_string(pipe.with_extension("measurement")).expect("measurement");
     let (ready, elapsed_ms) = measured.split_once(' ').expect("measurement fields");
     assert_eq!(ready, "true", "grandchild ready before cleanup");
     let elapsed_ms: u128 = elapsed_ms.trim().parse().expect("cleanup elapsed ms");
     assert!(
-        elapsed_ms <= (DEV_SERVER_CLEANUP_TERM_TIMEOUT + DEV_SERVER_CLEANUP_KILL_TIMEOUT).as_millis(),
-        "cleanup must stay within its own term+kill bound (no pipe deadlock): {elapsed_ms}ms"
+        elapsed_ms < CLEANUP_INTERVAL_BOUND.as_millis(),
+        "cleanup that needs the KILL fallback (SIGTERM not enough) exceeds 5s: {elapsed_ms}ms"
     );
 
     let pid = dev_server_lifecycle_event(&events_json, "start")["pid"].as_u64().unwrap() as u32;
