@@ -1,3 +1,44 @@
+#[cfg(unix)]
+fn single_final_acceptance_plan(port: u16) -> UltraPlan {
+    UltraPlan {
+        goal: explicit_port_goal("Create an interactive browser game", port),
+        profile: "nextjs".to_string(),
+        style: "default".to_string(),
+        intent: "create".to_string(),
+        phases: vec![UltraPhase {
+            id: "final".to_string(),
+            prompt: "Final acceptance".to_string(),
+        }],
+    }
+}
+
+#[cfg(unix)]
+fn two_phase_final_acceptance_plan(goal: String, first_prompt: &str) -> UltraPlan {
+    UltraPlan {
+        goal,
+        profile: "nextjs".to_string(),
+        style: "default".to_string(),
+        intent: "create".to_string(),
+        phases: vec![
+            UltraPhase {
+                id: "first".to_string(),
+                prompt: first_prompt.to_string(),
+            },
+            UltraPhase {
+                id: "final".to_string(),
+                prompt: "Final implementation pass".to_string(),
+            },
+        ],
+    }
+}
+
+fn nextjs_config_with_events(dir: &Path, events: &Path) -> Config {
+    let mut cfg = config(dir.to_path_buf());
+    cfg.profile = "nextjs".to_string();
+    cfg.eval_events_path = Some(events.to_path_buf());
+    cfg
+}
+
 #[test]
 fn completion_contract_mismatch_is_structured_as_non_recovery_profile_failure() {
     let gate = ReleaseGateSummary {
@@ -50,9 +91,7 @@ fn dev_server_port_owner_parser_preserves_pid_and_command() {
 fn nextjs_dev_route_probe_disabled_records_lifecycle_stages() {
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("events.jsonl");
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
+    let cfg = nextjs_config_with_events(dir.path(), &events);
     let evidence_path = nextjs_dev_route_evidence_path(&cfg);
     let evidence = run_nextjs_dev_route_probe(&cfg, &evidence_path);
     assert_eq!(
@@ -107,9 +146,7 @@ fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
     let port = free_local_port();
     let events = dir.path().join("events.jsonl");
     write_fake_nextjs_dev_workspace(dir.path(), port, true);
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
+    let cfg = nextjs_config_with_events(dir.path(), &events);
     let evidence_path = nextjs_dev_route_evidence_path(&cfg);
 
     let started = Instant::now();
@@ -166,9 +203,7 @@ fn dev_server_writes_readiness_before_forced_cleanup_failure() {
     let port = free_local_port();
     let events = dir.path().join("events.jsonl");
     write_fake_nextjs_dev_workspace(dir.path(), port, false);
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
+    let cfg = nextjs_config_with_events(dir.path(), &events);
     let evidence_path = nextjs_dev_route_evidence_path(&cfg);
 
     let evidence = run_nextjs_dev_route_probe_with_runtime(
@@ -315,19 +350,8 @@ fn unattached_canvas_ref_guidance_leads_repair_and_reprobe_passes() {
             interaction_state_changed_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![UltraPhase {
-            id: "final".to_string(),
-            prompt: "Final acceptance".to_string(),
-        }],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = single_final_acceptance_plan(port);
 
     let report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
 
@@ -441,9 +465,7 @@ fn behavioral_interaction_failure_repairs_and_reprobes_to_success() {
             interaction_state_changed_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
+    let cfg = nextjs_config_with_events(dir.path(), &events);
     let scaffold_plan = generated_nextjs_fixture_plan_json_with_kind(
         "Create buildable app",
         "check_scaffold.py",
@@ -460,22 +482,10 @@ fn behavioral_interaction_failure_repairs_and_reprobes_to_success() {
         probe_nextjs_scaffold_reply(port, interactive_game_page_variant(3)),
         probe_nextjs_scaffold_reply(port, interactive_game_page_variant(4)),
     ]);
-    let plan = UltraPlan {
-        goal: "Create an interactive browser game".to_string(),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![
-            UltraPhase {
-                id: "first".to_string(),
-                prompt: "First implementation pass".to_string(),
-            },
-            UltraPhase {
-                id: "final".to_string(),
-                prompt: "Final implementation pass".to_string(),
-            },
-        ],
-    };
+    let plan = two_phase_final_acceptance_plan(
+        "Create an interactive browser game".to_string(),
+        "First implementation pass",
+    );
 
     let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
 
@@ -533,9 +543,7 @@ fn behavioral_interaction_failure_exhausts_after_two_reprobe_cycles() {
             interaction_state_missing_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
+    let cfg = nextjs_config_with_events(dir.path(), &events);
     let scaffold_plan = generated_nextjs_fixture_plan_json_with_kind(
         "Create buildable app",
         "check_scaffold.py",
@@ -553,22 +561,10 @@ fn behavioral_interaction_failure_exhausts_after_two_reprobe_cycles() {
         probe_nextjs_scaffold_reply(port, interactive_game_page_variant(4)),
         probe_nextjs_scaffold_reply(port, interactive_game_page_variant(5)),
     ]);
-    let plan = UltraPlan {
-        goal: "Create an interactive browser game".to_string(),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![
-            UltraPhase {
-                id: "first".to_string(),
-                prompt: "First implementation pass".to_string(),
-            },
-            UltraPhase {
-                id: "final".to_string(),
-                prompt: "Final implementation pass".to_string(),
-            },
-        ],
-    };
+    let plan = two_phase_final_acceptance_plan(
+        "Create an interactive browser game".to_string(),
+        "First implementation pass",
+    );
 
     let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
         .unwrap_err()
@@ -622,19 +618,8 @@ fn focused_behavioral_repair_prompt_and_reprobe_passes() {
             interaction_state_changed_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![UltraPhase {
-            id: "final".to_string(),
-            prompt: "Final acceptance".to_string(),
-        }],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = single_final_acceptance_plan(port);
     let initial_report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
     assert!(!initial_report.is_pass(), "{initial_report:?}");
     assert_eq!(
@@ -721,19 +706,8 @@ fn focused_behavioral_repair_exhaustion_handoff_uses_probe_failure() {
             interaction_state_missing_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![UltraPhase {
-            id: "final".to_string(),
-            prompt: "Final acceptance".to_string(),
-        }],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = single_final_acceptance_plan(port);
     let mut report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
     assert!(!report.is_pass(), "{report:?}");
     let mut fake = FakeClient::new(vec![
@@ -841,19 +815,8 @@ fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_cont
         serde_json::to_string_pretty(&recovery_not_observed_probe_result()).unwrap(),
     )
     .unwrap();
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![UltraPhase {
-            id: "final".to_string(),
-            prompt: "Final acceptance".to_string(),
-        }],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = single_final_acceptance_plan(port);
 
     let report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
 
@@ -942,25 +905,11 @@ fn final_acceptance_repair_cycle_reprobes_restart_hook_recovery_to_pass() {
             interaction_state_changed_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game with restart flow", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![
-            UltraPhase {
-                id: "first".to_string(),
-                prompt: "Scaffold the app".to_string(),
-            },
-            UltraPhase {
-                id: "final".to_string(),
-                prompt: "Final implementation pass".to_string(),
-            },
-        ],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = two_phase_final_acceptance_plan(
+        explicit_port_goal("Create an interactive browser game with restart flow", port),
+        "Scaffold the app",
+    );
     let fixed_page = contract_interactive_game_page_source();
     let mut planner = FakeClient::new(vec![
         AssistantReply::text(generated_nextjs_artifact_plan_json_with_build_verify(
@@ -1104,25 +1053,11 @@ fn final_acceptance_budget_exhaustion_uses_last_cycle_reason() {
             recovery_not_observed_probe_result(),
         ],
     );
-    let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
-    cfg.eval_events_path = Some(events.clone());
-    let plan = UltraPlan {
-        goal: explicit_port_goal("Create an interactive browser game with restart flow", port),
-        profile: "nextjs".to_string(),
-        style: "default".to_string(),
-        intent: "create".to_string(),
-        phases: vec![
-            UltraPhase {
-                id: "first".to_string(),
-                prompt: "Scaffold the app".to_string(),
-            },
-            UltraPhase {
-                id: "final".to_string(),
-                prompt: "Final implementation pass".to_string(),
-            },
-        ],
-    };
+    let cfg = nextjs_config_with_events(dir.path(), &events);
+    let plan = two_phase_final_acceptance_plan(
+        explicit_port_goal("Create an interactive browser game with restart flow", port),
+        "Scaffold the app",
+    );
     let mut planner = FakeClient::new(vec![
         AssistantReply::text(generated_nextjs_artifact_plan_json_with_build_verify(
             "Create buildable app",

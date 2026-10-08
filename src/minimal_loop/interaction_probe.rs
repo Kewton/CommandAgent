@@ -3490,6 +3490,19 @@ module.exports = {
     /// failures instead of the persistence verdict under test.
     const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
 
+    /// Wall-clock budget for tests that spawn a fake npm/npx/node child and
+    /// assert the child's lifecycle: setup artifacts plus second-run
+    /// idempotency, exit-failure JSON with its stderr tail, and reuse of the
+    /// resolved `NODE_PATH`.
+    ///
+    /// These are not response-speed checks — each fake child exits in
+    /// milliseconds. The previous 1–5s budgets left no headroom when two
+    /// checkouts ran the suite concurrently, so a slow spawn surfaced as a
+    /// spurious timeout instead of the behavior under test. Mirror the
+    /// smallest production probe budget (`browser_probe.rs` passes 60s) and
+    /// keep it finite so a hung child still fails rather than waiting forever.
+    const FAKE_CHILD_PROCESS_BUDGET: Duration = Duration::from_secs(60);
+
     fn run_fake_probe_scenario(
         scenario: &str,
         options: BrowserInteractionProbeOptions,
@@ -4294,7 +4307,7 @@ exit 1
             fake_npm.as_os_str(),
             fake_npx.as_os_str(),
             &home,
-            Duration::from_secs(5),
+            FAKE_CHILD_PROCESS_BUDGET,
             |line| progress.push(line.to_string()),
         )
         .unwrap();
@@ -4334,7 +4347,7 @@ exit 1
             fake_npm.as_os_str(),
             fake_npx.as_os_str(),
             &home,
-            Duration::from_secs(5),
+            FAKE_CHILD_PROCESS_BUDGET,
             |_| {},
         )
         .unwrap();
@@ -4430,7 +4443,7 @@ exit 1
             34001,
             &run_dir,
             &path,
-            Duration::from_secs(3),
+            FAKE_CHILD_PROCESS_BUDGET,
         );
         let observation = outcome.observation().expect("observation");
 
@@ -4512,7 +4525,7 @@ exit 0
             34001,
             &run_dir,
             &path,
-            Duration::from_secs(1),
+            FAKE_CHILD_PROCESS_BUDGET,
         );
 
         assert!(
