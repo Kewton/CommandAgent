@@ -68,6 +68,14 @@ fn dev_server_stage_names(events: &[Value]) -> Vec<&str> {
 }
 
 #[cfg(unix)]
+fn dev_server_lifecycle_event<'a>(events: &'a [Value], stage: &str) -> &'a Value {
+    events
+        .iter()
+        .find(|event| event["event"] == "dev_server_lifecycle" && event["stage"] == stage)
+        .expect("dev_server_lifecycle event")
+}
+
+#[cfg(unix)]
 fn wait_until_process_group_gone(pgid: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {

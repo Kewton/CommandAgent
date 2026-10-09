@@ -13,7 +13,10 @@
 //! candidate. A destination whose value cannot be read statically (`$`,
 //! backquotes, `~`, a glob, `..`, `-`, or an empty `cd`) adds nothing. A command
 //! that mixes a `cd` with `CDPATH`, a loop, or a function definition is flagged
-//! `undecidable`, and the caller refuses its relative writes.
+//! `undecidable`, and the caller refuses its relative writes. A destination that
+//! holds a glob or brace metacharacter adds nothing and is flagged
+//! `glob_destination` too, so the caller refuses the relative paths after it
+//! even when the workspace root is the only candidate (Issue #635).
 //!
 //! The lexical analysis (`shell_tokens`, `ShellToken`) and the prefix
 //! `Resolution` are not changed here: this module only reads their output.
@@ -45,6 +48,12 @@ pub(crate) struct Inspection {
     /// defer it, or its candidate set passed [`MAX_CANDIDATES`]. Relative paths
     /// after it must be refused.
     pub(crate) undecidable: bool,
+    /// A `cd`/`pushd` destination holds a glob or brace metacharacter
+    /// (`* ? [ ] { }`), so the directory it names cannot be read from its
+    /// spelling and no candidate beyond the workspace root is added (Issue
+    /// #635). Relative paths after it must be refused even though the workspace
+    /// root is the only candidate.
+    pub(crate) glob_destination: bool,
     /// Literal relative read words (from segments that are not a working
     /// directory change). The second stage of the inspector joins these onto
     /// every candidate.
@@ -59,6 +68,7 @@ impl Inspection {
             bases: vec![String::new()],
             targets: Vec::new(),
             undecidable: false,
+            glob_destination: false,
             relative_words: Vec::new(),
         }
     }
@@ -76,6 +86,7 @@ impl Inspection {
         self.targets.extend(other.targets);
         self.relative_words.extend(other.relative_words);
         self.undecidable |= other.undecidable;
+        self.glob_destination |= other.glob_destination;
     }
 
     /// Whether a `cd`/`pushd` added a candidate beyond the workspace root.
@@ -137,6 +148,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
     };
 
     let mut has_cd = false;
+    let mut glob_destination = false;
     let mut cdpath = false;
     let mut dirstack = false;
     let mut loop_keyword = false;
@@ -191,12 +203,14 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
         match program.as_str() {
             "cd" => {
                 has_cd = true;
-                if let Some(target) = positional_operands(&arguments).first().copied()
-                    && !overflow
-                    && let Some(joined) = extend(&mut inspection.bases, target)
-                {
-                    inspection.targets.extend(joined);
-                    overflow = inspection.bases.len() > MAX_CANDIDATES;
+                if let Some(target) = positional_operands(&arguments).first().copied() {
+                    if is_glob_destination(target) {
+                        glob_destination = true;
+                    }
+                    if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
+                        inspection.targets.extend(joined);
+                        overflow = inspection.bases.len() > MAX_CANDIDATES;
+                    }
                 }
             }
             "pushd" => {
@@ -210,6 +224,9 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
                 if target.starts_with('+') || target.starts_with('-') {
                     continue;
                 }
+                if is_glob_destination(target) {
+                    glob_destination = true;
+                }
                 if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
                     inspection.targets.extend(joined);
                     overflow = inspection.bases.len() > MAX_CANDIDATES;
@@ -222,10 +239,12 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
         }
     }
 
+    inspection.glob_destination = glob_destination;
     inspection.undecidable = ambiguous
         || cdpath
         || dirstack
         || overflow
+        || glob_destination
         || (has_cd && (loop_keyword || function_keyword));
     inspection
 }
@@ -244,6 +263,14 @@ fn is_determinable(target: &str) -> bool {
         && target != "-"
         && !target.contains(['$', '`', '~', '*', '?', '[', ']', '{', '}'])
         && !target.split('/').any(|component| component == "..")
+}
+
+/// Whether a `cd`/`pushd` destination holds a glob or brace metacharacter, so
+/// the directory it names cannot be read from its spelling (Issue #635). The
+/// de-quoted text marks a quoted or escaped bracket (`cd "s[2]"`) the same way,
+/// because the lexical read does not tell it apart from an executed one.
+fn is_glob_destination(target: &str) -> bool {
+    target.contains(['*', '?', '[', ']', '{', '}'])
 }
 
 /// Adds the candidates a destination produces and returns them for the caller
@@ -402,6 +429,26 @@ mod tests {
         );
     }
 
+    /// Issue #635: the cap check must count a jump that passes [`MAX_CANDIDATES`]
+    /// without landing on it. Forty repeated `cd sub` add exactly one candidate
+    /// each (lengths 2..=41), then a single `cd r` doubles the set to 82, which
+    /// skips 64; the destination past the cap must still be undecidable. A `>`
+    /// read as `==` never sees 64 and leaves the mark clear.
+    #[test]
+    fn working_directory_caps_a_growth_that_skips_the_bound() {
+        let command = format!("{}cd r", "cd sub; ".repeat(40));
+        let inspection = inspect(&command);
+        assert!(
+            inspection.bases.len() > MAX_CANDIDATES,
+            "the fixture must pass the bound: {}",
+            inspection.bases.len()
+        );
+        assert!(
+            inspection.undecidable,
+            "a candidate set that passed the bound without landing on it must be undecidable"
+        );
+    }
+
     #[test]
     fn working_directory_keeps_cwd_words_out_of_reads() {
         let inspection = inspect("cd sub && cat secret");
@@ -498,6 +545,30 @@ mod tests {
         duplicate.bases.push("cr\rdir".to_string());
         merged.merge(duplicate);
         assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+    }
+
+    /// Issue #635: the union of the two carriage-return readings must keep the
+    /// glob-destination mark, so the caller's `/`-less word check still runs
+    /// when only one reading saw a glob or brace destination. Reading the `|=`
+    /// as `&=` clears the mark whenever the other reading did not raise it.
+    #[test]
+    fn working_directory_merge_keeps_the_glob_destination_mark() {
+        let mut merged = Inspection::empty();
+        let mut glob_reading = Inspection::empty();
+        glob_reading.glob_destination = true;
+        merged.merge(glob_reading);
+        assert!(
+            merged.glob_destination,
+            "a glob destination in the other reading must survive the union"
+        );
+
+        let mut already_marked = Inspection::empty();
+        already_marked.glob_destination = true;
+        already_marked.merge(Inspection::empty());
+        assert!(
+            already_marked.glob_destination,
+            "a union with a reading that saw no glob destination must not clear the mark"
+        );
     }
 
     /// Issue #613: only the WordChar reading sees the `\r` in a `cd`
