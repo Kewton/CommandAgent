@@ -13,7 +13,10 @@
 //! candidate. A destination whose value cannot be read statically (`$`,
 //! backquotes, `~`, a glob, `..`, `-`, or an empty `cd`) adds nothing. A command
 //! that mixes a `cd` with `CDPATH`, a loop, or a function definition is flagged
-//! `undecidable`, and the caller refuses its relative writes.
+//! `undecidable`, and the caller refuses its relative writes. A destination that
+//! holds a glob or brace metacharacter adds nothing and is flagged
+//! `glob_destination` too, so the caller refuses the relative paths after it
+//! even when the workspace root is the only candidate (Issue #635).
 //!
 //! The lexical analysis (`shell_tokens`, `ShellToken`) and the prefix
 //! `Resolution` are not changed here: this module only reads their output.
@@ -23,6 +26,7 @@ use std::path::Path;
 
 use super::command_prefix::{self, Resolution};
 use super::{ShellToken, command_words, positional_operands};
+use crate::tools::bash::path_tokens::CrMode;
 
 /// Upper bound on the working-directory candidates. Consecutive distinct `cd`
 /// destinations can double the set at each step, so past this bound the
@@ -44,6 +48,12 @@ pub(crate) struct Inspection {
     /// defer it, or its candidate set passed [`MAX_CANDIDATES`]. Relative paths
     /// after it must be refused.
     pub(crate) undecidable: bool,
+    /// A `cd`/`pushd` destination holds a glob or brace metacharacter
+    /// (`* ? [ ] { }`), so the directory it names cannot be read from its
+    /// spelling and no candidate beyond the workspace root is added (Issue
+    /// #635). Relative paths after it must be refused even though the workspace
+    /// root is the only candidate.
+    pub(crate) glob_destination: bool,
     /// Literal relative read words (from segments that are not a working
     /// directory change). The second stage of the inspector joins these onto
     /// every candidate.
@@ -51,6 +61,34 @@ pub(crate) struct Inspection {
 }
 
 impl Inspection {
+    /// An inspection that has seen nothing yet: the workspace root candidate and
+    /// no `cd` destination.
+    fn empty() -> Self {
+        Inspection {
+            bases: vec![String::new()],
+            targets: Vec::new(),
+            undecidable: false,
+            glob_destination: false,
+            relative_words: Vec::new(),
+        }
+    }
+
+    /// Unions another reading of the same command (Issue #613). The candidates,
+    /// `cd` targets, and relative words are combined, and the undecidable mark
+    /// holds if either reading raised it, so the union is never looser than one
+    /// reading alone.
+    fn merge(&mut self, other: Inspection) {
+        for base in other.bases {
+            if !self.bases.contains(&base) {
+                self.bases.push(base);
+            }
+        }
+        self.targets.extend(other.targets);
+        self.relative_words.extend(other.relative_words);
+        self.undecidable |= other.undecidable;
+        self.glob_destination |= other.glob_destination;
+    }
+
     /// Whether a `cd`/`pushd` added a candidate beyond the workspace root.
     pub(crate) fn has_working_directory(&self) -> bool {
         self.bases.iter().any(|base| !base.is_empty())
@@ -74,15 +112,10 @@ impl Inspection {
 
 /// Reads the working-directory candidates out of a command.
 pub(crate) fn inspect(command: &str) -> Inspection {
-    let mut inspection = Inspection {
-        bases: vec![String::new()],
-        targets: Vec::new(),
-        undecidable: false,
-        relative_words: Vec::new(),
-    };
     let Some(view) = super::super::shell_lexical::write_guard_view(command) else {
         // The shell text cannot be read, so no working-directory change can be
         // modelled; relative writes after it must be refused (Issue #576).
+        let mut inspection = Inspection::empty();
         inspection.undecidable = true;
         return inspection;
     };
@@ -91,8 +124,21 @@ pub(crate) fn inspect(command: &str) -> Inspection {
     // so the protected-path variants stay visible but relative writes are still
     // refused (Issue #585).
     let ambiguous = view.ambiguous_expansion;
-    let text = view.text;
-    let Some(tokens) = super::shell_tokens(&text) else {
+    // Issue #613: a carriage return is an ordinary word character in Bash. Read
+    // the text that way too and union the candidates, so a `cd` destination
+    // whose name holds a `\r` still adds the directory the shell changes into.
+    // The two readings coincide when the text has no `\r`.
+    let mut inspection = walk(&view.text, ambiguous, CrMode::Separator);
+    if view.text.contains('\r') {
+        inspection.merge(walk(&view.text, ambiguous, CrMode::WordChar));
+    }
+    inspection
+}
+
+/// The working-directory walk of one reading of the elided text (Issue #613).
+fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
+    let mut inspection = Inspection::empty();
+    let Some(tokens) = super::shell_tokens(text, cr_mode) else {
         // The elided text of an ambiguous expansion can leave an unterminated
         // quote, so the walk cannot run. Keep the ambiguity signal anyway: the
         // design promise "an ambiguous expansion is undecidable" must hold on
@@ -102,6 +148,7 @@ pub(crate) fn inspect(command: &str) -> Inspection {
     };
 
     let mut has_cd = false;
+    let mut glob_destination = false;
     let mut cdpath = false;
     let mut dirstack = false;
     let mut loop_keyword = false;
@@ -156,12 +203,14 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         match program.as_str() {
             "cd" => {
                 has_cd = true;
-                if let Some(target) = positional_operands(&arguments).first().copied()
-                    && !overflow
-                    && let Some(joined) = extend(&mut inspection.bases, target)
-                {
-                    inspection.targets.extend(joined);
-                    overflow = inspection.bases.len() > MAX_CANDIDATES;
+                if let Some(target) = positional_operands(&arguments).first().copied() {
+                    if is_glob_destination(target) {
+                        glob_destination = true;
+                    }
+                    if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
+                        inspection.targets.extend(joined);
+                        overflow = inspection.bases.len() > MAX_CANDIDATES;
+                    }
                 }
             }
             "pushd" => {
@@ -175,6 +224,9 @@ pub(crate) fn inspect(command: &str) -> Inspection {
                 if target.starts_with('+') || target.starts_with('-') {
                     continue;
                 }
+                if is_glob_destination(target) {
+                    glob_destination = true;
+                }
                 if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
                     inspection.targets.extend(joined);
                     overflow = inspection.bases.len() > MAX_CANDIDATES;
@@ -187,10 +239,12 @@ pub(crate) fn inspect(command: &str) -> Inspection {
         }
     }
 
+    inspection.glob_destination = glob_destination;
     inspection.undecidable = ambiguous
         || cdpath
         || dirstack
         || overflow
+        || glob_destination
         || (has_cd && (loop_keyword || function_keyword));
     inspection
 }
@@ -209,6 +263,14 @@ fn is_determinable(target: &str) -> bool {
         && target != "-"
         && !target.contains(['$', '`', '~', '*', '?', '[', ']', '{', '}'])
         && !target.split('/').any(|component| component == "..")
+}
+
+/// Whether a `cd`/`pushd` destination holds a glob or brace metacharacter, so
+/// the directory it names cannot be read from its spelling (Issue #635). The
+/// de-quoted text marks a quoted or escaped bracket (`cd "s[2]"`) the same way,
+/// because the lexical read does not tell it apart from an executed one.
+fn is_glob_destination(target: &str) -> bool {
+    target.contains(['*', '?', '[', ']', '{', '}'])
 }
 
 /// Adds the candidates a destination produces and returns them for the caller
@@ -367,6 +429,26 @@ mod tests {
         );
     }
 
+    /// Issue #635: the cap check must count a jump that passes [`MAX_CANDIDATES`]
+    /// without landing on it. Forty repeated `cd sub` add exactly one candidate
+    /// each (lengths 2..=41), then a single `cd r` doubles the set to 82, which
+    /// skips 64; the destination past the cap must still be undecidable. A `>`
+    /// read as `==` never sees 64 and leaves the mark clear.
+    #[test]
+    fn working_directory_caps_a_growth_that_skips_the_bound() {
+        let command = format!("{}cd r", "cd sub; ".repeat(40));
+        let inspection = inspect(&command);
+        assert!(
+            inspection.bases.len() > MAX_CANDIDATES,
+            "the fixture must pass the bound: {}",
+            inspection.bases.len()
+        );
+        assert!(
+            inspection.undecidable,
+            "a candidate set that passed the bound without landing on it must be undecidable"
+        );
+    }
+
     #[test]
     fn working_directory_keeps_cwd_words_out_of_reads() {
         let inspection = inspect("cd sub && cat secret");
@@ -425,7 +507,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("expected a view: {command:?}"));
             assert!(view.ambiguous_expansion, "{command:?}");
             assert!(
-                super::super::shell_tokens(&view.text).is_none(),
+                super::super::shell_tokens(&view.text, CrMode::Separator).is_none(),
                 "the fixture must take the early-return path: {command:?}"
             );
             assert!(
@@ -433,5 +515,83 @@ mod tests {
                 "cwd undecidable must hold the ambiguous mark: {command:?}"
             );
         }
+    }
+
+    /// Issue #613: `inspect` unions the historical carriage-return reading with
+    /// the WordChar reading. `merge` must combine the candidates, the `cd`
+    /// targets, the relative words, and OR the undecidable mark — emptying it,
+    /// dropping the `!` in the base-dedup check, or turning the `|=` into `&=`
+    /// each lose a value the WordChar reading alone found.
+    #[test]
+    fn working_directory_merge_unions_both_readings() {
+        let mut merged = Inspection::empty();
+        let mut word_char = Inspection::empty();
+        word_char.bases.push("cr\rdir".to_string());
+        word_char.targets.push("cr\rdir".to_string());
+        word_char.relative_words.push("esc".to_string());
+        word_char.undecidable = true;
+        merged.merge(word_char);
+
+        assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+        assert_eq!(merged.targets, vec!["cr\rdir".to_string()]);
+        assert_eq!(merged.relative_words, vec!["esc".to_string()]);
+        assert!(
+            merged.undecidable,
+            "the undecidable mark of either reading must survive the union"
+        );
+
+        // A candidate already present is not added twice.
+        let mut duplicate = Inspection::empty();
+        duplicate.bases.push("cr\rdir".to_string());
+        merged.merge(duplicate);
+        assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+    }
+
+    /// Issue #635: the union of the two carriage-return readings must keep the
+    /// glob-destination mark, so the caller's `/`-less word check still runs
+    /// when only one reading saw a glob or brace destination. Reading the `|=`
+    /// as `&=` clears the mark whenever the other reading did not raise it.
+    #[test]
+    fn working_directory_merge_keeps_the_glob_destination_mark() {
+        let mut merged = Inspection::empty();
+        let mut glob_reading = Inspection::empty();
+        glob_reading.glob_destination = true;
+        merged.merge(glob_reading);
+        assert!(
+            merged.glob_destination,
+            "a glob destination in the other reading must survive the union"
+        );
+
+        let mut already_marked = Inspection::empty();
+        already_marked.glob_destination = true;
+        already_marked.merge(Inspection::empty());
+        assert!(
+            already_marked.glob_destination,
+            "a union with a reading that saw no glob destination must not clear the mark"
+        );
+    }
+
+    /// Issue #613: only the WordChar reading sees the `\r` in a `cd`
+    /// destination, so the merged candidate is what keeps it. A `/`-less operand
+    /// that is an outward symlink *inside* the CR-named directory is reached by
+    /// no other route, so dropping the union would allow it.
+    #[test]
+    fn working_directory_keeps_carriage_return_cd_candidates() {
+        let inspection = inspect("cd cr\rdir && cat esc");
+        assert!(
+            inspection.bases.contains(&"cr\rdir".to_string()),
+            "the CR destination must be a candidate: {:?}",
+            inspection.bases
+        );
+        assert!(
+            inspection.targets.contains(&"cr\rdir".to_string()),
+            "the CR destination must be confined: {:?}",
+            inspection.targets
+        );
+        assert!(
+            inspection.relative_words.contains(&"esc".to_string()),
+            "the relative operand must stay visible: {:?}",
+            inspection.relative_words
+        );
     }
 }
