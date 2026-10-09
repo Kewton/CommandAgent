@@ -172,6 +172,52 @@ fn glob_cd_destination_rejects_protected_file_writes() {
     }
 }
 
+/// A glob or brace destination that only one of the two carriage-return
+/// readings sees (`cd \rs2*`): the historical reading splits on `\r` and finds
+/// no operand, the shell reading keeps `\rs2*` as a glob destination. The
+/// command must be refused. The `merge` unit test in `working_directory.rs`
+/// pins that the mark itself survives the union; here the R=1 value is fixed.
+#[test]
+fn glob_cd_destination_mark_survives_the_carriage_return_union() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    for command in [
+        // The historical reading splits on `\r` (`cd` has no operand); the shell
+        // reading keeps it in the word (`\rs[2]`).
+        "cd \r\"s[2]\" && cat lf5",
+        // The issue's shape: `\r` then a `*` destination.
+        "cd \rs2* && cat lf4",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command}"
+        );
+    }
+}
+
+/// The candidate cap must count a jump that passes [`MAX_CANDIDATES`] without
+/// landing on it: forty repeated `cd sub` add one candidate each, then `cd r`
+/// doubles the set and skips 64. Past the cap the relative write must be refused
+/// (`undecidable`), for the `cd` and the `pushd` branch alike; a `>` read as `==`
+/// leaves the mark clear and allows the write.
+#[test]
+fn glob_cd_destination_cap_rejects_relative_writes() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    for command in [
+        format!("{}cd r; tee f", "cd sub; ".repeat(40)),
+        format!("{}pushd r; tee f", "pushd sub; ".repeat(40)),
+    ] {
+        let rejection = path_confinement_rejection(&command, root)
+            .unwrap_or_else(|| panic!("expected a reject past the cap: {command}"));
+        assert!(
+            rejection.reason.contains(CWD_REASON),
+            "the cap must refuse via the working-directory reason: {}",
+            rejection.reason
+        );
+    }
+}
+
 /// Destinations that do not hold a glob or brace metacharacter, and globs used
 /// for reading rather than as the `cd` destination, keep their existing
 /// handling. A `CDPATH` word without a `cd` must not become newly refused.

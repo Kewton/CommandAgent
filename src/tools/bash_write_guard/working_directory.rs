@@ -429,6 +429,26 @@ mod tests {
         );
     }
 
+    /// Issue #635: the cap check must count a jump that passes [`MAX_CANDIDATES`]
+    /// without landing on it. Forty repeated `cd sub` add exactly one candidate
+    /// each (lengths 2..=41), then a single `cd r` doubles the set to 82, which
+    /// skips 64; the destination past the cap must still be undecidable. A `>`
+    /// read as `==` never sees 64 and leaves the mark clear.
+    #[test]
+    fn working_directory_caps_a_growth_that_skips_the_bound() {
+        let command = format!("{}cd r", "cd sub; ".repeat(40));
+        let inspection = inspect(&command);
+        assert!(
+            inspection.bases.len() > MAX_CANDIDATES,
+            "the fixture must pass the bound: {}",
+            inspection.bases.len()
+        );
+        assert!(
+            inspection.undecidable,
+            "a candidate set that passed the bound without landing on it must be undecidable"
+        );
+    }
+
     #[test]
     fn working_directory_keeps_cwd_words_out_of_reads() {
         let inspection = inspect("cd sub && cat secret");
@@ -525,6 +545,30 @@ mod tests {
         duplicate.bases.push("cr\rdir".to_string());
         merged.merge(duplicate);
         assert_eq!(merged.bases, vec![String::new(), "cr\rdir".to_string()]);
+    }
+
+    /// Issue #635: the union of the two carriage-return readings must keep the
+    /// glob-destination mark, so the caller's `/`-less word check still runs
+    /// when only one reading saw a glob or brace destination. Reading the `|=`
+    /// as `&=` clears the mark whenever the other reading did not raise it.
+    #[test]
+    fn working_directory_merge_keeps_the_glob_destination_mark() {
+        let mut merged = Inspection::empty();
+        let mut glob_reading = Inspection::empty();
+        glob_reading.glob_destination = true;
+        merged.merge(glob_reading);
+        assert!(
+            merged.glob_destination,
+            "a glob destination in the other reading must survive the union"
+        );
+
+        let mut already_marked = Inspection::empty();
+        already_marked.glob_destination = true;
+        already_marked.merge(Inspection::empty());
+        assert!(
+            already_marked.glob_destination,
+            "a union with a reading that saw no glob destination must not clear the mark"
+        );
     }
 
     /// Issue #613: only the WordChar reading sees the `\r` in a `cd`
