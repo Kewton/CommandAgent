@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::bash::path_tokens::CrMode;
 use super::shell_lexical;
 
 mod ansi_c_quoting;
@@ -324,7 +325,22 @@ fn write_targets(command: &str) -> Vec<WriteTarget> {
     let Some(view) = view else {
         return vec![unreadable_target()];
     };
-    let Some(lexed) = lex_shell(&view.text) else {
+    let mut targets = targets_for_view(&view, CrMode::Separator);
+    // #613: a carriage return is an ordinary word character in Bash. Read the
+    // text that way too and add whatever it names, so an outward intermediary
+    // symlink whose name holds a `\r` is still proven. When the text has no `\r`
+    // the two readings coincide and the second pass is skipped.
+    if view.text.contains('\r') {
+        targets.extend(targets_for_view(&view, CrMode::WordChar));
+    }
+    targets
+}
+
+/// The write targets of one reading of the inspector's view. The caller unions
+/// the historical reading with the carriage-return-as-word-character reading
+/// (Issue #613).
+fn targets_for_view(view: &shell_lexical::WriteGuardView, cr_mode: CrMode) -> Vec<WriteTarget> {
+    let Some(lexed) = lex_shell(&view.text, cr_mode) else {
         return vec![unreadable_target()];
     };
     // #581: keep the targets the text already names, then add the refusal marker
@@ -351,7 +367,16 @@ fn raw_write_targets(command: &str) -> Vec<WriteTarget> {
     if ansi_c_quoting::outside_quotes(command).is_some() {
         return Vec::new();
     }
-    let Some(lexed) = lex_shell(command) else {
+    let mut targets = raw_targets_for(command, CrMode::Separator);
+    if command.contains('\r') {
+        targets.extend(raw_targets_for(command, CrMode::WordChar));
+    }
+    targets
+}
+
+/// The raw write targets of one reading of the text (Issue #613).
+fn raw_targets_for(command: &str, cr_mode: CrMode) -> Vec<WriteTarget> {
+    let Some(lexed) = lex_shell(command, cr_mode) else {
         return Vec::new();
     };
     let mut targets = targets_from_tokens(&lexed.tokens);
@@ -625,14 +650,16 @@ fn is_environment_assignment(word: &str) -> bool {
 
 /// Splits a command into shell tokens. A thin wrapper over [`lex_shell`] for the
 /// callers that only need the token stream (the working-directory walk).
-fn shell_tokens(command: &str) -> Option<Vec<ShellToken>> {
-    lex_shell(command).map(|lexed| lexed.tokens)
+fn shell_tokens(command: &str, cr_mode: CrMode) -> Option<Vec<ShellToken>> {
+    lex_shell(command, cr_mode).map(|lexed| lexed.tokens)
 }
 
 /// Splits a command into shell tokens and, alongside them, the de-quoted texts
 /// of the word tokens that mix quoted and executed glob/brace characters
-/// (Issue #602).
-fn lex_shell(command: &str) -> Option<LexedShell> {
+/// (Issue #602). `cr_mode` selects whether a carriage return separates words
+/// (the historical reading) or is an ordinary word character, as Bash reads it
+/// (Issue #613).
+fn lex_shell(command: &str, cr_mode: CrMode) -> Option<LexedShell> {
     let mut tokens = Vec::new();
     let mut ambiguous_words = Vec::new();
     let mut current = ShellWord::default();
@@ -726,7 +753,9 @@ fn lex_shell(command: &str) -> Option<LexedShell> {
                 }
                 tokens.push(ShellToken::InputRedirect);
             }
-            ';' | '|' | '&' | '(' | ')' | '\n' | '\r' => {
+            ';' | '|' | '&' | '(' | ')' | '\n' | '\r'
+                if cr_mode == CrMode::Separator || ch != '\r' =>
+            {
                 push_word(
                     &mut tokens,
                     &mut ambiguous_words,
@@ -808,6 +837,16 @@ fn push_word(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The historical carriage-return reading, for the lexer-shape tests.
+    fn shell_tokens(command: &str) -> Option<Vec<ShellToken>> {
+        super::shell_tokens(command, CrMode::Separator)
+    }
+
+    /// The historical carriage-return reading, for the lexer-shape tests.
+    fn lex_shell(command: &str) -> Option<LexedShell> {
+        super::lex_shell(command, CrMode::Separator)
+    }
 
     /// A tempdir under the repository's `target` directory. `tempfile::tempdir()`
     /// lives under `/tmp` on Linux, which `is_system_prefix_allowed` accepts, so

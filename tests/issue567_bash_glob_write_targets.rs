@@ -87,6 +87,10 @@ fn ambiguous_fixture() -> Fixture {
     std::fs::write(outside.join("secret"), "outside-secret").unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/wide\u{3000}link")).unwrap();
+    // Issue #613 problem 1: outward symlinks whose name holds a carriage return.
+    // Bash keeps the `\r` inside the word; the write guard reads both ways.
+    std::os::unix::fs::symlink(&outside, root.join("sub/cr\rlink")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("cr\rdir")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -457,6 +461,36 @@ fn rejects_mixed_quoted_and_executed_glob_write_targets() {
         assert_eq!(
             rejection.operation, "unverifiable glob write target",
             "command: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn rejects_carriage_return_write_targets() {
+    // Issue #613 problem 1 on the write side: a carriage return is an ordinary
+    // word character in Bash, so a write target or `cd` destination whose name
+    // holds a `\r` still resolves through the outward symlink and is refused.
+    // The historical reading split on the `\r` and saw only the harmless halves.
+    let fixture = ambiguous_fixture();
+    let root = &fixture.root;
+    for command in [
+        "echo x > sub/cr\rlink/f",
+        "tee sub/cr\rlink/f",
+        "cp a.txt sub/cr\rlink/f",
+        "cd cr\rdir && echo x > f",
+        "cd cr\rdir; touch f",
+        "pushd cr\rdir && touch f",
+    ] {
+        assert!(
+            path_confinement_rejection(command, root).is_some(),
+            "expected rejection: {command:?}"
+        );
+    }
+    // A `\r` that just ends the line points at no symlink and stays allowed.
+    for command in ["echo x > out.txt\r\n", "cat a.txt\r\n"] {
+        assert!(
+            path_confinement_rejection(command, root).is_none(),
+            "expected allow: {command:?}"
         );
     }
 }
