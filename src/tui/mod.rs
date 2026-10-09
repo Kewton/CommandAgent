@@ -22,6 +22,9 @@ pub mod terminal_notifications;
 pub mod terminal_summary;
 pub mod ux_demo;
 
+#[cfg(test)]
+mod profile_transport_tests;
+
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
