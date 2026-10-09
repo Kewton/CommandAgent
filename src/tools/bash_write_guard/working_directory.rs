@@ -7,8 +7,11 @@
 //! escapes.
 //!
 //! [`inspect`] walks the lexed tokens and builds the set of working directories
-//! the command could run in. It starts at the workspace root and *adds* each
-//! determinable `cd`/`pushd` destination instead of replacing, so a subshell, a
+//! the command could run in. A table program's option value that names a
+//! working directory (`tar -C DIR`, `git -C DIR`, `env -C DIR`, ...) is read by
+//! [`super::option_directory`] and added the same way. It starts at the
+//! workspace root and *adds* each determinable `cd`/`pushd` destination instead
+//! of replacing, so a subshell, a
 //! pipeline, or a `||` branch that keeps the old directory cannot hide the root
 //! candidate. A destination whose value cannot be read statically (`$`,
 //! backquotes, `~`, a glob, `..`, `-`, or an empty `cd`) adds nothing. A command
@@ -25,7 +28,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::command_prefix::{self, Resolution};
-use super::{ShellToken, command_words, positional_operands};
+use super::{ShellToken, command_words, option_directory, positional_operands};
 use crate::tools::bash::path_tokens::CrMode;
 
 /// Upper bound on the working-directory candidates. Consecutive distinct `cd`
@@ -54,6 +57,12 @@ pub(crate) struct Inspection {
     /// #635). Relative paths after it must be refused even though the workspace
     /// root is the only candidate.
     pub(crate) glob_destination: bool,
+    /// The word that raised [`Self::glob_destination`] (a `cd`/`pushd`
+    /// destination, or a table program's option value whose value cannot be
+    /// determined). It is the reason path for the `/`-less refusal below, so the
+    /// message names the destination rather than the following command word
+    /// (Issue #637).
+    pub(crate) glob_destination_word: Option<String>,
     /// Literal relative read words (from segments that are not a working
     /// directory change). The second stage of the inspector joins these onto
     /// every candidate.
@@ -69,6 +78,7 @@ impl Inspection {
             targets: Vec::new(),
             undecidable: false,
             glob_destination: false,
+            glob_destination_word: None,
             relative_words: Vec::new(),
         }
     }
@@ -87,6 +97,9 @@ impl Inspection {
         self.relative_words.extend(other.relative_words);
         self.undecidable |= other.undecidable;
         self.glob_destination |= other.glob_destination;
+        if self.glob_destination_word.is_none() {
+            self.glob_destination_word = other.glob_destination_word;
+        }
     }
 
     /// Whether a `cd`/`pushd` added a candidate beyond the workspace root.
@@ -148,7 +161,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
     };
 
     let mut has_cd = false;
-    let mut glob_destination = false;
+    let mut glob_destination: Option<String> = None;
     let mut cdpath = false;
     let mut dirstack = false;
     let mut loop_keyword = false;
@@ -177,6 +190,17 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
         if words.is_empty() {
             continue;
         }
+        // Issue #637: a table program's working-directory option value
+        // (`tar -C DIR`, `git -C DIR`, `env -C DIR`, `sudo -D DIR`, ...) is a
+        // candidate exactly like a `cd` destination. The raw segment words are
+        // read because `env -C`/`sudo -D` never resolve to a `Program` and a
+        // table program can sit behind a prefix.
+        collect_option_directories(
+            &words,
+            &mut inspection,
+            &mut glob_destination,
+            &mut overflow,
+        );
         let resolution = command_prefix::resolve(&words);
         // A working-directory change is consumed by the candidate walk below;
         // its program and operands are not reads, so they do not feed the
@@ -205,7 +229,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
                 has_cd = true;
                 if let Some(target) = positional_operands(&arguments).first().copied() {
                     if is_glob_destination(target) {
-                        glob_destination = true;
+                        mark_glob_destination(&mut glob_destination, target);
                     }
                     if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
                         inspection.targets.extend(joined);
@@ -220,12 +244,16 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
                 };
                 // `pushd` with no operand and `pushd ±N` only rotate the
                 // directory stack, which holds nothing beyond the candidates,
-                // so they add no candidate.
-                if target.starts_with('+') || target.starts_with('-') {
+                // so they add no candidate. A `pushd` that names `--` reads the
+                // word after it as a destination, so a leading `+`/`-` is a
+                // directory name, not a stack position (Issue #637).
+                let stack_rotation = !arguments.contains(&"--")
+                    && (target.starts_with('+') || target.starts_with('-'));
+                if stack_rotation {
                     continue;
                 }
                 if is_glob_destination(target) {
-                    glob_destination = true;
+                    mark_glob_destination(&mut glob_destination, target);
                 }
                 if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
                     inspection.targets.extend(joined);
@@ -239,14 +267,45 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
         }
     }
 
-    inspection.glob_destination = glob_destination;
+    inspection.glob_destination = glob_destination.is_some();
+    inspection.glob_destination_word = glob_destination;
     inspection.undecidable = ambiguous
         || cdpath
         || dirstack
         || overflow
-        || glob_destination
+        || inspection.glob_destination
         || (has_cd && (loop_keyword || function_keyword));
     inspection
+}
+
+/// Records the first word that raises the glob-destination mark, so the
+/// `/`-less refusal can name the destination instead of the next command word.
+fn mark_glob_destination(slot: &mut Option<String>, word: &str) {
+    if slot.is_none() {
+        *slot = Some(word.to_string());
+    }
+}
+
+/// Adds the candidates a table program's option value produces (Issue #637),
+/// exactly like a `cd` destination: a value that cannot be read from its
+/// spelling (a glob or brace, `$`, a backtick, `~`, a `..` component, an empty
+/// value) adds no candidate and raises the glob-destination mark, so the
+/// relative words after it are still refused.
+fn collect_option_directories(
+    words: &[&str],
+    inspection: &mut Inspection,
+    glob_destination: &mut Option<String>,
+    overflow: &mut bool,
+) {
+    for value in option_directory::directories(words) {
+        if !is_determinable(&value) {
+            mark_glob_destination(glob_destination, &value);
+        }
+        if !*overflow && let Some(joined) = extend(&mut inspection.bases, &value) {
+            inspection.targets.extend(joined);
+            *overflow = inspection.bases.len() > MAX_CANDIDATES;
+        }
+    }
 }
 
 fn word_token(token: &ShellToken) -> Option<&str> {
